@@ -1,0 +1,650 @@
+@page "/user-activity"
+@using ShopInventory.Web.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@attribute [Authorize(Roles = "Admin,Manager")]
+@inject IAuditService AuditService
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>User Activity Dashboard - Shop Inventory</PageTitle>
+
+<div class="container-fluid fade-in">
+    <div class="page-header d-flex justify-content-between align-items-center">
+        <div>
+            <h2>
+                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16"
+                    style="color: var(--primary-color);">
+                    <path
+                        d="M8.515 1.019A7 7 0 0 0 8 1V0a8 8 0 0 1 .589.022l-.074.997zm2.004.45a7.003 7.003 0 0 0-.985-.299l.219-.976c.383.086.76.2 1.126.342l-.36.933zm1.37.71a7.01 7.01 0 0 0-.439-.27l.493-.87a8.025 8.025 0 0 1 .979.654l-.615.789a6.996 6.996 0 0 0-.418-.302zm1.834 1.79a6.99 6.99 0 0 0-.653-.796l.724-.69c.27.285.52.59.747.91l-.818.576zm.744 1.352a7.08 7.08 0 0 0-.214-.468l.893-.45a7.976 7.976 0 0 1 .45 1.088l-.95.313a7.023 7.023 0 0 0-.179-.483zm.53 2.507a6.991 6.991 0 0 0-.1-1.025l.985-.17c.067.386.106.778.116 1.17l-1 .025zm-.131 1.538c.033-.17.06-.339.081-.51l.993.123a7.957 7.957 0 0 1-.23 1.155l-.964-.267c.046-.165.086-.332.12-.501zm-.952 2.379c.184-.29.346-.594.486-.908l.914.405c-.16.36-.345.706-.555 1.038l-.845-.535zm-.964 1.205c.122-.122.239-.248.35-.378l.758.653a8.073 8.073 0 0 1-.401.432l-.707-.707z" />
+                    <path d="M8 1a7 7 0 1 0 4.95 11.95l.707.707A8.001 8.001 0 1 1 8 0v1z" />
+                    <path
+                        d="M7.5 3a.5.5 0 0 1 .5.5v5.21l3.248 1.856a.5.5 0 0 1-.496.868l-3.5-2A.5.5 0 0 1 7 9V3.5a.5.5 0 0 1 .5-.5z" />
+                </svg>
+                User Activity Dashboard
+            </h2>
+            <span class="text-muted">Monitor user actions and system activity</span>
+        </div>
+        <div class="btn-group">
+            <button class="btn @(timeRange == "today" ? "btn-primary" : "btn-outline-primary")"
+                @onclick="@(() => SetTimeRange("today"))">Today</button>
+            <button class="btn @(timeRange == "week" ? "btn-primary" : "btn-outline-primary")"
+                @onclick="@(() => SetTimeRange("week"))">This Week</button>
+            <button class="btn @(timeRange == "month" ? "btn-primary" : "btn-outline-primary")"
+                @onclick="@(() => SetTimeRange("month"))">This Month</button>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card dashboard-card">
+                <div class="card-body text-center">
+                    <div class="dashboard-stat-icon bg-primary bg-opacity-10 text-primary mb-3">
+                        <i class="bi bi-people"></i>
+                    </div>
+                    <h3 class="mb-0">@activeUsersCount</h3>
+                    <small class="text-muted">Active Users</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card dashboard-card">
+                <div class="card-body text-center">
+                    <div class="dashboard-stat-icon bg-success bg-opacity-10 text-success mb-3">
+                        <i class="bi bi-activity"></i>
+                    </div>
+                    <h3 class="mb-0">@totalActionsCount</h3>
+                    <small class="text-muted">Total Actions</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card dashboard-card">
+                <div class="card-body text-center">
+                    <div class="dashboard-stat-icon bg-info bg-opacity-10 text-info mb-3">
+                        <i class="bi bi-box-arrow-in-right"></i>
+                    </div>
+                    <h3 class="mb-0">@loginCount</h3>
+                    <small class="text-muted">Logins</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card dashboard-card">
+                <div class="card-body text-center">
+                    <div class="dashboard-stat-icon bg-warning bg-opacity-10 text-warning mb-3">
+                        <i class="bi bi-exclamation-triangle"></i>
+                    </div>
+                    <h3 class="mb-0">@failedActionsCount</h3>
+                    <small class="text-muted">Failed Actions</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Most Active Users -->
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-trophy me-2 text-warning"></i>Most Active Users</h6>
+                </div>
+                <div class="card-body">
+                    @if (isLoading)
+                    {
+                        <div class="text-center py-4">
+                            <div class="spinner-border spinner-border-sm text-primary"></div>
+                        </div>
+                    }
+                    else if (mostActiveUsers.Any())
+                    {
+                        <div class="list-group list-group-flush">
+                            @foreach (var user in mostActiveUsers.Take(10))
+                            {
+                                <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                    <div class="d-flex align-items-center">
+                                        <div class="avatar-circle-sm bg-primary me-2">
+                                            @user.Username[0].ToString().ToUpper()
+                                        </div>
+                                        <div>
+                                            <div class="fw-medium">@user.Username</div>
+                                            @if (user.LastActivityAt.HasValue)
+                                            {
+                                                <small class="text-muted">Last: @GetRelativeTime(user.LastActivityAt.Value)</small>
+                                            }
+                                        </div>
+                                    </div>
+                                    <span class="badge bg-primary rounded-pill">@user.ActionCount</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox display-6"></i>
+                            <p class="mt-2">No activity data</p>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Breakdown -->
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-pie-chart me-2 text-info"></i>Action Breakdown</h6>
+                </div>
+                <div class="card-body">
+                    @if (isLoading)
+                    {
+                        <div class="text-center py-4">
+                            <div class="spinner-border spinner-border-sm text-primary"></div>
+                        </div>
+                    }
+                    else if (actionBreakdown.Any())
+                    {
+                        @foreach (var action in actionBreakdown.Take(10))
+                        {
+                            var percentage = totalActionsCount > 0 ? (action.Count * 100.0 / totalActionsCount) : 0;
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <span class="small">@action.Action</span>
+                                    <span class="small text-muted">@action.Count (@percentage.ToString("F1")%)</span>
+                                </div>
+                                <div class="progress" style="height: 6px;">
+                                    <div class="progress-bar @GetActionColor(action.Action)" role="progressbar"
+                                        style="width: @percentage%"></div>
+                                </div>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox display-6"></i>
+                            <p class="mt-2">No action data</p>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Hourly Activity -->
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-clock me-2 text-success"></i>Activity by Hour</h6>
+                </div>
+                <div class="card-body">
+                    @if (isLoading)
+                    {
+                        <div class="text-center py-4">
+                            <div class="spinner-border spinner-border-sm text-primary"></div>
+                        </div>
+                    }
+                    else if (hourlyActivity.Any())
+                    {
+                        <div class="hourly-chart">
+                            @{
+                                var maxCount = hourlyActivity.Max(h => h.Count);
+                            }
+                            @foreach (var hour in hourlyActivity)
+                            {
+                                var height = maxCount > 0 ? (hour.Count * 100.0 / maxCount) : 0;
+                                <div class="hourly-bar-container" title="@hour.Hour:00 - @hour.Count actions">
+                                    <div class="hourly-bar bg-success" style="height: @height%"></div>
+                                    <small class="hourly-label">@hour.Hour</small>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox display-6"></i>
+                            <p class="mt-2">No hourly data</p>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Activity Log -->
+    <div class="card mt-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h6 class="mb-0"><i class="bi bi-list-ul me-2"></i>Recent Activity</h6>
+            <div class="d-flex gap-2">
+                <select class="form-select form-select-sm" style="width: auto;" @bind="userFilter"
+                    @bind:after="LoadActivities">
+                    <option value="">All Users</option>
+                    @foreach (var user in uniqueUsers)
+                    {
+                        <option value="@user">@user</option>
+                    }
+                </select>
+                <select class="form-select form-select-sm" style="width: auto;" @bind="actionFilter"
+                    @bind:after="LoadActivities">
+                    <option value="">All Actions</option>
+                    @foreach (var action in uniqueActions)
+                    {
+                        <option value="@action">@action</option>
+                    }
+                </select>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (isLoading)
+            {
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary"></div>
+                </div>
+            }
+            else if (recentActivities.Any())
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>User</th>
+                                <th>Action</th>
+                                <th>Entity</th>
+                                <th>Details</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var activity in recentActivities)
+                            {
+                                <tr>
+                                    <td>
+                                        <span title="@activity.Timestamp.ToString("dd MMM yyyy HH:mm")">
+                                            @GetRelativeTime(activity.Timestamp)
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="avatar-circle-sm bg-primary me-2">
+                                                @activity.Username[0].ToString().ToUpper()
+                                            </div>
+                                            @activity.Username
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="badge @GetActionBadgeClass(activity.Action)">@activity.Action</span>
+                                    </td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(activity.EntityType))
+                                        {
+                                            <span>@activity.EntityType</span>
+                                            @if (!string.IsNullOrEmpty(activity.EntityId))
+                                            {
+                                                <small class="text-muted ms-1">#@activity.EntityId</small>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(activity.Details))
+                                        {
+                                            <span class="text-truncate d-inline-block" style="max-width: 200px;"
+                                                title="@activity.Details">
+                                                @activity.Details
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (activity.IsSuccess)
+                                        {
+                                            <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Success</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Failed</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination -->
+                @if (totalPages > 1)
+                {
+                    <nav class="mt-4">
+                        <ul class="pagination justify-content-center mb-0">
+                            <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                                <button class="page-link" @onclick="() => GoToPage(currentPage - 1)">Previous</button>
+                            </li>
+                            @for (int i = Math.Max(1, currentPage - 2); i <= Math.Min(totalPages, currentPage + 2); i++)
+                            {
+                                var pageNum = i;
+                                <li class="page-item @(currentPage == pageNum ? "active" : "")">
+                                    <button class="page-link" @onclick="() => GoToPage(pageNum)">@pageNum</button>
+                                </li>
+                            }
+                            <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                                <button class="page-link" @onclick="() => GoToPage(currentPage + 1)">Next</button>
+                            </li>
+                        </ul>
+                    </nav>
+                }
+            }
+            else
+            {
+                <div class="text-center py-5">
+                    <i class="bi bi-inbox display-1 text-muted"></i>
+                    <p class="text-muted mt-3">No activity found</p>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<style>
+    .dashboard-card {
+        transition: transform 0.2s;
+    }
+
+    .dashboard-card:hover {
+        transform: translateY(-2px);
+    }
+
+    .dashboard-stat-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+    }
+
+    .avatar-circle-sm {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+        font-size: 0.75rem;
+    }
+
+    .hourly-chart {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        height: 150px;
+        gap: 2px;
+    }
+
+    .hourly-bar-container {
+        flex: 1;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+    }
+
+    .hourly-bar {
+        width: 100%;
+        border-radius: 2px 2px 0 0;
+        transition: height 0.3s ease;
+        min-height: 2px;
+    }
+
+    .hourly-label {
+        font-size: 0.6rem;
+        color: #6c757d;
+        margin-top: 2px;
+    }
+
+    .page-header {
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid #dee2e6;
+    }
+</style>
+
+@code {
+    private bool isLoading = true;
+    private string timeRange = "today";
+    private DateTime startDate;
+    private DateTime endDate;
+
+    // Stats
+    private int activeUsersCount = 0;
+    private int totalActionsCount = 0;
+    private int loginCount = 0;
+    private int failedActionsCount = 0;
+
+    // Data
+    private List<UserActivitySummary> mostActiveUsers = new();
+    private List<ActionCount> actionBreakdown = new();
+    private List<HourlyCount> hourlyActivity = new();
+    private List<ActivityLog> recentActivities = new();
+
+    // Filters
+    private string userFilter = string.Empty;
+    private string actionFilter = string.Empty;
+    private List<string> uniqueUsers = new();
+    private List<string> uniqueActions = new();
+
+    // Pagination
+    private int currentPage = 1;
+    private int pageSize = 25;
+    private int totalPages = 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        SetTimeRange("today");
+    }
+
+    private async Task SetTimeRange(string range)
+    {
+        timeRange = range;
+        endDate = DateTime.UtcNow;
+
+        startDate = range switch
+        {
+            "today" => DateTime.UtcNow.Date,
+            "week" => DateTime.UtcNow.Date.AddDays(-7),
+            "month" => DateTime.UtcNow.Date.AddDays(-30),
+            _ => DateTime.UtcNow.Date
+        };
+
+        currentPage = 1;
+        await LoadDashboardData();
+    }
+
+    private async Task LoadDashboardData()
+    {
+        isLoading = true;
+        try
+        {
+            await LoadStats();
+            await LoadMostActiveUsers();
+            await LoadActionBreakdown();
+            await LoadHourlyActivity();
+            await LoadActivities();
+            await LoadFilters();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading dashboard: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadStats()
+    {
+        try
+        {
+            var stats = await AuditService.GetActivityStatsAsync(startDate, endDate);
+            activeUsersCount = stats.ActiveUsers;
+            totalActionsCount = stats.TotalActions;
+            loginCount = stats.LoginCount;
+            failedActionsCount = stats.FailedActions;
+        }
+        catch
+        {
+            // Use defaults
+        }
+    }
+
+    private async Task LoadMostActiveUsers()
+    {
+        try
+        {
+            mostActiveUsers = await AuditService.GetMostActiveUsersAsync(startDate, endDate, 10);
+        }
+        catch
+        {
+            mostActiveUsers = new();
+        }
+    }
+
+    private async Task LoadActionBreakdown()
+    {
+        try
+        {
+            actionBreakdown = await AuditService.GetActionBreakdownAsync(startDate, endDate);
+        }
+        catch
+        {
+            actionBreakdown = new();
+        }
+    }
+
+    private async Task LoadHourlyActivity()
+    {
+        try
+        {
+            hourlyActivity = await AuditService.GetHourlyActivityAsync(startDate, endDate);
+        }
+        catch
+        {
+            // Generate empty hourly data
+            hourlyActivity = Enumerable.Range(0, 24).Select(h => new HourlyCount { Hour = h, Count = 0 }).ToList();
+        }
+    }
+
+    private async Task LoadActivities()
+    {
+        try
+        {
+            var result = await AuditService.GetActivityLogsAsync(
+            startDate, endDate,
+            userFilter, actionFilter,
+            currentPage, pageSize);
+
+            recentActivities = result.Items;
+            totalPages = result.TotalPages;
+        }
+        catch
+        {
+            recentActivities = new();
+        }
+    }
+
+    private async Task LoadFilters()
+    {
+        try
+        {
+            uniqueUsers = await AuditService.GetUniqueUsersAsync(startDate, endDate);
+            uniqueActions = await AuditService.GetUniqueActionsAsync(startDate, endDate);
+        }
+        catch
+        {
+            uniqueUsers = new();
+            uniqueActions = new();
+        }
+    }
+
+    private async Task GoToPage(int page)
+    {
+        if (page >= 1 && page <= totalPages)
+        {
+            currentPage = page;
+            await LoadActivities();
+        }
+    }
+
+    private string GetRelativeTime(DateTime dateTime)
+    {
+        var diff = DateTime.UtcNow - dateTime;
+        if (diff.TotalSeconds < 60) return "Just now";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
+        if (diff.TotalDays < 7) return $"{(int)diff.TotalDays}d ago";
+        return dateTime.ToString("dd MMM");
+    }
+
+    private string GetActionColor(string action)
+    {
+        if (action.Contains("Create") || action.Contains("Add")) return "bg-success";
+        if (action.Contains("Update") || action.Contains("Edit")) return "bg-primary";
+        if (action.Contains("Delete") || action.Contains("Remove")) return "bg-danger";
+        if (action.Contains("Login") || action.Contains("Auth")) return "bg-info";
+        if (action.Contains("View") || action.Contains("Get")) return "bg-secondary";
+        return "bg-warning";
+    }
+
+    private string GetActionBadgeClass(string action)
+    {
+        if (action.Contains("Create") || action.Contains("Add")) return "bg-success";
+        if (action.Contains("Update") || action.Contains("Edit")) return "bg-primary";
+        if (action.Contains("Delete") || action.Contains("Remove")) return "bg-danger";
+        if (action.Contains("Login") || action.Contains("Auth")) return "bg-info";
+        if (action.Contains("View") || action.Contains("Get")) return "bg-secondary";
+        return "bg-warning text-dark";
+    }
+
+    // Models
+    public class UserActivitySummary
+    {
+        public string Username { get; set; } = string.Empty;
+        public int ActionCount { get; set; }
+        public DateTime? LastActivityAt { get; set; }
+    }
+
+    public class ActionCount
+    {
+        public string Action { get; set; } = string.Empty;
+        public int Count { get; set; }
+    }
+
+    public class HourlyCount
+    {
+        public int Hour { get; set; }
+        public int Count { get; set; }
+    }
+
+    public class ActivityLog
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Action { get; set; } = string.Empty;
+        public string? EntityType { get; set; }
+        public string? EntityId { get; set; }
+        public string? Details { get; set; }
+        public bool IsSuccess { get; set; }
+        public DateTime Timestamp { get; set; }
+    }
+}

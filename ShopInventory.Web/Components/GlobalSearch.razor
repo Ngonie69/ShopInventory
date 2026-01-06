@@ -1,0 +1,294 @@
+@using ShopInventory.Web.Services
+@inject IGlobalSearchService SearchService
+@inject NavigationManager NavigationManager
+@inject ILocalizationService L
+@implements IDisposable
+
+<div class="global-search-overlay @(IsOpen ? "open" : "")" @onclick="Close">
+    <div class="global-search-container" @onclick:stopPropagation="true">
+        <div class="search-header">
+            <div class="search-input-wrapper">
+                <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
+                    viewBox="0 0 16 16">
+                    <path
+                        d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z" />
+                </svg>
+                <input type="text" @ref="searchInput" class="search-input"
+                    placeholder="@L.Translate("search.placeholder")" @bind="searchQuery" @bind:event="oninput"
+                    @onkeydown="HandleKeyDown" @onkeyup="OnSearchInput" />
+                @if (isSearching)
+                {
+                    <div class="search-spinner"></div>
+                }
+                <kbd class="search-kbd">ESC</kbd>
+            </div>
+        </div>
+
+        <div class="search-results">
+            @if (results != null && results.TotalResults > 0)
+            {
+                @if (results.Invoices.Any())
+                {
+                    <div class="result-category">
+                        <div class="category-header">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                                viewBox="0 0 16 16">
+                                <path
+                                    d="M1.92.506a.5.5 0 0 1 .434.14L3 1.293l.646-.647a.5.5 0 0 1 .708 0L5 1.293l.646-.647a.5.5 0 0 1 .708 0L7 1.293l.646-.647a.5.5 0 0 1 .708 0L9 1.293l.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .801.13l.5 1A.5.5 0 0 1 15 2v12a.5.5 0 0 1-.053.224l-.5 1a.5.5 0 0 1-.8.13L13 14.707l-.646.647a.5.5 0 0 1-.708 0L11 14.707l-.646.647a.5.5 0 0 1-.708 0L9 14.707l-.646.647a.5.5 0 0 1-.708 0L7 14.707l-.646.647a.5.5 0 0 1-.708 0L5 14.707l-.646.647a.5.5 0 0 1-.708 0L3 14.707l-.646.647a.5.5 0 0 1-.801-.13l-.5-1A.5.5 0 0 1 1 14V2a.5.5 0 0 1 .053-.224l.5-1a.5.5 0 0 1 .367-.27zm.217 1.338L2 2.118v11.764l.137.274.51-.51a.5.5 0 0 1 .707 0l.646.647.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.51.509.136-.274V2.118l-.137-.274-.51.51a.5.5 0 0 1-.707 0L12 1.707l-.646.647a.5.5 0 0 1-.708 0L10 1.707l-.646.647a.5.5 0 0 1-.708 0L8 1.707l-.646.647a.5.5 0 0 1-.708 0L6 1.707l-.646.647a.5.5 0 0 1-.708 0L4 1.707l-.646.647a.5.5 0 0 1-.708 0l-.509-.51z" />
+                            </svg>
+                            Invoices
+                            <span class="category-count">@results.Invoices.Count</span>
+                        </div>
+                        @foreach (var item in results.Invoices.Take(5))
+                        {
+                            <div class="result-item @(selectedIndex == GetItemIndex(item) ? "selected" : "")"
+                                @onclick="() => NavigateTo(item.Url)">
+                                <div class="result-info">
+                                    <span class="result-title">@item.Title</span>
+                                    <span class="result-subtitle">@item.Subtitle</span>
+                                </div>
+                                <span class="result-category-badge">@item.Category</span>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (results.Products.Any())
+                {
+                    <div class="result-category">
+                        <div class="category-header">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                                viewBox="0 0 16 16">
+                                <path
+                                    d="M8.186 1.113a.5.5 0 0 0-.372 0L1.846 3.5l2.404.961L10.404 2l-2.218-.887zm3.564 1.426L5.596 5 8 5.961 14.154 3.5l-2.404-.961zm3.25 1.7-6.5 2.6v7.922l6.5-2.6V4.24zM7.5 14.762V6.838L1 4.239v7.923l6.5 2.6zM7.443.184a1.5 1.5 0 0 1 1.114 0l7.129 2.852A.5.5 0 0 1 16 3.5v8.662a1 1 0 0 1-.629.928l-7.185 2.874a.5.5 0 0 1-.372 0L.63 13.09a1 1 0 0 1-.63-.928V3.5a.5.5 0 0 1 .314-.464L7.443.184z" />
+                            </svg>
+                            Products
+                            <span class="category-count">@results.Products.Count</span>
+                        </div>
+                        @foreach (var item in results.Products.Take(5))
+                        {
+                            <div class="result-item @(selectedIndex == GetItemIndex(item) ? "selected" : "")"
+                                @onclick="() => NavigateTo(item.Url)">
+                                <div class="result-info">
+                                    <span class="result-title">@item.Title</span>
+                                    <span class="result-subtitle">@item.Subtitle</span>
+                                </div>
+                                <span class="result-category-badge">@item.Category</span>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (results.Customers.Any())
+                {
+                    <div class="result-category">
+                        <div class="category-header">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                                viewBox="0 0 16 16">
+                                <path
+                                    d="M15 14s1 0 1-1-1-4-5-4-5 3-5 4 1 1 1 1h8zm-7.978-1A.261.261 0 0 1 7 12.996c.001-.264.167-1.03.76-1.72C8.312 10.629 9.282 10 11 10c1.717 0 2.687.63 3.24 1.276.593.69.758 1.457.76 1.72l-.008.002a.274.274 0 0 1-.014.002H7.022zM11 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm3-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM6.936 9.28a5.88 5.88 0 0 0-1.23-.247A7.35 7.35 0 0 0 5 9c-4 0-5 3-5 4 0 .667.333 1 1 1h4.216A2.238 2.238 0 0 1 5 13c0-1.01.377-2.042 1.09-2.904.243-.294.526-.569.846-.816zM4.92 10A5.493 5.493 0 0 0 4 13H1c0-.26.164-1.03.76-1.724.545-.636 1.492-1.256 3.16-1.275zM1.5 5.5a3 3 0 1 1 6 0 3 3 0 0 1-6 0zm3-2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />
+                            </svg>
+                            Customers
+                            <span class="category-count">@results.Customers.Count</span>
+                        </div>
+                        @foreach (var item in results.Customers.Take(5))
+                        {
+                            <div class="result-item @(selectedIndex == GetItemIndex(item) ? "selected" : "")"
+                                @onclick="() => NavigateTo(item.Url)">
+                                <div class="result-info">
+                                    <span class="result-title">@item.Title</span>
+                                    <span class="result-subtitle">@item.Subtitle</span>
+                                </div>
+                                <span class="result-category-badge">@item.Category</span>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (results.Payments.Any())
+                {
+                    <div class="result-category">
+                        <div class="category-header">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                                viewBox="0 0 16 16">
+                                <path d="M11 15a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm5-4a5 5 0 1 1-10 0 5 5 0 0 1 10 0z" />
+                                <path
+                                    d="M9.438 11.944c.047.596.518 1.06 1.363 1.116v.44h.375v-.443c.875-.061 1.386-.529 1.386-1.207 0-.618-.39-.936-1.09-1.1l-.296-.07v-1.2c.376.043.614.248.671.532h.658c-.047-.575-.54-1.024-1.329-1.073V8.5h-.375v.45c-.747.073-1.255.522-1.255 1.158 0 .562.378.92 1.007 1.066l.248.061v1.272c-.384-.058-.639-.27-.696-.563h-.668zm1.36-1.354c-.369-.085-.569-.26-.569-.522 0-.294.216-.514.572-.578v1.1h-.003zm.432.746c.449.104.655.272.655.569 0 .339-.257.571-.709.614v-1.195l.054.012z" />
+                            </svg>
+                            Payments
+                            <span class="category-count">@results.Payments.Count</span>
+                        </div>
+                        @foreach (var item in results.Payments.Take(5))
+                        {
+                            <div class="result-item @(selectedIndex == GetItemIndex(item) ? "selected" : "")"
+                                @onclick="() => NavigateTo(item.Url)">
+                                <div class="result-info">
+                                    <span class="result-title">@item.Title</span>
+                                    <span class="result-subtitle">@item.Subtitle</span>
+                                </div>
+                                <span class="result-category-badge">@item.Category</span>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+            else if (!string.IsNullOrEmpty(searchQuery) && searchQuery.Length >= 2 && !isSearching)
+            {
+                <div class="no-results">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" viewBox="0 0 16 16">
+                        <path
+                            d="M6 10.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5z" />
+                    </svg>
+                    <p>@L.Translate("search.noResults")</p>
+                    <span>Try different keywords or check your spelling</span>
+                </div>
+            }
+            else if (string.IsNullOrEmpty(searchQuery))
+            {
+                <div class="search-hint">
+                    <p>Start typing to search across invoices, products, customers, and payments</p>
+                    <div class="quick-actions">
+                        <button class="quick-action" @onclick='() => NavigateTo("/invoices/create")'>
+                            <span class="quick-icon">+</span>
+                            Create Invoice
+                        </button>
+                        <button class="quick-action" @onclick='() => NavigateTo("/products")'>
+                            <span class="quick-icon">📦</span>
+                            View Products
+                        </button>
+                        <button class="quick-action" @onclick='() => NavigateTo("/reports")'>
+                            <span class="quick-icon">📊</span>
+                            Reports
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="search-footer">
+            <span><kbd>↑↓</kbd> Navigate</span>
+            <span><kbd>↵</kbd> Select</span>
+            <span><kbd>ESC</kbd> Close</span>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+
+    private ElementReference searchInput;
+    private string searchQuery = "";
+    private GlobalSearchResult? results;
+    private bool isSearching;
+    private int selectedIndex = -1;
+    private CancellationTokenSource? _cts;
+    private List<SearchResultItem> allItems = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsOpen)
+        {
+            await Task.Delay(100); // Wait for render
+            try
+            {
+                await searchInput.FocusAsync();
+            }
+            catch { }
+        }
+        else
+        {
+            searchQuery = "";
+            results = null;
+            selectedIndex = -1;
+        }
+    }
+
+    private async Task OnSearchInput()
+    {
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource();
+
+        if (string.IsNullOrWhiteSpace(searchQuery) || searchQuery.Length < 2)
+        {
+            results = null;
+            allItems.Clear();
+            return;
+        }
+
+        isSearching = true;
+        StateHasChanged();
+
+        try
+        {
+            await Task.Delay(300, _cts.Token);
+            results = await SearchService.SearchAsync(searchQuery, _cts.Token);
+
+            allItems = results.Invoices
+            .Concat(results.Products)
+            .Concat(results.Customers)
+            .Concat(results.Payments)
+            .ToList();
+
+            selectedIndex = allItems.Any() ? 0 : -1;
+        }
+        catch (TaskCanceledException) { }
+        finally
+        {
+            isSearching = false;
+            StateHasChanged();
+        }
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "Escape":
+                Close();
+                break;
+            case "ArrowDown":
+                if (allItems.Any())
+                {
+                    selectedIndex = (selectedIndex + 1) % allItems.Count;
+                    StateHasChanged();
+                }
+                break;
+            case "ArrowUp":
+                if (allItems.Any())
+                {
+                    selectedIndex = selectedIndex <= 0 ? allItems.Count - 1 : selectedIndex - 1;
+                    StateHasChanged();
+                }
+                break;
+            case "Enter":
+                if (selectedIndex >= 0 && selectedIndex < allItems.Count)
+                {
+                    NavigateTo(allItems[selectedIndex].Url);
+                }
+                break;
+        }
+    }
+
+    private int GetItemIndex(SearchResultItem item)
+    {
+        return allItems.IndexOf(item);
+    }
+
+    private void NavigateTo(string url)
+    {
+        Close();
+        NavigationManager.NavigateTo(url);
+    }
+
+    private async void Close()
+    {
+        await IsOpenChanged.InvokeAsync(false);
+    }
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
+}

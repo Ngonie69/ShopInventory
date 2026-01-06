@@ -1,0 +1,489 @@
+@page "/ai-assistant"
+@attribute [Authorize]
+@inject IAIService AIService
+@inject ILocalizationService L
+@inject IJSRuntime JS
+
+<PageTitle>AI Assistant - Shop Inventory</PageTitle>
+
+<div class="ai-assistant-container">
+    <div class="ai-header">
+        <div class="ai-title">
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16">
+                <path
+                    d="M6 12.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5ZM3 8.062C3 6.76 4.235 5.765 5.53 5.886a26.58 26.58 0 0 0 4.94 0C11.765 5.765 13 6.76 13 8.062v1.157a.933.933 0 0 1-.765.935c-.845.147-2.34.346-4.235.346-1.895 0-3.39-.2-4.235-.346A.933.933 0 0 1 3 9.219V8.062Zm4.542-.827a.25.25 0 0 0-.217.068l-.92.9a24.767 24.767 0 0 1-1.871-.183.25.25 0 0 0-.068.495c.55.076 1.232.149 2.02.193a.25.25 0 0 0 .189-.071l.754-.736.847 1.71a.25.25 0 0 0 .404.062l.932-.97a25.286 25.286 0 0 0 1.922-.188.25.25 0 0 0-.068-.495c-.538.074-1.207.145-1.98.189a.25.25 0 0 0-.166.076l-.754.785-.842-1.7a.25.25 0 0 0-.182-.135Z" />
+                <path
+                    d="M8.5 1.866a1 1 0 1 0-1 0V3h-2A4.5 4.5 0 0 0 1 7.5V8a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1v1a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1v-.5A4.5 4.5 0 0 0 10.5 3h-2V1.866ZM14 7.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V7.5A3.5 3.5 0 0 1 5.5 4h5A3.5 3.5 0 0 1 14 7.5Z" />
+            </svg>
+            <h2>AI Assistant</h2>
+        </div>
+        <div class="ai-tabs">
+            <button class="tab-btn @(activeTab == "chat" ? "active" : "")" @onclick="@(() => activeTab = "chat")">
+                <i class="bi bi-chat-dots"></i> Chat
+            </button>
+            <button class="tab-btn @(activeTab == "insights" ? "active" : "")"
+                @onclick="@(() => activeTab = "insights")">
+                <i class="bi bi-lightbulb"></i> Insights
+            </button>
+            <button class="tab-btn @(activeTab == "forecast" ? "active" : "")"
+                @onclick="@(() => activeTab = "forecast")">
+                <i class="bi bi-graph-up"></i> Forecast
+            </button>
+            <button class="tab-btn @(activeTab == "anomalies" ? "active" : "")"
+                @onclick="@(() => activeTab = "anomalies")">
+                <i class="bi bi-shield-exclamation"></i> Anomalies
+            </button>
+        </div>
+    </div>
+
+    @if (!AIService.IsConfigured)
+    {
+        <div class="ai-not-configured">
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle"></i>
+                <div>
+                    <strong>AI Not Configured</strong>
+                    <p>Please configure your AI provider settings in appsettings.json to use AI features.</p>
+                    <small>Supported providers: OpenAI, Azure OpenAI, Ollama (local)</small>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        @if (activeTab == "chat")
+        {
+            <div class="chat-container">
+                <div class="chat-messages" @ref="chatMessagesRef">
+                    @if (!chatHistory.Any())
+                    {
+                        <div class="chat-welcome">
+                            <div class="welcome-icon">
+                                <i class="bi bi-robot"></i>
+                            </div>
+                            <h3>Welcome to AI Assistant</h3>
+                            <p>I can help you with inventory analysis, sales insights, and business recommendations.</p>
+                            <div class="quick-prompts">
+                                <button class="quick-prompt"
+                                    @onclick='() => SendQuickPrompt("What is my current inventory status?")'>
+                                    <i class="bi bi-box-seam"></i> Inventory Status
+                                </button>
+                                <button class="quick-prompt" @onclick='() => SendQuickPrompt("Show me sales trends for this week")'>
+                                    <i class="bi bi-graph-up"></i> Sales Trends
+                                </button>
+                                <button class="quick-prompt" @onclick='() => SendQuickPrompt("Which products need restocking?")'>
+                                    <i class="bi bi-exclamation-circle"></i> Restock Alerts
+                                </button>
+                                <button class="quick-prompt" @onclick='() => SendQuickPrompt("Analyze my top selling products")'>
+                                    <i class="bi bi-star"></i> Top Products
+                                </button>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var message in chatHistory)
+                        {
+                            <div class="chat-message @(message.Role == "user" ? "user-message" : "assistant-message")">
+                                <div class="message-avatar">
+                                    @if (message.Role == "user")
+                                    {
+                                        <i class="bi bi-person-circle"></i>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-robot"></i>
+                                    }
+                                </div>
+                                <div class="message-content">
+                                    <div class="message-text">@((MarkupString)FormatMessage(message.Content))</div>
+                                    <div class="message-time">@message.Timestamp.ToString("HH:mm")</div>
+                                </div>
+                            </div>
+                        }
+                        @if (isLoading)
+                        {
+                            <div class="chat-message assistant-message">
+                                <div class="message-avatar">
+                                    <i class="bi bi-robot"></i>
+                                </div>
+                                <div class="message-content">
+                                    <div class="typing-indicator">
+                                        <span></span><span></span><span></span>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+
+                <div class="chat-input-container">
+                    <textarea @bind="userMessage" @bind:event="oninput" @onkeydown="HandleKeyDown"
+                        placeholder="Ask me anything about your inventory, sales, or business..." rows="1"
+                        disabled="@isLoading"></textarea>
+                    <button class="send-btn" @onclick="SendMessage"
+                        disabled="@(isLoading || string.IsNullOrWhiteSpace(userMessage))">
+                        @if (isLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-send"></i>
+                        }
+                    </button>
+                </div>
+            </div>
+        }
+        else if (activeTab == "insights")
+        {
+            <div class="insights-container">
+                <div class="insights-header">
+                    <h4><i class="bi bi-lightbulb"></i> Business Insights</h4>
+                    <button class="btn btn-primary btn-sm" @onclick="GenerateInsights" disabled="@isLoadingInsights">
+                        @if (isLoadingInsights)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        <i class="bi bi-arrow-clockwise"></i> Generate Insights
+                    </button>
+                </div>
+
+                @if (insights != null)
+                {
+                    <div class="insights-summary">
+                        <p>@insights.Summary</p>
+                        <small class="text-muted">Generated: @insights.GeneratedAt.ToString("dd MMM yyyy HH:mm")</small>
+                    </div>
+
+                    <div class="insights-grid">
+                        @foreach (var insight in insights.Insights)
+                        {
+                            <div class="insight-card @insight.Severity">
+                                <div class="insight-icon">
+                                    <i class="bi @(GetInsightIcon(insight))"></i>
+                                </div>
+                                <div class="insight-content">
+                                    <h5>@insight.Title</h5>
+                                    <p>@insight.Description</p>
+                                    <span class="insight-category">@insight.Category</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    @if (insights.Recommendations.Any())
+                    {
+                        <div class="recommendations-section">
+                            <h5><i class="bi bi-check2-circle"></i> Recommendations</h5>
+                            <ul>
+                                @foreach (var rec in insights.Recommendations)
+                                {
+                                    <li>@rec</li>
+                                }
+                            </ul>
+                        </div>
+                    }
+                }
+                else if (!isLoadingInsights)
+                {
+                    <div class="empty-state">
+                        <i class="bi bi-lightbulb"></i>
+                        <p>Click "Generate Insights" to get AI-powered business analysis</p>
+                    </div>
+                }
+            </div>
+        }
+        else if (activeTab == "forecast")
+        {
+            <div class="forecast-container">
+                <div class="forecast-header">
+                    <h4><i class="bi bi-graph-up"></i> Sales Forecast</h4>
+                    <button class="btn btn-primary btn-sm" @onclick="GenerateForecast" disabled="@isLoadingForecast">
+                        @if (isLoadingForecast)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        <i class="bi bi-arrow-clockwise"></i> Generate Forecast
+                    </button>
+                </div>
+
+                @if (forecast != null)
+                {
+                    <div class="forecast-summary">
+                        <div class="forecast-stat">
+                            <span class="stat-label">Trend</span>
+                            <span class="stat-value trend-@forecast.Trend">
+                                @if (forecast.Trend == "increasing")
+                                {
+                                    <i class="bi bi-arrow-up-circle"></i>
+                                }
+                                else if (forecast.Trend == "decreasing")
+                                {
+                                    <i class="bi bi-arrow-down-circle"></i>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-dash-circle"></i>
+                                }
+                                @forecast.Trend
+                            </span>
+                        </div>
+                        <div class="forecast-stat">
+                            <span class="stat-label">Confidence</span>
+                            <span class="stat-value">@((forecast.Confidence * 100).ToString("0"))%</span>
+                        </div>
+                    </div>
+
+                    <div class="forecast-analysis">
+                        <h5>Analysis</h5>
+                        <p>@forecast.Analysis</p>
+                    </div>
+
+                    @if (forecast.Predictions.Any())
+                    {
+                        <div class="forecast-table">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Predicted</th>
+                                        <th>Range</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var pred in forecast.Predictions)
+                                    {
+                                        <tr>
+                                            <td>@pred.Date.ToString("ddd, MMM d")</td>
+                                            <td>@pred.PredictedQuantity.ToString("N0")</td>
+                                            <td>@pred.LowerBound.ToString("N0") - @pred.UpperBound.ToString("N0")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                }
+                else if (!isLoadingForecast)
+                {
+                    <div class="empty-state">
+                        <i class="bi bi-graph-up"></i>
+                        <p>Click "Generate Forecast" to get AI-powered sales predictions</p>
+                    </div>
+                }
+            </div>
+        }
+        else if (activeTab == "anomalies")
+        {
+            <div class="anomalies-container">
+                <div class="anomalies-header">
+                    <h4><i class="bi bi-shield-exclamation"></i> Anomaly Detection</h4>
+                    <button class="btn btn-primary btn-sm" @onclick="DetectAnomalies" disabled="@isLoadingAnomalies">
+                        @if (isLoadingAnomalies)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        <i class="bi bi-search"></i> Scan for Anomalies
+                    </button>
+                </div>
+
+                @if (anomalyReport != null)
+                {
+                    <div class="anomaly-summary risk-@anomalyReport.OverallRisk">
+                        <div class="risk-badge">
+                            <span>Overall Risk: <strong>@anomalyReport.OverallRisk.ToUpper()</strong></span>
+                        </div>
+                        <div class="anomaly-count">
+                            <span>@anomalyReport.TotalAnomalies anomalies detected</span>
+                        </div>
+                        <small class="text-muted">Last scan: @anomalyReport.GeneratedAt.ToString("dd MMM yyyy HH:mm")</small>
+                    </div>
+
+                    @if (anomalyReport.Anomalies.Any())
+                    {
+                        <div class="anomaly-list">
+                            @foreach (var anomaly in anomalyReport.Anomalies)
+                            {
+                                <div class="anomaly-item @anomaly.Severity">
+                                    <div class="anomaly-icon">
+                                        <i class="bi @(GetAnomalyIcon(anomaly.Type))"></i>
+                                    </div>
+                                    <div class="anomaly-content">
+                                        <span class="anomaly-type">@anomaly.Type.Replace("_", " ")</span>
+                                        <h6>@anomaly.AffectedItem</h6>
+                                        <p>@anomaly.Description</p>
+                                    </div>
+                                    <span class="severity-badge @anomaly.Severity">@anomaly.Severity</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="no-anomalies">
+                            <i class="bi bi-check-circle text-success"></i>
+                            <p>No anomalies detected. Your data looks healthy!</p>
+                        </div>
+                    }
+                }
+                else if (!isLoadingAnomalies)
+                {
+                    <div class="empty-state">
+                        <i class="bi bi-shield-exclamation"></i>
+                        <p>Click "Scan for Anomalies" to detect unusual patterns in your data</p>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private string activeTab = "chat";
+    private string userMessage = "";
+    private List<ChatMessage> chatHistory = new();
+    private bool isLoading;
+    private bool isLoadingInsights;
+    private bool isLoadingForecast;
+    private bool isLoadingAnomalies;
+    private ElementReference chatMessagesRef;
+    private AIInsight? insights;
+    private SalesForecast? forecast;
+    private AnomalyReport? anomalyReport;
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(userMessage) || isLoading) return;
+
+        var message = userMessage.Trim();
+        userMessage = "";
+
+        chatHistory.Add(new ChatMessage { Role = "user", Content = message });
+        isLoading = true;
+        StateHasChanged();
+        await ScrollToBottom();
+
+        try
+        {
+            var response = await AIService.ChatAsync(message, chatHistory);
+            chatHistory.Add(new ChatMessage { Role = "assistant", Content = response });
+        }
+        catch (Exception ex)
+        {
+            chatHistory.Add(new ChatMessage { Role = "assistant", Content = $"Sorry, I encountered an error: {ex.Message}" });
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+            await ScrollToBottom();
+        }
+    }
+
+    private async Task SendQuickPrompt(string prompt)
+    {
+        userMessage = prompt;
+        await SendMessage();
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendMessage();
+        }
+    }
+
+    private async Task ScrollToBottom()
+    {
+        await Task.Delay(50);
+        try
+        {
+            await JS.InvokeVoidAsync("eval", "document.querySelector('.chat-messages')?.scrollTo(0, document.querySelector('.chat-messages')?.scrollHeight)");
+        }
+        catch { }
+    }
+
+    private async Task GenerateInsights()
+    {
+        isLoadingInsights = true;
+        StateHasChanged();
+
+        try
+        {
+            insights = await AIService.GetInventoryInsightsAsync();
+        }
+        finally
+        {
+            isLoadingInsights = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task GenerateForecast()
+    {
+        isLoadingForecast = true;
+        StateHasChanged();
+
+        try
+        {
+            forecast = await AIService.GetSalesForecastAsync();
+        }
+        finally
+        {
+            isLoadingForecast = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DetectAnomalies()
+    {
+        isLoadingAnomalies = true;
+        StateHasChanged();
+
+        try
+        {
+            anomalyReport = await AIService.DetectAnomaliesAsync();
+        }
+        finally
+        {
+            isLoadingAnomalies = false;
+            StateHasChanged();
+        }
+    }
+
+    private string FormatMessage(string content)
+    {
+        // Simple markdown-like formatting
+        content = System.Web.HttpUtility.HtmlEncode(content);
+        content = System.Text.RegularExpressions.Regex.Replace(content, @"\*\*(.*?)\*\*", "<strong>$1</strong>");
+        content = System.Text.RegularExpressions.Regex.Replace(content, @"\*(.*?)\*", "<em>$1</em>");
+        content = content.Replace("\n", "<br/>");
+        return content;
+    }
+
+    private string GetInsightIcon(InsightItem insight)
+    {
+        return insight.Category switch
+        {
+            "inventory" => "bi-box-seam",
+            "sales" => "bi-graph-up",
+            "alerts" => "bi-exclamation-triangle",
+            "performance" => "bi-speedometer2",
+            _ => "bi-lightbulb"
+        };
+    }
+
+    private string GetAnomalyIcon(string type)
+    {
+        return type switch
+        {
+            "price" => "bi-currency-dollar",
+            "quantity" => "bi-123",
+            "sales_pattern" => "bi-graph-up",
+            "stock_level" => "bi-box-seam",
+            _ => "bi-exclamation-triangle"
+        };
+    }
+}

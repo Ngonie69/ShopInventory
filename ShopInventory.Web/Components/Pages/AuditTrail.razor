@@ -1,0 +1,367 @@
+@page "/audit-trail"
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Services
+@inject IAuditService AuditService
+@inject AuthenticationStateProvider AuthStateProvider
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+
+<PageTitle>Audit Trail - Shop Inventory</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-journal-text me-2"></i>Audit Trail</h2>
+        <div>
+            <button class="btn btn-outline-secondary me-2" @onclick="RefreshLogs">
+                <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+            </button>
+            <button class="btn btn-outline-primary" @onclick="ExportLogs">
+                <i class="bi bi-download me-1"></i>Export
+            </button>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-funnel me-2"></i>Filters</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-2">
+                    <label class="form-label">From Date</label>
+                    <input type="date" class="form-control" @bind="fromDate" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">To Date</label>
+                    <input type="date" class="form-control" @bind="toDate" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">User</label>
+                    <select class="form-select" @bind="selectedUser">
+                        <option value="">All Users</option>
+                        @foreach (var user in distinctUsers)
+                        {
+                            <option value="@user">@user</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Action</label>
+                    <select class="form-select" @bind="selectedAction">
+                        <option value="">All Actions</option>
+                        @foreach (var action in distinctActions)
+                        {
+                            <option value="@action">@action</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button class="btn btn-primary me-2" @onclick="ApplyFilters">
+                        <i class="bi bi-search me-1"></i>Search
+                    </button>
+                    <button class="btn btn-outline-secondary" @onclick="ClearFilters">
+                        <i class="bi bi-x-circle me-1"></i>Clear
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading audit logs...</p>
+        </div>
+    }
+    else if (errorMessage != null)
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+        </div>
+    }
+    else
+    {
+        <!-- Stats -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card bg-light">
+                    <div class="card-body text-center">
+                        <h3 class="mb-0">@totalCount</h3>
+                        <small class="text-muted">Total Events</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-light">
+                    <div class="card-body text-center">
+                        <h3 class="mb-0">@distinctUsers.Count</h3>
+                        <small class="text-muted">Unique Users</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-light">
+                    <div class="card-body text-center">
+                        <h3 class="mb-0">@distinctActions.Count</h3>
+                        <small class="text-muted">Action Types</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-light">
+                    <div class="card-body text-center">
+                        <h3 class="mb-0">@logs.Count(l => !l.IsSuccess)</h3>
+                        <small class="text-muted">Failed Actions</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logs Table -->
+        <div class="card">
+            <div class="card-body">
+                @if (logs.Any())
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width: 150px;">Timestamp</th>
+                                    <th style="width: 120px;">User</th>
+                                    <th style="width: 100px;">Role</th>
+                                    <th style="width: 150px;">Action</th>
+                                    <th>Details</th>
+                                    <th style="width: 80px;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var log in logs)
+                                {
+                                    <tr class="@(log.IsSuccess ? "" : "table-danger")">
+                                        <td>
+                                            <small>@IAuditService.ToCAT(log.Timestamp).ToString("dd MMM yyyy")</small><br />
+                                            <small
+                                                class="text-muted">@IAuditService.ToCAT(log.Timestamp).ToString("HH:mm:ss")</small>
+                                        </td>
+                                        <td>
+                                            <strong>@log.Username</strong>
+                                        </td>
+                                        <td>
+                                            <span class="badge @GetRoleBadgeClass(log.UserRole)">@log.UserRole</span>
+                                        </td>
+                                        <td>
+                                            <span class="badge @GetActionBadgeClass(log.Action)">@log.Action</span>
+                                        </td>
+                                        <td>
+                                            @if (!string.IsNullOrEmpty(log.EntityType))
+                                            {
+                                                <span class="text-muted">@log.EntityType</span>
+                                                @if (!string.IsNullOrEmpty(log.EntityId))
+                                                {
+                                                    <span class="text-muted">: @log.EntityId</span>
+                                                }
+                                            }
+                                            @if (!string.IsNullOrEmpty(log.Details))
+                                            {
+                                                <br />
+
+                                                <small class="text-muted">@log.Details</small>
+                                            }
+                                            @if (!log.IsSuccess && !string.IsNullOrEmpty(log.ErrorMessage))
+                                            {
+                                                <br />
+
+                                                <small class="text-danger">@log.ErrorMessage</small>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (log.IsSuccess)
+                                            {
+                                                <span class="badge bg-success"><i class="bi bi-check"></i> OK</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-danger"><i class="bi bi-x"></i> Failed</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pagination -->
+                    <div class="d-flex justify-content-between align-items-center mt-3">
+                        <div>
+                            Showing @((currentPage - 1) * pageSize + 1) - @Math.Min(currentPage * pageSize, totalCount) of
+                            @totalCount entries
+                        </div>
+                        <nav>
+                            <ul class="pagination mb-0">
+                                <li class="page-item @(currentPage <= 1 ? "disabled" : "")">
+                                    <button class="page-link" @onclick="() => GoToPage(currentPage - 1)"
+                                        disabled="@(currentPage <= 1)">
+                                        <i class="bi bi-chevron-left"></i>
+                                    </button>
+                                </li>
+                                @for (int i = Math.Max(1, currentPage - 2); i <= Math.Min(totalPages, currentPage + 2); i++)
+                                {
+                                    var pageNum = i;
+                                    <li class="page-item @(currentPage == pageNum ? "active" : "")">
+                                        <button class="page-link" @onclick="() => GoToPage(pageNum)">@pageNum</button>
+                                    </li>
+                                }
+                                <li class="page-item @(currentPage >= totalPages ? "disabled" : "")">
+                                    <button class="page-link" @onclick="() => GoToPage(currentPage + 1)"
+                                        disabled="@(currentPage >= totalPages)">
+                                        <i class="bi bi-chevron-right"></i>
+                                    </button>
+                                </li>
+                            </ul>
+                        </nav>
+                    </div>
+                }
+                else
+                {
+                    <div class="text-center py-5 text-muted">
+                        <i class="bi bi-journal-x" style="font-size: 3rem;"></i>
+                        <p class="mt-3">No audit logs found matching your criteria.</p>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<AuditLog> logs = new();
+    private List<string> distinctUsers = new();
+    private List<string> distinctActions = new();
+    private bool isLoading = true;
+    private string? errorMessage;
+
+    // Filters
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string? selectedUser;
+    private string? selectedAction;
+
+    // Pagination
+    private int currentPage = 1;
+    private int pageSize = 50;
+    private int totalCount = 0;
+    private int totalPages => (int)Math.Ceiling((double)totalCount / pageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Set default date range to last 7 days in CAT timezone
+        var catNow = IAuditService.ToCAT(DateTime.UtcNow);
+        toDate = catNow.Date;
+        fromDate = catNow.Date.AddDays(-7);
+
+        await LoadFilterOptions();
+        await LoadLogs();
+        await LogViewAudit();
+    }
+
+    private async Task LoadFilterOptions()
+    {
+        try
+        {
+            distinctUsers = await AuditService.GetDistinctUsersAsync();
+            distinctActions = await AuditService.GetDistinctActionsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load filter options: {ex.Message}";
+        }
+    }
+
+    private async Task LoadLogs()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            totalCount = await AuditService.GetLogCountAsync(fromDate, toDate, selectedUser, selectedAction);
+            logs = await AuditService.GetLogsAsync(fromDate, toDate, selectedUser, selectedAction, currentPage, pageSize);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load audit logs: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ApplyFilters()
+    {
+        currentPage = 1;
+        await LoadLogs();
+    }
+
+    private async Task ClearFilters()
+    {
+        var catNow = IAuditService.ToCAT(DateTime.UtcNow);
+        fromDate = catNow.Date.AddDays(-7);
+        toDate = catNow.Date;
+        selectedUser = null;
+        selectedAction = null;
+        currentPage = 1;
+        await LoadLogs();
+    }
+
+    private async Task RefreshLogs()
+    {
+        await LoadFilterOptions();
+        await LoadLogs();
+    }
+
+    private async Task GoToPage(int page)
+    {
+        if (page < 1 || page > totalPages) return;
+        currentPage = page;
+        await LoadLogs();
+    }
+
+    private Task ExportLogs()
+    {
+        // TODO: Implement CSV export
+        return Task.CompletedTask;
+    }
+
+    private string GetRoleBadgeClass(string role) => role switch
+    {
+        UserRoles.Admin => "bg-danger",
+        UserRoles.SalesPerson => "bg-primary",
+        UserRoles.ADR => "bg-info",
+        _ => "bg-secondary"
+    };
+
+    private string GetActionBadgeClass(string action) => action switch
+    {
+        AuditActions.Login or AuditActions.Logout => "bg-success",
+        AuditActions.LoginFailed => "bg-danger",
+        var a when a.StartsWith("Create") => "bg-primary",
+        var a when a.StartsWith("Update") => "bg-warning text-dark",
+        var a when a.StartsWith("Delete") => "bg-danger",
+        var a when a.StartsWith("View") => "bg-info",
+        var a when a.StartsWith("Sync") => "bg-secondary",
+        _ => "bg-light text-dark"
+    };
+
+    private async Task LogViewAudit()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var username = authState.User.Identity?.Name ?? "Unknown";
+        var role = authState.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "Unknown";
+        await AuditService.LogAsync(AuditActions.ViewAuditTrail, username, role, "AuditLog", null, null, "/audit-trail");
+    }
+}

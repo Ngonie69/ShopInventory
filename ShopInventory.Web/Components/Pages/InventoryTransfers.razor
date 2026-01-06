@@ -1,0 +1,412 @@
+@page "/inventory-transfers"
+@inject IInventoryTransferService TransferService
+@inject IMasterDataCacheService CacheService
+@inject ILogger<InventoryTransfers> Logger
+@rendermode InteractiveServer
+
+<PageTitle>Inventory Transfers - Shop Inventory</PageTitle>
+
+<div class="container-fluid">
+    <h2 class="mb-4"><i class="bi bi-arrow-left-right me-2"></i>Inventory Transfers</h2>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-funnel me-2"></i>Filter</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Warehouse *</label>
+                    @if (isLoadingWarehouses)
+                    {
+                        <div class="d-flex align-items-center">
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                            <span class="text-muted">Loading warehouses...</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <MudAutocomplete T="WarehouseDto" @bind-Value="selectedWarehouse" Label="Search warehouse..."
+                            SearchFunc="SearchWarehousesAsync"
+                            ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
+                            Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense" ResetValueOnEmptyText="true"
+                            ShowProgressIndicator="true" MaxItems="20" DebounceInterval="150" Class="mt-0">
+                            <ItemTemplate>
+                                <div class="d-flex flex-column">
+                                    <span class="fw-semibold">@context.WarehouseCode</span>
+                                    <small class="text-muted">@context.WarehouseName</small>
+                                </div>
+                            </ItemTemplate>
+                            <NoItemsTemplate>
+                                <div class="p-2 text-muted">
+                                    <i class="bi bi-info-circle me-1"></i>No warehouses found
+                                </div>
+                            </NoItemsTemplate>
+                        </MudAutocomplete>
+                    }
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">From Date</label>
+                    <input type="date" class="form-control" @bind="fromDate" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">To Date</label>
+                    <input type="date" class="form-control" @bind="toDate" />
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button class="btn btn-primary me-2" @onclick="LoadTransfers"
+                        disabled="@(selectedWarehouse == null)">
+                        <i class="bi bi-search me-1"></i>Search
+                    </button>
+                    <button class="btn btn-outline-secondary" @onclick="ClearFilter">
+                        <i class="bi bi-x-circle me-1"></i>Clear
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading transfers...</p>
+        </div>
+    }
+    else if (errorMessage != null)
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+        </div>
+    }
+    else if (transfers?.Any() == true)
+    {
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Transfers to Warehouse: @selectedWarehouse?.WarehouseCode</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Doc Entry</th>
+                                <th>Doc #</th>
+                                <th>From Warehouse</th>
+                                <th>To Warehouse</th>
+                                <th>Date</th>
+                                <th>Due Date</th>
+                                <th>Items</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var transfer in transfers)
+                            {
+                                <tr>
+                                    <td>@transfer.DocEntry</td>
+                                    <td><strong>@transfer.DocNum</strong></td>
+                                    <td><span class="badge bg-warning text-dark">@transfer.FromWarehouse</span></td>
+                                    <td><span class="badge bg-success">@transfer.ToWarehouse</span></td>
+                                    <td>@FormatDate(transfer.DocDate)</td>
+                                    <td>@FormatDate(transfer.DueDate)</td>
+                                    <td>@(transfer.Lines?.Count ?? 0) items</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewTransfer(transfer)">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mt-3">
+                    <div>
+                        Showing @transfers.Count transfers (Page @currentPage)
+                    </div>
+                    <div>
+                        <button class="btn btn-outline-primary btn-sm me-2" @onclick="PreviousPage"
+                            disabled="@(currentPage <= 1)">
+                            <i class="bi bi-chevron-left"></i> Previous
+                        </button>
+                        <button class="btn btn-outline-primary btn-sm" @onclick="NextPage" disabled="@(!hasMore)">
+                            Next <i class="bi bi-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else if (selectedWarehouse != null)
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>No inventory transfers found for warehouse
+            @selectedWarehouse.WarehouseCode.
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>Select a warehouse and click Search to view inventory transfers.
+        </div>
+    }
+</div>
+
+<!-- Transfer Detail Modal -->
+@if (selectedTransfer != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Inventory Transfer #@selectedTransfer.DocNum</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <p><strong>From Warehouse:</strong> <span
+                                    class="badge bg-warning text-dark">@selectedTransfer.FromWarehouse</span></p>
+                            <p><strong>To Warehouse:</strong> <span
+                                    class="badge bg-success">@selectedTransfer.ToWarehouse</span></p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Date:</strong> @FormatDate(selectedTransfer.DocDate)</p>
+                            <p><strong>Due Date:</strong> @FormatDate(selectedTransfer.DueDate)</p>
+                            <p><strong>Comments:</strong> @selectedTransfer.Comments</p>
+                        </div>
+                    </div>
+
+                    @if (selectedTransfer.Lines?.Any() == true)
+                    {
+                        <h6>Transfer Lines</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Item Code</th>
+                                        <th>Description</th>
+                                        <th>From WH</th>
+                                        <th>To WH</th>
+                                        <th class="text-end">Quantity</th>
+                                        <th>UoM</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var line in selectedTransfer.Lines)
+                                    {
+                                        <tr>
+                                            <td>@line.LineNum</td>
+                                            <td>@line.ItemCode</td>
+                                            <td>@line.ItemDescription</td>
+                                            <td>@line.FromWarehouseCode</td>
+                                            <td>@line.ToWarehouseCode</td>
+                                            <td class="text-end"><strong>@line.Quantity</strong></td>
+                                            <td>@line.UoMCode</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                <tfoot>
+                                    <tr class="table-primary">
+                                        <td colspan="5" class="text-end"><strong>Total Quantity:</strong></td>
+                                        <td class="text-end"><strong>@selectedTransfer.Lines.Sum(l => l.Quantity)</strong></td>
+                                        <td></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<InventoryTransferDto>? transfers;
+    private InventoryTransferDto? selectedTransfer;
+    private bool isLoading = false;
+    private string? errorMessage;
+    private int currentPage = 1;
+    private int pageSize = 20;
+    private bool hasMore = false;
+
+    // Warehouse search
+    private bool isLoadingWarehouses = true;
+    private List<WarehouseDto> cachedWarehouses = new();
+    private WarehouseDto? selectedWarehouse;
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+
+    private bool _hasLoadedData = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_hasLoadedData)
+        {
+            Logger.LogInformation("InventoryTransfers page: OnAfterRenderAsync - firstRender, starting data load");
+            _hasLoadedData = true;
+            await LoadWarehousesAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadWarehousesAsync()
+    {
+        Logger.LogInformation("InventoryTransfers page: LoadWarehousesAsync started");
+        try
+        {
+            isLoadingWarehouses = true;
+            Logger.LogDebug("InventoryTransfers page: Calling CacheService.GetWarehousesAsync()");
+            cachedWarehouses = await CacheService.GetWarehousesAsync();
+            Logger.LogInformation("InventoryTransfers page: Loaded {Count} warehouses", cachedWarehouses?.Count ?? 0);
+
+            // Pre-select warehouse "01" if it exists
+            if (cachedWarehouses != null)
+            {
+                var defaultWarehouse = cachedWarehouses.FirstOrDefault(w => w.WarehouseCode == "01");
+                if (defaultWarehouse != null)
+                {
+                    selectedWarehouse = defaultWarehouse;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "InventoryTransfers page: Failed to load warehouses");
+            errorMessage = $"Failed to load warehouses: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingWarehouses = false;
+            Logger.LogDebug("InventoryTransfers page: LoadWarehousesAsync completed");
+        }
+    }
+
+    private async Task<IEnumerable<WarehouseDto>> SearchWarehousesAsync(string searchText, CancellationToken
+    cancellationToken)
+    {
+        // Return all warehouses if search is empty
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            return cachedWarehouses.Take(20);
+        }
+
+        // Filter warehouses based on search text
+        return cachedWarehouses
+        .Where(w =>
+        (w.WarehouseCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        (w.WarehouseName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Take(20);
+    }
+
+    private string FormatDate(string? dateString)
+    {
+        if (string.IsNullOrEmpty(dateString))
+            return "-";
+
+        if (DateTime.TryParse(dateString, out var date))
+        {
+            return date.ToString("dd MMM yyyy");
+        }
+
+        return dateString;
+    }
+
+    private async Task LoadTransfers()
+    {
+        if (selectedWarehouse == null)
+            return;
+
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var warehouseCode = selectedWarehouse.WarehouseCode!;
+
+            if (fromDate.HasValue && toDate.HasValue)
+            {
+                var response = await TransferService.GetTransfersByDateRangeAsync(warehouseCode, fromDate.Value, toDate.Value);
+                transfers = response?.Transfers;
+                hasMore = false;
+            }
+            else if (fromDate.HasValue)
+            {
+                var response = await TransferService.GetTransfersByDateAsync(warehouseCode, fromDate.Value);
+                transfers = response?.Transfers;
+                hasMore = false;
+            }
+            else
+            {
+                var response = await TransferService.GetPagedTransfersAsync(warehouseCode, currentPage, pageSize);
+                if (response != null)
+                {
+                    transfers = response.Transfers;
+                    hasMore = response.HasMore;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ClearFilter()
+    {
+        selectedWarehouse = null;
+        fromDate = null;
+        toDate = null;
+        currentPage = 1;
+        transfers = null;
+
+        // Re-select default warehouse
+        var defaultWarehouse = cachedWarehouses?.FirstOrDefault(w => w.WarehouseCode == "01");
+        if (defaultWarehouse != null)
+        {
+            selectedWarehouse = defaultWarehouse;
+        }
+    }
+
+    private void ViewTransfer(InventoryTransferDto transfer)
+    {
+        selectedTransfer = transfer;
+    }
+
+    private void CloseModal()
+    {
+        selectedTransfer = null;
+    }
+
+    private async Task PreviousPage()
+    {
+        if (currentPage > 1)
+        {
+            currentPage--;
+            await LoadTransfers();
+        }
+    }
+
+    private async Task NextPage()
+    {
+        if (hasMore)
+        {
+            currentPage++;
+            await LoadTransfers();
+        }
+    }
+}

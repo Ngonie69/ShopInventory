@@ -1,0 +1,200 @@
+.page {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+main {
+    flex: 1;
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+.sidebar {
+    background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+    box-shadow: 4px 0 10px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s ease, width 0.3s ease;
+}
+
+.hamburger-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    margin-right: auto;
+}
+
+.hamburger-btn:hover {
+    background: #f1f5f9;
+    color: #4f46e5;
+}
+
+.hamburger-btn:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.3);
+}
+
+.top-row {
+    background: white;
+    border-bottom: 1px solid #e2e8f0;
+    justify-content: space-between;
+    height: 4rem;
+    display: flex;
+    align-items: center;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    padding: 0 1.5rem;
+    gap: 1rem;
+}
+
+.top-row-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-left: auto;
+}
+
+.top-row ::deep a, .top-row ::deep .btn-link {
+    white-space: nowrap;
+    margin-left: 1.5rem;
+    text-decoration: none;
+    color: #64748b;
+    font-weight: 500;
+    transition: color 0.2s ease;
+}
+
+.top-row ::deep a:hover, .top-row ::deep .btn-link:hover {
+    color: #4f46e5;
+    text-decoration: none;
+}
+
+.top-row ::deep a:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.top-row .welcome-text {
+    color: #64748b;
+    font-size: 0.875rem;
+}
+
+.top-row .user-name {
+    color: #1e293b;
+    font-weight: 600;
+}
+
+@media (max-width: 640.98px) {
+    .top-row {
+        justify-content: space-between;
+        padding: 0 1rem;
+    }
+
+    .top-row ::deep a, .top-row ::deep .btn-link {
+        margin-left: 0;
+    }
+}
+
+@media (min-width: 641px) {
+    .page {
+        flex-direction: row;
+    }
+
+    .sidebar {
+        width: 280px;
+        height: 100vh;
+        position: sticky;
+        top: 0;
+        overflow: hidden;
+    }
+
+    /* Collapsed sidebar state */
+    .page.sidebar-collapsed .sidebar {
+        width: 0;
+        min-width: 0;
+    }
+
+    .page.sidebar-collapsed main {
+        width: 100%;
+    }
+
+    .top-row {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    .top-row.auth ::deep a:first-child {
+        flex: 1;
+        text-align: right;
+        width: 0;
+    }
+
+    .top-row, article {
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+    }
+}
+
+/* Mobile sidebar - slide from left */
+@media (max-width: 640.98px) {
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100vh;
+        width: 280px;
+        z-index: 1000;
+        transform: translateX(-100%);
+    }
+
+    .page.sidebar-open .sidebar {
+        transform: translateX(0);
+    }
+
+    /* Overlay when sidebar is open on mobile */
+    .page.sidebar-open::before {
+        content: '';
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 999;
+    }
+}
+
+#blazor-error-ui {
+    color-scheme: light only;
+    background: #fee2e2;
+    bottom: 0;
+    box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.1);
+    box-sizing: border-box;
+    display: none;
+    left: 0;
+    padding: 1rem 1.5rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+    border-top: 3px solid #ef4444;
+    color: #991b1b;
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: 1rem;
+    top: 0.75rem;
+    font-size: 1.25rem;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+#blazor-error-ui .dismiss:hover {
+    opacity: 1;
+}

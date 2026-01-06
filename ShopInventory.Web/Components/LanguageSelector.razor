@@ -1,0 +1,78 @@
+@using ShopInventory.Web.Services
+@inject ILocalizationService LocalizationService
+@implements IDisposable
+
+<div class="language-selector @(isOpen ? "open" : "")">
+    <button class="language-btn" @onclick="ToggleDropdown" title="Change Language">
+        <span class="current-flag">@currentLanguage?.Flag</span>
+        <span class="current-lang">@currentLanguage?.Code.ToUpper()</span>
+        <svg class="dropdown-arrow" xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor"
+            viewBox="0 0 16 16">
+            <path fill-rule="evenodd"
+                d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z" />
+        </svg>
+    </button>
+
+    @if (isOpen)
+    {
+        <div class="language-dropdown">
+            @foreach (var lang in LocalizationService.SupportedLanguages)
+            {
+                <button class="language-option @(lang.Code == LocalizationService.CurrentLanguage ? "active" : "")"
+                    @onclick="() => SelectLanguage(lang.Code)">
+                    <span class="lang-flag">@lang.Flag</span>
+                    <span class="lang-name">@lang.NativeName</span>
+                    @if (lang.Code == LocalizationService.CurrentLanguage)
+                    {
+                        <svg class="check-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                            viewBox="0 0 16 16">
+                            <path
+                                d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" />
+                        </svg>
+                    }
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool isOpen;
+    private LanguageInfo? currentLanguage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LocalizationService.GetLanguageAsync();
+        UpdateCurrentLanguage();
+        LocalizationService.OnLanguageChanged += OnLanguageChanged;
+    }
+
+    private void UpdateCurrentLanguage()
+    {
+        currentLanguage = LocalizationService.SupportedLanguages
+        .FirstOrDefault(l => l.Code == LocalizationService.CurrentLanguage)
+        ?? LocalizationService.SupportedLanguages.First();
+    }
+
+    private void OnLanguageChanged()
+    {
+        UpdateCurrentLanguage();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleDropdown()
+    {
+        isOpen = !isOpen;
+    }
+
+    private async Task SelectLanguage(string code)
+    {
+        await LocalizationService.SetLanguageAsync(code);
+        isOpen = false;
+    }
+
+    public void Dispose()
+    {
+        LocalizationService.OnLanguageChanged -= OnLanguageChanged;
+    }
+}

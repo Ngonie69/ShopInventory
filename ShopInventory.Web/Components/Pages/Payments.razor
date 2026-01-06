@@ -1,0 +1,422 @@
+@page "/payments"
+@inject IPaymentService PaymentService
+@inject ILogger<Payments> Logger
+@rendermode InteractiveServer
+
+<PageTitle>Incoming Payments - Shop Inventory</PageTitle>
+
+<div class="container-fluid">
+    <h2 class="mb-4"><i class="bi bi-cash-stack me-2"></i>Incoming Payments</h2>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-funnel me-2"></i>Filter</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-2">
+                    <label class="form-label">Doc Number</label>
+                    <input type="number" class="form-control" @bind="docNum" placeholder="e.g., 123" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Customer Code</label>
+                    <input type="text" class="form-control" @bind="customerCode" placeholder="e.g., C001" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">From Date</label>
+                    <input type="date" class="form-control" @bind="fromDate" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">To Date</label>
+                    <input type="date" class="form-control" @bind="toDate" />
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button class="btn btn-primary me-2" @onclick="ApplyFilter">
+                        <i class="bi bi-search me-1"></i>Search
+                    </button>
+                    <button class="btn btn-outline-secondary" @onclick="ClearFilter">
+                        <i class="bi bi-x-circle me-1"></i>Clear
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-success" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading payments...</p>
+        </div>
+    }
+    else if (errorMessage != null)
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+        </div>
+    }
+    else if (payments?.Any() == true)
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Doc Entry</th>
+                                <th>Doc #</th>
+                                <th>Customer</th>
+                                <th>Date</th>
+                                <th>Currency</th>
+                                <th class="text-end">Cash</th>
+                                <th class="text-end">Check</th>
+                                <th class="text-end">Transfer</th>
+                                <th class="text-end">Credit</th>
+                                <th class="text-end">Total</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var payment in payments)
+                            {
+                                <tr>
+                                    <td>@payment.DocEntry</td>
+                                    <td><strong>@payment.DocNum</strong></td>
+                                    <td>
+                                        <span class="badge bg-secondary">@payment.CardCode</span>
+                                        @payment.CardName
+                                    </td>
+                                    <td>@FormatDate(payment.DocDate)</td>
+                                    <td>@payment.DocCurrency</td>
+                                    <td class="text-end">@FormatAmount(payment.CashSum)</td>
+                                    <td class="text-end">@FormatAmount(payment.CheckSum)</td>
+                                    <td class="text-end">@FormatAmount(payment.TransferSum)</td>
+                                    <td class="text-end">@FormatAmount(payment.CreditSum)</td>
+                                    <td class="text-end"><strong class="text-success">@payment.DocTotal.ToString("N2")</strong>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-success" @onclick="() => ViewPayment(payment)">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mt-3">
+                    <div>
+                        Showing @payments.Count payments (Page @currentPage)
+                    </div>
+                    <div>
+                        <button class="btn btn-outline-success btn-sm me-2" @onclick="PreviousPage"
+                            disabled="@(currentPage <= 1)">
+                            <i class="bi bi-chevron-left"></i> Previous
+                        </button>
+                        <button class="btn btn-outline-success btn-sm" @onclick="NextPage" disabled="@(!hasMore)">
+                            Next <i class="bi bi-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>No payments found.
+        </div>
+    }
+</div>
+
+<!-- Payment Detail Modal -->
+@if (selectedPayment != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title">Payment #@selectedPayment.DocNum</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <h6 class="text-muted">Customer Information</h6>
+                            <p class="mb-1"><strong>Customer:</strong> @selectedPayment.CardName</p>
+                            <p class="mb-1"><strong>Code:</strong> @selectedPayment.CardCode</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h6 class="text-muted">Payment Information</h6>
+                            <p class="mb-1"><strong>Date:</strong> @FormatDate(selectedPayment.DocDate)</p>
+                            <p class="mb-1"><strong>Due Date:</strong> @FormatDate(selectedPayment.DocDueDate)</p>
+                            <p class="mb-1"><strong>Currency:</strong> @selectedPayment.DocCurrency</p>
+                        </div>
+                    </div>
+
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h6 class="text-muted">Payment Breakdown</h6>
+                            <div class="row g-3">
+                                <div class="col-md-3">
+                                    <div class="card bg-light">
+                                        <div class="card-body text-center">
+                                            <i class="bi bi-cash fs-4 text-success"></i>
+                                            <p class="mb-0 small text-muted">Cash</p>
+                                            <p class="mb-0 fw-bold">@selectedPayment.CashSum.ToString("N2")</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-light">
+                                        <div class="card-body text-center">
+                                            <i class="bi bi-journal-check fs-4 text-primary"></i>
+                                            <p class="mb-0 small text-muted">Check</p>
+                                            <p class="mb-0 fw-bold">@selectedPayment.CheckSum.ToString("N2")</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-light">
+                                        <div class="card-body text-center">
+                                            <i class="bi bi-bank fs-4 text-info"></i>
+                                            <p class="mb-0 small text-muted">Transfer</p>
+                                            <p class="mb-0 fw-bold">@selectedPayment.TransferSum.ToString("N2")</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-light">
+                                        <div class="card-body text-center">
+                                            <i class="bi bi-credit-card fs-4 text-warning"></i>
+                                            <p class="mb-0 small text-muted">Credit Card</p>
+                                            <p class="mb-0 fw-bold">@selectedPayment.CreditSum.ToString("N2")</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(selectedPayment.TransferReference))
+                    {
+                        <div class="mb-4">
+                            <h6 class="text-muted">Transfer Details</h6>
+                            <p class="mb-1"><strong>Reference:</strong> @selectedPayment.TransferReference</p>
+                            <p class="mb-1"><strong>Account:</strong> @selectedPayment.TransferAccount</p>
+                            <p class="mb-0"><strong>Date:</strong> @FormatDate(selectedPayment.TransferDate)</p>
+                        </div>
+                    }
+
+                    @if (selectedPayment.PaymentInvoices?.Any() == true)
+                    {
+                        <h6 class="text-muted">Applied to Invoices</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Invoice Doc Entry</th>
+                                        <th>Type</th>
+                                        <th class="text-end">Amount Applied</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var invoice in selectedPayment.PaymentInvoices)
+                                    {
+                                        <tr>
+                                            <td>@invoice.LineNum</td>
+                                            <td>@invoice.DocEntry</td>
+                                            <td>@invoice.InvoiceType</td>
+                                            <td class="text-end">@invoice.SumApplied.ToString("N2")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(selectedPayment.Remarks))
+                    {
+                        <div class="mt-3">
+                            <h6 class="text-muted">Remarks</h6>
+                            <p class="mb-0">@selectedPayment.Remarks</p>
+                        </div>
+                    }
+
+                    <div class="mt-4 p-3 bg-success bg-opacity-10 rounded">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="fs-5">Total Payment:</span>
+                            <strong class="fs-4 text-success">@selectedPayment.DocCurrency
+                                @selectedPayment.DocTotal.ToString("N2")</strong>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<IncomingPaymentDto>? payments;
+    private IncomingPaymentDto? selectedPayment;
+    private bool isLoading = true;
+    private string? errorMessage;
+    private int currentPage = 1;
+    private int pageSize = 20;
+    private bool hasMore = false;
+
+    private int? docNum;
+    private string? customerCode;
+    private DateTime? fromDate;
+    private DateTime? toDate;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Logger.LogInformation("Payments page: OnInitializedAsync started");
+        await LoadPayments();
+    }
+
+    private async Task LoadPayments()
+    {
+        Logger.LogInformation("Payments page: LoadPayments started, page={Page}, pageSize={PageSize}", currentPage, pageSize);
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var response = await PaymentService.GetPaymentsAsync(currentPage, pageSize);
+            if (response != null)
+            {
+                payments = response.Payments;
+                hasMore = response.HasMore;
+                Logger.LogInformation("Payments page: Loaded {Count} payments, hasMore={HasMore}", payments?.Count ?? 0, hasMore);
+            }
+            else
+            {
+                Logger.LogWarning("Payments page: GetPaymentsAsync returned null");
+                errorMessage = "Failed to load payments";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Payments page: Error loading payments");
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            Logger.LogDebug("Payments page: LoadPayments completed");
+        }
+    }
+
+    private async Task ApplyFilter()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            if (docNum.HasValue)
+            {
+                var payment = await PaymentService.GetPaymentByDocNumAsync(docNum.Value);
+                if (payment != null)
+                {
+                    payments = new List<IncomingPaymentDto> { payment };
+                }
+                else
+                {
+                    payments = new List<IncomingPaymentDto>();
+                    errorMessage = $"No payment found with Doc # {docNum}";
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(customerCode))
+            {
+                var response = await PaymentService.GetPaymentsByCustomerAsync(customerCode);
+                payments = response?.Payments;
+            }
+            else if (fromDate.HasValue && toDate.HasValue)
+            {
+                var response = await PaymentService.GetPaymentsByDateRangeAsync(fromDate.Value, toDate.Value);
+                payments = response?.Payments;
+            }
+            else if (fromDate.HasValue)
+            {
+                var response = await PaymentService.GetPaymentsByDateAsync(fromDate.Value);
+                payments = response?.Payments;
+            }
+            else
+            {
+                await LoadPayments();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ClearFilter()
+    {
+        docNum = null;
+        customerCode = null;
+        fromDate = null;
+        toDate = null;
+        currentPage = 1;
+        await LoadPayments();
+    }
+
+    private void ViewPayment(IncomingPaymentDto payment)
+    {
+        selectedPayment = payment;
+    }
+
+    private void CloseModal()
+    {
+        selectedPayment = null;
+    }
+
+    private string FormatAmount(decimal amount)
+    {
+        return amount > 0 ? amount.ToString("N2") : "-";
+    }
+
+    private string FormatDate(string? dateStr)
+    {
+        if (string.IsNullOrEmpty(dateStr))
+            return "-";
+
+        if (DateTime.TryParse(dateStr, out var date))
+            return date.ToString("dd MMM yyyy");
+
+        return dateStr;
+    }
+
+    private async Task PreviousPage()
+    {
+        if (currentPage > 1)
+        {
+            currentPage--;
+            await LoadPayments();
+        }
+    }
+
+    private async Task NextPage()
+    {
+        if (hasMore)
+        {
+            currentPage++;
+            await LoadPayments();
+        }
+    }
+}

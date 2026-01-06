@@ -1,0 +1,607 @@
+@page "/sync-status"
+@using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@attribute [Authorize]
+@inject ISyncStatusClientService SyncService
+@inject IAuditService AuditService
+@inject AuthenticationStateProvider AuthStateProvider
+@implements IDisposable
+@rendermode InteractiveServer
+
+<PageTitle>Sync Status - Shop Inventory</PageTitle>
+
+<div class="container-fluid fade-in">
+    <div class="page-header">
+        <h2>
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16"
+                style="color: var(--primary-color);">
+                <path
+                    d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z" />
+                <path fill-rule="evenodd"
+                    d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3zM3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9H3.1z" />
+            </svg>
+            Sync Status & Health
+        </h2>
+        <span class="text-muted">Monitor SAP connection and data synchronization</span>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="btn-group">
+                <button class="btn btn-outline-primary" @onclick="RefreshAll" disabled="@isRefreshing">
+                    @if (isRefreshing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    <i class="bi bi-arrow-clockwise me-2"></i>Refresh All
+                </button>
+                <button class="btn btn-outline-success" @onclick="TestConnection" disabled="@isTesting">
+                    @if (isTesting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    <i class="bi bi-plug me-2"></i>Test SAP Connection
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Connection Status Cards -->
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card h-100 @(sapStatus?.IsConnected == true ? "border-success" : "border-danger")">
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        @if (sapStatus?.IsConnected == true)
+                        {
+                            <i class="bi bi-check-circle-fill text-success" style="font-size: 3rem;"></i>
+                        }
+                        else
+                        {
+                            <i class="bi bi-x-circle-fill text-danger" style="font-size: 3rem;"></i>
+                        }
+                    </div>
+                    <h5>SAP Connection</h5>
+                    <p class="mb-1">
+                        <span class="badge @(sapStatus?.IsConnected == true ? "bg-success" : "bg-danger")">
+                            @(sapStatus?.IsConnected == true ? "Connected" : "Disconnected")
+                        </span>
+                    </p>
+                    @if (sapStatus != null)
+                    {
+                        <small class="text-muted">
+                            Last Check: @(sapStatus.LastCheckedAt?.ToString("dd MMM yyyy HH:mm") ?? "Never")
+                        </small>
+                        @if (sapStatus.LastSuccessfulConnectionAt.HasValue)
+                        {
+                            <br>
+
+                            <small class="text-muted">
+                                Last Success: @sapStatus.LastSuccessfulConnectionAt.Value.ToString("dd MMM yyyy HH:mm")
+                            </small>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div
+                class="card h-100 @(dashboard?.OverallHealthStatus == "Healthy" ? "border-success" : dashboard?.OverallHealthStatus == "Degraded" ? "border-warning" : "border-danger")">
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        @if (dashboard?.OverallHealthStatus == "Healthy")
+                        {
+                            <i class="bi bi-heart-fill text-success" style="font-size: 3rem;"></i>
+                        }
+                        else if (dashboard?.OverallHealthStatus == "Degraded")
+                        {
+                            <i class="bi bi-heart-half text-warning" style="font-size: 3rem;"></i>
+                        }
+                        else
+                        {
+                            <i class="bi bi-heart text-danger" style="font-size: 3rem;"></i>
+                        }
+                    </div>
+                    <h5>System Health</h5>
+                    <p class="mb-1">
+                        <span class="badge @GetHealthBadgeClass(dashboard?.OverallHealthStatus)">
+                            @(dashboard?.OverallHealthStatus ?? "Unknown")
+                        </span>
+                    </p>
+                    <small class="text-muted">
+                        Active Issues: @(dashboard?.ActiveIssuesCount ?? 0)
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card h-100 @(queueStatus?.PendingCount > 0 ? "border-warning" : "border-success")">
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        @if (queueStatus?.PendingCount > 0)
+                        {
+                            <i class="bi bi-clock-history text-warning" style="font-size: 3rem;"></i>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check2-all text-success" style="font-size: 3rem;"></i>
+                        }
+                    </div>
+                    <h5>Offline Queue</h5>
+                    <p class="mb-1">
+                        <span class="badge @(queueStatus?.PendingCount > 0 ? "bg-warning" : "bg-success")">
+                            @(queueStatus?.PendingCount ?? 0) Pending
+                        </span>
+                        @if ((queueStatus?.FailedCount ?? 0) > 0)
+                        {
+                            <span class="badge bg-danger ms-1">@queueStatus!.FailedCount Failed</span>
+                        }
+                    </p>
+                    <small class="text-muted">
+                        Processing: @(queueStatus?.ProcessingCount ?? 0)
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cache Status -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-database me-2"></i>Cache Status</h5>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="RefreshCacheStatus">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+        </div>
+        <div class="card-body">
+            @if (cacheStatus != null && cacheStatus.Any())
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Entity</th>
+                                <th class="text-end">Cached Items</th>
+                                <th>Last Sync</th>
+                                <th>Status</th>
+                                <th>Sync Frequency</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var cache in cacheStatus)
+                            {
+                                <tr>
+                                    <td><strong>@cache.EntityType</strong></td>
+                                    <td class="text-end">@cache.CachedCount.ToString("N0")</td>
+                                    <td>
+                                        @if (cache.LastSyncAt.HasValue)
+                                        {
+                                            <span
+                                                title="@cache.LastSyncAt.Value.ToString("dd MMM yyyy HH:mm")">@cache.TimeAgo</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">Never</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="badge @cache.StatusBadgeClass">
+                                            @cache.SyncStatus
+                                        </span>
+                                    </td>
+                                    <td>@cache.SyncFrequency</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="text-center py-4 text-muted">
+                    <i class="bi bi-info-circle me-2"></i>No cache information available
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Offline Queue -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-list-task me-2"></i>Offline Queue</h5>
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-success" @onclick="ProcessQueue"
+                    disabled="@isProcessing || (queueStatus?.PendingCount ?? 0) == 0">
+                    @if (isProcessing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    Process Queue
+                </button>
+                <button class="btn btn-outline-secondary" @onclick="RefreshQueueItems">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (queuedTransactions != null && queuedTransactions.Any())
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Type</th>
+                                <th>Entity</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                                <th>Attempts</th>
+                                <th>Error</th>
+                                <th class="text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in queuedTransactions)
+                            {
+                                <tr class="@GetQueueRowClass(item.Status)">
+                                    <td><code>@item.Id</code></td>
+                                    <td>@item.TransactionType</td>
+                                    <td>
+                                        <strong>@item.EntityType</strong>
+                                        @if (!string.IsNullOrEmpty(item.EntityId))
+                                        {
+                                            <br>
+
+                                            <small class="text-muted">@item.EntityId</small>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="badge @item.StatusBadgeClass">@item.Status</span>
+                                    </td>
+                                    <td>
+                                        <span title="@item.CreatedAt.ToString("dd MMM yyyy HH:mm")">@item.TimeAgo</span>
+                                    </td>
+                                    <td class="text-center">
+                                        @item.RetryCount / @item.MaxRetries
+                                    </td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(item.ErrorMessage))
+                                        {
+                                            <span class="text-danger" title="@item.ErrorMessage">
+                                                <i class="bi bi-exclamation-triangle"></i>
+                                                @(item.ErrorMessage.Length > 30 ? item.ErrorMessage.Substring(0, 30) + "..." :
+                                                                                    item.ErrorMessage)
+                                            </span>
+                                        }
+                                    </td>
+                                    <td class="text-end">
+                                        @if (item.Status == "Failed")
+                                        {
+                                            <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => RetryItem(item.Id)"
+                                                title="Retry">
+                                                <i class="bi bi-arrow-repeat"></i>
+                                            </button>
+                                        }
+                                        @if (item.Status != "Processing")
+                                        {
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => CancelItem(item.Id)"
+                                                title="Cancel">
+                                                <i class="bi bi-x"></i>
+                                            </button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="text-center py-4 text-success">
+                    <i class="bi bi-check-circle me-2"></i>No pending transactions in queue
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Recent Sync Logs -->
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-journal-text me-2"></i>Recent Connection Logs</h5>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="RefreshLogs">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+        </div>
+        <div class="card-body">
+            @if (connectionLogs != null && connectionLogs.Any())
+            {
+                <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                    <table class="table table-sm table-hover">
+                        <thead class="sticky-top bg-white">
+                            <tr>
+                                <th>Time</th>
+                                <th>Action</th>
+                                <th>Status</th>
+                                <th>Duration</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var log in connectionLogs)
+                            {
+                                <tr>
+                                    <td><small>@log.Timestamp.ToString("dd MMM HH:mm:ss")</small></td>
+                                    <td>@log.Action</td>
+                                    <td>
+                                        <span class="badge @(log.Success ? "bg-success" : "bg-danger")">
+                                            @(log.Success ? "Success" : "Failed")
+                                        </span>
+                                    </td>
+                                    <td>@(log.DurationMs.HasValue ? $"{log.DurationMs}ms" : "-")</td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(log.Message))
+                                        {
+                                            <small class="@(log.Success ? "" : "text-danger")">@log.Message</small>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="text-center py-4 text-muted">
+                    <i class="bi bi-info-circle me-2"></i>No recent connection logs
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Alert Message -->
+@if (!string.IsNullOrEmpty(alertMessage))
+{
+    <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1100;">
+        <div class="toast show @(alertSuccess ? "bg-success" : "bg-danger") text-white">
+            <div class="toast-body d-flex justify-content-between align-items-center">
+                <span>@alertMessage</span>
+                <button type="button" class="btn-close btn-close-white ms-3" @onclick="() => alertMessage = null"></button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isRefreshing = false;
+    private bool isTesting = false;
+    private bool isProcessing = false;
+    private string? alertMessage;
+    private bool alertSuccess;
+    private System.Threading.Timer? refreshTimer;
+    private string currentUsername = "Unknown";
+    private string currentUserRole = "User";
+
+    private SapConnectionStatusModel? sapStatus;
+    private SyncDashboardModel? dashboard;
+    private OfflineQueueStatusModel? queueStatus;
+    private List<CacheSyncStatusModel> cacheStatus = new();
+    private List<QueuedTransactionModel> queuedTransactions = new();
+    private List<ConnectionLogModel> connectionLogs = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCurrentUser();
+        await RefreshAll();
+        await AuditService.LogAsync("ViewSyncStatus", currentUsername, currentUserRole, "System", null, "Accessed sync status page", "/sync-status");
+
+        // Auto-refresh every 30 seconds
+        refreshTimer = new System.Threading.Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+    {
+            await RefreshAll();
+            StateHasChanged();
+        });
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task LoadCurrentUser()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        currentUsername = authState.User.Identity?.Name ?? "Unknown";
+        currentUserRole = authState.User.Claims.FirstOrDefault(c => c.Type == System.Security.Claims.ClaimTypes.Role)?.Value ??
+        "User";
+    }
+
+    private async Task RefreshAll()
+    {
+        isRefreshing = true;
+        try
+        {
+            var tasks = new List<Task>
+{
+RefreshSapStatus(),
+RefreshDashboard(),
+RefreshQueueStatus(),
+RefreshCacheStatus(),
+RefreshQueueItems(),
+RefreshLogs()
+};
+            await Task.WhenAll(tasks);
+        }
+        finally
+        {
+            isRefreshing = false;
+        }
+    }
+
+    private async Task RefreshSapStatus()
+    {
+        try
+        {
+            sapStatus = await SyncService.GetSapConnectionStatusAsync();
+        }
+        catch { }
+    }
+
+    private async Task RefreshDashboard()
+    {
+        try
+        {
+            dashboard = await SyncService.GetSyncDashboardAsync();
+        }
+        catch { }
+    }
+
+    private async Task RefreshQueueStatus()
+    {
+        try
+        {
+            queueStatus = await SyncService.GetOfflineQueueStatusAsync();
+        }
+        catch { }
+    }
+
+    private async Task RefreshCacheStatus()
+    {
+        try
+        {
+            cacheStatus = await SyncService.GetCacheSyncStatusAsync();
+        }
+        catch { }
+    }
+
+    private async Task RefreshQueueItems()
+    {
+        try
+        {
+            queuedTransactions = await SyncService.GetQueuedTransactionsAsync();
+        }
+        catch { }
+    }
+
+    private async Task RefreshLogs()
+    {
+        try
+        {
+            connectionLogs = await SyncService.GetConnectionLogsAsync(50);
+        }
+        catch { }
+    }
+
+    private async Task TestConnection()
+    {
+        isTesting = true;
+        try
+        {
+            var result = await SyncService.TestSapConnectionAsync();
+            if (result)
+            {
+                ShowAlert("SAP connection successful!", true);
+            }
+            else
+            {
+                ShowAlert("SAP connection failed. Check configuration.", false);
+            }
+            await RefreshSapStatus();
+        }
+        catch (Exception ex)
+        {
+            ShowAlert($"Connection test failed: {ex.Message}", false);
+        }
+        finally
+        {
+            isTesting = false;
+        }
+    }
+
+    private async Task ProcessQueue()
+    {
+        isProcessing = true;
+        try
+        {
+            var processed = await SyncService.ProcessQueueAsync();
+            ShowAlert($"Processed {processed} queue items", true);
+            await RefreshQueueStatus();
+            await RefreshQueueItems();
+            await AuditService.LogAsync("ProcessQueue", currentUsername, currentUserRole, "System", null, $"Manually processed {processed} queue items", "/sync-status");
+        }
+        catch (Exception ex)
+        {
+            ShowAlert($"Error processing queue: {ex.Message}", false);
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task RetryItem(int itemId)
+    {
+        try
+        {
+            await SyncService.RetryQueueItemAsync(itemId);
+            ShowAlert("Item queued for retry", true);
+            await RefreshQueueItems();
+        }
+        catch (Exception ex)
+        {
+            ShowAlert($"Error: {ex.Message}", false);
+        }
+    }
+
+    private async Task CancelItem(int itemId)
+    {
+        try
+        {
+            await SyncService.CancelQueueItemAsync(itemId);
+            ShowAlert("Item cancelled", true);
+            await RefreshQueueItems();
+            await RefreshQueueStatus();
+        }
+        catch (Exception ex)
+        {
+            ShowAlert($"Error: {ex.Message}", false);
+        }
+    }
+
+    private string GetHealthBadgeClass(string? status) => status switch
+    {
+        "Healthy" => "bg-success",
+        "Degraded" => "bg-warning",
+        "Unhealthy" => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private string GetQueueRowClass(string status) => status switch
+    {
+        "Failed" => "table-danger",
+        "Processing" => "table-info",
+        "Pending" => "",
+        _ => ""
+    };
+
+    private void ShowAlert(string message, bool success)
+    {
+        alertMessage = message;
+        alertSuccess = success;
+        StateHasChanged();
+        _ = Task.Delay(5000).ContinueWith(_ =>
+        {
+            alertMessage = null;
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    public void Dispose()
+    {
+        refreshTimer?.Dispose();
+    }
+}

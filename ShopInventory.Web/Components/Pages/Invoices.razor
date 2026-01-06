@@ -1,0 +1,490 @@
+@page "/invoices"
+@inject IInvoiceService InvoiceService
+@inject NavigationManager NavigationManager
+@rendermode InteractiveServer
+
+<PageTitle>Invoices - Shop Inventory</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-receipt me-2"></i>Invoices</h2>
+        <a href="invoices/create" class="btn btn-primary">
+            <i class="bi bi-plus-circle me-2"></i>Create Invoice
+        </a>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-funnel me-2"></i>Filter</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-2">
+                    <label class="form-label">Doc Number</label>
+                    <input type="number" class="form-control" @bind="docNumSearch" @bind:event="oninput"
+                        @onkeyup="OnDocNumChanged" placeholder="e.g., 123" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Customer Code</label>
+                    <input type="text" class="form-control" @bind="customerCode" @bind:event="oninput"
+                        @onkeyup="OnCustomerCodeChanged" placeholder="e.g., C001" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">From Date</label>
+                    <input type="date" class="form-control" @bind="fromDate" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">To Date</label>
+                    <input type="date" class="form-control" @bind="toDate" />
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button class="btn btn-primary me-2" @onclick="ApplyFilter">
+                        <i class="bi bi-search me-1"></i>Search
+                    </button>
+                    <button class="btn btn-outline-secondary" @onclick="ClearFilter">
+                        <i class="bi bi-x-circle me-1"></i>Clear
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading invoices...</p>
+        </div>
+    }
+    else if (errorMessage != null)
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+        </div>
+    }
+    else if (invoices?.Any() == true)
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Doc Entry</th>
+                                <th>Doc #</th>
+                                <th>Customer</th>
+                                <th>Date</th>
+                                <th>Due Date</th>
+                                <th>Currency</th>
+                                <th class="text-end">VAT</th>
+                                <th class="text-end">Total</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var invoice in invoices)
+                            {
+                                <tr>
+                                    <td>@invoice.DocEntry</td>
+                                    <td><strong>@invoice.DocNum</strong></td>
+                                    <td>
+                                        <span class="badge bg-secondary">@invoice.CardCode</span>
+                                        @invoice.CardName
+                                    </td>
+                                    <td>@FormatDate(invoice.DocDate)</td>
+                                    <td>@FormatDate(invoice.DocDueDate)</td>
+                                    <td>@invoice.DocCurrency</td>
+                                    <td class="text-end">@invoice.VatSum.ToString("N2")</td>
+                                    <td class="text-end"><strong>@invoice.DocTotal.ToString("N2")</strong></td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary"
+                                            @onclick="() => ViewInvoice(invoice.DocEntry)">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mt-3">
+                    <div>
+                        Showing @invoices.Count invoices (Page @currentPage)
+                    </div>
+                    <div>
+                        <button class="btn btn-outline-primary btn-sm me-2" @onclick="PreviousPage"
+                            disabled="@(currentPage <= 1)">
+                            <i class="bi bi-chevron-left"></i> Previous
+                        </button>
+                        <button class="btn btn-outline-primary btn-sm" @onclick="NextPage" disabled="@(!hasMore)">
+                            Next <i class="bi bi-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>No invoices found.
+        </div>
+    }
+</div>
+
+<!-- Invoice Detail Modal -->
+@if (selectedInvoice != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Invoice #@selectedInvoice.DocNum</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <p><strong>Customer:</strong> @selectedInvoice.CardName (@selectedInvoice.CardCode)</p>
+                            <p><strong>Date:</strong> @FormatDate(selectedInvoice.DocDate)</p>
+                            <p><strong>Due Date:</strong> @FormatDate(selectedInvoice.DocDueDate)</p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Currency:</strong> @selectedInvoice.DocCurrency</p>
+                            <p><strong>Reference:</strong> @selectedInvoice.NumAtCard</p>
+                            <p><strong>Comments:</strong> @selectedInvoice.Comments</p>
+                        </div>
+                    </div>
+
+                    @if (selectedInvoice.Lines?.Any() == true)
+                    {
+                        <h6>Invoice Lines</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Item Code</th>
+                                        <th>Description</th>
+                                        <th>Warehouse</th>
+                                        <th class="text-end">Qty</th>
+                                        <th class="text-end">Price</th>
+                                        <th class="text-end">Discount</th>
+                                        <th class="text-end">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var line in selectedInvoice.Lines)
+                                    {
+                                        <tr>
+                                            <td>@line.LineNum</td>
+                                            <td>@line.ItemCode</td>
+                                            <td>@line.ItemDescription</td>
+                                            <td>@line.WarehouseCode</td>
+                                            <td class="text-end">@line.Quantity</td>
+                                            <td class="text-end">@line.UnitPrice.ToString("N2")</td>
+                                            <td class="text-end">@line.DiscountPercent%</td>
+                                            <td class="text-end">@line.LineTotal.ToString("N2")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                <tfoot>
+                                    <tr class="table-light">
+                                        <td colspan="7" class="text-end"><strong>VAT:</strong></td>
+                                        <td class="text-end">@selectedInvoice.VatSum.ToString("N2")</td>
+                                    </tr>
+                                    <tr class="table-primary">
+                                        <td colspan="7" class="text-end"><strong>Total:</strong></td>
+                                        <td class="text-end"><strong>@selectedInvoice.DocTotal.ToString("N2")</strong></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<InvoiceDto>? invoices;
+    private List<InvoiceDto>? allInvoices; // Store all invoices for client-side filtering
+    private InvoiceDto? selectedInvoice;
+    private bool isLoading = true;
+    private string? errorMessage;
+    private int currentPage = 1;
+    private int pageSize = 20;
+    private bool hasMore = false;
+
+    private int? docNumSearch;
+    private string? customerCode;
+    private DateTime? fromDate;
+    private DateTime? toDate;
+
+    private CancellationTokenSource? _debounceTokenSource;
+    private const int DebounceDelayMs = 300;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadInvoices();
+    }
+
+    private string FormatDate(string? dateStr)
+    {
+        if (string.IsNullOrEmpty(dateStr))
+            return "-";
+
+        if (DateTime.TryParse(dateStr, out var date))
+            return date.ToString("dd MMM yyyy");
+
+        return dateStr;
+    }
+
+    private async Task LoadInvoices()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var response = await InvoiceService.GetInvoicesAsync(currentPage, pageSize);
+            if (response != null)
+            {
+                invoices = response.Invoices;
+                allInvoices = response.Invoices; // Store for client-side filtering
+                hasMore = response.HasMore;
+            }
+            else
+            {
+                errorMessage = "Failed to load invoices";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadAllInvoicesIfNeeded()
+    {
+        if (allInvoices == null || allInvoices.Count < 100)
+        {
+            try
+            {
+                var response = await InvoiceService.GetInvoicesAsync(1, 1000);
+                if (response?.Invoices != null)
+                {
+                    allInvoices = response.Invoices;
+                }
+            }
+            catch
+            {
+                // Keep existing data if load fails
+            }
+        }
+    }
+
+    private async Task OnDocNumChanged()
+    {
+        // Cancel previous debounce
+        _debounceTokenSource?.Cancel();
+        _debounceTokenSource = new CancellationTokenSource();
+
+        try
+        {
+            await Task.Delay(DebounceDelayMs, _debounceTokenSource.Token);
+            await FilterByDocNum();
+        }
+        catch (TaskCanceledException)
+        {
+            // Debounce cancelled, ignore
+        }
+    }
+
+    private async Task OnCustomerCodeChanged()
+    {
+        // Cancel previous debounce
+        _debounceTokenSource?.Cancel();
+        _debounceTokenSource = new CancellationTokenSource();
+
+        try
+        {
+            await Task.Delay(DebounceDelayMs, _debounceTokenSource.Token);
+            await FilterByCustomerCode();
+        }
+        catch (TaskCanceledException)
+        {
+            // Debounce cancelled, ignore
+        }
+    }
+
+    private async Task FilterByDocNum()
+    {
+        if (!docNumSearch.HasValue || docNumSearch.Value == 0)
+        {
+            // If cleared, reload original list
+            if (string.IsNullOrWhiteSpace(customerCode))
+            {
+                await LoadInvoices();
+            }
+            return;
+        }
+
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            await LoadAllInvoicesIfNeeded();
+
+            if (allInvoices != null)
+            {
+                var searchNum = docNumSearch.Value.ToString();
+                invoices = allInvoices
+                .Where(i => i.DocNum.ToString().Contains(searchNum))
+                .ToList();
+                hasMore = false;
+            }
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task FilterByCustomerCode()
+    {
+        if (string.IsNullOrWhiteSpace(customerCode))
+        {
+            // If cleared, reload original list
+            if (!docNumSearch.HasValue)
+            {
+                await LoadInvoices();
+            }
+            return;
+        }
+
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            await LoadAllInvoicesIfNeeded();
+
+            if (allInvoices != null)
+            {
+                var searchCode = customerCode.ToUpper();
+                invoices = allInvoices
+                .Where(i => (i.CardCode?.ToUpper().Contains(searchCode) ?? false) ||
+                (i.CardName?.ToUpper().Contains(searchCode) ?? false))
+                .ToList();
+                hasMore = false;
+            }
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ApplyFilter()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            // First load all invoices if filtering by DocNum (client-side filter)
+            if (docNumSearch.HasValue)
+            {
+                var response = await InvoiceService.GetInvoicesAsync(1, 1000);
+                if (response?.Invoices != null)
+                {
+                    invoices = response.Invoices
+                    .Where(i => i.DocNum == docNumSearch.Value)
+                    .ToList();
+                    hasMore = false;
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(customerCode))
+            {
+                var response = await InvoiceService.GetInvoicesByCustomerAsync(customerCode);
+                invoices = response?.Invoices;
+            }
+            else if (fromDate.HasValue && toDate.HasValue)
+            {
+                var response = await InvoiceService.GetInvoicesByDateRangeAsync(fromDate.Value, toDate.Value);
+                invoices = response?.Invoices;
+            }
+            else if (fromDate.HasValue)
+            {
+                var response = await InvoiceService.GetInvoicesByDateAsync(fromDate.Value);
+                invoices = response?.Invoices;
+            }
+            else
+            {
+                await LoadInvoices();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ClearFilter()
+    {
+        docNumSearch = null;
+        customerCode = null;
+        fromDate = null;
+        toDate = null;
+        currentPage = 1;
+        allInvoices = null; // Clear cache to force reload
+        await LoadInvoices();
+    }
+
+    private async Task ViewInvoice(int docEntry)
+    {
+        selectedInvoice = await InvoiceService.GetInvoiceByDocEntryAsync(docEntry);
+    }
+
+    private void CloseModal()
+    {
+        selectedInvoice = null;
+    }
+
+    private async Task PreviousPage()
+    {
+        if (currentPage > 1)
+        {
+            currentPage--;
+            await LoadInvoices();
+        }
+    }
+
+    private async Task NextPage()
+    {
+        if (hasMore)
+        {
+            currentPage++;
+            await LoadInvoices();
+        }
+    }
+}

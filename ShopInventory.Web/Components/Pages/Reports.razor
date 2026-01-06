@@ -1,0 +1,679 @@
+@page "/reports"
+@using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IReportService ReportService
+@inject IAuditService AuditService
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<PageTitle>Reports - Shop Inventory</PageTitle>
+
+<div class="container-fluid fade-in">
+    <div class="page-header">
+        <h2>
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16"
+                style="color: var(--primary-color);">
+                <path
+                    d="M4 11H2v3h2v-3zm5-4H7v7h2V7zm5-5v12h-2V2h2zm-2-1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1h-2zM6 7a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V7zm-5 4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1v-3z" />
+            </svg>
+            Reports & Analytics
+        </h2>
+        <span class="text-muted">Business insights and performance metrics</span>
+    </div>
+
+    <!-- Date Range Filter -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label">From Date</label>
+                    <input type="date" class="form-control" @bind="fromDate" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">To Date</label>
+                    <input type="date" class="form-control" @bind="toDate" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Quick Select</label>
+                    <select class="form-select" @onchange="OnQuickSelectChanged">
+                        <option value="7">Last 7 Days</option>
+                        <option value="30" selected>Last 30 Days</option>
+                        <option value="90">Last 90 Days</option>
+                        <option value="365">Last Year</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-primary w-100" @onclick="LoadReports" disabled="@isLoading">
+                        @if (isLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        Generate Reports
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Report Tabs -->
+    <ul class="nav nav-tabs mb-4" role="tablist">
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "sales" ? "active" : "")" @onclick='() => activeTab = "sales"'>
+                <i class="bi bi-graph-up me-2"></i>Sales
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "products" ? "active" : "")" @onclick='() => activeTab = "products"'>
+                <i class="bi bi-box-seam me-2"></i>Top Products
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "stock" ? "active" : "")" @onclick='() => activeTab = "stock"'>
+                <i class="bi bi-boxes me-2"></i>Stock
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "payments" ? "active" : "")" @onclick='() => activeTab = "payments"'>
+                <i class="bi bi-cash-stack me-2"></i>Payments
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "customers" ? "active" : "")"
+                @onclick='() => activeTab = "customers"'>
+                <i class="bi bi-people me-2"></i>Top Customers
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "alerts" ? "active" : "")" @onclick='() => activeTab = "alerts"'>
+                <i class="bi bi-exclamation-triangle me-2"></i>Low Stock Alerts
+                @if (lowStockReport?.TotalAlerts > 0)
+                {
+                    <span class="badge bg-danger ms-2">@lowStockReport.TotalAlerts</span>
+                }
+            </button>
+        </li>
+    </ul>
+
+    <!-- Sales Report Tab -->
+    @if (activeTab == "sales")
+    {
+        <div class="row">
+            @if (salesReport != null)
+            {
+                <!-- Summary Cards -->
+                <div class="col-md-3 mb-4">
+                    <div class="card h-100 border-primary">
+                        <div class="card-body text-center">
+                            <h6 class="text-muted">Total Invoices</h6>
+                            <h2 class="text-primary">@salesReport.TotalInvoices</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-4">
+                    <div class="card h-100 border-success">
+                        <div class="card-body text-center">
+                            <h6 class="text-muted">Sales (USD)</h6>
+                            <h2 class="text-success">$@salesReport.TotalSalesUSD.ToString("N2")</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-4">
+                    <div class="card h-100 border-info">
+                        <div class="card-body text-center">
+                            <h6 class="text-muted">Sales (ZIG)</h6>
+                            <h2 class="text-info">ZIG @salesReport.TotalSalesZIG.ToString("N2")</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-4">
+                    <div class="card h-100 border-warning">
+                        <div class="card-body text-center">
+                            <h6 class="text-muted">Unique Customers</h6>
+                            <h2 class="text-warning">@salesReport.UniqueCustomers</h2>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Daily Sales Table -->
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Daily Sales Breakdown</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th class="text-end">Invoices</th>
+                                            <th class="text-end">USD Sales</th>
+                                            <th class="text-end">ZIG Sales</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var day in salesReport.DailySales.OrderByDescending(d => d.Date))
+                                        {
+                                            <tr>
+                                                <td>@day.Date.ToString("ddd, dd MMM yyyy")</td>
+                                                <td class="text-end">@day.InvoiceCount</td>
+                                                <td class="text-end text-success">$@day.TotalSalesUSD.ToString("N2")</td>
+                                                <td class="text-end text-info">ZIG @day.TotalSalesZIG.ToString("N2")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+            else if (!isLoading)
+            {
+                <div class="col-12">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-2"></i>Click "Generate Reports" to load sales data.
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Top Products Tab -->
+    @if (activeTab == "products")
+    {
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Top Selling Products</h5>
+                <div>
+                    <label class="me-2">Show Top:</label>
+                    <select class="form-select form-select-sm d-inline-block w-auto" @bind="topProductsCount"
+                        @bind:after="LoadTopProducts">
+                        <option value="10">10</option>
+                        <option value="20">20</option>
+                        <option value="50">50</option>
+                    </select>
+                </div>
+            </div>
+            <div class="card-body">
+                @if (topProductsReport != null && topProductsReport.TopProducts.Any())
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>Item Code</th>
+                                    <th>Item Name</th>
+                                    <th class="text-end">Qty Sold</th>
+                                    <th class="text-end">Times Ordered</th>
+                                    <th class="text-end">Revenue (USD)</th>
+                                    <th class="text-end">Revenue (ZIG)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var product in topProductsReport.TopProducts)
+                                {
+                                    <tr>
+                                        <td><span class="badge bg-secondary">@product.Rank</span></td>
+                                        <td><code>@product.ItemCode</code></td>
+                                        <td>@product.ItemName</td>
+                                        <td class="text-end">@product.TotalQuantitySold.ToString("N0")</td>
+                                        <td class="text-end">@product.TimesOrdered</td>
+                                        <td class="text-end text-success">$@product.TotalRevenueUSD.ToString("N2")</td>
+                                        <td class="text-end text-info">ZIG @product.TotalRevenueZIG.ToString("N2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else if (!isLoading)
+                {
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-2"></i>No product data available for the selected period.
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Stock Summary Tab -->
+    @if (activeTab == "stock")
+    {
+        @if (stockReport != null)
+        {
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="card text-center border-primary">
+                        <div class="card-body">
+                            <h6 class="text-muted">Total Products</h6>
+                            <h2 class="text-primary">@stockReport.TotalProducts</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center border-success">
+                        <div class="card-body">
+                            <h6 class="text-muted">In Stock</h6>
+                            <h2 class="text-success">@stockReport.ProductsInStock</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center border-danger">
+                        <div class="card-body">
+                            <h6 class="text-muted">Out of Stock</h6>
+                            <h2 class="text-danger">@stockReport.ProductsOutOfStock</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center border-warning">
+                        <div class="card-body">
+                            <h6 class="text-muted">Below Reorder</h6>
+                            <h2 class="text-warning">@stockReport.ProductsBelowReorderLevel</h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Stock by Warehouse</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Warehouse</th>
+                                    <th class="text-end">Products</th>
+                                    <th class="text-end">Total Qty</th>
+                                    <th class="text-end">Value (USD)</th>
+                                    <th class="text-end">Value (ZIG)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var wh in stockReport.StockByWarehouse)
+                                {
+                                    <tr>
+                                        <td><strong>@wh.WarehouseCode</strong> - @wh.WarehouseName</td>
+                                        <td class="text-end">@wh.ProductCount</td>
+                                        <td class="text-end">@wh.TotalQuantity.ToString("N0")</td>
+                                        <td class="text-end text-success">$@wh.TotalValueUSD.ToString("N2")</td>
+                                        <td class="text-end text-info">ZIG @wh.TotalValueZIG.ToString("N2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr class="table-secondary fw-bold">
+                                    <td>Total</td>
+                                    <td class="text-end">@stockReport.TotalProducts</td>
+                                    <td class="text-end">@stockReport.StockByWarehouse.Sum(w => w.TotalQuantity).ToString("N0")
+                                    </td>
+                                    <td class="text-end text-success">$@stockReport.TotalStockValueUSD.ToString("N2")</td>
+                                    <td class="text-end text-info">ZIG @stockReport.TotalStockValueZIG.ToString("N2")</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+        else if (!isLoading)
+        {
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>Click "Generate Reports" to load stock data.
+            </div>
+        }
+    }
+
+    <!-- Payments Tab -->
+    @if (activeTab == "payments")
+    {
+        @if (paymentReport != null)
+        {
+            <div class="row mb-4">
+                <div class="col-md-4">
+                    <div class="card text-center border-primary">
+                        <div class="card-body">
+                            <h6 class="text-muted">Total Payments</h6>
+                            <h2 class="text-primary">@paymentReport.TotalPayments</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card text-center border-success">
+                        <div class="card-body">
+                            <h6 class="text-muted">Total (USD)</h6>
+                            <h2 class="text-success">$@paymentReport.TotalAmountUSD.ToString("N2")</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card text-center border-info">
+                        <div class="card-body">
+                            <h6 class="text-muted">Total (ZIG)</h6>
+                            <h2 class="text-info">ZIG @paymentReport.TotalAmountZIG.ToString("N2")</h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Payments by Method</h5>
+                        </div>
+                        <div class="card-body">
+                            @foreach (var method in paymentReport.PaymentsByMethod)
+                            {
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <div>
+                                        <strong>@method.PaymentMethod</strong>
+                                        <span class="text-muted ms-2">(@method.PaymentCount payments)</span>
+                                    </div>
+                                    <span class="badge bg-primary">@method.PercentageOfTotal.ToString("N1")%</span>
+                                </div>
+                                <div class="progress mb-3" style="height: 20px;">
+                                    <div class="progress-bar" role="progressbar" style="width: @method.PercentageOfTotal%">
+                                        $@method.TotalAmountUSD.ToString("N0")
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Daily Payments</h5>
+                        </div>
+                        <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th class="text-end">#</th>
+                                        <th class="text-end">USD</th>
+                                        <th class="text-end">ZIG</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var day in paymentReport.DailyPayments.OrderByDescending(d => d.Date))
+                                    {
+                                        <tr>
+                                            <td>@day.Date.ToString("dd MMM yyyy")</td>
+                                            <td class="text-end">@day.PaymentCount</td>
+                                            <td class="text-end text-success">$@day.TotalAmountUSD.ToString("N0")</td>
+                                            <td class="text-end text-info">@day.TotalAmountZIG.ToString("N0")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+        else if (!isLoading)
+        {
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>Click "Generate Reports" to load payment data.
+            </div>
+        }
+    }
+
+    <!-- Top Customers Tab -->
+    @if (activeTab == "customers")
+    {
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Top Customers by Purchase Value</h5>
+            </div>
+            <div class="card-body">
+                @if (topCustomersReport != null && topCustomersReport.TopCustomers.Any())
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>Customer</th>
+                                    <th class="text-end">Invoices</th>
+                                    <th class="text-end">Purchases (USD)</th>
+                                    <th class="text-end">Payments (USD)</th>
+                                    <th class="text-end">Balance (USD)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var customer in topCustomersReport.TopCustomers)
+                                {
+                                    <tr>
+                                        <td><span class="badge bg-secondary">@customer.Rank</span></td>
+                                        <td>
+                                            <strong>@customer.CardName</strong>
+                                            <br><small class="text-muted">@customer.CardCode</small>
+                                        </td>
+                                        <td class="text-end">@customer.InvoiceCount</td>
+                                        <td class="text-end text-success">$@customer.TotalPurchasesUSD.ToString("N2")</td>
+                                        <td class="text-end text-primary">$@customer.TotalPaymentsUSD.ToString("N2")</td>
+                                        <td class="text-end @(customer.OutstandingBalanceUSD > 0 ? "text-danger" : "text-success")">
+                                            $@customer.OutstandingBalanceUSD.ToString("N2")
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else if (!isLoading)
+                {
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-2"></i>No customer data available for the selected period.
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Low Stock Alerts Tab -->
+    @if (activeTab == "alerts")
+    {
+        @if (lowStockReport != null)
+        {
+            <div class="row mb-4">
+                <div class="col-md-4">
+                    <div class="card text-center border-danger">
+                        <div class="card-body">
+                            <h6 class="text-muted">Total Alerts</h6>
+                            <h2 class="text-danger">@lowStockReport.TotalAlerts</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card text-center border-danger">
+                        <div class="card-body">
+                            <h6 class="text-muted">Critical</h6>
+                            <h2 class="text-danger">@lowStockReport.CriticalCount</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card text-center border-warning">
+                        <div class="card-body">
+                            <h6 class="text-muted">Warning</h6>
+                            <h2 class="text-warning">@lowStockReport.WarningCount</h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Items Below Reorder Level</h5>
+                </div>
+                <div class="card-body">
+                    @if (lowStockReport.Items.Any())
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Alert</th>
+                                        <th>Item Code</th>
+                                        <th>Item Name</th>
+                                        <th>Warehouse</th>
+                                        <th class="text-end">Current</th>
+                                        <th class="text-end">Reorder Level</th>
+                                        <th class="text-end">Suggested Order</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in lowStockReport.Items.OrderBy(i => i.AlertLevel == "Critical" ? 0 :
+                                                            1).ThenBy(i => i.CurrentStock))
+                                    {
+                                        <tr class="@(item.AlertLevel == "Critical" ? "table-danger" : "table-warning")">
+                                            <td>
+                                                <span class="badge @(item.AlertLevel == "Critical" ? "bg-danger" : "bg-warning")">
+                                                    @item.AlertLevel
+                                                </span>
+                                            </td>
+                                            <td><code>@item.ItemCode</code></td>
+                                            <td>@item.ItemName</td>
+                                            <td>@item.WarehouseCode</td>
+                                            <td class="text-end fw-bold">@item.CurrentStock.ToString("N0")</td>
+                                            <td class="text-end">@item.ReorderLevel.ToString("N0")</td>
+                                            <td class="text-end text-primary">@item.SuggestedReorderQty.ToString("N0")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-success">
+                            <i class="bi bi-check-circle me-2"></i>All items are above reorder level!
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        else if (!isLoading)
+        {
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>Click "Generate Reports" to check low stock alerts.
+            </div>
+        }
+    }
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-muted">Loading reports...</p>
+        </div>
+    }
+</div>
+
+@code {
+    private string activeTab = "sales";
+    private bool isLoading = false;
+    private DateTime fromDate = DateTime.UtcNow.AddDays(-30);
+    private DateTime toDate = DateTime.UtcNow;
+    private int topProductsCount = 10;
+    private string currentUsername = "Unknown";
+    private string currentUserRole = "User";
+
+    private SalesSummaryReport? salesReport;
+    private TopProductsReport? topProductsReport;
+    private StockSummaryReport? stockReport;
+    private PaymentSummaryReport? paymentReport;
+    private TopCustomersReport? topCustomersReport;
+    private LowStockAlertReport? lowStockReport;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCurrentUser();
+        await AuditService.LogAsync("ViewReports", currentUsername, currentUserRole, "Report", null, "Accessed reports page",
+        "/reports");
+    }
+
+    private async Task LoadCurrentUser()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        currentUsername = authState.User.Identity?.Name ?? "Unknown";
+        currentUserRole = authState.User.Claims.FirstOrDefault(c => c.Type == System.Security.Claims.ClaimTypes.Role)?.Value ??
+        "User";
+    }
+
+    private async Task LoadReports()
+    {
+        isLoading = true;
+        try
+        {
+            // Load all reports in parallel
+            var tasks = new List<Task>
+{
+LoadSalesReport(),
+LoadTopProducts(),
+LoadStockReport(),
+LoadPaymentReport(),
+LoadTopCustomers(),
+LoadLowStockAlerts()
+};
+
+            await Task.WhenAll(tasks);
+            await AuditService.LogAsync("GenerateReports", currentUsername, currentUserRole, "Report", null, $"Generated reports from {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}", "/reports");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadSalesReport()
+    {
+        salesReport = await ReportService.GetSalesSummaryAsync(fromDate, toDate);
+    }
+
+    private async Task LoadTopProducts()
+    {
+        topProductsReport = await ReportService.GetTopProductsAsync(fromDate, toDate, topProductsCount);
+    }
+
+    private async Task LoadStockReport()
+    {
+        stockReport = await ReportService.GetStockSummaryAsync();
+    }
+
+    private async Task LoadPaymentReport()
+    {
+        paymentReport = await ReportService.GetPaymentSummaryAsync(fromDate, toDate);
+    }
+
+    private async Task LoadTopCustomers()
+    {
+        topCustomersReport = await ReportService.GetTopCustomersAsync(fromDate, toDate, 10);
+    }
+
+    private async Task LoadLowStockAlerts()
+    {
+        lowStockReport = await ReportService.GetLowStockAlertsAsync();
+    }
+
+    private void OnQuickSelectChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int days))
+        {
+            fromDate = DateTime.UtcNow.AddDays(-days);
+            toDate = DateTime.UtcNow;
+        }
+    }
+}

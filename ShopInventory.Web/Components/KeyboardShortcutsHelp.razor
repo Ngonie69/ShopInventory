@@ -1,0 +1,59 @@
+@using ShopInventory.Web.Services
+@inject IKeyboardShortcutService KeyboardService
+
+<div class="shortcuts-overlay @(IsOpen ? "open" : "")" @onclick="Close">
+    <div class="shortcuts-modal" @onclick:stopPropagation="true">
+        <div class="shortcuts-header">
+            <h3>⌨️ Keyboard Shortcuts</h3>
+            <button class="close-btn" @onclick="Close">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                    <path
+                        d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854Z" />
+                </svg>
+            </button>
+        </div>
+        <div class="shortcuts-body">
+            @foreach (var category in shortcuts.GroupBy(s => s.Category))
+            {
+                <div class="shortcut-category">
+                    <h4>@category.Key</h4>
+                    <div class="shortcut-list">
+                        @foreach (var shortcut in category)
+                        {
+                            <div class="shortcut-item">
+                                <span class="shortcut-keys">
+                                    @foreach (var key in shortcut.Keys.Split(new[] { " + ", " then " },
+                                                                StringSplitOptions.RemoveEmptyEntries))
+                                    {
+                                        <kbd>@key.Trim()</kbd>
+                                    }
+                                </span>
+                                <span class="shortcut-desc">@shortcut.Description</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+        <div class="shortcuts-footer">
+            <p>Press <kbd>?</kbd> anytime to show this help</p>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+
+    private IReadOnlyList<KeyboardShortcut> shortcuts = new List<KeyboardShortcut>();
+
+    protected override void OnInitialized()
+    {
+        shortcuts = KeyboardService.GetShortcuts();
+    }
+
+    private async void Close()
+    {
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

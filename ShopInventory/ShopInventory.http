@@ -1,0 +1,48 @@
+ShopInventory_HostAddress = http://localhost:5106
+
+### Get inventory transfers to a specific warehouse (replace WKSHOP with your warehouse code)
+GET {{ShopInventory_HostAddress}}/api/inventorytransfer/WKSHOP
+Accept: application/json
+
+### Get all inventory transfers (with pagination) to a specific warehouse
+GET {{ShopInventory_HostAddress}}/api/inventorytransfer/WKSHOP/all
+Accept: application/json
+
+### Get a specific inventory transfer by DocEntry
+GET {{ShopInventory_HostAddress}}/api/inventorytransfer/detail/1
+Accept: application/json
+
+### Create a new Invoice
+POST {{ShopInventory_HostAddress}}/api/Invoice
+Content-Type: application/json
+
+{
+    "CardCode": "CIS002",
+    "DocDate": "2026-01-03",
+    "DocDueDate": "2026-01-10",
+    "NumAtCard": "INV-001",
+    "Comments": "Test invoice created via API",
+    "Lines": [
+        {
+            "ItemCode": "ICC001",
+            "Quantity": 10,
+            "UnitPrice": 5.00,
+            "WarehouseCode": "KEFSHOP",
+            "AccountCode": "40100",
+            "BatchNumbers": [
+                {
+                    "BatchNumber": "ICC001#F22/3,4 I - 22",
+                    "Quantity": 10
+                }
+            ]
+        }
+    ]
+}
+
+### Get Stock in Warehouse
+GET {{ShopInventory_HostAddress}}/api/Stock/warehouse/FSRW
+Accept: application/json
+
+### Get Warehouse Codes
+GET {{ShopInventory_HostAddress}}/api/Stock/warehouse-codes
+Accept: application/json

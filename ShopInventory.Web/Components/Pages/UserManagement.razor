@@ -1,0 +1,996 @@
+@page "/user-management"
+@using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@inject IUserManagementService UserService
+@inject IAuditService AuditService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>User Management - Shop Inventory</PageTitle>
+
+<div class="container-fluid fade-in">
+    <div class="page-header d-flex justify-content-between align-items-center">
+        <div>
+            <h2>
+                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16"
+                    style="color: var(--primary-color);">
+                    <path
+                        d="M15 14s1 0 1-1-1-4-5-4-5 3-5 4 1 1 1 1h8Zm-7.978-1A.261.261 0 0 1 7 12.996c.001-.264.167-1.03.76-1.72C8.312 10.629 9.282 10 11 10c1.717 0 2.687.63 3.24 1.276.593.69.758 1.457.76 1.72l-.008.002a.274.274 0 0 1-.014.002H7.022ZM11 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm3-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM6.936 9.28a5.88 5.88 0 0 0-1.23-.247A7.35 7.35 0 0 0 5 9c-4 0-5 3-5 4 0 .667.333 1 1 1h4.216A2.238 2.238 0 0 1 5 13c0-1.01.377-2.042 1.09-2.904.243-.294.526-.569.846-.816ZM4.92 10A5.493 5.493 0 0 0 4 13H1c0-.26.164-1.03.76-1.724.545-.636 1.492-1.256 3.16-1.275ZM1.5 5.5a3 3 0 1 1 6 0 3 3 0 0 1-6 0Zm3-2a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z" />
+                </svg>
+                Enhanced User Management
+            </h2>
+            <span class="text-muted">Manage users, permissions, and security settings</span>
+        </div>
+        <button class="btn btn-primary" @onclick="ShowCreateModal">
+            <i class="bi bi-plus-circle me-2"></i>Add User
+        </button>
+    </div>
+
+    <!-- Tabs -->
+    <ul class="nav nav-tabs mb-4" role="tablist">
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "users" ? "active" : "")" @onclick="@(() => SetTab("users"))">
+                <i class="bi bi-people me-1"></i>Users
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "permissions" ? "active" : "")"
+                @onclick="@(() => SetTab("permissions"))">
+                <i class="bi bi-shield-lock me-1"></i>Permissions
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "security" ? "active" : "")" @onclick="@(() => SetTab("security"))">
+                <i class="bi bi-key me-1"></i>Security
+            </button>
+        </li>
+    </ul>
+
+    @if (activeTab == "users")
+    {
+        <!-- Search and Filter -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-search"></i></span>
+                            <input type="text" class="form-control" placeholder="Search users..." @bind="searchTerm"
+                                @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <select class="form-select" @bind="roleFilter" @bind:after="LoadUsers">
+                            <option value="">All Roles</option>
+                            @foreach (var role in availableRoles)
+                            {
+                                <option value="@role">@role</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <select class="form-select" @bind="statusFilter" @bind:after="LoadUsers">
+                            <option value="">All Status</option>
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                            <option value="locked">Locked</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-outline-secondary w-100" @onclick="ResetFilters">
+                            <i class="bi bi-arrow-clockwise me-1"></i>Reset
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Users Table -->
+        <div class="card">
+            <div class="card-body">
+                @if (isLoading)
+                {
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                }
+                else if (users.Any())
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th>User</th>
+                                    <th>Role</th>
+                                    <th>Status</th>
+                                    <th>2FA</th>
+                                    <th>Permissions</th>
+                                    <th>Last Login</th>
+                                    <th class="text-end">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var user in users)
+                                {
+                                    <tr>
+                                        <td>
+                                            <div class="d-flex align-items-center">
+                                                <div class="avatar-circle me-3 @(user.IsActive ? "bg-primary" : "bg-secondary")">
+                                                    @user.Username[0].ToString().ToUpper()
+                                                </div>
+                                                <div>
+                                                    <div class="fw-medium">@user.Username</div>
+                                                    <small class="text-muted">@(user.Email ?? "No email")</small>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <span class="badge @GetRoleBadgeClass(user.Role)">@user.Role</span>
+                                        </td>
+                                        <td>
+                                            @if (user.IsLocked)
+                                            {
+                                                <span class="badge bg-danger">Locked</span>
+                                            }
+                                            else if (user.IsActive)
+                                            {
+                                                <span class="badge bg-success">Active</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary">Inactive</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (user.TwoFactorEnabled)
+                                            {
+                                                <span class="badge bg-success"><i class="bi bi-shield-check me-1"></i>Enabled</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-warning text-dark"><i
+                                                        class="bi bi-shield-x me-1"></i>Disabled</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-info">@(user.Permissions?.Count ?? 0) permissions</span>
+                                        </td>
+                                        <td>
+                                            @if (user.LastLoginAt.HasValue)
+                                            {
+                                                <span title="@user.LastLoginAt.Value.ToString("dd MMM yyyy HH:mm")">
+                                                    @GetRelativeTime(user.LastLoginAt.Value)
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">Never</span>
+                                            }
+                                        </td>
+                                        <td class="text-end">
+                                            <div class="btn-group">
+                                                <button class="btn btn-sm btn-outline-primary" @onclick="() => ShowEditModal(user)"
+                                                    title="Edit User">
+                                                    <i class="bi bi-pencil"></i>
+                                                </button>
+                                                <button class="btn btn-sm btn-outline-info"
+                                                    @onclick="() => ShowPermissionsModal(user)" title="Manage Permissions">
+                                                    <i class="bi bi-shield-lock"></i>
+                                                </button>
+                                                @if (user.IsLocked)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-warning" @onclick="() => UnlockUser(user)"
+                                                        title="Unlock Account">
+                                                        <i class="bi bi-unlock"></i>
+                                                    </button>
+                                                }
+                                                @if (user.TwoFactorEnabled)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-secondary"
+                                                        @onclick="() => ResetTwoFactor(user)" title="Reset 2FA">
+                                                        <i class="bi bi-shield-x"></i>
+                                                    </button>
+                                                }
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(user)"
+                                                    title="Deactivate">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pagination -->
+                    @if (totalPages > 1)
+                    {
+                        <nav class="mt-4">
+                            <ul class="pagination justify-content-center">
+                                <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                                    <button class="page-link" @onclick="() => GoToPage(currentPage - 1)">Previous</button>
+                                </li>
+                                @for (int i = 1; i <= totalPages; i++)
+                                {
+                                    var pageNum = i;
+                                    <li class="page-item @(currentPage == pageNum ? "active" : "")">
+                                        <button class="page-link" @onclick="() => GoToPage(pageNum)">@pageNum</button>
+                                    </li>
+                                }
+                                <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                                    <button class="page-link" @onclick="() => GoToPage(currentPage + 1)">Next</button>
+                                </li>
+                            </ul>
+                        </nav>
+                    }
+                }
+                else
+                {
+                    <div class="text-center py-5">
+                        <i class="bi bi-people display-1 text-muted"></i>
+                        <p class="text-muted mt-3">No users found</p>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else if (activeTab == "permissions")
+    {
+        <!-- Permissions Reference -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Available Permissions</h5>
+            </div>
+            <div class="card-body">
+                @if (permissionCategories != null)
+                {
+                    <div class="accordion" id="permissionsAccordion">
+                        @foreach (var category in permissionCategories)
+                        {
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                        data-bs-target="#collapse-@category.Key.Replace(" ", "-")">
+                                        @category.Key (@category.Value.Count permissions)
+                                    </button>
+                                </h2>
+                                <div id="collapse-@category.Key.Replace(" ", "-")" class="accordion-collapse collapse"
+                                    data-bs-parent="#permissionsAccordion">
+                                    <div class="accordion-body">
+                                        <div class="table-responsive">
+                                            <table class="table table-sm">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Code</th>
+                                                        <th>Name</th>
+                                                        <th>Description</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach (var perm in category.Value)
+                                                    {
+                                                        <tr>
+                                                            <td><code>@perm.Code</code></td>
+                                                            <td>@perm.Name</td>
+                                                            <td class="text-muted">@perm.Description</td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Role Default Permissions -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0">Default Role Permissions</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    @foreach (var role in new[] { "Admin", "Manager", "User", "ReadOnly" })
+                    {
+                        <div class="col-md-6 col-lg-3 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header bg-light">
+                                    <strong>@role</strong>
+                                </div>
+                                <div class="card-body">
+                                    <small class="text-muted">
+                                        @if (role == "Admin")
+                                        {
+                                            <text>Full system access including all permissions</text>
+                                        }
+                                        else if (role == "Manager")
+                                        {
+                                            <text>Can manage products, invoices, payments, inventory, and view reports</text>
+                                        }
+                                        else if (role == "User")
+                                        {
+                                            <text>Standard user with basic CRUD operations</text>
+                                        }
+                                        else
+                                        {
+                                            <text>View-only access to dashboard and data</text>
+                                        }
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+    else if (activeTab == "security")
+    {
+        <!-- Security Overview -->
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card bg-success text-white mb-4">
+                    <div class="card-body">
+                        <h5 class="card-title"><i class="bi bi-shield-check me-2"></i>2FA Enabled</h5>
+                        <h2>@usersWithTwoFactor</h2>
+                        <small>users with two-factor authentication</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-warning text-dark mb-4">
+                    <div class="card-body">
+                        <h5 class="card-title"><i class="bi bi-shield-x me-2"></i>2FA Disabled</h5>
+                        <h2>@usersWithoutTwoFactor</h2>
+                        <small>users without two-factor authentication</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-danger text-white mb-4">
+                    <div class="card-body">
+                        <h5 class="card-title"><i class="bi bi-lock me-2"></i>Locked Accounts</h5>
+                        <h2>@lockedUsers</h2>
+                        <small>users currently locked out</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Security Events -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Recent Security Events</h5>
+            </div>
+            <div class="card-body">
+                @if (securityEvents.Any())
+                {
+                    <div class="list-group list-group-flush">
+                        @foreach (var evt in securityEvents)
+                        {
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <i class="bi @GetSecurityEventIcon(evt.EventType) me-2"></i>
+                                    <strong>@evt.Username</strong> - @evt.Description
+                                </div>
+                                <small class="text-muted">@evt.Timestamp.ToString("dd MMM yyyy HH:mm")</small>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="text-center py-4">
+                        <i class="bi bi-shield-check display-4 text-success"></i>
+                        <p class="text-muted mt-2">No recent security events</p>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<!-- Create/Edit User Modal -->
+@if (showUserModal)
+{
+    <div class="modal show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(editingUser == null ? "Create New User" : "Edit User")</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <EditForm Model="userModel" OnValidSubmit="SaveUser">
+                        <DataAnnotationsValidator />
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Username *</label>
+                                <InputText class="form-control" @bind-Value="userModel.Username"
+                                    disabled="@(editingUser != null)" />
+                                <ValidationMessage For="@(() => userModel.Username)" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Email *</label>
+                                <InputText class="form-control" @bind-Value="userModel.Email" />
+                                <ValidationMessage For="@(() => userModel.Email)" />
+                            </div>
+                            @if (editingUser == null)
+                            {
+                                <div class="col-md-6">
+                                    <label class="form-label">Password *</label>
+                                    <InputText type="password" class="form-control" @bind-Value="userModel.Password" />
+                                    <ValidationMessage For="@(() => userModel.Password)" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Confirm Password *</label>
+                                    <InputText type="password" class="form-control" @bind-Value="userModel.ConfirmPassword" />
+                                    <ValidationMessage For="@(() => userModel.ConfirmPassword)" />
+                                </div>
+                            }
+                            <div class="col-md-6">
+                                <label class="form-label">First Name</label>
+                                <InputText class="form-control" @bind-Value="userModel.FirstName" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Last Name</label>
+                                <InputText class="form-control" @bind-Value="userModel.LastName" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Role *</label>
+                                <InputSelect class="form-select" @bind-Value="userModel.Role">
+                                    @foreach (var role in availableRoles)
+                                    {
+                                        <option value="@role">@role</option>
+                                    }
+                                </InputSelect>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Status</label>
+                                <div class="form-check form-switch mt-2">
+                                    <InputCheckbox class="form-check-input" @bind-Value="userModel.IsActive" />
+                                    <label class="form-check-label">Active</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer mt-4">
+                            <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                            <button type="submit" class="btn btn-primary" disabled="@isSaving">
+                                @if (isSaving)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                }
+                                @(editingUser == null ? "Create User" : "Save Changes")
+                            </button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Permissions Modal -->
+@if (showPermissionsModal && selectedUserForPermissions != null)
+{
+    <div class="modal show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Manage Permissions - @selectedUserForPermissions.Username</h5>
+                    <button type="button" class="btn-close" @onclick="ClosePermissionsModal"></button>
+                </div>
+                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="useRoleDefaults" @bind="useRoleDefaults" />
+                            <label class="form-check-label" for="useRoleDefaults">Use default permissions for role
+                                (@selectedUserForPermissions.Role)</label>
+                        </div>
+                    </div>
+
+                    @if (!useRoleDefaults && permissionCategories != null)
+                    {
+                        @foreach (var category in permissionCategories)
+                        {
+                            <div class="card mb-3">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <strong>@category.Key</strong>
+                                    <div>
+                                        <button class="btn btn-sm btn-outline-success me-1"
+                                            @onclick="() => SelectAllInCategory(category.Key)">Select All</button>
+                                        <button class="btn btn-sm btn-outline-secondary"
+                                            @onclick="() => DeselectAllInCategory(category.Key)">Deselect All</button>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        @foreach (var perm in category.Value)
+                                        {
+                                            <div class="col-md-4 mb-2">
+                                                <div class="form-check">
+                                                    <input type="checkbox" class="form-check-input" id="perm-@perm.Code"
+                                                        checked="@selectedPermissions.Contains(perm.Code)"
+                                                        @onchange="(e) => TogglePermission(perm.Code, (bool)e.Value!)" />
+                                                    <label class="form-check-label" for="perm-@perm.Code">
+                                                        @perm.Name
+                                                        <small class="d-block text-muted">@perm.Description</small>
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="ClosePermissionsModal">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="SavePermissions" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Save Permissions
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Toast Notifications -->
+@if (!string.IsNullOrEmpty(toastMessage))
+{
+    <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1100;">
+        <div class="toast show" role="alert">
+            <div class="toast-header @(toastIsError ? "bg-danger text-white" : "bg-success text-white")">
+                <strong class="me-auto">@(toastIsError ? "Error" : "Success")</strong>
+                <button type="button" class="btn-close btn-close-white"
+                    @onclick="() => toastMessage = string.Empty"></button>
+            </div>
+            <div class="toast-body">
+                @toastMessage
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .avatar-circle {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+        font-size: 1.1rem;
+    }
+
+    .page-header {
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .nav-tabs .nav-link {
+        color: #6c757d;
+    }
+
+    .nav-tabs .nav-link.active {
+        color: var(--primary-color);
+        font-weight: 500;
+    }
+</style>
+
+@code {
+    private List<UserDisplayModel> users = new();
+    private string searchTerm = string.Empty;
+    private string roleFilter = string.Empty;
+    private string statusFilter = string.Empty;
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private int totalPages = 1;
+    private string activeTab = "users";
+
+    private List<string> availableRoles = new() { "Admin", "Manager", "User", "ReadOnly" };
+    private Dictionary<string, List<PermissionModel>>? permissionCategories;
+
+    private bool showUserModal = false;
+    private UserFormModel userModel = new();
+    private UserDisplayModel? editingUser;
+
+    private bool showPermissionsModal = false;
+    private UserDisplayModel? selectedUserForPermissions;
+    private HashSet<string> selectedPermissions = new();
+    private bool useRoleDefaults = false;
+
+    // Security stats
+    private int usersWithTwoFactor = 0;
+    private int usersWithoutTwoFactor = 0;
+    private int lockedUsers = 0;
+    private List<SecurityEvent> securityEvents = new();
+
+    // Toast
+    private string toastMessage = string.Empty;
+    private bool toastIsError = false;
+
+    private void SetTab(string tab) => activeTab = tab;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUsers();
+        await LoadPermissions();
+        await LoadSecurityStats();
+    }
+
+    private async Task LoadUsers()
+    {
+        isLoading = true;
+        try
+        {
+            var result = await UserService.GetUsersAsync(currentPage, pageSize, searchTerm, roleFilter, statusFilter);
+            users = result.Items?.Select(u => new UserDisplayModel
+            {
+                Id = u.Id,
+                Username = u.Username,
+                Email = u.Email,
+                Role = u.Role,
+                IsActive = u.IsActive,
+                IsLocked = u.IsLocked,
+                TwoFactorEnabled = u.TwoFactorEnabled,
+                LastLoginAt = u.LastLoginAt,
+                Permissions = u.Permissions
+            }).ToList() ?? new List<UserDisplayModel>();
+            totalPages = result.TotalPages;
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Error loading users: {ex.Message}", true);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadPermissions()
+    {
+        try
+        {
+            permissionCategories = await UserService.GetAvailablePermissionsAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Error loading permissions: {ex.Message}", true);
+        }
+    }
+
+    private async Task LoadSecurityStats()
+    {
+        try
+        {
+            var stats = await UserService.GetSecurityStatsAsync();
+            usersWithTwoFactor = stats.UsersWithTwoFactor;
+            usersWithoutTwoFactor = stats.UsersWithoutTwoFactor;
+            lockedUsers = stats.LockedUsers;
+            securityEvents = stats.RecentEvents;
+        }
+        catch
+        {
+            // Ignore errors loading stats
+        }
+    }
+
+    private async Task OnSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            currentPage = 1;
+            await LoadUsers();
+        }
+    }
+
+    private async Task ResetFilters()
+    {
+        searchTerm = string.Empty;
+        roleFilter = string.Empty;
+        statusFilter = string.Empty;
+        currentPage = 1;
+        await LoadUsers();
+    }
+
+    private async Task GoToPage(int page)
+    {
+        if (page >= 1 && page <= totalPages)
+        {
+            currentPage = page;
+            await LoadUsers();
+        }
+    }
+
+    private void ShowCreateModal()
+    {
+        editingUser = null;
+        userModel = new UserFormModel { Role = "User", IsActive = true };
+        showUserModal = true;
+    }
+
+    private void ShowEditModal(UserDisplayModel user)
+    {
+        editingUser = user;
+        userModel = new UserFormModel
+        {
+            Username = user.Username,
+            Email = user.Email ?? "",
+            FirstName = user.FirstName,
+            LastName = user.LastName,
+            Role = user.Role,
+            IsActive = user.IsActive
+        };
+        showUserModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showUserModal = false;
+        editingUser = null;
+    }
+
+    private async Task SaveUser()
+    {
+        isSaving = true;
+        try
+        {
+            if (editingUser == null)
+            {
+                await UserService.CreateUserAsync(userModel);
+                ShowToast("User created successfully");
+            }
+            else
+            {
+                await UserService.UpdateUserAsync(editingUser.Id, userModel);
+                ShowToast("User updated successfully");
+            }
+            CloseModal();
+            await LoadUsers();
+            await AuditService.LogAsync(editingUser == null ? "CreateUser" : "UpdateUser", "User", userModel.Username);
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, true);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void ShowPermissionsModal(UserDisplayModel user)
+    {
+        selectedUserForPermissions = user;
+        selectedPermissions = new HashSet<string>(user.Permissions ?? new List<string>());
+        useRoleDefaults = selectedPermissions.Count == 0;
+        showPermissionsModal = true;
+    }
+
+    private void ClosePermissionsModal()
+    {
+        showPermissionsModal = false;
+        selectedUserForPermissions = null;
+        selectedPermissions.Clear();
+    }
+
+    private void TogglePermission(string code, bool isChecked)
+    {
+        if (isChecked)
+            selectedPermissions.Add(code);
+        else
+            selectedPermissions.Remove(code);
+    }
+
+    private void SelectAllInCategory(string category)
+    {
+        if (permissionCategories != null && permissionCategories.TryGetValue(category, out var perms))
+        {
+            foreach (var perm in perms)
+            {
+                selectedPermissions.Add(perm.Code);
+            }
+        }
+        StateHasChanged();
+    }
+
+    private void DeselectAllInCategory(string category)
+    {
+        if (permissionCategories != null && permissionCategories.TryGetValue(category, out var perms))
+        {
+            foreach (var perm in perms)
+            {
+                selectedPermissions.Remove(perm.Code);
+            }
+        }
+        StateHasChanged();
+    }
+
+    private async Task SavePermissions()
+    {
+        if (selectedUserForPermissions == null) return;
+
+        isSaving = true;
+        try
+        {
+            var permissions = useRoleDefaults ? new List<string>() : selectedPermissions.ToList();
+            await UserService.UpdateUserPermissionsAsync(selectedUserForPermissions.Id, permissions);
+            ShowToast("Permissions updated successfully");
+            ClosePermissionsModal();
+            await LoadUsers();
+            await AuditService.LogAsync("UpdatePermissions", "User", selectedUserForPermissions.Username);
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, true);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task UnlockUser(UserDisplayModel user)
+    {
+        try
+        {
+            await UserService.UnlockUserAsync(user.Id);
+            ShowToast($"User {user.Username} unlocked successfully");
+            await LoadUsers();
+            await LoadSecurityStats();
+            await AuditService.LogAsync("UnlockUser", "User", user.Username);
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, true);
+        }
+    }
+
+    private async Task ResetTwoFactor(UserDisplayModel user)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Are you sure you want to reset 2FA for {user.Username}? They will need to set it up again."))
+            return;
+
+        try
+        {
+            await UserService.ResetTwoFactorAsync(user.Id);
+            ShowToast($"Two-factor authentication reset for {user.Username}");
+            await LoadUsers();
+            await LoadSecurityStats();
+            await AuditService.LogAsync("ResetTwoFactor", "User", user.Username);
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, true);
+        }
+    }
+
+    private async Task ConfirmDelete(UserDisplayModel user)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Are you sure you want to deactivate {user.Username}?"))
+            return;
+
+        try
+        {
+            await UserService.DeleteUserAsync(user.Id);
+            ShowToast($"User {user.Username} deactivated successfully");
+            await LoadUsers();
+            await AuditService.LogAsync("DeactivateUser", "User", user.Username);
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, true);
+        }
+    }
+
+    private void ShowToast(string message, bool isError = false)
+    {
+        toastMessage = message;
+        toastIsError = isError;
+        StateHasChanged();
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(5000);
+            toastMessage = string.Empty;
+            await InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private string GetRoleBadgeClass(string role) => role switch
+    {
+        "Admin" => "bg-danger",
+        "Manager" => "bg-primary",
+        "User" => "bg-success",
+        "ReadOnly" => "bg-secondary",
+        _ => "bg-info"
+    };
+
+    private string GetSecurityEventIcon(string eventType) => eventType switch
+    {
+        "Login" => "bi-box-arrow-in-right text-success",
+        "Logout" => "bi-box-arrow-right text-info",
+        "FailedLogin" => "bi-x-circle text-danger",
+        "PasswordChange" => "bi-key text-warning",
+        "TwoFactorEnabled" => "bi-shield-check text-success",
+        "TwoFactorDisabled" => "bi-shield-x text-warning",
+        "AccountLocked" => "bi-lock text-danger",
+        "AccountUnlocked" => "bi-unlock text-info",
+        _ => "bi-info-circle text-secondary"
+    };
+
+    private string GetRelativeTime(DateTime dateTime)
+    {
+        var diff = DateTime.UtcNow - dateTime;
+        if (diff.TotalMinutes < 1) return "Just now";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
+        if (diff.TotalDays < 7) return $"{(int)diff.TotalDays}d ago";
+        return dateTime.ToString("dd MMM");
+    }
+
+    // Models
+    public class UserDisplayModel
+    {
+        public Guid Id { get; set; }
+        public string Username { get; set; } = string.Empty;
+        public string? Email { get; set; }
+        public string? FirstName { get; set; }
+        public string? LastName { get; set; }
+        public string Role { get; set; } = "User";
+        public bool IsActive { get; set; }
+        public bool IsLocked { get; set; }
+        public bool TwoFactorEnabled { get; set; }
+        public DateTime? LastLoginAt { get; set; }
+        public List<string>? Permissions { get; set; }
+    }
+
+    public class UserFormModel
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string? Password { get; set; }
+        public string? ConfirmPassword { get; set; }
+        public string? FirstName { get; set; }
+        public string? LastName { get; set; }
+        public string Role { get; set; } = "User";
+        public bool IsActive { get; set; } = true;
+    }
+
+    public class PermissionModel
+    {
+        public string Code { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+    }
+
+    public class SecurityEvent
+    {
+        public string Username { get; set; } = string.Empty;
+        public string EventType { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public DateTime Timestamp { get; set; }
+    }
+}

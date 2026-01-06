@@ -1,0 +1,833 @@
+@page "/settings"
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Services
+@using ShopInventory.Web.Models
+@inject IAppSettingsService SettingsService
+@inject IAuditService AuditService
+@inject IMasterDataCacheService CacheService
+@inject IAuthService AuthService
+@inject AuthenticationStateProvider AuthStateProvider
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+
+<PageTitle>Settings - Shop Inventory</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-gear me-2"></i>Settings</h2>
+        <button class="btn btn-primary" @onclick="SaveSettings" disabled="@(!hasChanges || isSaving)">
+            @if (isSaving)
+            {
+                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+            }
+            <i class="bi bi-save me-1"></i>Save Changes
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show">
+            <i class="bi bi-check-circle me-2"></i>@successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show">
+            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading settings...</p>
+        </div>
+    }
+    else
+    {
+        <div class="row">
+            <!-- Settings Navigation -->
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body p-0">
+                        <div class="list-group list-group-flush">
+                            @foreach (var category in categories)
+                            {
+                                <button type="button"
+                                    class="list-group-item list-group-item-action @(selectedCategory == category ? "active" : "")"
+                                    @onclick="() => SelectCategory(category)">
+                                    <i class="bi @GetCategoryIcon(category) me-2"></i>@category
+                                </button>
+                            }
+                            <button type="button"
+                                class="list-group-item list-group-item-action @(selectedCategory == DataManagementCategory ? "active" : "")"
+                                @onclick="() => SelectCategory(DataManagementCategory)">
+                                <i class="bi bi-arrow-repeat me-2"></i>Data Management
+                            </button>
+                            <button type="button"
+                                class="list-group-item list-group-item-action @(selectedCategory == UserManagementCategory ? "active" : "")"
+                                @onclick="() => SelectCategory(UserManagementCategory)">
+                                <i class="bi bi-people me-2"></i>User Management
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Content -->
+            <div class="col-md-9">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi @GetCategoryIcon(selectedCategory) me-2"></i>@selectedCategory Settings
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        @if (selectedCategory == DataManagementCategory)
+                        {
+                            <!-- Data Management Section -->
+                            <div class="mb-4">
+                                <h6 class="text-muted mb-3">Refresh Data from API</h6>
+                                <p class="text-muted small mb-4">
+                                    Use these options to manually refresh cached data from the SAP API. This is useful when you
+                                    know data has changed in SAP.
+                                </p>
+
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <div class="d-flex align-items-center mb-2">
+                                                    <i class="bi bi-box-seam text-primary me-2 fs-4"></i>
+                                                    <h6 class="mb-0">Products</h6>
+                                                </div>
+                                                <p class="text-muted small mb-3">
+                                                    Sync product catalog from SAP
+                                                    @if (productsLastSync.HasValue)
+                                                    {
+                                                        <br />
+                                            
+                                                        <small>Last sync: @productsLastSync.Value.ToString("dd MMM yyyy HH:mm")</small>
+                                                    }
+                                                </p>
+                                                <button class="btn btn-outline-primary btn-sm" @onclick="RefreshProducts"
+                                                    disabled="@isRefreshingProducts">
+                                                    @if (isRefreshingProducts)
+                                                    {
+                                                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i class="bi bi-arrow-repeat me-1"></i>
+                                                    }
+                                                    Refresh Products
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <div class="d-flex align-items-center mb-2">
+                                                    <i class="bi bi-currency-dollar text-success me-2 fs-4"></i>
+                                                    <h6 class="mb-0">Prices</h6>
+                                                </div>
+                                                <p class="text-muted small mb-3">
+                                                    Sync item prices from SAP
+                                                    @if (pricesLastSync.HasValue)
+                                                    {
+                                                        <br />
+                                            
+                                                        <small>Last sync: @pricesLastSync.Value.ToString("dd MMM yyyy HH:mm")</small>
+                                                    }
+                                                </p>
+                                                <button class="btn btn-outline-success btn-sm" @onclick="RefreshPrices"
+                                                    disabled="@isRefreshingPrices">
+                                                    @if (isRefreshingPrices)
+                                                    {
+                                                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i class="bi bi-arrow-repeat me-1"></i>
+                                                    }
+                                                    Refresh Prices
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <div class="d-flex align-items-center mb-2">
+                                                    <i class="bi bi-people text-info me-2 fs-4"></i>
+                                                    <h6 class="mb-0">Business Partners</h6>
+                                                </div>
+                                                <p class="text-muted small mb-3">
+                                                    Sync customers/suppliers from SAP
+                                                    @if (bpLastSync.HasValue)
+                                                    {
+                                                        <br />
+                                            
+                                                        <small>Last sync: @bpLastSync.Value.ToString("dd MMM yyyy HH:mm")</small>
+                                                    }
+                                                </p>
+                                                <button class="btn btn-outline-info btn-sm" @onclick="RefreshBusinessPartners"
+                                                    disabled="@isRefreshingBP">
+                                                    @if (isRefreshingBP)
+                                                    {
+                                                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i class="bi bi-arrow-repeat me-1"></i>
+                                                    }
+                                                    Refresh Partners
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <div class="d-flex align-items-center mb-2">
+                                                    <i class="bi bi-building text-warning me-2 fs-4"></i>
+                                                    <h6 class="mb-0">Warehouses</h6>
+                                                </div>
+                                                <p class="text-muted small mb-3">
+                                                    Sync warehouse list from SAP
+                                                    @if (warehousesLastSync.HasValue)
+                                                    {
+                                                        <br />
+                                            
+                                                        <small>Last sync: @warehousesLastSync.Value.ToString("dd MMM yyyy HH:mm")</small>
+                                                    }
+                                                </p>
+                                                <button class="btn btn-outline-warning btn-sm" @onclick="RefreshWarehouses"
+                                                    disabled="@isRefreshingWarehouses">
+                                                    @if (isRefreshingWarehouses)
+                                                    {
+                                                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i class="bi bi-arrow-repeat me-1"></i>
+                                                    }
+                                                    Refresh Warehouses
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <hr class="my-4" />
+
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="mb-1">Refresh All Data</h6>
+                                        <p class="text-muted small mb-0">Sync all master data from SAP in one operation</p>
+                                    </div>
+                                    <button class="btn btn-primary" @onclick="RefreshAllData" disabled="@isRefreshingAll">
+                                        @if (isRefreshingAll)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                            <span>Refreshing...</span>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-arrow-clockwise me-1"></i>
+                                            <span>Refresh All Data</span>
+                                        }
+                                    </button>
+                                </div>
+
+                                @if (!string.IsNullOrEmpty(refreshMessage))
+                                {
+                                    <div class="alert @(refreshSuccess ? "alert-success" : "alert-danger") mt-3">
+                                        <i class="bi @(refreshSuccess ? "bi-check-circle" : "bi-exclamation-triangle") me-2"></i>
+                                        @refreshMessage
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else if (selectedCategory == UserManagementCategory)
+                        {
+                            <!-- User Management Section -->
+                            <div class="mb-4">
+                                <div class="d-flex justify-content-between align-items-center mb-4">
+                                    <div>
+                                        <h6 class="mb-1">Create New User Account</h6>
+                                        <p class="text-muted small mb-0">Add new users to the system (Admin only)</p>
+                                    </div>
+                                </div>
+
+                                <div class="card">
+                                    <div class="card-body">
+                                        <EditForm Model="newUserModel" OnValidSubmit="CreateUser">
+                                            <DataAnnotationsValidator />
+
+                                            <div class="row g-3">
+                                                <div class="col-md-6">
+                                                    <label class="form-label">Username <span
+                                                            class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="newUserModel.Username" class="form-control"
+                                                        placeholder="Enter username" />
+                                                    <ValidationMessage For="() => newUserModel.Username"
+                                                        class="text-danger small" />
+                                                </div>
+
+                                                <div class="col-md-6">
+                                                    <label class="form-label">Email</label>
+                                                    <InputText @bind-Value="newUserModel.Email" class="form-control"
+                                                        placeholder="user@example.com" />
+                                                    <ValidationMessage For="() => newUserModel.Email"
+                                                        class="text-danger small" />
+                                                </div>
+
+                                                <div class="col-md-6">
+                                                    <label class="form-label">Password <span
+                                                            class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="newUserModel.Password" type="password"
+                                                        class="form-control" placeholder="Enter password" />
+                                                    <ValidationMessage For="() => newUserModel.Password"
+                                                        class="text-danger small" />
+                                                    <small class="text-muted">Minimum 6 characters</small>
+                                                </div>
+
+                                                <div class="col-md-6">
+                                                    <label class="form-label">Confirm Password <span
+                                                            class="text-danger">*</span></label>
+                                                    <InputText @bind-Value="confirmPassword" type="password"
+                                                        class="form-control" placeholder="Confirm password" />
+                                                    @if (!string.IsNullOrEmpty(confirmPassword) && newUserModel.Password !=
+                                                                                                confirmPassword)
+                                                    {
+                                                        <span class="text-danger small">Passwords do not match</span>
+                                                    }
+                                                </div>
+
+                                                <div class="col-md-6">
+                                                    <label class="form-label">Role <span class="text-danger">*</span></label>
+                                                    <InputSelect @bind-Value="newUserModel.Role" class="form-select">
+                                                        <option value="User">User</option>
+                                                        <option value="Manager">Manager</option>
+                                                        <option value="Admin">Admin</option>
+                                                    </InputSelect>
+                                                    <ValidationMessage For="() => newUserModel.Role"
+                                                        class="text-danger small" />
+                                                </div>
+
+                                                <div class="col-12">
+                                                    <button type="submit" class="btn btn-primary"
+                                                        disabled="@(isCreatingUser || newUserModel.Password != confirmPassword)">
+                                                        @if (isCreatingUser)
+                                                        {
+                                                            <span class="spinner-border spinner-border-sm me-1"
+                                                                role="status"></span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <i class="bi bi-person-plus me-1"></i>
+                                                        }
+                                                        Create User
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </EditForm>
+
+                                        @if (!string.IsNullOrEmpty(userMessage))
+                                        {
+                                            <div class="alert @(userSuccess ? "alert-success" : "alert-danger") mt-3">
+                                                <i
+                                                    class="bi @(userSuccess ? "bi-check-circle" : "bi-exclamation-triangle") me-2"></i>
+                                                @userMessage
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        else if (categorySettings.Any())
+                        {
+                            @foreach (var setting in categorySettings)
+                            {
+                                <div class="mb-4">
+                                    <label class="form-label fw-semibold">@FormatLabel(setting.Key)</label>
+                                    @if (!string.IsNullOrEmpty(setting.Description))
+                                    {
+                                        <small class="text-muted d-block mb-2">@setting.Description</small>
+                                    }
+
+                                    @if (setting.DataType == "bool")
+                                    {
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="@setting.Key"
+                                                checked="@(GetBoolValue(setting.Key))" disabled="@(!setting.IsEditable)"
+                                                @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())" />
+                                            <label class="form-check-label" for="@setting.Key">
+                                                @(GetBoolValue(setting.Key) ? "Enabled" : "Disabled")
+                                            </label>
+                                        </div>
+                                    }
+                                    else if (setting.DataType == "int")
+                                    {
+                                        <input type="number" class="form-control" style="max-width: 200px;"
+                                            value="@GetValue(setting.Key)" disabled="@(!setting.IsEditable)"
+                                            @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())" />
+                                    }
+                                    else if (setting.Key == SettingKeys.Theme)
+                                    {
+                                        <select class="form-select" style="max-width: 200px;" value="@GetValue(setting.Key)"
+                                            disabled="@(!setting.IsEditable)"
+                                            @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())">
+                                            <option value="light">Light</option>
+                                            <option value="dark">Dark</option>
+                                        </select>
+                                    }
+                                    else if (setting.Key == SettingKeys.DateFormat)
+                                    {
+                                        <select class="form-select" style="max-width: 250px;" value="@GetValue(setting.Key)"
+                                            disabled="@(!setting.IsEditable)"
+                                            @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())">
+                                            <option value="dd MMM yyyy">04 Jan 2026</option>
+                                            <option value="dd/MM/yyyy">04/01/2026</option>
+                                            <option value="MM/dd/yyyy">01/04/2026</option>
+                                            <option value="yyyy-MM-dd">2026-01-04</option>
+                                        </select>
+                                    }
+                                    else
+                                    {
+                                        <input type="text" class="form-control" value="@GetValue(setting.Key)"
+                                            disabled="@(!setting.IsEditable)"
+                                            @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())" />
+                                    }
+
+                                    @if (setting.LastModifiedBy != null)
+                                    {
+                                        <small class="text-muted d-block mt-1">
+                                            Last modified by @setting.LastModifiedBy on @setting.LastModifiedAt.ToString("dd MMM yyyy HH:mm")
+                                        </small>
+                                    }
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <p class="text-muted">No settings available for this category.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private const string DataManagementCategory = "Data Management";
+    private const string UserManagementCategory = "User Management";
+
+    private List<AppSetting> allSettings = new();
+    private List<AppSetting> categorySettings = new();
+    private List<string> categories = new();
+    private string selectedCategory = SettingCategories.General;
+    private Dictionary<string, string> editedValues = new();
+    private bool hasChanges = false;
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private string? successMessage;
+    private string? errorMessage;
+    private string currentUsername = "Unknown";
+
+    // Data Management fields
+    private bool isRefreshingProducts = false;
+    private bool isRefreshingPrices = false;
+    private bool isRefreshingBP = false;
+    private bool isRefreshingWarehouses = false;
+    private bool isRefreshingAll = false;
+    private string? refreshMessage;
+    private bool refreshSuccess = false;
+    private DateTime? productsLastSync;
+    private DateTime? pricesLastSync;
+    private DateTime? bpLastSync;
+    private DateTime? warehousesLastSync;
+
+    // User Management fields
+    private NewUserModel newUserModel = new();
+    private string confirmPassword = string.Empty;
+    private bool isCreatingUser = false;
+    private string? userMessage;
+    private bool userSuccess = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCurrentUser();
+        await LoadSettings();
+        await LoadLastSyncTimes();
+        await LogAudit(AuditActions.ViewSettings);
+    }
+
+    private async Task LoadCurrentUser()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        currentUsername = authState.User.Identity?.Name ?? "Unknown";
+    }
+
+    private async Task LoadLastSyncTimes()
+    {
+        productsLastSync = CacheService.GetLastRefreshTime("Products_All");
+        pricesLastSync = CacheService.GetLastRefreshTime("ItemPrices");
+        bpLastSync = CacheService.GetLastRefreshTime("BusinessPartners");
+        warehousesLastSync = CacheService.GetLastRefreshTime("Warehouses");
+        await Task.CompletedTask;
+    }
+
+    private async Task LoadSettings()
+    {
+        isLoading = true;
+        try
+        {
+            // Initialize default settings if needed
+            await SettingsService.InitializeDefaultSettingsAsync();
+
+            allSettings = await SettingsService.GetAllSettingsAsync();
+            categories = allSettings.Select(s => s.Category).Distinct().ToList();
+
+            // Initialize edited values with current values
+            editedValues = allSettings.ToDictionary(s => s.Key, s => s.Value);
+
+            SelectCategory(selectedCategory);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load settings: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void SelectCategory(string category)
+    {
+        selectedCategory = category;
+        categorySettings = allSettings.Where(s => s.Category == category).ToList();
+    }
+
+    private string GetValue(string key)
+    {
+        return editedValues.TryGetValue(key, out var value) ? value : string.Empty;
+    }
+
+    private bool GetBoolValue(string key)
+    {
+        var value = GetValue(key);
+        return bool.TryParse(value, out var result) && result;
+    }
+
+    private void OnSettingChanged(string key, string? value)
+    {
+        if (value == null) return;
+
+        // For boolean switches, convert "True"/"False" or checkbox change event
+        var setting = allSettings.FirstOrDefault(s => s.Key == key);
+        if (setting?.DataType == "bool")
+        {
+            // Handle checkbox change event
+            if (value == "True" || value == "true" || value == "on")
+                value = "true";
+            else if (value == "False" || value == "false" || value == "")
+                value = "false";
+            else
+            {
+                // Toggle current value
+                var current = GetBoolValue(key);
+                value = (!current).ToString().ToLower();
+            }
+        }
+
+        editedValues[key] = value;
+        hasChanges = true;
+    }
+
+    private async Task SaveSettings()
+    {
+        isSaving = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            await SettingsService.SaveSettingsAsync(editedValues, currentUsername);
+            await LoadSettings();
+            hasChanges = false;
+            successMessage = "Settings saved successfully!";
+
+            await LogAudit(AuditActions.UpdateSettings, details: $"Updated {editedValues.Count} settings");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to save settings: {ex.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private string GetCategoryIcon(string category) => category switch
+    {
+        SettingCategories.General => "bi-gear",
+        SettingCategories.API => "bi-cloud",
+        SettingCategories.Display => "bi-display",
+        SettingCategories.Audit => "bi-journal-text",
+        SettingCategories.Security => "bi-shield-lock",
+        "Data Management" => "bi-arrow-repeat",
+        "User Management" => "bi-people",
+        _ => "bi-sliders"
+    };
+
+    private string FormatLabel(string key)
+    {
+        // Convert CamelCase to Title Case with spaces
+        return System.Text.RegularExpressions.Regex.Replace(key, "(\\B[A-Z])", " $1");
+    }
+
+    private async Task LogAudit(string action, string? details = null)
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var role = authState.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "Unknown";
+        await AuditService.LogAsync(action, currentUsername, role, "Settings", null, details, "/settings");
+    }
+
+    // Data Management Methods
+    private async Task RefreshProducts()
+    {
+        isRefreshingProducts = true;
+        refreshMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var count = await CacheService.SyncProductsFromApiAsync();
+            refreshSuccess = true;
+            refreshMessage = $"Successfully synced {count} products from SAP.";
+            productsLastSync = DateTime.Now;
+            await LogAudit(AuditActions.UpdateSettings, $"Refreshed products cache: {count} items synced");
+        }
+        catch (Exception ex)
+        {
+            refreshSuccess = false;
+            refreshMessage = $"Failed to refresh products: {ex.Message}";
+        }
+        finally
+        {
+            isRefreshingProducts = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshPrices()
+    {
+        isRefreshingPrices = true;
+        refreshMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var count = await CacheService.SyncPricesFromApiAsync();
+            refreshSuccess = true;
+            refreshMessage = $"Successfully synced {count} prices from SAP.";
+            pricesLastSync = DateTime.Now;
+            await LogAudit(AuditActions.UpdateSettings, $"Refreshed prices cache: {count} items synced");
+        }
+        catch (Exception ex)
+        {
+            refreshSuccess = false;
+            refreshMessage = $"Failed to refresh prices: {ex.Message}";
+        }
+        finally
+        {
+            isRefreshingPrices = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshBusinessPartners()
+    {
+        isRefreshingBP = true;
+        refreshMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var count = await CacheService.SyncBusinessPartnersFromApiAsync();
+            refreshSuccess = true;
+            refreshMessage = $"Successfully synced {count} business partners from SAP.";
+            bpLastSync = DateTime.Now;
+            await LogAudit(AuditActions.UpdateSettings, $"Refreshed business partners cache: {count} items synced");
+        }
+        catch (Exception ex)
+        {
+            refreshSuccess = false;
+            refreshMessage = $"Failed to refresh business partners: {ex.Message}";
+        }
+        finally
+        {
+            isRefreshingBP = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshWarehouses()
+    {
+        isRefreshingWarehouses = true;
+        refreshMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var count = await CacheService.SyncWarehousesFromApiAsync();
+            refreshSuccess = true;
+            refreshMessage = $"Successfully synced {count} warehouses from SAP.";
+            warehousesLastSync = DateTime.Now;
+            await LogAudit(AuditActions.UpdateSettings, $"Refreshed warehouses cache: {count} items synced");
+        }
+        catch (Exception ex)
+        {
+            refreshSuccess = false;
+            refreshMessage = $"Failed to refresh warehouses: {ex.Message}";
+        }
+        finally
+        {
+            isRefreshingWarehouses = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshAllData()
+    {
+        isRefreshingAll = true;
+        refreshMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var results = new List<string>();
+
+            var productsCount = await CacheService.SyncProductsFromApiAsync();
+            results.Add($"Products: {productsCount}");
+            productsLastSync = DateTime.Now;
+
+            var pricesCount = await CacheService.SyncPricesFromApiAsync();
+            results.Add($"Prices: {pricesCount}");
+            pricesLastSync = DateTime.Now;
+
+            var bpCount = await CacheService.SyncBusinessPartnersFromApiAsync();
+            results.Add($"Business Partners: {bpCount}");
+            bpLastSync = DateTime.Now;
+
+            var warehousesCount = await CacheService.SyncWarehousesFromApiAsync();
+            results.Add($"Warehouses: {warehousesCount}");
+            warehousesLastSync = DateTime.Now;
+
+            refreshSuccess = true;
+            refreshMessage = $"Successfully synced all data from SAP. {string.Join(", ", results)}";
+            await LogAudit(AuditActions.UpdateSettings, $"Refreshed all cache data: {string.Join(", ", results)}");
+        }
+        catch (Exception ex)
+        {
+            refreshSuccess = false;
+            refreshMessage = $"Failed to refresh all data: {ex.Message}";
+        }
+        finally
+        {
+            isRefreshingAll = false;
+            StateHasChanged();
+        }
+    }
+
+    // User Management Methods
+    private async Task CreateUser()
+    {
+        if (newUserModel.Password != confirmPassword)
+        {
+            userSuccess = false;
+            userMessage = "Passwords do not match.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(newUserModel.Username) || newUserModel.Username.Length < 3)
+        {
+            userSuccess = false;
+            userMessage = "Username must be at least 3 characters.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(newUserModel.Password) || newUserModel.Password.Length < 6)
+        {
+            userSuccess = false;
+            userMessage = "Password must be at least 6 characters.";
+            return;
+        }
+
+        isCreatingUser = true;
+        userMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var request = new RegisterUserRequest
+            {
+                Username = newUserModel.Username,
+                Email = newUserModel.Email,
+                Password = newUserModel.Password,
+                Role = newUserModel.Role
+            };
+
+            var (success, message, user) = await AuthService.RegisterUserAsync(request);
+
+            if (success)
+            {
+                userSuccess = true;
+                userMessage = $"User '{newUserModel.Username}' created successfully with role '{newUserModel.Role}'.";
+                await LogAudit(AuditActions.CreateUser, $"Created user: {newUserModel.Username} with role {newUserModel.Role}");
+
+                // Reset form
+                newUserModel = new NewUserModel();
+                confirmPassword = string.Empty;
+            }
+            else
+            {
+                userSuccess = false;
+                userMessage = message;
+            }
+        }
+        catch (Exception ex)
+        {
+            userSuccess = false;
+            userMessage = $"Failed to create user: {ex.Message}";
+        }
+        finally
+        {
+            isCreatingUser = false;
+            StateHasChanged();
+        }
+    }
+
+    public class NewUserModel
+    {
+        public string Username { get; set; } = string.Empty;
+        public string? Email { get; set; }
+        public string Password { get; set; } = string.Empty;
+        public string Role { get; set; } = "User";
+    }
+}

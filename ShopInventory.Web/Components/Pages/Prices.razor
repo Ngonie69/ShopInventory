@@ -1,0 +1,326 @@
+@page "/prices"
+@inject IPriceService PriceService
+@inject IMasterDataCacheService CacheService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ILogger<Prices> Logger
+@rendermode InteractiveServer
+
+<PageTitle>Price List - Shop Inventory</PageTitle>
+
+<div class="container-fluid">
+    <h2 class="mb-4"><i class="bi bi-tags me-2"></i>Price List</h2>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-search me-2"></i>Search</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-8">
+                    <label class="form-label">Search by Item Code or Description</label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" @bind="searchTerm" @bind:event="oninput"
+                            @bind:after="FilterPrices" placeholder="Type to search by code or description..." />
+                        @if (!string.IsNullOrWhiteSpace(searchTerm))
+                        {
+                            <button class="btn btn-outline-secondary" type="button" @onclick="ClearSearch">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        }
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(searchTerm) && filteredPrices != null)
+                    {
+                        <small class="text-muted mt-1 d-block">
+                            Showing @filteredPrices.Count of @allPrices?.Count items
+                        </small>
+                    }
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <button class="btn btn-success w-100" @onclick="LoadGroupedPrices" disabled="@isLoading">
+                        @if (isLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-arrow-clockwise me-1"></i>
+                        }
+                        Refresh Prices
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading prices...</p>
+        </div>
+    }
+    else if (errorMessage != null)
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+        </div>
+    }
+    else if (searchedPrice != null)
+    {
+        <div class="card mb-4">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">Search Result</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h4>@searchedPrice.ItemName</h4>
+                        <p class="text-muted mb-3">Item Code: <strong>@searchedPrice.ItemCode</strong></p>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="row g-3">
+                            <div class="col-6">
+                                <div class="card bg-success bg-opacity-10">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted">USD Price</h6>
+                                        <h3 class="text-success mb-0">
+                                            @if (searchedPrice.UsdPrice.HasValue)
+                                            {
+                                                <span>$@searchedPrice.UsdPrice.Value.ToString("N2")</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">N/A</span>
+                                            }
+                                        </h3>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="card bg-primary bg-opacity-10">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted">ZIG Price</h6>
+                                        <h3 class="text-primary mb-0">
+                                            @if (searchedPrice.ZigPrice.HasValue)
+                                            {
+                                                <span>ZIG @searchedPrice.ZigPrice.Value.ToString("N2")</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">N/A</span>
+                                            }
+                                        </h3>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else if (filteredPrices?.Any() == true)
+    {
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Item Prices</h5>
+                <span class="badge bg-primary">@filteredPrices.Count items</span>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                    <table class="table table-hover table-sm">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th>Item Code</th>
+                                <th>Item Name</th>
+                                <th class="text-end">USD Price</th>
+                                <th class="text-end">ZIG Price</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in filteredPrices)
+                            {
+                                <tr>
+                                    <td><strong>@HighlightMatch(item.ItemCode, searchTerm)</strong></td>
+                                    <td>@HighlightMatch(item.ItemName, searchTerm)</td>
+                                    <td class="text-end">
+                                        @if (item.UsdPrice.HasValue)
+                                        {
+                                            <span class="text-success fw-bold">$@item.UsdPrice.Value.ToString("N2")</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                    <td class="text-end">
+                                        @if (item.ZigPrice.HasValue)
+                                        {
+                                            <span class="text-primary fw-bold">ZIG @item.ZigPrice.Value.ToString("N2")</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+    else if (allPrices != null && !string.IsNullOrWhiteSpace(searchTerm))
+    {
+        <div class="alert alert-warning">
+            <i class="bi bi-search me-2"></i>
+            No items found matching "<strong>@searchTerm</strong>". Try a different search term.
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>
+            Search for a specific item or click "Load All Prices" to view the complete price list.
+        </div>
+    }
+</div>
+
+@code {
+    private List<ItemPriceGroupedDto>? allPrices;
+    private List<ItemPriceGroupedDto>? filteredPrices;
+    private ItemPriceGroupedDto? searchedPrice;
+    private bool isLoading = false;
+    private string? errorMessage;
+    private string? searchTerm;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadGroupedPrices();
+    }
+
+    private async Task EnsureAuthenticatedAsync()
+    {
+        // This forces the auth state provider to fetch the auth state
+        // which also sets the Authorization header on the HttpClient
+        await AuthStateProvider.GetAuthenticationStateAsync();
+    }
+
+    private void FilterPrices()
+    {
+        if (allPrices == null)
+        {
+            filteredPrices = null;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            filteredPrices = allPrices;
+            searchedPrice = null;
+            return;
+        }
+
+        var term = searchTerm.Trim();
+
+        filteredPrices = allPrices
+        .Where(p =>
+        (p.ItemCode != null && p.ItemCode.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+        (p.ItemName != null && p.ItemName.Contains(term, StringComparison.OrdinalIgnoreCase)))
+        .ToList();
+
+        // If exactly one result, show it as the featured search result
+        if (filteredPrices.Count == 1)
+        {
+            searchedPrice = filteredPrices.First();
+            filteredPrices = null;
+        }
+        else
+        {
+            searchedPrice = null;
+        }
+    }
+
+    private MarkupString HighlightMatch(string? text, string? search)
+    {
+        if (string.IsNullOrEmpty(text) || string.IsNullOrWhiteSpace(search))
+            return new MarkupString(System.Web.HttpUtility.HtmlEncode(text ?? ""));
+
+        var index = text.IndexOf(search, StringComparison.OrdinalIgnoreCase);
+        if (index < 0)
+            return new MarkupString(System.Web.HttpUtility.HtmlEncode(text));
+
+        var before = System.Web.HttpUtility.HtmlEncode(text[..index]);
+        var match = System.Web.HttpUtility.HtmlEncode(text.Substring(index, search.Length));
+        var after = System.Web.HttpUtility.HtmlEncode(text[(index + search.Length)..]);
+
+        return new MarkupString($"{before}<mark class=\"bg-warning px-0\">{match}</mark>{after}");
+    }
+
+    private async Task LoadGroupedPrices()
+    {
+        Logger.LogInformation("Prices page: LoadGroupedPrices started");
+        isLoading = true;
+        errorMessage = null;
+        searchedPrice = null;
+        StateHasChanged();
+
+        try
+        {
+            // Ensure auth header is set before making API call
+            await EnsureAuthenticatedAsync();
+            Logger.LogDebug("Prices page: Auth ensured, calling CacheService.GetItemPricesAsync()");
+
+            // Use CacheService for fast local database access
+            var prices = await CacheService.GetItemPricesAsync();
+            Logger.LogInformation("Prices page: Received {Count} prices from cache", prices?.Count ?? 0);
+
+            if (prices != null && prices.Count > 0)
+            {
+                // Group prices by item code
+                allPrices = prices
+                .GroupBy(p => p.ItemCode)
+                .Select(g => new ItemPriceGroupedDto
+                {
+                    ItemCode = g.Key,
+                    ItemName = g.First().ItemName,
+                    UsdPrice = g.FirstOrDefault(p => p.Currency == "USD")?.Price,
+                    ZigPrice = g.FirstOrDefault(p => p.Currency == "ZIG")?.Price
+                })
+                .OrderBy(i => i.ItemCode)
+                .ToList();
+
+                // Apply any existing filter
+                FilterPrices();
+                Logger.LogInformation("Prices page: Grouped into {Count} items", allPrices.Count);
+            }
+            else
+            {
+                Logger.LogWarning("Prices page: No prices found");
+                errorMessage = "No prices found. Try refreshing the data.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Prices page: Error loading prices");
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            Logger.LogDebug("Prices page: LoadGroupedPrices completed");
+        }
+    }
+
+    private void ClearSearch()
+    {
+        searchTerm = null;
+        searchedPrice = null;
+        filteredPrices = allPrices;
+        errorMessage = null;
+    }
+}
