@@ -42,6 +42,12 @@ public class Invoice
     [JsonPropertyName("DocCurrency")]
     public string? DocCurrency { get; set; }
 
+    [JsonPropertyName("DocumentStatus")]
+    public string? DocumentStatus { get; set; }
+
+    [JsonPropertyName("PaidToDate")]
+    public decimal PaidToDate { get; set; }
+
     [JsonPropertyName("SalesPersonCode")]
     public int? SalesPersonCode { get; set; }
 

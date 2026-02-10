@@ -31,7 +31,9 @@ namespace ShopInventory.Services
                     DocDueDate = i.DocDueDate,
                     CardCode = i.CardCode,
                     CardName = i.CardName,
+                    DocStatus = i.DocumentStatus == "bost_Open" ? "O" : (i.DocumentStatus == "bost_Close" ? "C" : i.DocumentStatus),
                     DocTotal = i.DocTotal,
+                    PaidToDate = i.PaidToDate,
                     DocCurrency = i.DocCurrency,
                     Comments = i.Comments,
                     Remarks = i.Comments

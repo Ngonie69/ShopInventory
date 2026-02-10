@@ -47,13 +47,18 @@ namespace ShopInventory.Controllers
                 if (customer == null)
                     return NotFound(new { message = "Customer not found" });
 
-                // Get invoices, payments, and incoming payments for the period
-                var invoices = await _invoiceService.GetInvoicesByCustomerAsync(cardCode);
+                // Get all invoices and payments for the customer
+                var allInvoices = await _invoiceService.GetInvoicesByCustomerAsync(cardCode);
                 var incomingPayments = await _incomingPaymentService.GetIncomingPaymentsByCustomerAsync(cardCode);
 
-                // Filter valid invoices (exclude canceled/closed ones)
-                var filteredInvoices = invoices
+                // Filter invoices by date for the transactions section
+                var filteredInvoices = allInvoices
                     .Where(i => IsValidInvoice(i) && FilterByDate(i.DocDate, from, to))
+                    .ToList();
+
+                // Get ALL open invoices for aging analysis (not date-filtered)
+                var allOpenInvoices = allInvoices
+                    .Where(i => IsValidInvoice(i) && i.DocStatus == "O" && (i.DocTotal - i.PaidToDate) > 0)
                     .ToList();
 
                 // Filter incoming payments by date range
@@ -64,7 +69,7 @@ namespace ShopInventory.Controllers
 
                 // Generate PDF
                 var pdfBytes = await _statementService.GenerateCustomerStatementAsync(
-                    customer, filteredInvoices, filteredIncomingPayments, from, to);
+                    customer, filteredInvoices, filteredIncomingPayments, from, to, allOpenInvoices);
 
                 return File(pdfBytes, "application/pdf",
                     $"Statement_{cardCode}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf");

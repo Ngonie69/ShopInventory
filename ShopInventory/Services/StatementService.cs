@@ -19,7 +19,8 @@ namespace ShopInventory.Services
             IEnumerable<InvoiceDto> invoices,
             IEnumerable<IncomingPaymentDto> payments,
             DateTime fromDate,
-            DateTime toDate);
+            DateTime toDate,
+            IEnumerable<InvoiceDto>? allOpenInvoices = null);
     }
 
     public class StatementService : IStatementService
@@ -56,7 +57,8 @@ namespace ShopInventory.Services
             IEnumerable<InvoiceDto> invoices,
             IEnumerable<IncomingPaymentDto> payments,
             DateTime fromDate,
-            DateTime toDate)
+            DateTime toDate,
+            IEnumerable<InvoiceDto>? allOpenInvoices = null)
         {
             try
             {
@@ -84,8 +86,8 @@ namespace ShopInventory.Services
                 // Add account summary section
                 AddAccountSummary(document, customer, invoices, payments);
 
-                // Add aging analysis
-                AddAgingAnalysis(document, invoices);
+                // Add aging analysis (use all open invoices if provided, otherwise fall back to filtered invoices)
+                AddAgingAnalysis(document, allOpenInvoices ?? invoices);
 
                 // Add transactions section
                 AddTransactionsSection(document, invoices, payments);
@@ -413,18 +415,21 @@ namespace ShopInventory.Services
                     continue;
 
                 var daysOverdue = (today - dueDate).Days;
-                var amount = inv.DocTotal;
+                var balance = inv.DocTotal - inv.PaidToDate;
+
+                if (balance <= 0)
+                    continue;
 
                 if (daysOverdue <= 0)
-                    current += amount;
+                    current += balance;
                 else if (daysOverdue <= 30)
-                    days30 += amount;
+                    days30 += balance;
                 else if (daysOverdue <= 60)
-                    days60 += amount;
+                    days60 += balance;
                 else if (daysOverdue <= 90)
-                    days90 += amount;
+                    days90 += balance;
                 else
-                    over90 += amount;
+                    over90 += balance;
             }
 
             var total = current + days30 + days60 + days90 + over90;

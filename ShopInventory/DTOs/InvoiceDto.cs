@@ -18,6 +18,7 @@ public class InvoiceDto
     public string? DocStatus { get; set; }
     public string? Remarks { get; set; }
     public decimal DocTotal { get; set; }
+    public decimal PaidToDate { get; set; }
     public decimal VatSum { get; set; }
     public string? DocCurrency { get; set; }
     public List<InvoiceLineDto>? Lines { get; set; }
