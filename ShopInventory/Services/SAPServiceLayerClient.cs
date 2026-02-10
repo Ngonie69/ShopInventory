@@ -1556,7 +1556,7 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         await EnsureAuthenticatedAsync(cancellationToken);
 
         // Use $select to fetch only essential fields for list view - excludes heavy nested arrays
-        var selectFields = "DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,DocCurrency,CashSum,CheckSum,TransferSum,CreditSum,DocTotal,Remarks,TransferReference,TransferDate,TransferAccount";
+        var selectFields = "DocEntry,DocNum,DocDate,CardCode,CardName,DocCurrency,CashSum,CheckSum,TransferSum,CreditSum,DocTotal,Remarks,TransferReference,TransferDate,TransferAccount";
         var url = $"IncomingPayments?$select={selectFields}&$orderby=DocEntry desc";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -1598,7 +1598,7 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var skip = (page - 1) * pageSize;
         // Use $select to fetch only essential fields for list view - excludes heavy nested arrays
-        var selectFields = "DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,DocCurrency,CashSum,CheckSum,TransferSum,CreditSum,DocTotal,Remarks,TransferReference,TransferDate,TransferAccount";
+        var selectFields = "DocEntry,DocNum,DocDate,CardCode,CardName,DocCurrency,CashSum,CheckSum,TransferSum,CreditSum,DocTotal,Remarks,TransferReference,TransferDate,TransferAccount";
         var filter = $"$select={selectFields}&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
         var url = $"IncomingPayments?{filter}";
 
@@ -1719,7 +1719,7 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         await EnsureAuthenticatedAsync(cancellationToken);
 
         // Use $select to fetch only essential fields for list view - excludes heavy nested arrays
-        var selectFields = "DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,DocCurrency,CashSum,CheckSum,TransferSum,CreditSum,DocTotal,Remarks,TransferReference,TransferDate,TransferAccount";
+        var selectFields = "DocEntry,DocNum,DocDate,CardCode,CardName,DocCurrency,CashSum,CheckSum,TransferSum,CreditSum,DocTotal,Remarks,TransferReference,TransferDate,TransferAccount";
         var filter = $"$select={selectFields}&$filter=CardCode eq '{cardCode}'&$orderby=DocEntry desc";
         var url = $"IncomingPayments?{filter}";
 
@@ -1763,7 +1763,7 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
         // Use $select to fetch only essential fields for list view - excludes heavy nested arrays
-        var selectFields = "DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,DocCurrency,CashSum,CheckSum,TransferSum,CreditSum,DocTotal,Remarks,TransferReference,TransferDate,TransferAccount";
+        var selectFields = "DocEntry,DocNum,DocDate,CardCode,CardName,DocCurrency,CashSum,CheckSum,TransferSum,CreditSum,DocTotal,Remarks,TransferReference,TransferDate,TransferAccount";
         var filter = $"$select={selectFields}&$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc";
         var url = $"IncomingPayments?{filter}";
 
