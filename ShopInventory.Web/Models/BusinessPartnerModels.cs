@@ -15,6 +15,8 @@ public class BusinessPartnerDto
     public string? Currency { get; set; }
     public decimal? Balance { get; set; }
     public bool IsActive { get; set; }
+    public int? PriceListNum { get; set; }
+    public string? PriceListName { get; set; }
 
     // Display helper
     public string DisplayName => $"{CardCode} - {CardName}";

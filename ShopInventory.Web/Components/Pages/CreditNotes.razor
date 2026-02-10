@@ -1,0 +1,584 @@
+@page "/credit-notes"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject ICreditNoteService CreditNoteService
+@inject NavigationManager NavigationManager
+@implements IDisposable
+@rendermode InteractiveServer
+
+<PageTitle>Credit Notes - Shop Inventory</PageTitle>
+
+<div class="page-shell">
+    <div class="container-fluid">
+        <div class="page-hero">
+            <div>
+                <h2 class="page-title mb-1"><i class="bi bi-file-earmark-minus me-2 text-primary"></i>Credit Notes</h2>
+                <p class="page-subtitle">Manage customer credits and adjustments</p>
+            </div>
+            <button class="btn btn-page-primary" @onclick="() => showCreateModal = true">
+                <i class="bi bi-plus-circle me-2"></i>New Credit Note
+            </button>
+        </div>
+
+        <!-- Filters -->
+        <div class="card page-card mb-4">
+            <div class="card-header">
+                <h5><i class="bi bi-funnel me-2"></i>Filter</h5>
+            </div>
+            <div class="card-body p-4">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-2">
+                        <label class="form-label">Credit Note #</label>
+                        <input type="text" class="form-control" @bind="creditNoteNumberFilter" @bind:event="oninput"
+                            @onkeyup="OnFilterChanged" placeholder="e.g., CN-001" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Customer</label>
+                        <input type="text" class="form-control" @bind="customerFilter" @bind:event="oninput"
+                            @onkeyup="OnFilterChanged" placeholder="Customer code" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" @bind="statusFilter" @bind:after="OnFilterChanged">
+                            <option value="">All Statuses</option>
+                            @foreach (CreditNoteStatus status in Enum.GetValues(typeof(CreditNoteStatus)))
+                            {
+                                <option value="@((int)status)">@status</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <FlexibleDatePicker Label="From Date" Date="fromDate" DateChanged="OnFromDateChanged" Class="w-100" />
+                    </div>
+                    <div class="col-md-2">
+                        <FlexibleDatePicker Label="To Date" Date="toDate" DateChanged="OnToDateChanged" Class="w-100" />
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button class="btn btn-outline-secondary" @onclick="ClearFilter">
+                            <i class="bi bi-x-circle me-1"></i>Clear
+                        </button>
+                    </div>
+                </div>
+                <div class="row g-3 mt-3">
+                    <div class="col-md-2">
+                        <label class="form-label">Records per page</label>
+                        <select class="form-select" @bind="pageSize" @bind:after="OnPageSizeChanged">
+                            <option value="10">10</option>
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading credit notes...</p>
+        </div>
+    }
+    else if (errorMessage != null)
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+        </div>
+    }
+    else if (creditNotes?.Any() == true)
+    {
+        <div class="card page-card">
+            <div class="card-body p-4">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle page-table">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Credit Note #</th>
+                                <th>Customer</th>
+                                <th>Date</th>
+                                <th>Type</th>
+                                <th>Status</th>
+                                <th>Reason</th>
+                                <th class="text-end">Total</th>
+                                <th class="text-end">Balance</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var note in creditNotes)
+                            {
+                                <tr>
+                                    <td><strong>@FormatCreditNoteNumber(note.CreditNoteNumber)</strong></td>
+                                    <td>
+                                        <span class="badge bg-secondary">@note.CardCode</span>
+                                        <small class="d-block text-muted">@note.CardName</small>
+                                    </td>
+                                    <td>@note.CreditNoteDate.ToString("dd MMM yyyy")</td>
+                                    <td>
+                                        <span class="badge @GetTypeBadgeClass(note.Type)">@note.TypeName</span>
+                                    </td>
+                                    <td>
+                                        <span class="badge @GetStatusBadgeClass(note.Status)">@note.StatusName</span>
+                                    </td>
+                                    <td>
+                                        <span title="@note.Reason">@TruncateText(note.Reason, 30)</span>
+                                    </td>
+                                    <td class="text-end"><strong>@note.DocTotal.ToString("N2")</strong></td>
+                                    <td class="text-end text-@(note.Balance > 0 ? "warning" : "success")">
+                                        @note.Balance.ToString("N2")
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="btn btn-outline-primary" @onclick="() => ViewCreditNote(note)"
+                                                title="View Details">
+                                                <i class="bi bi-eye"></i>
+                                            </button>
+                                            @if (note.Status == CreditNoteStatus.Pending)
+                                            {
+                                                <button class="btn btn-outline-success" @onclick="() => ApproveCreditNote(note.Id)"
+                                                    title="Approve">
+                                                    <i class="bi bi-check-lg"></i>
+                                                </button>
+                                            }
+                                            @if (note.Status == CreditNoteStatus.Draft || note.Status ==
+                                                                                CreditNoteStatus.Cancelled)
+                                            {
+                                                <button class="btn btn-outline-danger" @onclick="() => DeleteCreditNote(note.Id)"
+                                                    title="Delete">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination -->
+                @if (totalPages > 1)
+                {
+                    <div class="d-flex flex-column align-items-center mt-4">
+                        <MudPagination Color="Color.Primary" Count="totalPages" Selected="currentPage"
+                            SelectedChanged="OnPageChanged" ShowFirstButton="true" ShowLastButton="true" />
+                        <div class="text-muted small mt-2">
+                            Page @currentPage of @totalPages (@totalCount total records)
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>No credit notes found.
+        </div>
+    }
+    </div>
+</div>
+
+<!-- View Credit Note Modal -->
+@if (selectedCreditNote != null)
+{
+    <div class="modal-backdrop fade show" @onclick="() => selectedCreditNote = null"></div>
+    <div class="modal fade show d-block" tabindex="-1" style="z-index: 1055;">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-file-earmark-minus me-2"></i>Credit Note: @selectedCreditNote.CreditNoteNumber
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="() => selectedCreditNote = null"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <p><strong>Customer:</strong> @selectedCreditNote.CardCode - @selectedCreditNote.CardName</p>
+                            <p><strong>Date:</strong> @selectedCreditNote.CreditNoteDate.ToString("dd MMM yyyy")</p>
+                            <p><strong>Type:</strong> <span
+                                    class="badge @GetTypeBadgeClass(selectedCreditNote.Type)">@selectedCreditNote.TypeName</span>
+                            </p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Status:</strong> <span
+                                    class="badge @GetStatusBadgeClass(selectedCreditNote.Status)">@selectedCreditNote.StatusName</span>
+                            </p>
+                            <p><strong>Currency:</strong> @selectedCreditNote.Currency</p>
+                            <p><strong>Restock Items:</strong> @(selectedCreditNote.RestockItems ? "Yes" : "No")</p>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(selectedCreditNote.Reason))
+                    {
+                        <div class="alert alert-secondary">
+                            <strong>Reason:</strong> @selectedCreditNote.Reason
+                        </div>
+                    }
+
+                    @if (selectedCreditNote.Lines?.Any() == true)
+                    {
+                        <h6>Credit Note Lines</h6>
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Description</th>
+                                    <th class="text-end">Qty</th>
+                                    <th class="text-end">Unit Price</th>
+                                    <th class="text-end">Total</th>
+                                    <th>Restocked</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in selectedCreditNote.Lines)
+                                {
+                                    <tr>
+                                        <td>@line.ItemCode</td>
+                                        <td>@line.ItemDescription</td>
+                                        <td class="text-end">@line.Quantity</td>
+                                        <td class="text-end">@line.UnitPrice.ToString("N2")</td>
+                                        <td class="text-end">@line.LineTotal.ToString("N2")</td>
+                                        <td>
+                                            @if (line.IsRestocked)
+                                            {
+                                                <i class="bi bi-check-circle text-success"></i>
+                                            }
+                                            else
+                                            {
+                                                <i class="bi bi-x-circle text-muted"></i>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td colspan="4" class="text-end"><strong>Subtotal:</strong></td>
+                                    <td class="text-end">@selectedCreditNote.SubTotal.ToString("N2")</td>
+                                    <td></td>
+                                </tr>
+                                <tr>
+                                    <td colspan="4" class="text-end"><strong>Tax:</strong></td>
+                                    <td class="text-end">@selectedCreditNote.TaxAmount.ToString("N2")</td>
+                                    <td></td>
+                                </tr>
+                                <tr>
+                                    <td colspan="4" class="text-end"><strong>Total:</strong></td>
+                                    <td class="text-end"><strong>@selectedCreditNote.DocTotal.ToString("N2")</strong></td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary"
+                        @onclick="() => selectedCreditNote = null">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Create Credit Note Modal -->
+@if (showCreateModal)
+{
+    <div class="modal-backdrop fade show" @onclick="() => showCreateModal = false"></div>
+    <div class="modal fade show d-block" tabindex="-1" style="z-index: 1055;">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>New Credit Note</h5>
+                    <button type="button" class="btn-close" @onclick="() => showCreateModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Customer Code *</label>
+                            <input type="text" class="form-control" @bind="newCreditNote.CardCode"
+                                placeholder="e.g., C001" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Customer Name</label>
+                            <input type="text" class="form-control" @bind="newCreditNote.CardName" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Type</label>
+                            <select class="form-select" @bind="newCreditNote.Type">
+                                @foreach (CreditNoteType type in Enum.GetValues(typeof(CreditNoteType)))
+                                {
+                                    <option value="@type">@type</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Currency</label>
+                            <select class="form-select" @bind="newCreditNote.Currency">
+                                <option value="USD">USD</option>
+                                <option value="ZIG">ZIG</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Reason *</label>
+                            <textarea class="form-control" @bind="newCreditNote.Reason" rows="2"
+                                placeholder="Reason for credit note"></textarea>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" @bind="newCreditNote.RestockItems"
+                                    id="restockCheck">
+                                <label class="form-check-label" for="restockCheck">
+                                    Restock Items
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Restock Warehouse</label>
+                            <input type="text" class="form-control" @bind="newCreditNote.RestockWarehouseCode"
+                                placeholder="Warehouse code" />
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showCreateModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="CreateCreditNote" disabled="@isCreating">
+                        @if (isCreating)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Create Credit Note
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<CreditNoteDto>? creditNotes;
+    private CreditNoteDto? selectedCreditNote;
+    private bool isLoading = true;
+    private bool isCreating = false;
+    private bool showCreateModal = false;
+    private string? errorMessage;
+
+    // Filters
+    private string? creditNoteNumberFilter;
+    private string? customerFilter;
+    private string? statusFilter;
+    private DateTime? fromDate;
+    private DateTime? toDate;
+
+    // Debounce timer for real-time filtering
+    private System.Timers.Timer? debounceTimer;
+    private const int DebounceDelay = 400;
+
+    // Pagination
+    private int currentPage = 1;
+    private int pageSize = 20;
+    private int totalPages = 1;
+    private int totalCount = 0;
+
+    // New credit note
+    private CreateCreditNoteRequest newCreditNote = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCreditNotes();
+    }
+
+    private async Task LoadCreditNotes()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            CreditNoteStatus? status = null;
+            if (!string.IsNullOrEmpty(statusFilter) && int.TryParse(statusFilter, out var statusInt))
+            {
+                status = (CreditNoteStatus)statusInt;
+            }
+
+            var response = await CreditNoteService.GetCreditNotesAsync(currentPage, pageSize, status, customerFilter, fromDate,
+            toDate);
+            if (response != null)
+            {
+                creditNotes = response.CreditNotes;
+                totalCount = response.TotalCount;
+                totalPages = response.TotalPages;
+            }
+            else
+            {
+                errorMessage = "Failed to load credit notes.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OnFilterChanged()
+    {
+        debounceTimer?.Stop();
+        debounceTimer?.Dispose();
+
+        debounceTimer = new System.Timers.Timer(DebounceDelay);
+        debounceTimer.Elapsed += async (sender, e) =>
+        {
+            debounceTimer?.Stop();
+            await InvokeAsync(async () =>
+    {
+            currentPage = 1;
+            await LoadCreditNotes();
+            StateHasChanged();
+        });
+        };
+        debounceTimer.AutoReset = false;
+        debounceTimer.Start();
+    }
+
+    private void OnFromDateChanged(DateTime? date)
+    {
+        fromDate = date;
+        OnFilterChanged();
+    }
+
+    private void OnToDateChanged(DateTime? date)
+    {
+        toDate = date;
+        OnFilterChanged();
+    }
+
+    private async Task OnPageSizeChanged()
+    {
+        currentPage = 1;
+        await LoadCreditNotes();
+    }
+
+    private async Task ClearFilter()
+    {
+        creditNoteNumberFilter = null;
+        customerFilter = null;
+        statusFilter = null;
+        fromDate = null;
+        toDate = null;
+        currentPage = 1;
+        await LoadCreditNotes();
+    }
+
+    private async Task OnPageChanged(int page)
+    {
+        await GoToPage(page);
+    }
+
+    private async Task GoToPage(int page)
+    {
+        if (page >= 1 && page <= totalPages)
+        {
+            currentPage = page;
+            await LoadCreditNotes();
+        }
+    }
+
+    private void ViewCreditNote(CreditNoteDto note)
+    {
+        selectedCreditNote = note;
+    }
+
+    private async Task ApproveCreditNote(int id)
+    {
+        var result = await CreditNoteService.ApproveAsync(id);
+        if (result != null)
+        {
+            await LoadCreditNotes();
+        }
+    }
+
+    private async Task DeleteCreditNote(int id)
+    {
+        var success = await CreditNoteService.DeleteCreditNoteAsync(id);
+        if (success)
+        {
+            await LoadCreditNotes();
+        }
+    }
+
+    private async Task CreateCreditNote()
+    {
+        if (string.IsNullOrEmpty(newCreditNote.CardCode) || string.IsNullOrEmpty(newCreditNote.Reason))
+        {
+            return;
+        }
+
+        isCreating = true;
+        try
+        {
+            var result = await CreditNoteService.CreateCreditNoteAsync(newCreditNote);
+            if (result != null)
+            {
+                showCreateModal = false;
+                newCreditNote = new();
+                await LoadCreditNotes();
+            }
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private string GetStatusBadgeClass(CreditNoteStatus status) => status switch
+    {
+        CreditNoteStatus.Draft => "bg-secondary",
+        CreditNoteStatus.Pending => "bg-warning text-dark",
+        CreditNoteStatus.Approved => "bg-success",
+        CreditNoteStatus.Applied => "bg-primary",
+        CreditNoteStatus.PartiallyApplied => "bg-info",
+        CreditNoteStatus.Cancelled => "bg-danger",
+        CreditNoteStatus.Voided => "bg-dark",
+        _ => "bg-secondary"
+    };
+
+    private string GetTypeBadgeClass(CreditNoteType type) => type switch
+    {
+        CreditNoteType.Return => "bg-info",
+        CreditNoteType.Refund => "bg-success",
+        CreditNoteType.Adjustment => "bg-warning text-dark",
+        CreditNoteType.Cancellation => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private string TruncateText(string? text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text)) return "-";
+        return text.Length <= maxLength ? text : text.Substring(0, maxLength) + "...";
+    }
+
+    private string FormatCreditNoteNumber(string? creditNoteNumber)
+    {
+        if (string.IsNullOrEmpty(creditNoteNumber)) return "-";
+        // Remove SAP-CN prefix if present
+        if (creditNoteNumber.StartsWith("SAP-CN", StringComparison.OrdinalIgnoreCase))
+        {
+            return creditNoteNumber.Substring(6).TrimStart('-', ' ');
+        }
+        return creditNoteNumber;
+    }
+
+    public void Dispose()
+    {
+        debounceTimer?.Stop();
+        debounceTimer?.Dispose();
+    }
+}

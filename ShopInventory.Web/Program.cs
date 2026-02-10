@@ -25,7 +25,11 @@ try
 
     // Add services to the container.
     builder.Services.AddRazorComponents()
-        .AddInteractiveServerComponents();
+        .AddInteractiveServerComponents(options =>
+        {
+            // Enable detailed errors for debugging (configured in appsettings)
+            options.DetailedErrors = builder.Configuration.GetValue<bool>("DetailedErrors", false);
+        });
 
     // Add MudBlazor services
     builder.Services.AddMudServices();
@@ -43,20 +47,26 @@ try
     builder.Services.AddCascadingAuthenticationState();
 
     // Configure HttpClient for API calls with proper timeout and API key
-    // Note: SAP queries can be slow, so we use a 120 second timeout
+    // Note: SAP queries can be very slow for large datasets, so we use a 5 minute timeout
     var apiKey = builder.Configuration["ApiSettings:ApiKey"] ?? "";
-    builder.Services.AddScoped(sp =>
+    var apiBaseUrl = builder.Configuration["ApiSettings:BaseUrl"] ?? "http://localhost:5106/";
+
+    // Use IHttpClientFactory for proper HttpClient lifecycle management
+    builder.Services.AddHttpClient("ShopInventoryApi", client =>
     {
-        var client = new HttpClient
-        {
-            BaseAddress = new Uri(builder.Configuration["ApiSettings:BaseUrl"] ?? "http://localhost:5106/"),
-            Timeout = TimeSpan.FromSeconds(120)
-        };
+        client.BaseAddress = new Uri(apiBaseUrl);
+        client.Timeout = TimeSpan.FromMinutes(5); // 5 minutes for slow SAP price list syncs
         if (!string.IsNullOrEmpty(apiKey))
         {
             client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
         }
-        return client;
+    });
+
+    // Register a scoped HttpClient that uses the factory
+    builder.Services.AddScoped(sp =>
+    {
+        var factory = sp.GetRequiredService<IHttpClientFactory>();
+        return factory.CreateClient("ShopInventoryApi");
     });
 
     // Add Authentication State Provider
@@ -95,9 +105,30 @@ try
     builder.Services.AddScoped<INotificationClientService, NotificationClientService>();
     builder.Services.AddScoped<ISyncStatusClientService, SyncStatusClientService>();
 
+    // Add Sales Order and Credit Note services
+    builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
+    builder.Services.AddScoped<ICreditNoteService, CreditNoteService>();
+
+    // Add System services (Exchange Rates, Backups, Webhooks)
+    builder.Services.AddScoped<IExchangeRateService, ExchangeRateService>();
+    builder.Services.AddScoped<IBackupService, BackupService>();
+    builder.Services.AddScoped<IWebhookService, WebhookService>();
+
+    // Add Two-Factor Authentication service
+    builder.Services.AddScoped<ITwoFactorWebService, TwoFactorWebService>();
+
+    // Add Customer Portal services
+    builder.Services.AddScoped<ICustomerAuthService, CustomerAuthService>();
+    builder.Services.AddScoped<ICustomerStatementService, CustomerStatementService>();
+
+    // Add Desktop Integration service (for viewing desktop app transactions)
+    builder.Services.AddScoped<IDesktopIntegrationService, DesktopIntegrationService>();
+
     // Add Email service with MailKit
     builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
     builder.Services.AddScoped<IEmailService, EmailService>();
+    builder.Services.Configure<StatementEmailSettings>(builder.Configuration.GetSection("StatementEmails"));
+    builder.Services.AddHostedService<StatementEmailScheduler>();
 
     // Add Theme, Localization, and Search services
     builder.Services.AddScoped<IThemeService, ThemeService>();
@@ -112,124 +143,10 @@ try
 
     var app = builder.Build();
 
-    // Apply database migrations - recreate schema if needed
+    // Apply database migrations and seed default data
     using (var scope = app.Services.CreateScope())
     {
-        var dbContextFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<WebAppDbContext>>();
-        await using var dbContext = await dbContextFactory.CreateDbContextAsync();
-
-        // Check if all required tables exist, if not, recreate database
-        try
-        {
-            var connection = dbContext.Database.GetDbConnection();
-            await connection.OpenAsync();
-            using var command = connection.CreateCommand();
-            // Check for AuditLogs and AppSettings tables (newest additions)
-            command.CommandText = @"SELECT COUNT(*) FROM information_schema.tables 
-                                    WHERE table_name IN ('AuditLogs', 'AppSettings')";
-            var result = await command.ExecuteScalarAsync();
-            var tableCount = Convert.ToInt32(result);
-
-            if (tableCount < 2) // Need both new tables
-            {
-                Log.Information("New tables detected in schema (AuditLogs, AppSettings), recreating database...");
-                await dbContext.Database.EnsureDeletedAsync();
-                await dbContext.Database.EnsureCreatedAsync();
-                Log.Information("Database recreated with new schema");
-            }
-            else
-            {
-                Log.Information("Database schema is up to date");
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "Could not check database schema, attempting to create...");
-            await dbContext.Database.EnsureCreatedAsync();
-        }
-
-        // Verify critical cache tables exist
-        try
-        {
-            var connection = dbContext.Database.GetDbConnection();
-            if (connection.State != System.Data.ConnectionState.Open)
-                await connection.OpenAsync();
-            using var verifyCmd = connection.CreateCommand();
-            // PostgreSQL stores table names in lowercase in information_schema
-            verifyCmd.CommandText = @"SELECT table_name FROM information_schema.tables 
-                                      WHERE table_schema = 'public' 
-                                      AND LOWER(table_name) IN ('cachedwarehousestocks', 'cachesyncinfo', 'cachedincomingpayments', 'cachedinventorytransfers')";
-            var tableList = new List<string>();
-            using (var reader = await verifyCmd.ExecuteReaderAsync())
-            {
-                while (await reader.ReadAsync())
-                {
-                    tableList.Add(reader.GetString(0).ToLower());
-                }
-            }
-            Log.Information("Cache tables found in database: {Tables}", string.Join(", ", tableList));
-
-            if (!tableList.Contains("cachedwarehousestocks"))
-            {
-                Log.Warning("CachedWarehouseStocks table is MISSING! Creating it now...");
-                using var createCmd = connection.CreateCommand();
-                createCmd.CommandText = @"
-                    CREATE TABLE IF NOT EXISTS ""CachedWarehouseStocks"" (
-                        ""Id"" SERIAL PRIMARY KEY,
-                        ""ItemCode"" VARCHAR(50) NOT NULL,
-                        ""ItemName"" VARCHAR(200),
-                        ""BarCode"" VARCHAR(50),
-                        ""WarehouseCode"" VARCHAR(20) NOT NULL,
-                        ""InStock"" NUMERIC(18,6) NOT NULL DEFAULT 0,
-                        ""Committed"" NUMERIC(18,6) NOT NULL DEFAULT 0,
-                        ""Ordered"" NUMERIC(18,6) NOT NULL DEFAULT 0,
-                        ""Available"" NUMERIC(18,6) NOT NULL DEFAULT 0,
-                        ""UoM"" VARCHAR(20),
-                        ""LastSyncedAt"" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    );
-                    CREATE UNIQUE INDEX IF NOT EXISTS ""IX_CachedWarehouseStocks_WarehouseCode_ItemCode"" ON ""CachedWarehouseStocks"" (""WarehouseCode"", ""ItemCode"");
-                    CREATE INDEX IF NOT EXISTS ""IX_CachedWarehouseStocks_WarehouseCode"" ON ""CachedWarehouseStocks"" (""WarehouseCode"");
-                    CREATE INDEX IF NOT EXISTS ""IX_CachedWarehouseStocks_ItemCode"" ON ""CachedWarehouseStocks"" (""ItemCode"");
-                ";
-                await createCmd.ExecuteNonQueryAsync();
-                Log.Information("CachedWarehouseStocks table created successfully");
-            }
-
-            if (!tableList.Contains("cachesyncinfo"))
-            {
-                Log.Warning("CacheSyncInfo table is MISSING! Creating it now...");
-                using var createCmd = connection.CreateCommand();
-                createCmd.CommandText = @"
-                    CREATE TABLE IF NOT EXISTS ""CacheSyncInfo"" (
-                        ""CacheKey"" VARCHAR(50) PRIMARY KEY,
-                        ""LastSyncedAt"" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        ""ItemCount"" INTEGER NOT NULL DEFAULT 0,
-                        ""SyncSuccessful"" BOOLEAN NOT NULL DEFAULT FALSE,
-                        ""LastError"" VARCHAR(500)
-                    );
-                ";
-                await createCmd.ExecuteNonQueryAsync();
-                Log.Information("CacheSyncInfo table created successfully");
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "Error verifying/creating cache tables: {Message}", ex.Message);
-        }
-
-        Log.Information("Database created/verified successfully");
-
-        // Initialize default settings if not present
-        try
-        {
-            var appSettingsService = scope.ServiceProvider.GetRequiredService<IAppSettingsService>();
-            await appSettingsService.InitializeDefaultSettingsAsync();
-            Log.Information("Default settings initialized successfully");
-        }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "Could not initialize default settings");
-        }
+        await DatabaseInitializer.InitializeAsync(scope.ServiceProvider);
     }
 
     // Configure the HTTP request pipeline.
@@ -245,6 +162,8 @@ try
 
     app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
     app.UseHttpsRedirection();
+
+    app.UseStaticFiles();
 
     app.UseAntiforgery();
 

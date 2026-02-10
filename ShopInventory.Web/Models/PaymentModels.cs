@@ -28,6 +28,7 @@ public class PaymentInvoiceDto
     public int LineNum { get; set; }
     public int DocEntry { get; set; }
     public decimal SumApplied { get; set; }
+    public decimal SumAppliedFC { get; set; }
     public string? InvoiceType { get; set; }
 }
 

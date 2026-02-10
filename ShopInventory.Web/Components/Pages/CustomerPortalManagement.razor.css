@@ -1,0 +1,33 @@
+/* Customer Portal Management Styles */
+
+/* Ensure MudAutocomplete popover appears above Bootstrap modal */
+::deep .customer-autocomplete-popover {
+    z-index: 1060 !important;
+}
+
+/* Fix for MudPopover inside Bootstrap modal */
+::deep .mud-popover-provider {
+    z-index: 1060;
+}
+
+/* Style the autocomplete input */
+::deep .customer-autocomplete .mud-input-outlined {
+    background-color: white;
+}
+
+::deep .customer-autocomplete .mud-input-outlined-border {
+    border-color: #ced4da;
+}
+
+::deep .customer-autocomplete:hover .mud-input-outlined-border {
+    border-color: #0d9488;
+}
+
+/* Style autocomplete dropdown items */
+::deep .customer-autocomplete-popover .mud-list-item {
+    padding: 8px 16px;
+}
+
+::deep .customer-autocomplete-popover .mud-list-item:hover {
+    background-color: rgba(13, 148, 136, 0.1);
+}

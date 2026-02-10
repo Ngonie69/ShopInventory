@@ -1,0 +1,195 @@
+@page "/customer-portal/payments"
+@using ShopInventory.Web.Models
+@inject ICustomerStatementService StatementService
+@inject IJSRuntime JSRuntime
+@inject ILogger<CustomerPayments> Logger
+@attribute [AllowAnonymous]
+@rendermode InteractiveServer
+@layout CustomerPortalLayout
+
+<PageTitle>Payments - Customer Portal</PageTitle>
+
+<div class="container-fluid fade-in staff-dashboard staff-shell customer-payments">
+    @if (isLoading)
+    {
+        <div class="card dashboard-panel">
+            <div class="card-body text-center py-5">
+                <div class="spinner-border" role="status" style="width: 2.5rem; height: 2.5rem;">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="text-muted mt-3 mb-0">Loading payments...</p>
+            </div>
+        </div>
+    }
+    else if (customerInfo == null)
+    {
+        <div class="card dashboard-panel">
+            <div class="card-body text-center py-5">
+                <svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" fill="currentColor" viewBox="0 0 16 16"
+                    class="mb-3">
+                    <path
+                        d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+                </svg>
+                <h2 class="mb-2">Authentication Required</h2>
+                <p class="text-muted mb-4">Please login to view your payments.</p>
+                <a href="/customer-portal/login" class="btn btn-primary">Login to Portal</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="dashboard-hero">
+            <div class="page-header staff-dashboard-header">
+                <div class="dashboard-title">
+                    <h2>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor"
+                            viewBox="0 0 16 16">
+                            <path d="M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
+                            <path
+                                d="M0 4a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V4zm3 0a2 2 0 0 1-2 2v4a2 2 0 0 1 2 2h10a2 2 0 0 1 2-2V6a2 2 0 0 1-2-2H3z" />
+                        </svg>
+                        Payments
+                    </h2>
+                    <span class="text-muted">Payment history for @customerInfo.CardName</span>
+                </div>
+                <div class="dashboard-meta">
+                    <span class="meta-pill">
+                        <span class="meta-dot"></span>
+                        Payment Summary
+                    </span>
+                    <span class="meta-subtitle">
+                        @FormatCurrency(totalPaid) across @payments.Count payments
+                    </span>
+                    <div class="d-flex flex-wrap gap-2 mt-2">
+                        <a href="/customer-portal/dashboard" class="btn btn-outline-primary btn-sm">Back to Dashboard</a>
+                        <a href="/customer-portal/statements" class="btn btn-primary btn-sm">View Statement</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card dashboard-panel">
+            <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
+                <h5 class="mb-0 d-flex align-items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"
+                        class="panel-icon-emerald">
+                        <path d="M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
+                        <path
+                            d="M0 4a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V4zm3 0a2 2 0 0 1-2 2v4a2 2 0 0 1 2 2h10a2 2 0 0 1 2-2V6a2 2 0 0 1-2-2H3z" />
+                    </svg>
+                    Payment History
+                </h5>
+                <span class="text-muted small">Last updated @(lastUpdated?.ToString("MMM dd, yyyy 'at' HH:mm") ?? "just                now") UTC</span>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 align-items-end mb-4">
+                    <div class="col-md-4">
+                        <FlexibleDatePicker Label="From" @bind-Date="fromDate" />
+                    </div>
+                    <div class="col-md-4">
+                        <FlexibleDatePicker Label="To" @bind-Date="toDate" />
+                    </div>
+                    <div class="col-md-4">
+                        <button class="btn btn-primary w-100" @onclick="ApplyFilters" disabled="@isLoading">Apply
+                            Filters</button>
+                    </div>
+                </div>
+
+                @if (payments.Any())
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0 align-middle dashboard-table">
+                            <thead>
+                                <tr>
+                                    <th>Payment #</th>
+                                    <th>Date</th>
+                                    <th>Method</th>
+                                    <th>Reference</th>
+                                    <th class="text-end">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var payment in payments)
+                                {
+                                    <tr>
+                                        <td><span class="badge bg-success">@payment.DocNum</span></td>
+                                        <td>@payment.DocDate.ToString("MMM dd, yyyy")</td>
+                                        <td>@payment.PaymentMethod</td>
+                                        <td>@(payment.Reference ?? "-")</td>
+                                        <td class="text-end fw-semibold text-success">@FormatCurrency(payment.DocTotal)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="text-center py-5 dashboard-empty">
+                        <p class="text-muted mb-0">No payments found for the selected period.</p>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private CustomerInfo? customerInfo;
+    private List<CustomerPaymentSummary> payments = new();
+    private bool isLoading = true;
+    private DateTime? lastUpdated;
+    private decimal totalPaid;
+    private DateTime? fromDate = DateTime.Today.AddMonths(-6);
+    private DateTime? toDate = DateTime.Today;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPayments();
+    }
+
+    private async Task ApplyFilters()
+    {
+        await LoadPayments();
+    }
+
+    private async Task LoadPayments()
+    {
+        isLoading = true;
+
+        try
+        {
+            var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
+
+            if (string.IsNullOrEmpty(customerInfoJson))
+            {
+                customerInfo = null;
+                payments = new List<CustomerPaymentSummary>();
+                totalPaid = 0;
+                return;
+            }
+
+            customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
+
+            if (customerInfo != null)
+            {
+                payments = await StatementService.GetPaymentHistoryAsync(customerInfo.CardCode, fromDate, toDate);
+                totalPaid = payments.Sum(p => p.DocTotal);
+                lastUpdated = DateTime.UtcNow;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading payments");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private string FormatCurrency(decimal amount)
+    {
+        return $"${amount:N2}";
+    }
+}

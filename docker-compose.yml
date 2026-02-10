@@ -1,0 +1,130 @@
+# Docker Compose for ShopInventory Production Deployment
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  # PostgreSQL Database for API
+  postgres:
+    image: postgres:16-alpine
+    container_name: shopinventory-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-shopinventory}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-shopinventory}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - shopinventory-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shopinventory}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ShopInventory API
+  shopinventory-api:
+    build:
+      context: .
+      dockerfile: ShopInventory/Dockerfile
+    container_name: shopinventory-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-shopinventory};Username=${POSTGRES_USER:-shopinventory};Password=${POSTGRES_PASSWORD}
+      - Jwt__SecretKey=${JWT_SECRET_KEY}
+      - SAP__ServiceLayerUrl=${SAP_SERVICE_URL}
+      - SAP__CompanyDB=${SAP_COMPANY_DB}
+      - SAP__Username=${SAP_USERNAME}
+      - SAP__Password=${SAP_PASSWORD}
+      - Security__ApiKeys__0__Key=${API_KEY_MAIN}
+      - Security__AllowedOrigins__0=${WEB_APP_URL}
+      - Email__SmtpHost=${SMTP_HOST}
+      - Email__SmtpUsername=${SMTP_USERNAME}
+      - Email__SmtpPassword=${SMTP_PASSWORD}
+      - Email__FromEmail=${SMTP_FROM_EMAIL}
+    volumes:
+      - api_uploads:/app/uploads
+      - api_logs:/app/logs
+    ports:
+      - "5106:5106"
+    networks:
+      - shopinventory-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5106/swagger/index.html"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ShopInventory Web (Blazor)
+  shopinventory-web:
+    build:
+      context: .
+      dockerfile: ShopInventory.Web/Dockerfile
+    container_name: shopinventory-web
+    restart: unless-stopped
+    depends_on:
+      shopinventory-api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB_WEB:-shopinventoryweb};Username=${POSTGRES_USER:-shopinventory};Password=${POSTGRES_PASSWORD}
+      - ApiSettings__BaseUrl=http://shopinventory-api:5106/
+      - ApiSettings__ApiKey=${API_KEY_MAIN}
+      - Email__SmtpHost=${SMTP_HOST}
+      - Email__SmtpUsername=${SMTP_USERNAME}
+      - Email__SmtpPassword=${SMTP_PASSWORD}
+      - Email__FromEmail=${SMTP_FROM_EMAIL}
+      - Email__ApplicationUrl=${WEB_APP_URL}
+      - AI__ApiKey=${OPENAI_API_KEY}
+    volumes:
+      - web_logs:/app/logs
+    ports:
+      - "5107:5107"
+    networks:
+      - shopinventory-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5107/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # Nginx Reverse Proxy (optional - for production with SSL)
+  nginx:
+    image: nginx:alpine
+    container_name: shopinventory-nginx
+    restart: unless-stopped
+    depends_on:
+      - shopinventory-api
+      - shopinventory-web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    networks:
+      - shopinventory-network
+    profiles:
+      - with-nginx
+
+networks:
+  shopinventory-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  api_uploads:
+  api_logs:
+  web_logs:
+  nginx_logs:

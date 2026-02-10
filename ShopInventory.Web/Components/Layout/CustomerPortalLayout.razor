@@ -1,0 +1,163 @@
+@inherits LayoutComponentBase
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+@using MudBlazor
+
+<MudThemeProvider @bind-IsDarkMode="@_isDarkMode" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout Class="customer-shell">
+    <MudAppBar Elevation="1" Dense="true" Class="customer-appbar" Style="background: #000000;">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
+            OnClick="@ToggleDrawer" />
+        <img src="images/kefalos-logo.jpg" alt="Kefalos" style="height: 36px; margin-left: 8px; filter: invert(1);"
+            onerror="this.style.display='none'" />
+        <MudText Typo="Typo.h6" Class="ml-2">Customer Portal</MudText>
+        <MudSpacer />
+
+        @if (!string.IsNullOrEmpty(customerName))
+        {
+            <MudChip T="string" Color="Color.Default" Variant="Variant.Text" Style="color: white;">
+                <MudAvatar Color="Color.Secondary" Size="Size.Small" Class="mr-2">@(customerName.Length > 0 ?
+                                    customerName[0].ToString().ToUpper() : "C")</MudAvatar>
+                @customerName
+            </MudChip>
+        }
+
+        <MudIconButton Icon="@(_isDarkMode? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+            Color="Color.Inherit" OnClick="@ToggleTheme" aria-label="@(_isDarkMode ? "Light Mode" : "Dark Mode")" />
+
+        <MudButton Variant="Variant.Outlined" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Logout"
+            OnClick="@Logout" Size="Size.Small">
+            Logout
+        </MudButton>
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="@_drawerOpen" Elevation="2" Variant="@DrawerVariant.Mini" OpenMiniOnHover="true"
+        ClipMode="DrawerClipMode.Always" Breakpoint="Breakpoint.Lg" Class="customer-drawer">
+        <MudDrawerHeader Dense="true" Class="customer-drawer-header" Style="background: #000000;">
+            <MudText Typo="Typo.h6" Style="color: white;">
+                @if (_drawerOpen)
+                {
+                    <img src="images/kefalos-logo.jpg" alt="Kefalos" style="height: 32px; filter: invert(1);"
+                        onerror="this.outerHTML='<span>Kefalos</span>'" />
+                }
+                else
+                {
+                    <MudIcon Icon="@Icons.Material.Filled.Person" Style="color: white;" />
+                }
+            </MudText>
+        </MudDrawerHeader>
+
+        <MudNavMenu Dense="true" Bordered="true" Class="customer-nav">
+            <MudNavLink Href="/customer-portal/dashboard" Match="NavLinkMatch.All"
+                Icon="@Icons.Material.Filled.Dashboard">Dashboard</MudNavLink>
+            <MudNavLink Href="/customer-portal/statements" Match="NavLinkMatch.Prefix"
+                Icon="@Icons.Material.Filled.Description">Statements</MudNavLink>
+            <MudNavLink Href="/customer-portal/invoices" Match="NavLinkMatch.Prefix"
+                Icon="@Icons.Material.Filled.Receipt">Invoices</MudNavLink>
+            <MudNavLink Href="/customer-portal/payments" Match="NavLinkMatch.Prefix"
+                Icon="@Icons.Material.Filled.Payment">Payments</MudNavLink>
+
+            <MudDivider Class="my-2" />
+
+            <MudNavLink Href="/customer-portal/support" Match="NavLinkMatch.Prefix"
+                Icon="@Icons.Material.Filled.Support">Support</MudNavLink>
+            <MudNavLink Href="/customer-portal/profile" Match="NavLinkMatch.Prefix"
+                Icon="@Icons.Material.Filled.AccountCircle">Profile</MudNavLink>
+        </MudNavMenu>
+
+        @if (!string.IsNullOrEmpty(customerCode))
+        {
+            <MudSpacer />
+            <div class="pa-3 customer-drawer-footer">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">Customer Code</MudText>
+                <MudText Typo="Typo.body2">@customerCode</MudText>
+            </div>
+        }
+    </MudDrawer>
+
+    <MudMainContent Class="customer-main">
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-4 customer-content">
+            @Body
+        </MudContainer>
+
+        <footer class="customer-footer">
+            <MudContainer MaxWidth="MaxWidth.ExtraLarge">
+                <div class="d-flex justify-center align-center flex-wrap gap-4 py-3 customer-footer-content">
+                    <span>© 2026 Shop Inventory System</span>
+                    <MudLink Href="/customer-portal/support" Color="Color.Primary">Contact Support</MudLink>
+                    <MudLink Href="/customer-portal/privacy" Color="Color.Primary">Privacy Policy</MudLink>
+                    <MudLink Href="/customer-portal/terms" Color="Color.Primary">Terms of Service</MudLink>
+                </div>
+            </MudContainer>
+        </footer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    private string? customerName;
+    private string? customerCode;
+    private bool _drawerOpen = true;
+    private bool _isDarkMode = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCustomerInfo();
+        NavigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    private async Task LoadCustomerInfo()
+    {
+        try
+        {
+            var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
+
+            if (!string.IsNullOrEmpty(customerInfoJson))
+            {
+                var info = System.Text.Json.JsonSerializer.Deserialize<ShopInventory.Web.Models.CustomerInfo>(customerInfoJson);
+                if (info != null)
+                {
+                    customerName = info.CardName;
+                    customerCode = info.CardCode;
+                }
+            }
+        }
+        catch
+        {
+            // Ignore errors
+        }
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        StateHasChanged();
+    }
+
+    private void ToggleDrawer()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+
+    private void ToggleTheme()
+    {
+        _isDarkMode = !_isDarkMode;
+    }
+
+    private async Task Logout()
+    {
+        await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "customerToken");
+        await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "customerRefreshToken");
+        await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "customerInfo");
+
+        NavigationManager.NavigateTo("/customer-portal/login", forceLoad: true);
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= OnLocationChanged;
+    }
+}

@@ -1,0 +1,1021 @@
+@page "/customer-portal-management"
+@using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
+@using ShopInventory.Web.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Authorization
+@using MudBlazor
+@attribute [Authorize(Roles = "Admin")]
+@inject IBusinessPartnerService BusinessPartnerService
+@inject IDbContextFactory<WebAppDbContext> DbContextFactory
+@inject IJSRuntime JS
+@inject ILogger<CustomerPortalManagement> Logger
+@rendermode InteractiveServer
+
+<PageTitle>Customer Portal Management - Shop Inventory</PageTitle>
+
+<div class="container-fluid fade-in">
+    <div class="page-header d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2>
+                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16"
+                    style="color: #0d9488;">
+                    <path d="M11 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
+                    <path fill-rule="evenodd"
+                        d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8zm8-7a7 7 0 0 0-5.468 11.37C3.242 11.226 4.805 10 8 10s4.757 1.225 5.468 2.37A7 7 0 0 0 8 1z" />
+                </svg>
+                Customer Portal Management
+            </h2>
+            <span class="text-muted">Manage customer portal access and credentials</span>
+        </div>
+        <button class="btn btn-primary" @onclick="ShowCreateModal" style="background: #0d9488; border-color: #0d9488;">
+            <i class="bi bi-plus-circle me-2"></i>Add Customer Account
+        </button>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">Total Accounts</h6>
+                            <h3 class="mb-0">@totalAccounts</h3>
+                        </div>
+                        <div class="rounded-circle p-3" style="background: rgba(13, 148, 136, 0.1);">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="#0d9488"
+                                viewBox="0 0 16 16">
+                                <path d="M15 14s1 0 1-1-1-4-5-4-5 3-5 4 1 1 1 1h8Z" />
+                                <path
+                                    d="M11 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-9 7s-1 0-1-1 1-4 5-4 5 3 5 4-1 1-1 1H2Zm4-8a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">Active</h6>
+                            <h3 class="mb-0 text-success">@activeAccounts</h3>
+                        </div>
+                        <div class="rounded-circle p-3" style="background: rgba(34, 197, 94, 0.1);">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="#22c55e"
+                                viewBox="0 0 16 16">
+                                <path
+                                    d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">Inactive</h6>
+                            <h3 class="mb-0 text-secondary">@inactiveAccounts</h3>
+                        </div>
+                        <div class="rounded-circle p-3" style="background: rgba(107, 114, 128, 0.1);">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="#6b7280"
+                                viewBox="0 0 16 16">
+                                <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z" />
+                                <path
+                                    d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">Locked</h6>
+                            <h3 class="mb-0 text-danger">@lockedAccounts</h3>
+                        </div>
+                        <div class="rounded-circle p-3" style="background: rgba(239, 68, 68, 0.1);">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="#ef4444"
+                                viewBox="0 0 16 16">
+                                <path
+                                    d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alerts -->
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="bi bi-check-circle me-2"></i>@successMessage
+            <button type="button" class="btn-close" @onclick="@(() => successMessage = null)"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+            <button type="button" class="btn-close" @onclick="@(() => errorMessage = null)"></button>
+        </div>
+    }
+
+    <!-- Search and Filter -->
+    <div class="card mb-4 border-0 shadow-sm">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" placeholder="Search by card code or name..."
+                            @bind="searchTerm" @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" @bind="statusFilter" @bind:after="LoadCustomers">
+                        <option value="">All Status</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                        <option value="locked">Locked</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-outline-secondary" @onclick="LoadCustomers">
+                        <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Customer Accounts Table -->
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+            @if (isLoading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2 text-muted">Loading customer accounts...</p>
+                </div>
+            }
+            else if (customers == null || !customers.Any())
+            {
+                <div class="text-center py-5">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="#ccc" viewBox="0 0 16 16">
+                        <path d="M11 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
+                        <path fill-rule="evenodd"
+                            d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8zm8-7a7 7 0 0 0-5.468 11.37C3.242 11.226 4.805 10 8 10s4.757 1.225 5.468 2.37A7 7 0 0 0 8 1z" />
+                    </svg>
+                    <h5 class="mt-3 text-muted">No Customer Accounts</h5>
+                    <p class="text-muted">Click "Add Customer Account" to create a new customer portal account.</p>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Card Code</th>
+                                <th>Customer Name</th>
+                                <th>Email</th>
+                                <th>Statements</th>
+                                <th>Status</th>
+                                <th>2FA</th>
+                                <th>Last Login</th>
+                                <th>Created</th>
+                                <th class="text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var customer in customers)
+                            {
+                                <tr>
+                                    <td><code>@customer.CardCode</code></td>
+                                    <td>@customer.CardName</td>
+                                <td>@(customer.Email ?? "-")</td>
+                                <td>
+                                    @if (customer.ReceiveStatements)
+                                    {
+                                        <span class="badge bg-success">Enabled</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary">Opted out</span>
+                                    }
+                                </td>
+                                    <td>
+                                        @if (customer.LockedUntil.HasValue && customer.LockedUntil > DateTime.UtcNow)
+                                        {
+                                            <span class="badge bg-danger">Locked</span>
+                                        }
+                                        else if (customer.IsActive)
+                                        {
+                                            <span class="badge bg-success">Active</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary">Inactive</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (customer.TwoFactorEnabled)
+                                        {
+                                            <span class="badge bg-info">Enabled</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                    <td>@(customer.LastLoginAt?.ToString("MMM dd, yyyy HH:mm") ?? "Never")</td>
+                                    <td>@customer.CreatedAt.ToString("MMM dd, yyyy")</td>
+                                    <td class="text-end">
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="btn btn-outline-primary" title="Edit"
+                                                @onclick="@(() => ShowEditModal(customer))">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                    <button class="btn btn-outline-warning" title="Reset Password"
+                                        @onclick="@(() => ShowResetPasswordModal(customer))">
+                                        <i class="bi bi-key"></i>
+                                    </button>
+                                    <button class="btn btn-outline-info" title="Toggle statement emails"
+                                        @onclick="@(() => ToggleStatementPreference(customer))">
+                                        <i class="@((customer.ReceiveStatements) ? "bi-bell-fill" : "bi-bell-slash")"></i>
+                                    </button>
+                                    @if (customer.LockedUntil.HasValue && customer.LockedUntil > DateTime.UtcNow)
+                                    {
+                                        <button class="btn btn-outline-success" title="Unlock Account"
+                                            @onclick="@(() => UnlockAccount(customer))">
+                                            <i class="bi bi-unlock"></i>
+                                        </button>
+                                            }
+                                            <button class="btn btn-outline-danger" title="Delete"
+                                                @onclick="@(() => ShowDeleteConfirmation(customer))">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Create/Edit Customer Modal -->
+@if (showModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header" style="background: linear-gradient(135deg, #0d9488, #0f766e); color: white;">
+                    <h5 class="modal-title">
+                        <i class="bi bi-person-plus me-2"></i>
+                        @(isEditing ? "Edit Customer Account" : "Create Customer Account")
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <EditForm Model="@formModel" OnValidSubmit="HandleSubmit">
+                        <DataAnnotationsValidator />
+
+                        @if (!isEditing)
+                        {
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Select Customer</label>
+                                <MudAutocomplete T="CachedBusinessPartner" Label="Search by Card Code or Name"
+                                    @bind-Value="selectedBusinessPartner" SearchFunc="@SearchCustomersFromDbAsync"
+                                    ToStringFunc="@(bp => bp == null ? string.Empty : $"{bp.CardCode} - {bp.CardName}")"
+                                    ShowProgressIndicator="true" MinCharacters="1" Immediate="true" ResetValueOnEmptyText="true"
+                                    CoerceText="false" CoerceValue="false" Variant="Variant.Outlined" Dense="true"
+                                    Margin="Margin.Dense" Clearable="true" Style="width: 100%;" Class="customer-autocomplete"
+                                    DebounceInterval="300" MaxItems="15" AdornmentIcon="@Icons.Material.Filled.Search"
+                                    AdornmentColor="Color.Primary">
+                                    <ItemTemplate Context="bp">
+                                        <MudText>
+                                            <b>@bp.CardCode</b> - @bp.CardName
+                                            @if (!string.IsNullOrEmpty(bp.Email))
+                                            {
+                                                <MudText Typo="Typo.caption" Class="ms-2">(@bp.Email)</MudText>
+                                            }
+                                        </MudText>
+                                    </ItemTemplate>
+                                    <NoItemsTemplate>
+                                        <MudText Class="px-3 py-2">
+                                            <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Class="me-1" />
+                                            No customers found
+                                        </MudText>
+                                    </NoItemsTemplate>
+                                </MudAutocomplete>
+                                <small class="text-muted">Type to search customers from the database</small>
+                            </div>
+
+                            <hr />
+                        }
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Card Code <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" @bind="formModel.CardCode" readonly="@isEditing" />
+                                <ValidationMessage For="@(() => formModel.CardCode)" />
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Customer Name <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" @bind="formModel.CardName" />
+                                <ValidationMessage For="@(() => formModel.CardName)" />
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Email <span class="text-danger">*</span></label>
+                            <input type="email" class="form-control" @bind="formModel.Email" />
+                            <ValidationMessage For="@(() => formModel.Email)" />
+                        </div>
+
+                        @if (!isEditing)
+                        {
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Password <span class="text-danger">*</span></label>
+                                    <div class="input-group">
+                                        <input type="@(showPassword ? "text" : "password")" class="form-control"
+                                            @bind="formModel.Password" />
+                                        <button class="btn btn-outline-secondary" type="button"
+                                            @onclick="@(() => showPassword = !showPassword)">
+                                            <i class="bi @(showPassword ? "bi-eye-slash" : "bi-eye")"></i>
+                                        </button>
+                                    </div>
+                                    <ValidationMessage For="@(() => formModel.Password)" />
+                                    <small class="text-muted">Min 8 chars, uppercase, lowercase, number, special char</small>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Confirm Password <span class="text-danger">*</span></label>
+                                    <input type="@(showPassword ? "text" : "password")" class="form-control"
+                                        @bind="formModel.ConfirmPassword" />
+                                    <ValidationMessage For="@(() => formModel.ConfirmPassword)" />
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    @onclick="GenerateRandomPassword">
+                                    <i class="bi bi-shuffle me-1"></i>Generate Strong Password
+                                </button>
+                            </div>
+                        }
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" @bind="formModel.IsActive"
+                                    id="isActive" />
+                                <label class="form-check-label" for="isActive">Account Active</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" @bind="formModel.TwoFactorEnabled"
+                                    id="twoFactor" />
+                                <label class="form-check-label" for="twoFactor">Require 2FA</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-12 mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" @bind="formModel.ReceiveStatements"
+                                    id="receiveStatements" />
+                                <label class="form-check-label" for="receiveStatements">Send scheduled statements</label>
+                            </div>
+                        </div>
+                    </div>
+                </EditForm>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="HandleSubmit" disabled="@isSaving"
+                        style="background: #0d9488; border-color: #0d9488;">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        @(isEditing ? "Update Account" : "Create Account")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Reset Password Modal -->
+@if (showResetPasswordModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title"><i class="bi bi-key me-2"></i>Reset Password</h5>
+                    <button type="button" class="btn-close" @onclick="@(() => showResetPasswordModal = false)"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Reset password for customer: <strong>@selectedCustomer?.CardName</strong></p>
+
+                    <div class="mb-3">
+                        <label class="form-label">New Password <span class="text-danger">*</span></label>
+                        <div class="input-group">
+                            <input type="@(showNewPassword ? "text" : "password")" class="form-control"
+                                @bind="newPassword" />
+                            <button class="btn btn-outline-secondary" type="button"
+                                @onclick="@(() => showNewPassword = !showNewPassword)">
+                                <i class="bi @(showNewPassword ? "bi-eye-slash" : "bi-eye")"></i>
+                            </button>
+                        </div>
+                        <small class="text-muted">Min 8 chars, uppercase, lowercase, number, special char</small>
+                    </div>
+
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="GenerateNewPassword">
+                        <i class="bi bi-shuffle me-1"></i>Generate Strong Password
+                    </button>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary"
+                        @onclick="@(() => showResetPasswordModal = false)">Cancel</button>
+                    <button type="button" class="btn btn-warning" @onclick="ResetPassword" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Reset Password
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Delete Confirmation Modal -->
+@if (showDeleteModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>Confirm Delete</h5>
+                    <button type="button" class="btn-close btn-close-white"
+                        @onclick="@(() => showDeleteModal = false)"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete the customer portal account for:</p>
+                    <p><strong>@selectedCustomer?.CardCode - @selectedCustomer?.CardName</strong></p>
+                    <p class="text-danger mb-0">This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary"
+                        @onclick="@(() => showDeleteModal = false)">Cancel</button>
+                    <button type="button" class="btn btn-danger" @onclick="DeleteCustomer" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Delete Account
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<CustomerPortalUser>? customers;
+    private bool isLoading = true;
+    private string? searchTerm;
+    private string? statusFilter;
+    private string? successMessage;
+    private string? errorMessage;
+
+    // Stats
+    private int totalAccounts;
+    private int activeAccounts;
+    private int inactiveAccounts;
+    private int lockedAccounts;
+
+    // Modal state
+    private bool showModal;
+    private bool isEditing;
+    private bool isSaving;
+    private bool showPassword;
+    private CustomerFormModel formModel = new();
+
+    // MudAutocomplete for customer selection
+    private CachedBusinessPartner? _selectedBusinessPartner;
+    private CachedBusinessPartner? selectedBusinessPartner
+    {
+        get => _selectedBusinessPartner;
+        set
+        {
+            _selectedBusinessPartner = value;
+            if (value != null)
+            {
+                formModel.CardCode = value.CardCode;
+                formModel.CardName = value.CardName ?? "";
+                formModel.Email = value.Email ?? "";
+            }
+            else
+            {
+                formModel.CardCode = "";
+                formModel.CardName = "";
+                formModel.Email = "";
+            }
+        }
+    }
+
+    // Reset password modal
+    private bool showResetPasswordModal;
+    private string? newPassword;
+    private bool showNewPassword;
+
+    // Delete modal
+    private bool showDeleteModal;
+    private CustomerPortalUser? selectedCustomer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCustomers();
+    }
+
+    private async Task LoadCustomers()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+
+            var query = dbContext.Set<CustomerPortalUser>().AsQueryable();
+
+            // Apply filters
+            if (!string.IsNullOrEmpty(searchTerm))
+            {
+                var term = searchTerm.ToLower();
+                query = query.Where(c => c.CardCode.ToLower().Contains(term) ||
+                c.CardName.ToLower().Contains(term) ||
+                (c.Email != null && c.Email.ToLower().Contains(term)));
+            }
+
+            if (!string.IsNullOrEmpty(statusFilter))
+            {
+                switch (statusFilter)
+                {
+                    case "active":
+                        query = query.Where(c => c.IsActive && (c.LockedUntil == null || c.LockedUntil <= DateTime.UtcNow));
+                        break;
+                    case "inactive":
+                        query = query.Where(c => !c.IsActive);
+                        break;
+                    case "locked":
+                        query = query.Where(c => c.LockedUntil != null && c.LockedUntil > DateTime.UtcNow);
+                        break;
+                }
+            }
+
+            customers = await query.OrderBy(c => c.CardCode).ToListAsync();
+
+            // Calculate stats
+            var allCustomers = await dbContext.Set<CustomerPortalUser>().ToListAsync();
+            totalAccounts = allCustomers.Count;
+            activeAccounts = allCustomers.Count(c => c.IsActive && (c.LockedUntil == null || c.LockedUntil <= DateTime.UtcNow));
+            inactiveAccounts = allCustomers.Count(c => !c.IsActive);
+            lockedAccounts = allCustomers.Count(c => c.LockedUntil != null && c.LockedUntil > DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading customer portal users");
+            errorMessage = "Failed to load customer accounts.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task OnSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await LoadCustomers();
+        }
+    }
+
+    private void ShowCreateModal()
+    {
+        formModel = new CustomerFormModel { IsActive = true, ReceiveStatements = true };
+        isEditing = false;
+        showModal = true;
+        selectedBusinessPartner = null;
+    }
+
+    private void ShowEditModal(CustomerPortalUser customer)
+    {
+        formModel = new CustomerFormModel
+        {
+            Id = customer.Id,
+            CardCode = customer.CardCode,
+            CardName = customer.CardName,
+            Email = customer.Email ?? "",
+            IsActive = customer.IsActive,
+            TwoFactorEnabled = customer.TwoFactorEnabled,
+            ReceiveStatements = customer.ReceiveStatements
+        };
+        isEditing = true;
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        formModel = new();
+        _selectedBusinessPartner = null;
+    }
+
+    private async Task<IEnumerable<CachedBusinessPartner>> SearchCustomersFromDbAsync(string searchText, CancellationToken
+    cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+            return Enumerable.Empty<CachedBusinessPartner>();
+
+        try
+        {
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync(cancellationToken);
+
+            var term = searchText.ToLower();
+
+            // Search for business partners matching the search term
+            var results = await dbContext.CachedBusinessPartners
+            .Where(bp => bp.CardCode.ToLower().Contains(term) ||
+            (bp.CardName != null && bp.CardName.ToLower().Contains(term)))
+            .OrderBy(bp => bp.CardCode)
+            .Take(15)
+            .ToListAsync(cancellationToken);
+
+            Logger.LogInformation("Search for '{Term}' found {Count} results", term, results.Count);
+
+            // Try to exclude customers who already have portal accounts
+            try
+            {
+                var existingCodes = await dbContext.Set<CustomerPortalUser>()
+                .Select(c => c.CardCode)
+                .ToListAsync(cancellationToken);
+
+                return results.Where(bp => !existingCodes.Contains(bp.CardCode));
+            }
+            catch (Exception tableEx)
+            {
+                // CustomerPortalUsers table might not exist yet - return all results
+                Logger.LogWarning(tableEx, "Could not query CustomerPortalUsers table - it may not exist yet");
+                return results;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error searching customers from database");
+            return Enumerable.Empty<CachedBusinessPartner>();
+        }
+    }
+
+    private void GenerateRandomPassword()
+    {
+        formModel.Password = GenerateStrongPassword();
+        formModel.ConfirmPassword = formModel.Password;
+    }
+
+    private void GenerateNewPassword()
+    {
+        newPassword = GenerateStrongPassword();
+    }
+
+    private static string GenerateStrongPassword()
+    {
+        const string upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+        const string lower = "abcdefghjkmnpqrstuvwxyz";
+        const string digits = "23456789";
+        const string special = "!@#$%^&*";
+
+        var random = new Random();
+        var password = new char[12];
+
+        // Ensure at least one of each type
+        password[0] = upper[random.Next(upper.Length)];
+        password[1] = lower[random.Next(lower.Length)];
+        password[2] = digits[random.Next(digits.Length)];
+        password[3] = special[random.Next(special.Length)];
+
+        // Fill the rest randomly
+        var all = upper + lower + digits + special;
+        for (int i = 4; i < 12; i++)
+        {
+            password[i] = all[random.Next(all.Length)];
+        }
+
+        // Shuffle
+        return new string(password.OrderBy(_ => random.Next()).ToArray());
+    }
+
+    private async Task HandleSubmit()
+    {
+        // Validation
+        if (string.IsNullOrEmpty(formModel.CardCode) || string.IsNullOrEmpty(formModel.CardName) ||
+        string.IsNullOrEmpty(formModel.Email))
+        {
+            errorMessage = "Please fill in all required fields.";
+            return;
+        }
+
+        if (!isEditing)
+        {
+            if (string.IsNullOrEmpty(formModel.Password) || formModel.Password != formModel.ConfirmPassword)
+            {
+                errorMessage = "Passwords do not match.";
+                return;
+            }
+
+            if (!IsPasswordStrong(formModel.Password))
+            {
+                errorMessage = "Password must be at least 8 characters with uppercase, lowercase, number, and special character.";
+                return;
+            }
+        }
+
+        isSaving = true;
+        errorMessage = null;
+
+        try
+        {
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+
+            if (isEditing)
+            {
+                var existing = await dbContext.Set<CustomerPortalUser>()
+                .FirstOrDefaultAsync(c => c.Id == formModel.Id);
+
+                if (existing != null)
+                {
+                    existing.CardName = formModel.CardName;
+                    existing.Email = formModel.Email;
+                    existing.IsActive = formModel.IsActive;
+                    existing.TwoFactorEnabled = formModel.TwoFactorEnabled;
+                    existing.ReceiveStatements = formModel.ReceiveStatements;
+                    existing.UpdatedAt = DateTime.UtcNow;
+
+                    await dbContext.SaveChangesAsync();
+                    successMessage = $"Customer account for {formModel.CardCode} updated successfully.";
+                }
+            }
+            else
+            {
+                // Check if already exists
+                var exists = await dbContext.Set<CustomerPortalUser>()
+                .AnyAsync(c => c.CardCode == formModel.CardCode);
+
+                if (exists)
+                {
+                    errorMessage = $"A portal account for {formModel.CardCode} already exists.";
+                    return;
+                }
+
+                var newCustomer = new CustomerPortalUser
+                {
+                    CardCode = formModel.CardCode,
+                    CardName = formModel.CardName,
+                    Email = formModel.Email,
+                    PasswordHash = BCrypt.Net.BCrypt.HashPassword(formModel.Password, 12),
+                    IsActive = formModel.IsActive,
+                    TwoFactorEnabled = formModel.TwoFactorEnabled,
+                    ReceiveStatements = formModel.ReceiveStatements,
+                    EmailVerified = true,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                dbContext.Set<CustomerPortalUser>().Add(newCustomer);
+                await dbContext.SaveChangesAsync();
+                successMessage = $"Customer account for {formModel.CardCode} created successfully.";
+            }
+
+            CloseModal();
+            await LoadCustomers();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving customer account");
+            errorMessage = "Failed to save customer account.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task ToggleStatementPreference(CustomerPortalUser customer)
+    {
+        isSaving = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+            var existing = await dbContext.Set<CustomerPortalUser>()
+                .FirstOrDefaultAsync(c => c.Id == customer.Id);
+
+            if (existing == null)
+            {
+                return;
+            }
+
+            existing.ReceiveStatements = !existing.ReceiveStatements;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await dbContext.SaveChangesAsync();
+
+            successMessage = existing.ReceiveStatements
+                ? $"Statement emails enabled for {existing.CardCode}."
+                : $"Statement emails disabled for {existing.CardCode}.";
+
+            await LoadCustomers();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error toggling statement preference");
+            errorMessage = "Failed to update statement preference.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void ShowResetPasswordModal(CustomerPortalUser customer)
+    {
+        selectedCustomer = customer;
+        newPassword = null;
+        showNewPassword = false;
+        showResetPasswordModal = true;
+    }
+
+    private async Task ResetPassword()
+    {
+        if (selectedCustomer == null || string.IsNullOrEmpty(newPassword))
+        {
+            errorMessage = "Please enter a new password.";
+            return;
+        }
+
+        if (!IsPasswordStrong(newPassword))
+        {
+            errorMessage = "Password must be at least 8 characters with uppercase, lowercase, number, and special character.";
+            return;
+        }
+
+        isSaving = true;
+
+        try
+        {
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+
+            var customer = await dbContext.Set<CustomerPortalUser>()
+            .FirstOrDefaultAsync(c => c.Id == selectedCustomer.Id);
+
+            if (customer != null)
+            {
+                customer.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword, 12);
+                customer.LastPasswordChangeAt = DateTime.UtcNow;
+                customer.UpdatedAt = DateTime.UtcNow;
+                customer.FailedLoginAttempts = 0;
+                customer.LockedUntil = null;
+
+                await dbContext.SaveChangesAsync();
+                successMessage = $"Password reset successfully for {customer.CardCode}.";
+            }
+
+            showResetPasswordModal = false;
+            await LoadCustomers();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error resetting password");
+            errorMessage = "Failed to reset password.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task UnlockAccount(CustomerPortalUser customer)
+    {
+        try
+        {
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+
+            var existing = await dbContext.Set<CustomerPortalUser>()
+            .FirstOrDefaultAsync(c => c.Id == customer.Id);
+
+            if (existing != null)
+            {
+                existing.LockedUntil = null;
+                existing.FailedLoginAttempts = 0;
+                existing.UpdatedAt = DateTime.UtcNow;
+
+                await dbContext.SaveChangesAsync();
+                successMessage = $"Account {customer.CardCode} unlocked successfully.";
+                await LoadCustomers();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error unlocking account");
+            errorMessage = "Failed to unlock account.";
+        }
+    }
+
+    private void ShowDeleteConfirmation(CustomerPortalUser customer)
+    {
+        selectedCustomer = customer;
+        showDeleteModal = true;
+    }
+
+    private async Task DeleteCustomer()
+    {
+        if (selectedCustomer == null) return;
+
+        isSaving = true;
+
+        try
+        {
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+
+            var customer = await dbContext.Set<CustomerPortalUser>()
+            .FirstOrDefaultAsync(c => c.Id == selectedCustomer.Id);
+
+            if (customer != null)
+            {
+                dbContext.Set<CustomerPortalUser>().Remove(customer);
+                await dbContext.SaveChangesAsync();
+                successMessage = $"Customer account {customer.CardCode} deleted successfully.";
+            }
+
+            showDeleteModal = false;
+            await LoadCustomers();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting customer");
+            errorMessage = "Failed to delete customer account.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private static bool IsPasswordStrong(string password)
+    {
+        if (string.IsNullOrEmpty(password) || password.Length < 8)
+            return false;
+
+        return password.Any(char.IsUpper) &&
+        password.Any(char.IsLower) &&
+        password.Any(char.IsDigit) &&
+        password.Any(c => !char.IsLetterOrDigit(c));
+    }
+
+    public class CustomerFormModel
+    {
+        public int Id { get; set; }
+        public string CardCode { get; set; } = "";
+        public string CardName { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string Password { get; set; } = "";
+        public string ConfirmPassword { get; set; } = "";
+        public bool IsActive { get; set; } = true;
+        public bool TwoFactorEnabled { get; set; }
+        public bool ReceiveStatements { get; set; } = true;
+    }
+}

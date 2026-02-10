@@ -84,6 +84,9 @@ public static class SettingKeys
     // Audit settings
     public const string AuditRetentionDays = "AuditRetentionDays";
     public const string AuditEnabled = "AuditEnabled";
+
+    public const string StatementEmailsLastWeeklySentUtc = "StatementEmails.LastWeeklySentUtc";
+    public const string StatementEmailsLastMonthlySentUtc = "StatementEmails.LastMonthlySentUtc";
 }
 
 /// <summary>
@@ -96,4 +99,5 @@ public static class SettingCategories
     public const string Display = "Display";
     public const string Audit = "Audit";
     public const string Security = "Security";
+    public const string Notifications = "Notifications";
 }

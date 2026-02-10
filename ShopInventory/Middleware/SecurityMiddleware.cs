@@ -25,9 +25,16 @@ public class SecurityHeadersMiddleware
     private static void AddSecurityHeaders(HttpContext context)
     {
         var headers = context.Response.Headers;
+        var path = context.Request.Path.Value?.ToLowerInvariant() ?? "";
 
-        // Prevent clickjacking attacks
-        headers["X-Frame-Options"] = "DENY";
+        // Allow Swagger UI to be embedded in iframes (for web app integration)
+        var isSwaggerPath = path.StartsWith("/swagger");
+
+        // Prevent clickjacking attacks (except for Swagger which needs iframe embedding)
+        if (!isSwaggerPath)
+        {
+            headers["X-Frame-Options"] = "DENY";
+        }
 
         // Prevent MIME type sniffing
         headers["X-Content-Type-Options"] = "nosniff";
@@ -39,12 +46,14 @@ public class SecurityHeadersMiddleware
         headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
 
         // Content Security Policy - adjust based on your needs
+        // Allow Swagger to be embedded from any origin (for web app integration)
+        var frameAncestors = isSwaggerPath ? "frame-ancestors *;" : "frame-ancestors 'none';";
         headers["Content-Security-Policy"] = "default-src 'self'; " +
             "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
             "style-src 'self' 'unsafe-inline'; " +
             "img-src 'self' data: https:; " +
             "font-src 'self'; " +
-            "frame-ancestors 'none';";
+            frameAncestors;
 
         // Permissions Policy (formerly Feature-Policy)
         headers["Permissions-Policy"] = "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()";

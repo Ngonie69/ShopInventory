@@ -18,6 +18,8 @@ public class InvoiceController : ControllerBase
     private readonly IStockValidationService _stockValidation;
     private readonly IBatchInventoryValidationService _batchValidation;
     private readonly IInventoryLockService _lockService;
+    private readonly IFiscalizationService _fiscalizationService;
+    private readonly IDocumentService _documentService;
     private readonly SAPSettings _settings;
     private readonly ILogger<InvoiceController> _logger;
 
@@ -26,6 +28,8 @@ public class InvoiceController : ControllerBase
         IStockValidationService stockValidation,
         IBatchInventoryValidationService batchValidation,
         IInventoryLockService lockService,
+        IFiscalizationService fiscalizationService,
+        IDocumentService documentService,
         IOptions<SAPSettings> settings,
         ILogger<InvoiceController> logger)
     {
@@ -33,6 +37,8 @@ public class InvoiceController : ControllerBase
         _stockValidation = stockValidation;
         _batchValidation = batchValidation;
         _lockService = lockService;
+        _fiscalizationService = fiscalizationService;
+        _documentService = documentService;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -235,19 +241,64 @@ public class InvoiceController : ControllerBase
             var invoice = await _sapClient.CreateInvoiceAsync(request, cancellationToken);
 
             _logger.LogInformation(
-                "Invoice created successfully. DocEntry: {DocEntry}, DocNum: {DocNum}, Customer: {CardCode}, " +
+                "Invoice created successfully in SAP. DocEntry: {DocEntry}, DocNum: {DocNum}, Customer: {CardCode}, " +
                 "BatchesAllocated: {BatchCount}, Strategy: {Strategy}",
                 invoice.DocEntry, invoice.DocNum, invoice.CardCode,
                 batchValidationResult.AllocatedLines.Sum(l => l.Batches.Count),
                 allocationStrategy);
+
+            // Step 9: FISCALIZE with REVMax after successful SAP posting
+            FiscalizationResult? fiscalizationResult = null;
+            try
+            {
+                fiscalizationResult = await _fiscalizationService.FiscalizeInvoiceAsync(
+                    invoice.ToDto(),
+                    new CustomerFiscalDetails
+                    {
+                        CustomerName = invoice.CardName
+                    },
+                    cancellationToken);
+
+                if (fiscalizationResult.Success)
+                {
+                    _logger.LogInformation(
+                        "Invoice {DocNum} fiscalized successfully. QRCode: {HasQR}, ReceiptGlobalNo: {ReceiptNo}",
+                        invoice.DocNum,
+                        !string.IsNullOrEmpty(fiscalizationResult.QRCode),
+                        fiscalizationResult.ReceiptGlobalNo);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Invoice {DocNum} fiscalization failed: {Message}. Invoice was created in SAP but not fiscalized.",
+                        invoice.DocNum, fiscalizationResult.Message);
+                }
+            }
+            catch (Exception fiscalEx)
+            {
+                // Log but don't fail the request - SAP invoice was created successfully
+                _logger.LogError(fiscalEx,
+                    "Error during fiscalization of invoice {DocNum}. Invoice was created in SAP but fiscalization failed.",
+                    invoice.DocNum);
+
+                fiscalizationResult = new FiscalizationResult
+                {
+                    Success = false,
+                    Message = "Fiscalization error - invoice created in SAP",
+                    ErrorDetails = fiscalEx.Message
+                };
+            }
 
             return CreatedAtAction(
                 nameof(GetInvoiceByDocEntry),
                 new { docEntry = invoice.DocEntry },
                 new InvoiceCreatedResponseDto
                 {
-                    Message = "Invoice created successfully",
-                    Invoice = invoice.ToDto()
+                    Message = fiscalizationResult?.Success == true
+                        ? "Invoice created and fiscalized successfully"
+                        : "Invoice created successfully (fiscalization pending)",
+                    Invoice = invoice.ToDto(),
+                    Fiscalization = fiscalizationResult
                 });
         }
         catch (ArgumentException ex)
@@ -536,6 +587,49 @@ public class InvoiceController : ControllerBase
             _logger.LogError(ex, "Error retrieving invoices for customer {CardCode}", cardCode);
             return StatusCode(500, new ErrorResponseDto { Message = "Error retrieving invoices", Errors = new List<string> { ex.Message } });
         }
+    }
+
+    /// <summary>
+    /// Gets attachments for a specific invoice
+    /// </summary>
+    /// <param name="docEntry">The invoice document entry</param>
+    /// <returns>List of attachments</returns>
+    [HttpGet("{docEntry:int}/attachments")]
+    [ProducesResponseType(typeof(DocumentAttachmentListResponseDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetInvoiceAttachments(
+        int docEntry,
+        CancellationToken cancellationToken)
+    {
+        var result = await _documentService.GetAttachmentsAsync("Invoice", docEntry, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Download a specific attachment for an invoice
+    /// </summary>
+    /// <param name="docEntry">The invoice document entry</param>
+    /// <param name="attachmentId">The attachment ID</param>
+    [HttpGet("{docEntry:int}/attachments/{attachmentId:int}/download")]
+    [ProducesResponseType(typeof(FileStreamResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DownloadInvoiceAttachment(
+        int docEntry,
+        int attachmentId,
+        CancellationToken cancellationToken)
+    {
+        var attachments = await _documentService.GetAttachmentsAsync("Invoice", docEntry, cancellationToken);
+        if (!attachments.Attachments.Any(a => a.Id == attachmentId))
+        {
+            return NotFound(new ErrorResponseDto { Message = "Attachment not found" });
+        }
+
+        var (stream, fileName, mimeType) = await _documentService.DownloadAttachmentAsync(attachmentId, cancellationToken);
+        if (stream == null)
+        {
+            return NotFound(new ErrorResponseDto { Message = "Attachment not found" });
+        }
+
+        return File(stream, mimeType ?? "application/octet-stream", fileName);
     }
 
     /// <summary>

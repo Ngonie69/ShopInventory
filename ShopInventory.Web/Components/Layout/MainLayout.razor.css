@@ -8,6 +8,7 @@
 main {
     flex: 1;
     background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    transition: background 0.3s ease;
 }
 
 .sidebar {
@@ -31,7 +32,7 @@ main {
 }
 
 .hamburger-btn:hover {
-    background: #f1f5f9;
+    background: #eef2ff;
     color: #4f46e5;
 }
 
@@ -41,15 +42,16 @@ main {
 }
 
 .top-row {
-    background: white;
+    background: #ffffff;
     border-bottom: 1px solid #e2e8f0;
     justify-content: space-between;
     height: 4rem;
     display: flex;
     align-items: center;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
     padding: 0 1.5rem;
     gap: 1rem;
+    transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .top-row-right {
@@ -106,10 +108,18 @@ main {
 
     .sidebar {
         width: 280px;
+        min-width: 280px;
+        flex-shrink: 0;
         height: 100vh;
         position: sticky;
         top: 0;
         overflow: hidden;
+    }
+
+    main {
+        flex: 1;
+        min-width: 0;
+        overflow-x: hidden;
     }
 
     /* Collapsed sidebar state */
@@ -197,4 +207,44 @@ main {
 
 #blazor-error-ui .dismiss:hover {
     opacity: 1;
+}
+
+/* ========================================
+   Dark Theme Support
+   ======================================== */
+.page.dark-theme main {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+}
+
+.page.dark-theme .top-row {
+    background: #1e293b;
+    border-bottom-color: #334155;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.page.dark-theme .hamburger-btn {
+    color: #94a3b8;
+}
+
+.page.dark-theme .hamburger-btn:hover {
+    background: #334155;
+    color: #818cf8;
+}
+
+.page.dark-theme .top-row ::deep a,
+.page.dark-theme .top-row ::deep .btn-link {
+    color: #94a3b8;
+}
+
+.page.dark-theme .top-row ::deep a:hover,
+.page.dark-theme .top-row ::deep .btn-link:hover {
+    color: #818cf8;
+}
+
+.page.dark-theme .top-row .welcome-text {
+    color: #94a3b8;
+}
+
+.page.dark-theme .top-row .user-name {
+    color: #f1f5f9;
 }

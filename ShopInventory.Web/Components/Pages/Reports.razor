@@ -1,7 +1,9 @@
 @page "/reports"
+@using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @using Microsoft.AspNetCore.Components.Authorization
+@attribute [Authorize]
 @inject IReportService ReportService
 @inject IAuditService AuditService
 @inject AuthenticationStateProvider AuthStateProvider

@@ -18,6 +18,9 @@ public interface IPriceService
     Task<ItemPricesGroupedResponse?> GetGroupedPricesAsync();
     Task<PriceServiceResult<ItemPricesGroupedResponse>> GetGroupedPricesWithErrorAsync();
     Task<ItemPriceGroupedDto?> GetPriceByItemCodeAsync(string itemCode);
+    Task<PriceListsResponse?> GetPriceListsAsync();
+    Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum);
+    Task<ItemPriceByListDto?> GetItemPriceFromListAsync(int priceListNum, string itemCode);
 }
 
 public class PriceService : IPriceService
@@ -127,6 +130,81 @@ public class PriceService : IPriceService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception fetching price for item {ItemCode}", itemCode);
+            return null;
+        }
+    }
+
+    public async Task<PriceListsResponse?> GetPriceListsAsync()
+    {
+        try
+        {
+            _logger.LogDebug("Fetching price lists from API: {BaseAddress}api/price/pricelists", _httpClient.BaseAddress);
+
+            var response = await _httpClient.GetAsync("api/price/pricelists");
+            _logger.LogDebug("GetPriceListsAsync response: {StatusCode}", response.StatusCode);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Failed to get price lists: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<PriceListsResponse>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception fetching price lists");
+            return null;
+        }
+    }
+
+    public async Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum)
+    {
+        try
+        {
+            _logger.LogDebug("Fetching prices for price list {PriceListNum} from API", priceListNum);
+
+            var response = await _httpClient.GetAsync($"api/price/pricelists/{priceListNum}/items");
+            _logger.LogDebug("GetPricesByPriceListAsync response: {StatusCode}", response.StatusCode);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Failed to get prices for list {PriceListNum}: {StatusCode} - {Error}", priceListNum, response.StatusCode, errorContent);
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<ItemPricesByListResponse>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception fetching prices for price list {PriceListNum}", priceListNum);
+            return null;
+        }
+    }
+
+    public async Task<ItemPriceByListDto?> GetItemPriceFromListAsync(int priceListNum, string itemCode)
+    {
+        try
+        {
+            _logger.LogDebug("Fetching price for item {ItemCode} from price list {PriceListNum}", itemCode, priceListNum);
+
+            var response = await _httpClient.GetAsync($"api/price/pricelists/{priceListNum}/items/{Uri.EscapeDataString(itemCode)}");
+            _logger.LogDebug("GetItemPriceFromListAsync response: {StatusCode}", response.StatusCode);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Failed to get price for {ItemCode} from list {PriceListNum}: {StatusCode} - {Error}", itemCode, priceListNum, response.StatusCode, errorContent);
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<ItemPriceByListDto>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception fetching price for item {ItemCode} from price list {PriceListNum}", itemCode, priceListNum);
             return null;
         }
     }

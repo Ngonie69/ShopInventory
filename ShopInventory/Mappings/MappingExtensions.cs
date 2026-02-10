@@ -102,6 +102,11 @@ public static class MappingExtensions
     /// </summary>
     public static IncomingPaymentDto ToDto(this IncomingPayment model)
     {
+        // Calculate total from payment method sums if DocTotal is 0
+        var calculatedTotal = model.DocTotal > 0
+            ? model.DocTotal
+            : model.CashSum + model.TransferSum + model.CheckSum + model.CreditSum;
+
         return new IncomingPaymentDto
         {
             DocEntry = model.DocEntry,
@@ -115,7 +120,7 @@ public static class MappingExtensions
             CheckSum = model.CheckSum,
             TransferSum = model.TransferSum,
             CreditSum = model.CreditSum,
-            DocTotal = model.DocTotal,
+            DocTotal = calculatedTotal,
             Remarks = model.Remarks,
             TransferReference = model.TransferReference,
             TransferDate = model.TransferDate,
@@ -136,6 +141,7 @@ public static class MappingExtensions
             LineNum = model.LineNum,
             DocEntry = model.DocEntry,
             SumApplied = model.SumApplied,
+            SumAppliedFC = model.SumAppliedFC,
             InvoiceType = model.InvoiceType
         };
     }
@@ -182,4 +188,56 @@ public static class MappingExtensions
     {
         return models.Select(m => m.ToDto()).ToList();
     }
+
+    #region Inventory Transfer Request Mappings
+
+    /// <summary>
+    /// Maps InventoryTransferRequest model to DTO
+    /// </summary>
+    public static InventoryTransferRequestDto ToDto(this InventoryTransferRequest model)
+    {
+        return new InventoryTransferRequestDto
+        {
+            DocEntry = model.DocEntry,
+            DocNum = model.DocNum,
+            DocDate = model.DocDate,
+            DueDate = model.DueDate,
+            FromWarehouse = model.FromWarehouse,
+            ToWarehouse = model.ToWarehouse,
+            Comments = model.Comments,
+            DocumentStatus = model.DocumentStatus,
+            RequesterEmail = model.RequesterEmail,
+            RequesterName = model.RequesterName,
+            RequesterBranch = model.RequesterBranch,
+            RequesterDepartment = model.RequesterDepartment,
+            Lines = model.StockTransferLines?.Select(l => l.ToDto()).ToList()
+        };
+    }
+
+    /// <summary>
+    /// Maps InventoryTransferRequestLine model to DTO
+    /// </summary>
+    public static InventoryTransferRequestLineDto ToDto(this InventoryTransferRequestLine model)
+    {
+        return new InventoryTransferRequestLineDto
+        {
+            LineNum = model.LineNum,
+            ItemCode = model.ItemCode,
+            ItemDescription = model.ItemDescription,
+            Quantity = model.Quantity,
+            FromWarehouseCode = model.FromWarehouseCode,
+            ToWarehouseCode = model.WarehouseCode,
+            UoMCode = model.UoMCode
+        };
+    }
+
+    /// <summary>
+    /// Maps a list of InventoryTransferRequest models to DTOs
+    /// </summary>
+    public static List<InventoryTransferRequestDto> ToDto(this List<InventoryTransferRequest> models)
+    {
+        return models.Select(m => m.ToDto()).ToList();
+    }
+
+    #endregion
 }

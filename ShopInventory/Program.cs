@@ -103,6 +103,7 @@ builder.Services.Configure<SAPSettings>(builder.Configuration.GetSection("SAP"))
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
 builder.Services.Configure<RateLimitSettings>(builder.Configuration.GetSection("RateLimit"));
 builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection("Security"));
+builder.Services.Configure<RevmaxSettings>(builder.Configuration.GetSection("Revmax"));
 
 // Get JWT settings for authentication configuration
 var jwtSettings = builder.Configuration.GetSection("Jwt").Get<JwtSettings>()
@@ -278,11 +279,43 @@ builder.Services.AddScoped<ITwoFactorService, TwoFactorService>();
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 builder.Services.AddScoped<IUserActivityService, UserActivityService>();
 
+// Register statement service for PDF generation
+builder.Services.AddScoped<IStatementService, StatementService>();
+builder.Services.AddScoped<IIncomingPaymentService, IncomingPaymentService>();
+builder.Services.AddScoped<IInvoiceService, InvoiceService>();
+builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<IBusinessPartnerService, BusinessPartnerService>();
 // Register email queue service for password reset
 builder.Services.AddScoped<IEmailQueueService, EmailQueueService>();
+// Register sales order and credit note services
+builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
+builder.Services.AddScoped<ICreditNoteService, CreditNoteService>();
 
-// Register price sync background service - syncs prices from SAP every 5 minutes
-builder.Services.AddHostedService<PriceSyncBackgroundService>();
+// Register backup service
+builder.Services.AddScoped<IBackupService, BackupService>();
+
+// Register document management service
+builder.Services.AddScoped<IDocumentService, DocumentService>();
+
+// Register stock reservation service for desktop app integration
+// This service manages stock reservations to prevent negative quantities
+builder.Services.AddScoped<IStockReservationService, StockReservationService>();
+builder.Services.AddScoped<IReservedQuantityProvider, ReservedQuantityProvider>();
+
+// Register invoice queue service for batch posting to SAP
+builder.Services.AddScoped<IInvoiceQueueService, InvoiceQueueService>();
+
+// Register inventory transfer queue service for batch posting to SAP
+builder.Services.AddScoped<IInventoryTransferQueueService, InventoryTransferQueueService>();
+
+// Register background service for cleaning up expired reservations
+builder.Services.AddHostedService<ReservationCleanupService>();
+
+// Register background service for processing queued invoices
+builder.Services.AddHostedService<InvoicePostingBackgroundService>();
+
+// Register background service for processing queued inventory transfers
+builder.Services.AddHostedService<InventoryTransferPostingBackgroundService>();
 
 // Add permission-based authorization
 builder.Services.AddPermissionAuthorization();
@@ -294,7 +327,7 @@ builder.Services.AddHttpClient<ISAPServiceLayerClient, SAPServiceLayerClient>((s
     var sapSettings = configuration.GetSection("SAP").Get<SAPSettings>();
     client.BaseAddress = new Uri(sapSettings?.ServiceLayerUrl ?? "https://10.10.10.6:50000/b1s/v1/");
     client.DefaultRequestHeaders.Add("Accept", "application/json");
-    client.Timeout = TimeSpan.FromMinutes(2);
+    client.Timeout = TimeSpan.FromMinutes(5); // Increased timeout for large data operations
 })
 .ConfigurePrimaryHttpMessageHandler(() =>
 {
@@ -303,6 +336,24 @@ builder.Services.AddHttpClient<ISAPServiceLayerClient, SAPServiceLayerClient>((s
         ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
     };
 });
+
+// Register exchange rate service (depends on SAP Service Layer client)
+builder.Services.AddScoped<IExchangeRateService, ExchangeRateService>();
+
+// Register REVMax fiscal integration client
+// Typed HttpClient for REVMax API with retry policy
+var revmaxSettings = builder.Configuration.GetSection("Revmax").Get<RevmaxSettings>()
+    ?? new RevmaxSettings();
+
+builder.Services.AddHttpClient<IRevmaxClient, RevmaxClient>((serviceProvider, client) =>
+{
+    client.BaseAddress = new Uri(revmaxSettings.BaseUrl.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(revmaxSettings.TimeoutSeconds);
+    client.DefaultRequestHeaders.Add("Accept", "application/json");
+});
+
+// Register fiscalization service - fiscalizes invoices after SAP posting
+builder.Services.AddScoped<IFiscalizationService, FiscalizationService>();
 
 var app = builder.Build();
 
@@ -315,6 +366,15 @@ using (var scope = app.Services.CreateScope())
         var context = services.GetRequiredService<ApplicationDbContext>();
         var logger = services.GetRequiredService<ILogger<Program>>();
         await DbInitializer.InitializeAsync(context, logger);
+
+        // Wire up the reserved quantity provider to the batch validation service
+        // This is done after construction to avoid circular dependency
+        var batchValidation = services.GetRequiredService<IBatchInventoryValidationService>();
+        var reservedQtyProvider = services.GetRequiredService<IReservedQuantityProvider>();
+        if (batchValidation is BatchInventoryValidationService batchService)
+        {
+            batchService.SetReservedQuantityProvider(reservedQtyProvider);
+        }
     }
     catch (Exception ex)
     {

@@ -1,8 +1,11 @@
 @page "/invoices/create"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
 @inject IInvoiceService InvoiceService
 @inject IProductService ProductService
 @inject IPriceService PriceService
 @inject IBusinessPartnerService BusinessPartnerService
+@inject IEmailService EmailService
 @inject IMasterDataCacheService CacheService
 @inject NavigationManager NavigationManager
 @inject ILogger<CreateInvoice> Logger
@@ -352,6 +355,22 @@
                                                         <i class="bi bi-telephone me-1"></i>@selectedBusinessPartner.Phone1
                                                     </div>
                                                 }
+                                                @if (customerPriceListNum.HasValue)
+                                                {
+                                                    <div class="small opacity-75 mt-1">
+                                                        <i class="bi bi-tags me-1"></i>Price List #@customerPriceListNum
+                                                        @if (isLoadingCustomerPrices)
+                                                        {
+                                                            <span class="spinner-border spinner-border-sm ms-1"
+                                                                role="status"></span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="badge bg-success ms-1">@customerPriceListPrices.Count
+                                                                items</span>
+                                                        }
+                                                    </div>
+                                                }
                                             </div>
                                             <button type="button" class="btn btn-sm btn-light" @onclick="ClearSelectedBP">
                                                 <i class="bi bi-x-lg"></i>
@@ -449,15 +468,13 @@
                                     </select>
                                 </div>
                                 <div class="col-sm-6 col-md-4">
-                                    <label class="field-label">Default G/L Account</label>
-                                    <select class="form-select form-select-line" @bind="defaultGLAccount"
-                                        @bind:after="ApplyGLAccountToAllLines">
-                                        <option value="">-- Select Account --</option>
-                                        @foreach (var gl in cachedGLAccounts.Where(g => g.IsActive))
-                                        {
-                                            <option value="@gl.Code">@gl.Code - @TruncateName(gl.Name, 25)</option>
-                                        }
-                                    </select>
+                                    <label class="field-label">Default Cost Centre</label>
+                                    <MudAutocomplete T="CostCentreDto" Value="selectedDefaultCostCentre"
+                                        ValueChanged="OnDefaultCostCentreChanged" SearchFunc="SearchCostCentresAsync"
+                                        ToStringFunc="@(cc => cc == null ? "" : $"{cc.CenterCode} - {TruncateName(cc.CenterName, 25)}")"
+                                        Placeholder="-- Select Cost Centre --" Dense="true" Variant="Variant.Outlined"
+                                        Margin="Margin.Dense" Clearable="true" ResetValueOnEmptyText="true"
+                                        CoerceText="false" Class="form-select-line" />
                                 </div>
                             </div>
                         </div>
@@ -526,6 +543,9 @@
                                                                 {
                                                                     var isSelected = lineState.SuggestedProduct?.ItemCode ==
                                                                     product.ItemCode;
+                                                                    var displayPrice = GetPriceForItem(product.ItemCode, product.Price);
+                                                                    var isCustomerPrice =
+                                                                    customerPriceListPrices.ContainsKey(product.ItemCode ?? "");
                                                                     <div class="dropdown-item @(isSelected ? "selected" : "")"
                                                                         @onmousedown="() => SelectProduct(index, product)">
                                                                         <div class="d-flex justify-content-between align-items-center">
@@ -536,10 +556,17 @@
                                                                                                                                                         30)</small>
                                                             </div>
                                                             <span
-                                                                class="badge @(isSelected ? "bg-light text-dark" : "bg-primary")">@product.Price.ToString("N2")</span>
-                                                        </div>
-                                                    </div>
-                                                                                                        }
+                                                                class="badge @(isSelected ? "bg-light text-dark" : (isCustomerPrice ? "bg-success" : "bg-primary"))"
+                                                                title="@(isCustomerPrice ? "Customer price list" : "Default price")">
+                                                                @displayPrice.ToString("N2")
+                                                                @if (isCustomerPrice)
+                                                                                {
+                                                                                    <i class="bi bi-check-circle ms-1"></i>
+                                                                                }
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                }
                                                                 @if (lineState.FilteredProducts.Count > 10)
                                                                 {
                                                                     <div class="dropdown-item text-muted small text-center">
@@ -623,14 +650,14 @@
                                             </div>
                                             <div class="col-12 col-md-3">
                                                 <div class="field-group">
-                                                    <label class="field-label">G/L Account</label>
-                                                    <select class="form-select form-select-line" @bind="line.AccountCode">
-                                                        <option value="">-- Default --</option>
-                                                        @foreach (var gl in cachedGLAccounts.Where(g => g.IsActive))
-                                                        {
-                                                            <option value="@gl.Code">@gl.Code - @TruncateName(gl.Name, 15)</option>
-                                                        }
-                                                    </select>
+                                                    <label class="field-label">Cost Centre</label>
+                                                    <MudAutocomplete T="CostCentreDto" Value="GetLineCostCentre(line)"
+                                                        ValueChanged="@(cc => OnLineCostCentreChanged(index, cc))"
+                                                        SearchFunc="SearchCostCentresAsync"
+                                                        ToStringFunc="@(cc => cc == null ? "" : $"{cc.CenterCode} - {TruncateName(cc.CenterName, 15)}")"
+                                                        Placeholder="-- Default --" Dense="true" Variant="Variant.Outlined"
+                                                        Margin="Margin.Dense" Clearable="true" ResetValueOnEmptyText="true"
+                                                        CoerceText="false" Class="form-select-line" />
                                                 </div>
                                             </div>
                                         </div>
@@ -693,6 +720,13 @@
                 <!-- Actions Card -->
                 <div class="invoice-card action-card">
                     <div class="card-body p-4">
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="notifyCustomerEmail"
+                                @bind="notifyCustomerByEmail" />
+                            <label class="form-check-label" for="notifyCustomerEmail">
+                                Email customer notification
+                            </label>
+                        </div>
                         <button class="btn btn-create-invoice btn-primary w-100 mb-3" @onclick="SubmitInvoice"
                             disabled="@isSubmitting">
                             @if (isSubmitting)
@@ -760,8 +794,8 @@
                             </div>
                             <div class="col-6">
                                 <div class="d-flex align-items-center">
-                                    <i class="bi bi-journal-text text-warning me-2"></i>
-                                    <span>@cachedGLAccounts.Count G/L accounts</span>
+                                    <i class="bi bi-diagram-3 text-warning me-2"></i>
+                                    <span>@cachedCostCentres.Count cost centres</span>
                                 </div>
                             </div>
                         </div>
@@ -788,8 +822,10 @@
     private string? successMessage;
     private string? errorMessage;
     private bool isSubmitting = false;
+    private bool notifyCustomerByEmail = true;
     private string? warehouseCode = "01";
-    private string? defaultGLAccount;
+    private string? defaultCostCentre;
+    private CostCentreDto? selectedDefaultCostCentre;
 
     // Loading states
     private bool isInitialLoading = true;
@@ -800,7 +836,7 @@
     // Cached data
     private List<ProductDto> cachedProducts = new();
     private List<WarehouseDto> cachedWarehouses = new();
-    private List<GLAccountDto> cachedGLAccounts = new();
+    private List<CostCentreDto> cachedCostCentres = new();
 
     // Line state tracking for product autocomplete
     private Dictionary<int, LineState> lineStates = new();
@@ -824,6 +860,11 @@
     private string? bpSearchTerm;
     private bool showBPDropdown = false;
     private bool isLoadingBPs = true;
+
+    // Customer price list for dynamic pricing
+    private Dictionary<string, decimal> customerPriceListPrices = new();
+    private int? customerPriceListNum;
+    private bool isLoadingCustomerPrices = false;
 
     private bool IsCacheReady => CacheService.IsCacheReady;
 
@@ -901,13 +942,13 @@
             );
             fastTasks.Add(warehousesTask);
 
-            // G/L Accounts - usually fast
-            var glAccountsTask = LoadWithTimeoutAsync(
-            "G/L Accounts",
-            async () => cachedGLAccounts = await CacheService.GetGLAccountsAsync(),
+            // Cost Centres - usually fast and rarely change
+            var costCentresTask = LoadWithTimeoutAsync(
+            "Cost Centres",
+            async () => cachedCostCentres = await CacheService.GetCostCentresAsync(),
             timeout
             );
-            fastTasks.Add(glAccountsTask);
+            fastTasks.Add(costCentresTask);
 
             // Wait for fast tasks first
             await Task.WhenAll(fastTasks);
@@ -950,8 +991,8 @@
 
             lastCacheRefresh = CacheService.GetLastRefreshTime("BusinessPartners") ?? CacheService.GetLastRefreshTime("Warehouses");
 
-            Logger.LogInformation("Loaded master data: {BPCount} customers, {ProductCount} products, {WHCount} warehouses, {GLCount} G/L accounts",
-            allBusinessPartners.Count, cachedProducts.Count, cachedWarehouses.Count, cachedGLAccounts.Count);
+            Logger.LogInformation("Loaded master data: {BPCount} customers, {ProductCount} products, {WHCount} warehouses, {CCCount} cost centres",
+            allBusinessPartners.Count, cachedProducts.Count, cachedWarehouses.Count, cachedCostCentres.Count);
 
             if (allBusinessPartners.Count == 0 && cachedProducts.Count == 0 && cachedWarehouses.Count == 0)
             {
@@ -1039,14 +1080,59 @@
         return name.Length <= maxLength ? name : name.Substring(0, maxLength) + "...";
     }
 
-    private void ApplyGLAccountToAllLines()
+    private void ApplyCostCentreToAllLines()
     {
-        if (!string.IsNullOrEmpty(defaultGLAccount))
+        if (!string.IsNullOrEmpty(defaultCostCentre))
         {
             foreach (var line in invoice.Lines)
             {
-                line.AccountCode = defaultGLAccount;
+                line.CostCentreCode = defaultCostCentre;
             }
+            StateHasChanged();
+        }
+    }
+
+    // Cost Centre MudAutocomplete helpers
+    private async Task<IEnumerable<CostCentreDto>> SearchCostCentresAsync(string? searchText, CancellationToken
+    cancellationToken)
+    {
+        await Task.CompletedTask; // Make async to match MudAutocomplete signature
+
+        var activeCostCentres = cachedCostCentres.Where(c => c.IsActive);
+
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            return activeCostCentres.Take(20);
+        }
+
+        var search = searchText.ToLowerInvariant();
+        return activeCostCentres
+        .Where(cc =>
+        (cc.CenterCode?.ToLowerInvariant().Contains(search) ?? false) ||
+        (cc.CenterName?.ToLowerInvariant().Contains(search) ?? false))
+        .Take(20);
+    }
+
+    private void OnDefaultCostCentreChanged(CostCentreDto? costCentre)
+    {
+        selectedDefaultCostCentre = costCentre;
+        defaultCostCentre = costCentre?.CenterCode;
+        ApplyCostCentreToAllLines();
+    }
+
+    private CostCentreDto? GetLineCostCentre(CreateInvoiceLineRequest line)
+    {
+        if (string.IsNullOrEmpty(line.CostCentreCode))
+            return null;
+
+        return cachedCostCentres.FirstOrDefault(cc => cc.CenterCode == line.CostCentreCode);
+    }
+
+    private void OnLineCostCentreChanged(int index, CostCentreDto? costCentre)
+    {
+        if (index >= 0 && index < invoice.Lines.Count)
+        {
+            invoice.Lines[index].CostCentreCode = costCentre?.CenterCode;
             StateHasChanged();
         }
     }
@@ -1128,7 +1214,7 @@
         else if (e.Key == "ArrowDown" && state.ShowProductDropdown && state.FilteredProducts.Any())
         {
             var currentIndex = state.SuggestedProduct != null
-            ? state.FilteredProducts.IndexOf(state.SuggestedProduct)
+                                    ? state.FilteredProducts.IndexOf(state.SuggestedProduct)
             : -1;
             var nextIndex = Math.Min(currentIndex + 1, state.FilteredProducts.Count - 1);
             state.SuggestedProduct = state.FilteredProducts[nextIndex];
@@ -1150,7 +1236,7 @@
         else if (e.Key == "ArrowUp" && state.ShowProductDropdown && state.FilteredProducts.Any())
         {
             var currentIndex = state.SuggestedProduct != null
-            ? state.FilteredProducts.IndexOf(state.SuggestedProduct)
+                                    ? state.FilteredProducts.IndexOf(state.SuggestedProduct)
             : state.FilteredProducts.Count;
             var prevIndex = Math.Max(currentIndex - 1, 0);
             state.SuggestedProduct = state.FilteredProducts[prevIndex];
@@ -1237,13 +1323,16 @@
         var line = invoice.Lines[index];
         line.ItemCode = product.ItemCode ?? string.Empty;
         line.ItemDescription = product.ItemName ?? string.Empty;
-        line.UnitPrice = product.Price;
+
+        // Use price from customer's price list if available, otherwise use default product price
+        line.UnitPrice = GetPriceForItem(product.ItemCode, product.Price);
+
         line.WarehouseCode = !string.IsNullOrEmpty(warehouseCode) ? warehouseCode : (product.DefaultWarehouse ?? "01");
 
-        // Apply default G/L account if set
-        if (!string.IsNullOrEmpty(defaultGLAccount))
+        // Apply default cost centre if set
+        if (!string.IsNullOrEmpty(defaultCostCentre))
         {
-            line.AccountCode = defaultGLAccount;
+            line.CostCentreCode = defaultCostCentre;
         }
 
         var state = GetLineState(index);
@@ -1261,7 +1350,7 @@
         StateHasChanged();
     }
 
-    private void SelectBusinessPartner(BusinessPartnerDto bp)
+    private async Task SelectBusinessPartnerAsync(BusinessPartnerDto bp)
     {
         selectedBusinessPartner = bp;
         invoice.CardCode = bp.CardCode ?? string.Empty;
@@ -1275,6 +1364,23 @@
 
         // Clear validation error
         validationErrors.Remove("Customer");
+
+        // Load prices from customer's price list if available
+        if (bp.PriceListNum.HasValue && bp.PriceListNum.Value > 0)
+        {
+            await LoadCustomerPriceList(bp.PriceListNum.Value);
+        }
+        else
+        {
+            // Reset to default product prices
+            customerPriceListPrices.Clear();
+            customerPriceListNum = null;
+        }
+    }
+
+    private void SelectBusinessPartner(BusinessPartnerDto bp)
+    {
+        _ = SelectBusinessPartnerAsync(bp);
     }
 
     private void ClearSelectedBP()
@@ -1282,6 +1388,69 @@
         selectedBusinessPartner = null;
         invoice.CardCode = string.Empty;
         bpSearchTerm = null;
+        customerPriceListPrices.Clear();
+        customerPriceListNum = null;
+    }
+
+    private async Task LoadCustomerPriceList(int priceListNum)
+    {
+        isLoadingCustomerPrices = true;
+        StateHasChanged();
+
+        try
+        {
+            Logger.LogInformation("Loading prices from customer price list {PriceListNum}", priceListNum);
+
+            var response = await PriceService.GetPricesByPriceListAsync(priceListNum);
+
+            if (response?.Prices != null && response.Prices.Any())
+            {
+                customerPriceListPrices.Clear();
+                foreach (var price in response.Prices)
+                {
+                    if (!string.IsNullOrEmpty(price.ItemCode))
+                    {
+                        customerPriceListPrices[price.ItemCode] = price.Price;
+                    }
+                }
+                customerPriceListNum = priceListNum;
+
+                Logger.LogInformation("Loaded {Count} prices from customer price list {PriceListNum}",
+                customerPriceListPrices.Count, priceListNum);
+            }
+            else
+            {
+                Logger.LogWarning("No prices found for price list {PriceListNum}", priceListNum);
+                customerPriceListPrices.Clear();
+                customerPriceListNum = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading customer price list {PriceListNum}", priceListNum);
+            customerPriceListPrices.Clear();
+            customerPriceListNum = null;
+        }
+        finally
+        {
+            isLoadingCustomerPrices = false;
+            StateHasChanged();
+        }
+    }
+
+    private decimal GetPriceForItem(string? itemCode, decimal defaultPrice)
+    {
+        if (string.IsNullOrEmpty(itemCode))
+            return defaultPrice;
+
+        // If customer has a price list with this item, use that price
+        if (customerPriceListPrices.TryGetValue(itemCode, out var customerPrice))
+        {
+            return customerPrice;
+        }
+
+        // Fall back to default product price
+        return defaultPrice;
     }
 
     private async Task OnBPSearchBlur()
@@ -1298,10 +1467,10 @@
             WarehouseCode = warehouseCode ?? "01"
         };
 
-        // Apply default G/L account if set
-        if (!string.IsNullOrEmpty(defaultGLAccount))
+        // Apply default cost centre if set
+        if (!string.IsNullOrEmpty(defaultCostCentre))
         {
-            newLine.AccountCode = defaultGLAccount;
+            newLine.CostCentreCode = defaultCostCentre;
         }
 
         invoice.Lines.Add(newLine);
@@ -1482,7 +1651,12 @@
             {
                 Logger.LogInformation("Invoice #{DocNum} (DocEntry: {DocEntry}) created successfully for customer {CardCode}",
                 createdInvoice?.DocNum, createdInvoice?.DocEntry, invoice.CardCode);
+                var notificationNote = await TrySendCustomerInvoiceNotificationAsync(createdInvoice);
                 successMessage = $"Invoice #{createdInvoice?.DocNum} created successfully!";
+                if (!string.IsNullOrWhiteSpace(notificationNote))
+                {
+                    successMessage = $"{successMessage} {notificationNote}";
+                }
                 ClearForm();
             }
             else
@@ -1513,6 +1687,61 @@
         {
             isSubmitting = false;
         }
+    }
+
+    private async Task<string?> TrySendCustomerInvoiceNotificationAsync(InvoiceDto? createdInvoice)
+    {
+        if (!notifyCustomerByEmail)
+        {
+            return null;
+        }
+
+        if (createdInvoice == null)
+        {
+            Logger.LogWarning("Invoice created but no invoice details were returned. Skipping email notification.");
+            return "Notification email skipped (invoice details unavailable).";
+        }
+
+        var cardCode = createdInvoice.CardCode ?? invoice.CardCode;
+        var customerName = selectedBusinessPartner?.CardName ?? createdInvoice.CardName ?? "Customer";
+        var customerEmail = selectedBusinessPartner?.Email;
+
+        if (string.IsNullOrWhiteSpace(customerEmail) && !string.IsNullOrWhiteSpace(cardCode))
+        {
+            var bp = await BusinessPartnerService.GetBusinessPartnerByCodeAsync(cardCode);
+            if (bp != null)
+            {
+                customerEmail = bp.Email;
+                if (!string.IsNullOrWhiteSpace(bp.CardName))
+                {
+                    customerName = bp.CardName;
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(customerEmail))
+        {
+            Logger.LogWarning("No email found for customer {CardCode}. Skipping invoice notification.", cardCode);
+            return "Notification email skipped (customer email missing).";
+        }
+
+        var sent = await EmailService.SendCustomerInvoiceNotificationAsync(
+        customerEmail,
+        customerName,
+        createdInvoice.DocEntry,
+        createdInvoice.DocNum.ToString(),
+        createdInvoice.DocTotal);
+
+        if (sent)
+        {
+            Logger.LogInformation("Invoice notification email sent to {Email} for invoice {DocNum}.",
+            customerEmail, createdInvoice.DocNum);
+            return "Notification email sent.";
+        }
+
+        Logger.LogWarning("Failed to send invoice notification email to {Email} for invoice {DocNum}.",
+        customerEmail, createdInvoice.DocNum);
+        return "Notification email failed to send.";
     }
 
     private void ClearForm()

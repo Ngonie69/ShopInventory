@@ -1,4 +1,6 @@
 @page "/products"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
 @inject IProductService ProductService
 @inject IMasterDataCacheService MasterDataCache
 @inject ILogger<Products> Logger
@@ -66,6 +68,17 @@
                     </button>
                 </div>
             </div>
+            <div class="row mt-3">
+                <div class="col-md-2">
+                    <label class="form-label">Records per page</label>
+                    <select class="form-select" @bind="pageSize" @bind:after="OnPageSizeChanged">
+                        <option value="10">10</option>
+                        <option value="20">20</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -86,77 +99,84 @@
     }
     else if (products?.Any() == true)
     {
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Products in Warehouse: @selectedWarehouse?.WarehouseCode</h5>
-                <span class="badge bg-primary">@totalProducts products (@productsWithBatches with batches)</span>
-            </div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-hover">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Item Code</th>
-                                <th>Item Name</th>
-                                <th>Barcode</th>
-                                <th>Type</th>
-                                <th class="text-end">In Stock</th>
-                                <th class="text-end">Available</th>
-                                <th class="text-end">Committed</th>
-                                <th>UoM</th>
-                                <th>Batches</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var product in products)
-                            {
-                                <tr>
-                                    <td><strong>@product.ItemCode</strong></td>
-                                    <td>@product.ItemName</td>
-                                    <td><code>@product.BarCode</code></td>
-                                    <td>@product.ItemType</td>
-                                    <td class="text-end">@product.QuantityInStock</td>
-                                    <td class="text-end text-success">@product.QuantityAvailable</td>
-                                    <td class="text-end text-warning">@product.QuantityCommitted</td>
-                                    <td>@product.UoM</td>
-                                    <td>
-                                        @if (product.ManagesBatches)
-                                        {
-                                            <span class="badge bg-info">@(product.Batches?.Count ?? 0) batches</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="badge bg-secondary">N/A</span>
-                                        }
-                                    </td>
-                                    <td>
-                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewProduct(product)">
-                                            <i class="bi bi-eye"></i>
-                                        </button>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="d-flex justify-content-between align-items-center mt-3">
+        <MudDataGrid T="ProductDto" Items="@products" SortMode="SortMode.Multiple" Filterable="true"
+            QuickFilter="@_quickFilter" Hideable="true" RowClick="@OnRowClicked" Dense="true" Hover="true" Striped="true">
+            <ToolBarContent>
+                <MudText Typo="Typo.h6">Products in Warehouse: @selectedWarehouse?.WarehouseCode</MudText>
+                <MudSpacer />
+                <MudChip T="string" Color="Color.Primary" Size="Size.Small">@totalProducts products (@productsWithBatches
+                    with batches)</MudChip>
+                <MudTextField @bind-Value="_searchString" Placeholder="Search" Adornment="Adornment.Start" Immediate="true"
+                    AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0 ms-4"></MudTextField>
+            </ToolBarContent>
+            <Columns>
+                <PropertyColumn Property="x => x.ItemCode" Title="Item Code">
+                    <CellTemplate>
+                        <MudText Typo="Typo.body2"><strong>@context.Item.ItemCode</strong></MudText>
+                    </CellTemplate>
+                </PropertyColumn>
+                <PropertyColumn Property="x => x.ItemName" Title="Item Name" />
+                <PropertyColumn Property="x => x.BarCode" Title="Barcode">
+                    <CellTemplate>
+                        <code>@context.Item.BarCode</code>
+                    </CellTemplate>
+                </PropertyColumn>
+                <PropertyColumn Property="x => x.ItemType" Title="Type" />
+                <PropertyColumn Property="x => x.QuantityInStock" Title="In Stock">
+                    <CellTemplate>
+                        <MudText Typo="Typo.body2" Align="Align.End">@context.Item.QuantityInStock</MudText>
+                    </CellTemplate>
+                </PropertyColumn>
+                <PropertyColumn Property="x => x.QuantityAvailable" Title="Available">
+                    <CellTemplate>
+                        <MudText Typo="Typo.body2" Color="Color.Success" Align="Align.End">@context.Item.QuantityAvailable
+                        </MudText>
+                    </CellTemplate>
+                </PropertyColumn>
+                <PropertyColumn Property="x => x.QuantityCommitted" Title="Committed">
+                    <CellTemplate>
+                        <MudText Typo="Typo.body2" Color="Color.Warning" Align="Align.End">@context.Item.QuantityCommitted
+                        </MudText>
+                    </CellTemplate>
+                </PropertyColumn>
+                <PropertyColumn Property="x => x.UoM" Title="UoM" />
+                <TemplateColumn Title="Batches" Sortable="false" Filterable="false">
+                    <CellTemplate>
+                        @if (context.Item.ManagesBatches)
+                        {
+                            <MudChip T="string" Color="Color.Info" Size="Size.Small">@(context.Item.Batches?.Count ?? 0) batches
+                            </MudChip>
+                        }
+                        else
+                        {
+                            <MudChip T="string" Color="Color.Default" Size="Size.Small">N/A</MudChip>
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
+                    <CellTemplate>
+                        <MudIconButton Icon="@Icons.Material.Filled.Visibility" Color="Color.Primary" Size="Size.Small"
+                            OnClick="@(() => ViewProduct(context.Item))" />
+                    </CellTemplate>
+                </TemplateColumn>
+            </Columns>
+            <PagerContent>
+                <div class="d-flex justify-content-between align-items-center px-4 py-2">
+                    <MudText Typo="Typo.body2">Showing @products.Count products (Page @currentPage)</MudText>
                     <div>
-                        Showing @products.Count products (Page @currentPage)
-                    </div>
-                    <div>
-                        <button class="btn btn-outline-primary btn-sm me-2" @onclick="PreviousPage"
-                            disabled="@(currentPage <= 1)">
-                            <i class="bi bi-chevron-left"></i> Previous
-                        </button>
-                        <button class="btn btn-outline-primary btn-sm" @onclick="NextPage" disabled="@(!hasMore)">
-                            Next <i class="bi bi-chevron-right"></i>
-                        </button>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" Class="me-2"
+                            Disabled="@(currentPage <= 1)" OnClick="PreviousPage">
+                            <MudIcon Icon="@Icons.Material.Filled.ChevronLeft" Size="Size.Small" /> Previous
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" Disabled="@(!hasMore)"
+                            OnClick="NextPage">
+                            Next
+                            <MudIcon Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" />
+                        </MudButton>
                     </div>
                 </div>
-            </div>
-        </div>
+            </PagerContent>
+        </MudDataGrid>
     }
     else if (selectedWarehouse != null)
     {
@@ -289,12 +309,43 @@
     private int productsWithBatches = 0;
 
     private string? barcode;
+    private string _searchString = string.Empty;
 
     // Warehouse selection - stored in database for fast loading
     private List<WarehouseDto> warehouses = new();
     private WarehouseDto? selectedWarehouse;
     private bool isLoadingWarehouses = true;
     private bool _hasLoadedData = false;
+
+    // Quick filter - filter globally across multiple columns with the same input
+    private Func<ProductDto, bool> _quickFilter => x =>
+    {
+        if (string.IsNullOrWhiteSpace(_searchString))
+            return true;
+
+        if (x.ItemCode?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.ItemName?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.BarCode?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.ItemType?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.UoM?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        return false;
+    };
+
+    // Row click handler
+    private void OnRowClicked(DataGridRowClickEventArgs<ProductDto> args)
+    {
+        ViewProduct(args.Item);
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -472,5 +523,11 @@
             currentPage++;
             await SearchProducts();
         }
+    }
+
+    private async Task OnPageSizeChanged()
+    {
+        currentPage = 1;
+        await SearchProducts();
     }
 }

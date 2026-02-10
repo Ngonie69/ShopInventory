@@ -233,6 +233,13 @@
                         <option value="@action">@action</option>
                     }
                 </select>
+                <select class="form-select form-select-sm" style="width: auto;" @bind="pageSize"
+                    @bind:after="OnPageSizeChanged">
+                    <option value="10">10 per page</option>
+                    <option value="25">25 per page</option>
+                    <option value="50">50 per page</option>
+                    <option value="100">100 per page</option>
+                </select>
             </div>
         </div>
         <div class="card-body">
@@ -244,102 +251,92 @@
             }
             else if (recentActivities.Any())
             {
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle">
-                        <thead>
-                            <tr>
-                                <th>Time</th>
-                                <th>User</th>
-                                <th>Action</th>
-                                <th>Entity</th>
-                                <th>Details</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var activity in recentActivities)
-                            {
-                                <tr>
-                                    <td>
-                                        <span title="@activity.Timestamp.ToString("dd MMM yyyy HH:mm")">
-                                            @GetRelativeTime(activity.Timestamp)
+                <MudDataGrid T="ActivityLog" Items="@recentActivities" SortMode="SortMode.Multiple" Filterable="true"
+                    QuickFilter="@_quickFilter" Hideable="true" Dense="true" Hover="true" Striped="true">
+                    <ToolBarContent>
+                        <MudText Typo="Typo.h6">Recent Activity</MudText>
+                        <MudSpacer />
+                        <MudTextField @bind-Value="_searchString" Placeholder="Search" Adornment="Adornment.Start" Immediate="true"
+                            AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+                    </ToolBarContent>
+                    <Columns>
+                        <PropertyColumn Property="x => x.Timestamp" Title="Time">
+                            <CellTemplate>
+                                <MudTooltip Text="@context.Item.Timestamp.ToString("dd MMM yyyy HH:mm")">
+                                    <span>@GetRelativeTime(context.Item.Timestamp)</span>
+                                </MudTooltip>
+                            </CellTemplate>
+                        </PropertyColumn>
+                        <PropertyColumn Property="x => x.Username" Title="User">
+                            <CellTemplate>
+                                <div class="d-flex align-items-center">
+                                    <div class="avatar-circle-sm bg-primary me-2">
+                                        @context.Item.Username[0].ToString().ToUpper()
+                                    </div>
+                                    @context.Item.Username
+                                </div>
+                            </CellTemplate>
+                        </PropertyColumn>
+                        <PropertyColumn Property="x => x.Action" Title="Action">
+                            <CellTemplate>
+                                <MudChip T="string" Color="@GetActionChipColor(context.Item.Action)" Size="Size.Small">@context.Item.Action</MudChip>
+                            </CellTemplate>
+                        </PropertyColumn>
+                        <PropertyColumn Property="x => x.EntityType" Title="Entity">
+                            <CellTemplate>
+                                @if (!string.IsNullOrEmpty(context.Item.EntityType))
+                                {
+                                    <span>@context.Item.EntityType</span>
+                                    @if (!string.IsNullOrEmpty(context.Item.EntityId))
+                                    {
+                                        <MudText Typo="Typo.caption" Class="text-muted ms-1">#@context.Item.EntityId</MudText>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="text-muted">-</span>
+                                }
+                            </CellTemplate>
+                        </PropertyColumn>
+                        <PropertyColumn Property="x => x.Details" Title="Details">
+                            <CellTemplate>
+                                @if (!string.IsNullOrEmpty(context.Item.Details))
+                                {
+                                    <MudTooltip Text="@context.Item.Details">
+                                        <span class="text-truncate d-inline-block" style="max-width: 200px;">
+                                            @context.Item.Details
                                         </span>
-                                    </td>
-                                    <td>
-                                        <div class="d-flex align-items-center">
-                                            <div class="avatar-circle-sm bg-primary me-2">
-                                                @activity.Username[0].ToString().ToUpper()
-                                            </div>
-                                            @activity.Username
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <span class="badge @GetActionBadgeClass(activity.Action)">@activity.Action</span>
-                                    </td>
-                                    <td>
-                                        @if (!string.IsNullOrEmpty(activity.EntityType))
-                                        {
-                                            <span>@activity.EntityType</span>
-                                            @if (!string.IsNullOrEmpty(activity.EntityId))
-                                            {
-                                                <small class="text-muted ms-1">#@activity.EntityId</small>
-                                            }
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted">-</span>
-                                        }
-                                    </td>
-                                    <td>
-                                        @if (!string.IsNullOrEmpty(activity.Details))
-                                        {
-                                            <span class="text-truncate d-inline-block" style="max-width: 200px;"
-                                                title="@activity.Details">
-                                                @activity.Details
-                                            </span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted">-</span>
-                                        }
-                                    </td>
-                                    <td>
-                                        @if (activity.IsSuccess)
-                                        {
-                                            <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Success</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Failed</span>
-                                        }
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Pagination -->
-                @if (totalPages > 1)
-                {
-                    <nav class="mt-4">
-                        <ul class="pagination justify-content-center mb-0">
-                            <li class="page-item @(currentPage == 1 ? "disabled" : "")">
-                                <button class="page-link" @onclick="() => GoToPage(currentPage - 1)">Previous</button>
-                            </li>
-                            @for (int i = Math.Max(1, currentPage - 2); i <= Math.Min(totalPages, currentPage + 2); i++)
-                            {
-                                var pageNum = i;
-                                <li class="page-item @(currentPage == pageNum ? "active" : "")">
-                                    <button class="page-link" @onclick="() => GoToPage(pageNum)">@pageNum</button>
-                                </li>
-                            }
-                            <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
-                                <button class="page-link" @onclick="() => GoToPage(currentPage + 1)">Next</button>
-                            </li>
-                        </ul>
-                    </nav>
-                }
+                                    </MudTooltip>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">-</span>
+                                }
+                            </CellTemplate>
+                        </PropertyColumn>
+                        <PropertyColumn Property="x => x.IsSuccess" Title="Status">
+                            <CellTemplate>
+                                @if (context.Item.IsSuccess)
+                                {
+                                    <MudChip T="string" Color="Color.Success" Size="Size.Small"><MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Class="me-1" />Success</MudChip>
+                                }
+                                else
+                                {
+                                    <MudChip T="string" Color="Color.Error" Size="Size.Small"><MudIcon Icon="@Icons.Material.Filled.Cancel" Size="Size.Small" Class="me-1" />Failed</MudChip>
+                                }
+                            </CellTemplate>
+                        </PropertyColumn>
+                    </Columns>
+                    <PagerContent>
+                        <div class="d-flex flex-column align-items-center px-4 py-2">
+                            <MudPagination Color="Color.Primary" Count="totalPages" Selected="currentPage"
+                                SelectedChanged="OnPageChanged" ShowFirstButton="true" ShowLastButton="true" />
+                            <MudText Typo="Typo.caption" Class="text-muted mt-2">
+                                Page @currentPage of @totalPages (@totalActionsCount total records)
+                            </MudText>
+                        </div>
+                    </PagerContent>
+                </MudDataGrid>
             }
             else
             {
@@ -425,6 +422,7 @@
     private string timeRange = "today";
     private DateTime startDate;
     private DateTime endDate;
+    private string _searchString = string.Empty;
 
     // Stats
     private int activeUsersCount = 0;
@@ -448,6 +446,40 @@
     private int currentPage = 1;
     private int pageSize = 25;
     private int totalPages = 1;
+
+    // Quick filter - filter globally across multiple columns with the same input
+    private Func<ActivityLog, bool> _quickFilter => x =>
+    {
+        if (string.IsNullOrWhiteSpace(_searchString))
+            return true;
+
+        if (x.Username?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.Action?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.EntityType?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.Details?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        return false;
+    };
+
+    // Helper for action chip color
+    private Color GetActionChipColor(string action) => action switch
+    {
+        "Login" or "Logout" => Color.Success,
+        "LoginFailed" => Color.Error,
+        var a when a.StartsWith("Create") => Color.Primary,
+        var a when a.StartsWith("Update") => Color.Warning,
+        var a when a.StartsWith("Delete") => Color.Error,
+        var a when a.StartsWith("View") => Color.Info,
+        var a when a.StartsWith("Sync") => Color.Default,
+        _ => Color.Default
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -578,6 +610,11 @@
         }
     }
 
+    private async Task OnPageChanged(int page)
+    {
+        await GoToPage(page);
+    }
+
     private async Task GoToPage(int page)
     {
         if (page >= 1 && page <= totalPages)
@@ -585,6 +622,12 @@
             currentPage = page;
             await LoadActivities();
         }
+    }
+
+    private async Task OnPageSizeChanged()
+    {
+        currentPage = 1;
+        await LoadActivities();
     }
 
     private string GetRelativeTime(DateTime dateTime)

@@ -1,0 +1,322 @@
+@page "/notifications"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Services
+@using ShopInventory.Web.Models
+@attribute [Authorize]
+@inject INotificationClientService NotificationService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Notifications - Shop Inventory</PageTitle>
+
+<div class="container-fluid fade-in">
+    <div class="page-header d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2>
+                <i class="bi bi-bell-fill me-2" style="color: var(--primary-color);"></i>
+                Notifications
+            </h2>
+            <span class="text-muted">Stay updated with system alerts and important messages</span>
+        </div>
+        <div class="d-flex gap-2">
+            @if (unreadCount > 0)
+            {
+                <button class="btn btn-outline-primary" @onclick="MarkAllAsRead" disabled="@isProcessing">
+                    <i class="bi bi-check-all me-1"></i>Mark All as Read
+                </button>
+            }
+            <button class="btn btn-outline-secondary" @onclick="RefreshNotifications" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                }
+                else
+                {
+                    <i class="bi bi-arrow-clockwise me-1"></i>
+                }
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- Filter Tabs -->
+    <div class="card mb-4">
+        <div class="card-body py-2">
+            <div class="d-flex justify-content-between align-items-center">
+                <ul class="nav nav-pills">
+                    <li class="nav-item">
+                        <a class="nav-link @(showUnreadOnly ? "" : "active")" href="#" @onclick="() => SetFilter(false)"
+                            @onclick:preventDefault>
+                            All
+                            @if (totalCount > 0)
+                            {
+                                <span class="badge bg-secondary ms-1">@totalCount</span>
+                            }
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link @(showUnreadOnly ? "active" : "")" href="#" @onclick="() => SetFilter(true)"
+                            @onclick:preventDefault>
+                            Unread
+                            @if (unreadCount > 0)
+                            {
+                                <span class="badge bg-danger ms-1">@unreadCount</span>
+                            }
+                        </a>
+                    </li>
+                </ul>
+                <div class="d-flex align-items-center gap-3">
+                    <select class="form-select form-select-sm" style="width: auto;" @bind="selectedCategory"
+                        @bind:after="LoadNotifications">
+                        <option value="">All Categories</option>
+                        <option value="System">System</option>
+                        <option value="LowStock">Low Stock</option>
+                        <option value="Payment">Payment</option>
+                        <option value="Invoice">Invoice</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notifications List -->
+    @if (isLoading && !notifications.Any())
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading notifications...</p>
+        </div>
+    }
+    else if (errorMessage != null)
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+        </div>
+    }
+    else if (!notifications.Any())
+    {
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <i class="bi bi-bell-slash display-1 text-muted"></i>
+                <h5 class="mt-3 text-muted">No notifications</h5>
+                <p class="text-muted">You're all caught up! New notifications will appear here.</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="list-group list-group-flush">
+                @foreach (var notification in filteredNotifications)
+                {
+                    <div class="list-group-item list-group-item-action @(notification.IsRead ? "" : "bg-light border-start border-primary border-4")"
+                        style="cursor: pointer;" @onclick="() => HandleNotificationClick(notification)">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="d-flex">
+                                <div class="me-3">
+                                    <i class="@notification.TypeIconClass fs-4"></i>
+                                </div>
+                                <div>
+                                    <div class="d-flex align-items-center mb-1">
+                                        <h6 class="mb-0 @(notification.IsRead ? "" : "fw-bold")">@notification.Title</h6>
+                                        <span
+                                            class="badge @GetCategoryBadgeClass(notification.Category) ms-2">@notification.Category</span>
+                                    </div>
+                                    <p class="mb-1 text-muted">@notification.Message</p>
+                                    @if (!string.IsNullOrEmpty(notification.EntityType) &&
+                                                                !string.IsNullOrEmpty(notification.EntityId))
+                                    {
+                                        <small class="text-info">
+                                            <i class="bi bi-link-45deg me-1"></i>@notification.EntityType: @notification.EntityId
+                                        </small>
+                                    }
+                                </div>
+                            </div>
+                            <div class="text-end">
+                                <small class="text-muted">@notification.TimeAgo</small>
+                                @if (!notification.IsRead)
+                                {
+                                    <div class="mt-1">
+                                        <span class="badge bg-primary">New</span>
+                                    </div>
+                                }
+                                <div class="mt-2">
+                                    <button class="btn btn-sm btn-outline-danger"
+                                        @onclick="() => DeleteNotification(notification.Id)" @onclick:stopPropagation="true"
+                                        title="Delete">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Pagination -->
+        @if (totalPages > 1)
+        {
+            <nav class="mt-4">
+                <ul class="pagination justify-content-center">
+                    <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                        <a class="page-link" href="#" @onclick="() => GoToPage(currentPage - 1)"
+                            @onclick:preventDefault>Previous</a>
+                    </li>
+                    @for (int i = 1; i <= totalPages; i++)
+                    {
+                        var pageNum = i;
+                        <li class="page-item @(currentPage == pageNum ? "active" : "")">
+                            <a class="page-link" href="#" @onclick="() => GoToPage(pageNum)" @onclick:preventDefault>@pageNum</a>
+                        </li>
+                    }
+                    <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                        <a class="page-link" href="#" @onclick="() => GoToPage(currentPage + 1)"
+                            @onclick:preventDefault>Next</a>
+                    </li>
+                </ul>
+            </nav>
+        }
+    }
+</div>
+
+@code {
+    private List<NotificationModel> notifications = new();
+    private bool isLoading = true;
+    private bool isProcessing = false;
+    private string? errorMessage;
+    private bool showUnreadOnly = false;
+    private string selectedCategory = "";
+    private int currentPage = 1;
+    private int pageSize = 20;
+    private int totalCount = 0;
+    private int unreadCount = 0;
+    private int totalPages => (int)Math.Ceiling((double)totalCount / pageSize);
+
+    private IEnumerable<NotificationModel> filteredNotifications => string.IsNullOrEmpty(selectedCategory)
+    ? notifications
+    : notifications.Where(n => n.Category == selectedCategory);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadNotifications();
+    }
+
+    private async Task LoadNotifications()
+    {
+        isLoading = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var response = await NotificationService.GetNotificationsAsync(currentPage, pageSize, showUnreadOnly);
+            if (response != null)
+            {
+                notifications = response.Notifications;
+                totalCount = response.TotalCount;
+                unreadCount = response.UnreadCount;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load notifications: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task RefreshNotifications()
+    {
+        currentPage = 1;
+        await LoadNotifications();
+    }
+
+    private async Task SetFilter(bool unreadOnly)
+    {
+        showUnreadOnly = unreadOnly;
+        currentPage = 1;
+        await LoadNotifications();
+    }
+
+    private async Task GoToPage(int page)
+    {
+        if (page >= 1 && page <= totalPages)
+        {
+            currentPage = page;
+            await LoadNotifications();
+        }
+    }
+
+    private async Task HandleNotificationClick(NotificationModel notification)
+    {
+        if (!notification.IsRead)
+        {
+            await NotificationService.MarkAsReadAsync(new List<int> { notification.Id });
+            notification.IsRead = true;
+            unreadCount = Math.Max(0, unreadCount - 1);
+        }
+
+        if (!string.IsNullOrEmpty(notification.ActionUrl))
+        {
+            Navigation.NavigateTo(notification.ActionUrl);
+        }
+    }
+
+    private async Task MarkAllAsRead()
+    {
+        isProcessing = true;
+        try
+        {
+            await NotificationService.MarkAsReadAsync(null);
+            foreach (var n in notifications)
+            {
+                n.IsRead = true;
+            }
+            unreadCount = 0;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task DeleteNotification(int id)
+    {
+        try
+        {
+            var success = await NotificationService.DeleteNotificationAsync(id);
+            if (success)
+            {
+                var notification = notifications.FirstOrDefault(n => n.Id == id);
+                if (notification != null)
+                {
+                    if (!notification.IsRead)
+                    {
+                        unreadCount = Math.Max(0, unreadCount - 1);
+                    }
+                    notifications.Remove(notification);
+                    totalCount--;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to delete notification: {ex.Message}";
+        }
+    }
+
+    private string GetCategoryBadgeClass(string category) => category switch
+    {
+        "LowStock" => "bg-warning text-dark",
+        "Payment" => "bg-success",
+        "Invoice" => "bg-info",
+        "System" => "bg-secondary",
+        "Error" => "bg-danger",
+        _ => "bg-primary"
+    };
+}

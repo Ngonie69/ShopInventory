@@ -1,0 +1,238 @@
+@page "/customer-portal/profile"
+@using ShopInventory.Web.Models
+@inject ICustomerAuthService CustomerAuthService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
+@inject ILogger<CustomerProfile> Logger
+@attribute [AllowAnonymous]
+@rendermode InteractiveServer
+@layout CustomerPortalLayout
+
+<PageTitle>Profile - Customer Portal</PageTitle>
+
+<div class="container-fluid fade-in staff-dashboard staff-shell customer-profile">
+    @if (isLoading)
+    {
+        <div class="card dashboard-panel">
+            <div class="card-body text-center py-5">
+                <div class="spinner-border" role="status" style="width: 2.5rem; height: 2.5rem;">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="text-muted mt-3 mb-0">Loading profile...</p>
+            </div>
+        </div>
+    }
+    else if (customerInfo == null)
+    {
+        <div class="card dashboard-panel">
+            <div class="card-body text-center py-5">
+                <svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" fill="currentColor" viewBox="0 0 16 16" class="mb-3">
+                    <path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+                </svg>
+                <h2 class="mb-2">Authentication Required</h2>
+                <p class="text-muted mb-4">Please login to view your profile.</p>
+                <a href="/customer-portal/login" class="btn btn-primary">Login to Portal</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="dashboard-hero">
+            <div class="page-header staff-dashboard-header">
+                <div class="dashboard-title">
+                    <h2>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M3 14s-1 0-1-1 1-4 6-4 6 3 6 4-1 1-1 1H3zm5-6a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+                        </svg>
+                        Profile
+                    </h2>
+                    <span class="text-muted">Customer details for @customerInfo.CardName</span>
+                </div>
+                <div class="dashboard-meta">
+                    <span class="meta-pill">
+                        <span class="meta-dot"></span>
+                        Account
+                    </span>
+                    <span class="meta-subtitle">@customerInfo.CardCode</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card dashboard-panel">
+            <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
+                <h5 class="mb-0 d-flex align-items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" class="panel-icon">
+                        <path d="M3 14s-1 0-1-1 1-4 6-4 6 3 6 4-1 1-1 1H3zm5-6a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+                    </svg>
+                    Customer Information
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-4">
+                    <div class="col-md-6">
+                        <div class="border rounded-3 p-3 h-100">
+                            <p class="text-muted mb-1">Customer Name</p>
+                            <p class="fw-semibold mb-3">@customerInfo.CardName</p>
+                            <p class="text-muted mb-1">Customer Code</p>
+                            <p class="fw-semibold mb-0">@customerInfo.CardCode</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="border rounded-3 p-3 h-100">
+                            <p class="text-muted mb-1">Email</p>
+                            <p class="fw-semibold mb-3">@(customerInfo.Email ?? "Not provided")</p>
+                            <p class="text-muted mb-1">Phone</p>
+                            <p class="fw-semibold mb-0">@(customerInfo.Phone ?? "Not provided")</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="border rounded-3 p-3 h-100">
+                            <p class="text-muted mb-1">Account Balance</p>
+                            <p class="fw-semibold mb-0">@FormatCurrency(customerInfo.Balance)</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="border rounded-3 p-3 h-100">
+                            <p class="text-muted mb-1">Last Login</p>
+                            <p class="fw-semibold mb-0">@(customerInfo.LastLoginAt?.ToString("MMM dd, yyyy 'at' HH:mm") ?? "Not available")</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card dashboard-panel mt-4">
+            <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
+                <h5 class="mb-0 d-flex align-items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" class="panel-icon-amber">
+                        <path d="M8 1a2 2 0 0 1 2 2v3H6V3a2 2 0 0 1 2-2z" />
+                        <path d="M3 6a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2H3zm2 3.5a3 3 0 1 1 6 0 3 3 0 0 1-6 0z" />
+                    </svg>
+                    Change Password
+                </h5>
+            </div>
+            <div class="card-body">
+                @if (!string.IsNullOrEmpty(passwordError))
+                {
+                    <div class="alert alert-danger">@passwordError</div>
+                }
+                @if (!string.IsNullOrEmpty(passwordSuccess))
+                {
+                    <div class="alert alert-success">@passwordSuccess</div>
+                }
+
+                <EditForm Model="passwordRequest" OnValidSubmit="HandlePasswordChange">
+                    <DataAnnotationsValidator />
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Current Password</label>
+                            <InputText type="password" class="form-control" @bind-Value="passwordRequest.CurrentPassword" />
+                            <ValidationMessage For="@(() => passwordRequest.CurrentPassword)" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">New Password</label>
+                            <InputText type="password" class="form-control" @bind-Value="passwordRequest.NewPassword" />
+                            <ValidationMessage For="@(() => passwordRequest.NewPassword)" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Confirm Password</label>
+                            <InputText type="password" class="form-control" @bind-Value="passwordRequest.ConfirmPassword" />
+                            <ValidationMessage For="@(() => passwordRequest.ConfirmPassword)" />
+                        </div>
+                    </div>
+                    <p class="text-muted small mt-3 mb-3">Password must be at least 8 characters and include upper, lower, number, and symbol.</p>
+                    <button class="btn btn-primary" type="submit" disabled="@isSavingPassword">
+                        @(isSavingPassword ? "Updating..." : "Update Password")
+                    </button>
+                </EditForm>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private CustomerInfo? customerInfo;
+    private bool isLoading = true;
+    private CustomerPasswordChangeRequest passwordRequest = new();
+    private bool isSavingPassword;
+    private string? passwordError;
+    private string? passwordSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCustomerInfo();
+    }
+
+    private async Task LoadCustomerInfo()
+    {
+        isLoading = true;
+
+        try
+        {
+            var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
+
+            if (string.IsNullOrEmpty(customerInfoJson))
+            {
+                customerInfo = null;
+                return;
+            }
+
+            customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading customer profile");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task HandlePasswordChange()
+    {
+        if (customerInfo == null)
+        {
+            passwordError = "Please login to change your password.";
+            return;
+        }
+
+        isSavingPassword = true;
+        passwordError = null;
+        passwordSuccess = null;
+
+        try
+        {
+            var ipAddress = "127.0.0.1";
+            var result = await CustomerAuthService.ChangePasswordAsync(customerInfo.CardCode, passwordRequest, ipAddress);
+
+            if (!result.Success)
+            {
+                passwordError = result.Message;
+                return;
+            }
+
+            passwordSuccess = result.Message;
+
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "customerToken");
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "customerRefreshToken");
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "customerInfo");
+
+            NavigationManager.NavigateTo("/customer-portal/login", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error changing customer password");
+            passwordError = "Unable to update password right now.";
+        }
+        finally
+        {
+            isSavingPassword = false;
+        }
+    }
+
+    private string FormatCurrency(decimal amount)
+    {
+        return $"${amount:N2}";
+    }
+}

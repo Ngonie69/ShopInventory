@@ -1,0 +1,948 @@
+@page "/api-explorer"
+@using Microsoft.AspNetCore.Authorization
+@using System.Text.Json
+@attribute [Authorize(Roles = "Admin")]
+@inject HttpClient Http
+@inject IConfiguration Configuration
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+
+<PageTitle>API Explorer - Shop Inventory</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-4">
+    <MudText Typo="Typo.h4" Class="mb-4">
+        <MudIcon Icon="@Icons.Material.Filled.Api" Class="mr-2" />
+        API Explorer
+    </MudText>
+
+    <MudText Typo="Typo.body1" Class="mb-4">
+        Explore and test the Shop Inventory API endpoints. This interface allows you to interact with all available API
+        modules directly from the web application.
+    </MudText>
+
+    <MudGrid>
+        <!-- API Configuration Card -->
+        <MudItem xs="12">
+            <MudCard Elevation="2" Class="mb-4">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6">
+                            <MudIcon Icon="@Icons.Material.Filled.Settings" Class="mr-2" />
+                            API Configuration
+                        </MudText>
+                    </CardHeaderContent>
+                    <CardHeaderActions>
+                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Primary"
+                            OnClick="OpenSwagger" Title="Open Swagger UI" />
+                    </CardHeaderActions>
+                </MudCardHeader>
+                <MudCardContent>
+                    <MudGrid>
+                        <MudItem xs="12" md="6">
+                            <MudTextField @bind-Value="_apiBaseUrl" Label="API Base URL" Variant="Variant.Outlined"
+                                Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Link"
+                                ReadOnly="true" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudTextField @bind-Value="_maskedApiKey" Label="API Key" Variant="Variant.Outlined"
+                                Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Key" ReadOnly="true"
+                                InputType="InputType.Password" />
+                        </MudItem>
+                    </MudGrid>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+
+        <!-- API Modules -->
+        <MudItem xs="12">
+            <MudTabs Elevation="2" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4">
+                @foreach (var category in _apiCategories)
+                {
+                    <MudTabPanel Text="@category.Name" Icon="@category.Icon">
+                        <MudGrid>
+                            @foreach (var module in category.Modules)
+                            {
+                                <MudItem xs="12" md="6" lg="4">
+                                    <MudCard Elevation="1" Class="api-module-card">
+                                        <MudCardHeader>
+                                            <CardHeaderAvatar>
+                                                <MudAvatar Color="@module.Color" Size="Size.Medium">
+                                                    <MudIcon Icon="@module.Icon" />
+                                                </MudAvatar>
+                                            </CardHeaderAvatar>
+                                            <CardHeaderContent>
+                                                <MudText Typo="Typo.h6">@module.Name</MudText>
+                                                <MudText Typo="Typo.body2" Class="mud-text-secondary">@module.BasePath</MudText>
+                                            </CardHeaderContent>
+                                        </MudCardHeader>
+                                        <MudCardContent>
+                                            <MudText Typo="Typo.body2" Class="mb-3">@module.Description</MudText>
+                                            <MudChipSet T="string" ReadOnly="true">
+                                                @foreach (var method in module.Methods)
+                                                {
+                                                    <MudChip T="string" Size="Size.Small" Color="@GetMethodColor(method)"
+                                                        Variant="Variant.Outlined">
+                                                        @method
+                                                    </MudChip>
+                                                }
+                                            </MudChipSet>
+                                        </MudCardContent>
+                                        <MudCardActions>
+                                            <MudButton Variant="Variant.Text" Color="Color.Primary"
+                                                OnClick="@(() => ShowModuleDetails(module))">
+                                                <MudIcon Icon="@Icons.Material.Filled.Visibility" Class="mr-1" />
+                                                View Endpoints
+                                            </MudButton>
+                                            <MudButton Variant="Variant.Text" Color="Color.Secondary"
+                                                OnClick="@(() => TestEndpoint(module))">
+                                                <MudIcon Icon="@Icons.Material.Filled.PlayArrow" Class="mr-1" />
+                                                Test
+                                            </MudButton>
+                                        </MudCardActions>
+                                    </MudCard>
+                                </MudItem>
+                            }
+                        </MudGrid>
+                    </MudTabPanel>
+                }
+            </MudTabs>
+        </MudItem>
+
+        <!-- API Tester Section -->
+        <MudItem xs="12">
+            <MudExpansionPanels Elevation="2" Class="mt-4">
+                <MudExpansionPanel Text="API Tester" Icon="@Icons.Material.Filled.Terminal"
+                    @bind-IsExpanded="_testerExpanded">
+                    <MudGrid>
+                        <MudItem xs="12" md="2">
+                            <MudSelect @bind-Value="_selectedMethod" Label="Method" Variant="Variant.Outlined">
+                                <MudSelectItem Value="@("GET")">GET</MudSelectItem>
+                                <MudSelectItem Value="@("POST")">POST</MudSelectItem>
+                                <MudSelectItem Value="@("PUT")">PUT</MudSelectItem>
+                                <MudSelectItem Value="@("DELETE")">DELETE</MudSelectItem>
+                                <MudSelectItem Value="@("PATCH")">PATCH</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" md="8">
+                            <MudTextField @bind-Value="_testEndpoint" Label="Endpoint" Variant="Variant.Outlined"
+                                Placeholder="/api/product" Adornment="Adornment.Start" AdornmentText="@_apiBaseUrl" />
+                        </MudItem>
+                        <MudItem xs="12" md="2">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
+                                OnClick="ExecuteRequest" Disabled="_isLoading" Class="mt-1" Style="height: 56px;">
+                                @if (_isLoading)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                }
+                                Send
+                            </MudButton>
+                        </MudItem>
+
+                        @if (_selectedMethod != "GET" && _selectedMethod != "DELETE")
+                        {
+                            <MudItem xs="12">
+                                <MudTextField @bind-Value="_requestBody" Label="Request Body (JSON)"
+                                    Variant="Variant.Outlined" Lines="6" Placeholder='{ "property": "value" }' />
+                            </MudItem>
+                        }
+
+                        @if (!string.IsNullOrEmpty(_responseBody))
+                        {
+                            <MudItem xs="12">
+                                <MudPaper Elevation="0" Class="pa-4"
+                                    Style="background-color: var(--mud-palette-background-grey);">
+                                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center"
+                                        Class="mb-2">
+                                        <MudText Typo="Typo.subtitle1">
+                                            Response
+                                            <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(_responseStatus)"
+                                                Variant="Variant.Filled">
+                                                @_responseStatus
+                                            </MudChip>
+                                            <MudText Typo="Typo.caption" Class="ml-2">(@_responseTime ms)</MudText>
+                                        </MudText>
+                                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small"
+                                            OnClick="CopyResponse" Title="Copy Response" />
+                                    </MudStack>
+                                    <pre
+                                        style="overflow-x: auto; max-height: 400px; font-size: 12px; white-space: pre-wrap;">@_responseBody</pre>
+                                </MudPaper>
+                            </MudItem>
+                        }
+                    </MudGrid>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+        </MudItem>
+    </MudGrid>
+</MudContainer>
+
+<!-- Module Details Dialog -->
+<MudDialog @bind-Visible="_showModuleDialog"
+    Options="new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true }">
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@(_selectedModule?.Icon ?? Icons.Material.Filled.Api)" Class="mr-2" />
+            @(_selectedModule?.Name ?? "Module") Endpoints
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_selectedModule != null)
+        {
+            <MudList T="ApiEndpoint" Dense="true">
+                @foreach (var endpoint in _selectedModule.Endpoints)
+                {
+                    <MudListItem>
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                            <MudChip T="string" Size="Size.Small" Color="@GetMethodColor(endpoint.Method)"
+                                Style="min-width: 70px; justify-content: center;">
+                                @endpoint.Method
+                            </MudChip>
+                            <MudText Typo="Typo.body2" Style="font-family: monospace;">@endpoint.Path</MudText>
+                        </MudStack>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary ml-10">@endpoint.Description</MudText>
+                    </MudListItem>
+                    <MudDivider />
+                }
+            </MudList>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _showModuleDialog = false)">Close</MudButton>
+        <MudButton Color="Color.Primary" OnClick="@(() => TestSelectedModule())">Test in API Tester</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<style>
+    .api-module-card {
+        height: 100%;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .api-module-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    }
+</style>
+
+@code {
+    private string _apiBaseUrl = "";
+    private string _maskedApiKey = "";
+    private string _actualApiKey = "";
+    private bool _testerExpanded = false;
+    private string _selectedMethod = "GET";
+    private string _testEndpoint = "/api/health";
+    private string _requestBody = "";
+    private string _responseBody = "";
+    private int _responseStatus = 0;
+    private long _responseTime = 0;
+    private bool _isLoading = false;
+    private bool _showModuleDialog = false;
+    private ApiModule? _selectedModule;
+
+    private List<ApiCategory> _apiCategories = new();
+
+    protected override void OnInitialized()
+    {
+        _apiBaseUrl = Configuration["ApiSettings:BaseUrl"] ?? "http://localhost:5106/";
+        _actualApiKey = Configuration["ApiSettings:ApiKey"] ?? "";
+        _maskedApiKey = _actualApiKey.Length > 10
+                    ? _actualApiKey.Substring(0, 10) + "..." + _actualApiKey.Substring(_actualApiKey.Length - 4)
+        : "****";
+
+        InitializeApiCategories();
+    }
+
+    private void InitializeApiCategories()
+    {
+        _apiCategories = new List<ApiCategory>
+{
+new ApiCategory
+{
+Name = "Core Business",
+Icon = Icons.Material.Filled.Business,
+Modules = new List<ApiModule>
+{
+new ApiModule
+{
+Name = "Invoices",
+BasePath = "/api/invoice",
+Description = "Create, retrieve, and manage sales invoices with SAP integration and batch validation.",
+Icon = Icons.Material.Filled.Receipt,
+Color = Color.Primary,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/invoice", "Get all invoices with pagination"),
+new("GET", "/api/invoice/{docEntry}", "Get invoice by document entry"),
+new("GET", "/api/invoice/by-number/{docNum}", "Get invoice by document number"),
+new("POST", "/api/invoice", "Create a new invoice"),
+new("POST", "/api/invoice/with-delivery", "Create invoice with delivery note"),
+new("GET", "/api/invoice/{docEntry}/pdf", "Download invoice as PDF"),
+new("GET", "/api/invoice/by-customer/{cardCode}", "Get invoices by customer")
+}
+},
+new ApiModule
+{
+Name = "Sales Orders",
+BasePath = "/api/salesorder",
+Description = "Manage sales orders with full CRUD operations and SAP synchronization.",
+Icon = Icons.Material.Filled.ShoppingCart,
+Color = Color.Secondary,
+Methods = new[] { "GET", "POST", "PUT", "DELETE" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/salesorder", "Get all sales orders"),
+new("GET", "/api/salesorder/{docEntry}", "Get sales order by document entry"),
+new("POST", "/api/salesorder", "Create a new sales order"),
+new("PUT", "/api/salesorder/{docEntry}", "Update a sales order"),
+new("DELETE", "/api/salesorder/{docEntry}", "Cancel a sales order"),
+new("POST", "/api/salesorder/{docEntry}/close", "Close a sales order")
+}
+},
+new ApiModule
+{
+Name = "Credit Notes",
+BasePath = "/api/creditnote",
+Description = "Create and manage credit notes for returns and adjustments.",
+Icon = Icons.Material.Filled.RemoveCircle,
+Color = Color.Warning,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/creditnote", "Get all credit notes"),
+new("GET", "/api/creditnote/{docEntry}", "Get credit note by document entry"),
+new("POST", "/api/creditnote", "Create a new credit note"),
+new("POST", "/api/creditnote/from-invoice/{invoiceDocEntry}", "Create credit note from invoice")
+}
+},
+new ApiModule
+{
+Name = "Payments",
+BasePath = "/api/payment",
+Description = "Process payments and incoming payments with multiple payment gateway support.",
+Icon = Icons.Material.Filled.Payment,
+Color = Color.Success,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/payment/methods", "Get available payment methods"),
+new("POST", "/api/payment/initiate", "Initiate a payment"),
+new("GET", "/api/payment/{transactionId}/status", "Get payment status"),
+new("POST", "/api/payment/callback/{gateway}", "Payment gateway callback")
+}
+},
+new ApiModule
+{
+Name = "Incoming Payments",
+BasePath = "/api/incomingpayment",
+Description = "Record and manage incoming payments against invoices.",
+Icon = Icons.Material.Filled.AttachMoney,
+Color = Color.Info,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/incomingpayment", "Get all incoming payments"),
+new("GET", "/api/incomingpayment/{docEntry}", "Get incoming payment by ID"),
+new("POST", "/api/incomingpayment", "Create incoming payment"),
+new("GET", "/api/incomingpayment/by-customer/{cardCode}", "Get payments by customer")
+}
+}
+}
+},
+new ApiCategory
+{
+Name = "Inventory",
+Icon = Icons.Material.Filled.Inventory,
+Modules = new List<ApiModule>
+{
+new ApiModule
+{
+Name = "Products",
+BasePath = "/api/product",
+Description = "Manage product catalog with SAP item master data integration.",
+Icon = Icons.Material.Filled.Inventory2,
+Color = Color.Primary,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/product", "Get all products"),
+new("GET", "/api/product/{itemCode}", "Get product by item code"),
+new("GET", "/api/product/search", "Search products"),
+new("GET", "/api/product/barcode/{barcode}", "Get product by barcode"),
+new("POST", "/api/product", "Create a new product"),
+new("PUT", "/api/product/{itemCode}", "Update product details")
+}
+},
+new ApiModule
+{
+Name = "Stock",
+BasePath = "/api/stock",
+Description = "Real-time stock levels and warehouse inventory monitoring.",
+Icon = Icons.Material.Filled.Analytics,
+Color = Color.Secondary,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/stock", "Get stock for all items"),
+new("GET", "/api/stock/{itemCode}", "Get stock for specific item"),
+new("GET", "/api/stock/warehouse/{warehouseCode}", "Get stock by warehouse"),
+new("GET", "/api/stock/low-stock", "Get low stock alerts"),
+new("GET", "/api/stock/batches/{itemCode}", "Get batch information for item")
+}
+},
+new ApiModule
+{
+Name = "Inventory Transfers",
+BasePath = "/api/inventorytransfer",
+Description = "Transfer stock between warehouses with batch tracking.",
+Icon = Icons.Material.Filled.SwapHoriz,
+Color = Color.Warning,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/inventorytransfer", "Get all inventory transfers"),
+new("GET", "/api/inventorytransfer/{docEntry}", "Get transfer by document entry"),
+new("POST", "/api/inventorytransfer", "Create inventory transfer"),
+new("GET", "/api/inventorytransfer/pending", "Get pending transfers")
+}
+},
+new ApiModule
+{
+Name = "Prices",
+BasePath = "/api/price",
+Description = "Price list management with multi-currency and customer-specific pricing.",
+Icon = Icons.Material.Filled.LocalOffer,
+Color = Color.Info,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/price/lists", "Get all price lists"),
+new("GET", "/api/price/{itemCode}", "Get prices for item"),
+new("GET", "/api/price/customer/{cardCode}/{itemCode}", "Get customer-specific price"),
+new("POST", "/api/price/sync", "Sync prices from SAP"),
+new("PUT", "/api/price", "Update item price")
+}
+}
+}
+},
+new ApiCategory
+{
+Name = "Partners & Customers",
+Icon = Icons.Material.Filled.People,
+Modules = new List<ApiModule>
+{
+new ApiModule
+{
+Name = "Business Partners",
+BasePath = "/api/businesspartner",
+Description = "Manage customers, suppliers, and leads in SAP Business One.",
+Icon = Icons.Material.Filled.Business,
+Color = Color.Primary,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/businesspartner", "Get all business partners"),
+new("GET", "/api/businesspartner/{cardCode}", "Get partner by card code"),
+new("GET", "/api/businesspartner/customers", "Get all customers"),
+new("GET", "/api/businesspartner/suppliers", "Get all suppliers"),
+new("POST", "/api/businesspartner", "Create business partner"),
+new("PUT", "/api/businesspartner/{cardCode}", "Update business partner"),
+new("GET", "/api/businesspartner/{cardCode}/balance", "Get partner balance")
+}
+},
+new ApiModule
+{
+Name = "Customer Portal",
+BasePath = "/api/customerportal",
+Description = "Self-service customer portal for invoices, statements, and orders.",
+Icon = Icons.Material.Filled.Portrait,
+Color = Color.Secondary,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/customerportal/invoices", "Get customer invoices"),
+new("GET", "/api/customerportal/statement", "Get account statement"),
+new("GET", "/api/customerportal/orders", "Get customer orders"),
+new("POST", "/api/customerportal/order", "Place new order"),
+new("GET", "/api/customerportal/balance", "Get account balance")
+}
+},
+new ApiModule
+{
+Name = "Statements",
+BasePath = "/api/statement",
+Description = "Generate and email customer account statements.",
+Icon = Icons.Material.Filled.Summarize,
+Color = Color.Info,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/statement/{cardCode}", "Get customer statement"),
+new("GET", "/api/statement/{cardCode}/pdf", "Download statement as PDF"),
+new("POST", "/api/statement/{cardCode}/email", "Email statement to customer")
+}
+}
+}
+},
+new ApiCategory
+{
+Name = "Finance",
+Icon = Icons.Material.Filled.AccountBalance,
+Modules = new List<ApiModule>
+{
+new ApiModule
+{
+Name = "Exchange Rates",
+BasePath = "/api/exchangerate",
+Description = "Manage currency exchange rates for multi-currency transactions.",
+Icon = Icons.Material.Filled.CurrencyExchange,
+Color = Color.Primary,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/exchangerate", "Get all exchange rates"),
+new("GET", "/api/exchangerate/{currency}", "Get rate for currency"),
+new("POST", "/api/exchangerate", "Create exchange rate"),
+new("PUT", "/api/exchangerate/{currency}", "Update exchange rate"),
+new("GET", "/api/exchangerate/convert", "Convert amount between currencies")
+}
+},
+new ApiModule
+{
+Name = "GL Accounts",
+BasePath = "/api/glaccount",
+Description = "General Ledger account management for financial reporting.",
+Icon = Icons.Material.Filled.AccountTree,
+Color = Color.Secondary,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/glaccount", "Get all GL accounts"),
+new("GET", "/api/glaccount/{accountCode}", "Get GL account by code"),
+new("GET", "/api/glaccount/active", "Get active GL accounts")
+}
+},
+new ApiModule
+{
+Name = "Cost Centres",
+BasePath = "/api/costcentre",
+Description = "Manage cost centres for departmental accounting.",
+Icon = Icons.Material.Filled.AccountBalanceWallet,
+Color = Color.Warning,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/costcentre", "Get all cost centres"),
+new("GET", "/api/costcentre/{code}", "Get cost centre by code")
+}
+}
+}
+},
+new ApiCategory
+{
+Name = "Reports & Documents",
+Icon = Icons.Material.Filled.Assessment,
+Modules = new List<ApiModule>
+{
+new ApiModule
+{
+Name = "Reports",
+BasePath = "/api/report",
+Description = "Generate sales, inventory, and financial reports.",
+Icon = Icons.Material.Filled.Assessment,
+Color = Color.Primary,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/report/sales", "Get sales report"),
+new("GET", "/api/report/inventory", "Get inventory report"),
+new("GET", "/api/report/customer/{cardCode}", "Get customer report"),
+new("POST", "/api/report/custom", "Generate custom report"),
+new("GET", "/api/report/dashboard", "Get dashboard metrics")
+}
+},
+new ApiModule
+{
+Name = "Documents",
+BasePath = "/api/document",
+Description = "Document template management and PDF generation.",
+Icon = Icons.Material.Filled.Description,
+Color = Color.Secondary,
+Methods = new[] { "GET", "POST", "PUT", "DELETE" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/document/templates", "Get all document templates"),
+new("GET", "/api/document/templates/{id}", "Get template by ID"),
+new("POST", "/api/document/templates", "Create document template"),
+new("PUT", "/api/document/templates/{id}", "Update document template"),
+new("DELETE", "/api/document/templates/{id}", "Delete document template"),
+new("POST", "/api/document/generate", "Generate document from template")
+}
+},
+new ApiModule
+{
+Name = "Backups",
+BasePath = "/api/backup",
+Description = "Database backup and restore operations.",
+Icon = Icons.Material.Filled.Backup,
+Color = Color.Info,
+Methods = new[] { "GET", "POST", "DELETE" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/backup", "Get all backups"),
+new("POST", "/api/backup", "Create new backup"),
+new("POST", "/api/backup/restore/{id}", "Restore from backup"),
+new("DELETE", "/api/backup/{id}", "Delete backup")
+}
+}
+}
+},
+new ApiCategory
+{
+Name = "System & Security",
+Icon = Icons.Material.Filled.Security,
+Modules = new List<ApiModule>
+{
+new ApiModule
+{
+Name = "Authentication",
+BasePath = "/api/auth",
+Description = "User authentication with JWT tokens and refresh token support.",
+Icon = Icons.Material.Filled.Login,
+Color = Color.Primary,
+Methods = new[] { "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("POST", "/api/auth/login", "Login with username and password"),
+new("POST", "/api/auth/refresh", "Refresh access token"),
+new("POST", "/api/auth/logout", "Logout and revoke tokens"),
+new("POST", "/api/auth/change-password", "Change user password")
+}
+},
+new ApiModule
+{
+Name = "Two-Factor Auth",
+BasePath = "/api/twofactor",
+Description = "Two-factor authentication setup and verification.",
+Icon = Icons.Material.Filled.PhonelinkLock,
+Color = Color.Secondary,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/twofactor/setup", "Get 2FA setup QR code"),
+new("POST", "/api/twofactor/enable", "Enable 2FA"),
+new("POST", "/api/twofactor/disable", "Disable 2FA"),
+new("POST", "/api/twofactor/verify", "Verify 2FA code")
+}
+},
+new ApiModule
+{
+Name = "Users",
+BasePath = "/api/user",
+Description = "User account management and permissions.",
+Icon = Icons.Material.Filled.People,
+Color = Color.Warning,
+Methods = new[] { "GET", "POST", "PUT", "DELETE" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/user", "Get all users"),
+new("GET", "/api/user/{id}", "Get user by ID"),
+new("POST", "/api/user", "Create new user"),
+new("PUT", "/api/user/{id}", "Update user"),
+new("DELETE", "/api/user/{id}", "Delete user"),
+new("PUT", "/api/user/{id}/roles", "Update user roles")
+}
+},
+new ApiModule
+{
+Name = "User Management",
+BasePath = "/api/usermanagement",
+Description = "Role and permission management for users.",
+Icon = Icons.Material.Filled.ManageAccounts,
+Color = Color.Info,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/usermanagement/roles", "Get all roles"),
+new("GET", "/api/usermanagement/permissions", "Get all permissions"),
+new("POST", "/api/usermanagement/roles", "Create role"),
+new("PUT", "/api/usermanagement/roles/{id}", "Update role permissions")
+}
+},
+new ApiModule
+{
+Name = "User Activity",
+BasePath = "/api/useractivity",
+Description = "Track and audit user activity and sessions.",
+Icon = Icons.Material.Filled.Timeline,
+Color = Color.Success,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/useractivity", "Get user activity logs"),
+new("GET", "/api/useractivity/{userId}", "Get activity for specific user"),
+new("GET", "/api/useractivity/sessions", "Get active sessions")
+}
+},
+new ApiModule
+{
+Name = "Health",
+BasePath = "/api/health",
+Description = "API health check and status monitoring.",
+Icon = Icons.Material.Filled.MonitorHeart,
+Color = Color.Success,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/health", "Basic health check"),
+new("GET", "/api/health/detailed", "Detailed health status"),
+new("GET", "/api/health/sap", "SAP connection status")
+}
+},
+new ApiModule
+{
+Name = "Rate Limiting",
+BasePath = "/api/ratelimit",
+Description = "API rate limiting configuration and status.",
+Icon = Icons.Material.Filled.Speed,
+Color = Color.Error,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/ratelimit/status", "Get current rate limit status"),
+new("GET", "/api/ratelimit/config", "Get rate limit configuration")
+}
+}
+}
+},
+new ApiCategory
+{
+Name = "Integrations",
+Icon = Icons.Material.Filled.IntegrationInstructions,
+Modules = new List<ApiModule>
+{
+new ApiModule
+{
+Name = "Webhooks",
+BasePath = "/api/webhook",
+Description = "Configure webhooks for event notifications.",
+Icon = Icons.Material.Filled.Webhook,
+Color = Color.Primary,
+Methods = new[] { "GET", "POST", "PUT", "DELETE" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/webhook", "Get all webhooks"),
+new("GET", "/api/webhook/{id}", "Get webhook by ID"),
+new("POST", "/api/webhook", "Create webhook"),
+new("PUT", "/api/webhook/{id}", "Update webhook"),
+new("DELETE", "/api/webhook/{id}", "Delete webhook"),
+new("POST", "/api/webhook/{id}/test", "Test webhook")
+}
+},
+new ApiModule
+{
+Name = "Notifications",
+BasePath = "/api/notification",
+Description = "System notifications and alerts.",
+Icon = Icons.Material.Filled.Notifications,
+Color = Color.Secondary,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/notification", "Get all notifications"),
+new("GET", "/api/notification/unread", "Get unread notifications"),
+new("PUT", "/api/notification/{id}/read", "Mark notification as read"),
+new("PUT", "/api/notification/read-all", "Mark all as read"),
+new("POST", "/api/notification/send", "Send notification")
+}
+},
+new ApiModule
+{
+Name = "Revmax Proxy",
+BasePath = "/api/revmax",
+Description = "Revmax fiscal device integration for Zimbabwe compliance.",
+Icon = Icons.Material.Filled.ReceiptLong,
+Color = Color.Warning,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/revmax/status", "Get Revmax device status"),
+new("POST", "/api/revmax/fiscalize", "Fiscalize a document"),
+new("GET", "/api/revmax/receipt/{receiptId}", "Get fiscal receipt")
+}
+}
+}
+}
+};
+    }
+
+    private Color GetMethodColor(string method)
+    {
+        return method.ToUpper() switch
+        {
+            "GET" => Color.Success,
+            "POST" => Color.Primary,
+            "PUT" => Color.Warning,
+            "DELETE" => Color.Error,
+            "PATCH" => Color.Info,
+            _ => Color.Default
+        };
+    }
+
+    private Color GetStatusColor(int status)
+    {
+        return status switch
+        {
+            >= 200 and < 300 => Color.Success,
+            >= 400 and < 500 => Color.Warning,
+            >= 500 => Color.Error,
+            _ => Color.Default
+        };
+    }
+
+    private void ShowModuleDetails(ApiModule module)
+    {
+        _selectedModule = module;
+        _showModuleDialog = true;
+    }
+
+    private void TestEndpoint(ApiModule module)
+    {
+        _testEndpoint = module.BasePath;
+        _selectedMethod = module.Methods.FirstOrDefault() ?? "GET";
+        _testerExpanded = true;
+    }
+
+    private void TestSelectedModule()
+    {
+        if (_selectedModule != null)
+        {
+            _testEndpoint = _selectedModule.BasePath;
+            _selectedMethod = _selectedModule.Methods.FirstOrDefault() ?? "GET";
+            _showModuleDialog = false;
+            _testerExpanded = true;
+        }
+    }
+
+    private async Task OpenSwagger()
+    {
+        var swaggerUrl = _apiBaseUrl.TrimEnd('/') + "/swagger";
+        await JS.InvokeVoidAsync("window.open", swaggerUrl, "_blank");
+    }
+
+    private async Task ExecuteRequest()
+    {
+        _isLoading = true;
+        _responseBody = "";
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        try
+        {
+            var fullUrl = _testEndpoint.StartsWith("/") ? _testEndpoint : "/" + _testEndpoint;
+
+            HttpResponseMessage response;
+
+            switch (_selectedMethod.ToUpper())
+            {
+                case "GET":
+                    response = await Http.GetAsync(fullUrl);
+                    break;
+                case "POST":
+                    var postContent = new StringContent(_requestBody ?? "{}", System.Text.Encoding.UTF8, "application/json");
+                    response = await Http.PostAsync(fullUrl, postContent);
+                    break;
+                case "PUT":
+                    var putContent = new StringContent(_requestBody ?? "{}", System.Text.Encoding.UTF8, "application/json");
+                    response = await Http.PutAsync(fullUrl, putContent);
+                    break;
+                case "DELETE":
+                    response = await Http.DeleteAsync(fullUrl);
+                    break;
+                case "PATCH":
+                    var patchContent = new StringContent(_requestBody ?? "{}", System.Text.Encoding.UTF8, "application/json");
+                    var request = new HttpRequestMessage(HttpMethod.Patch, fullUrl) { Content = patchContent };
+                    response = await Http.SendAsync(request);
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unsupported HTTP method: {_selectedMethod}");
+            }
+
+            stopwatch.Stop();
+            _responseTime = stopwatch.ElapsedMilliseconds;
+            _responseStatus = (int)response.StatusCode;
+
+            var content = await response.Content.ReadAsStringAsync();
+
+            // Try to format JSON
+            try
+            {
+                var jsonDoc = JsonDocument.Parse(content);
+                _responseBody = JsonSerializer.Serialize(jsonDoc, new JsonSerializerOptions { WriteIndented = true });
+            }
+            catch
+            {
+                _responseBody = content;
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                Snackbar.Add($"Request successful ({_responseStatus})", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add($"Request failed ({_responseStatus})", Severity.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            _responseTime = stopwatch.ElapsedMilliseconds;
+            _responseStatus = 0;
+            _responseBody = $"Error: {ex.Message}";
+            Snackbar.Add($"Request error: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task CopyResponse()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _responseBody);
+        Snackbar.Add("Response copied to clipboard", Severity.Success);
+    }
+
+    // Data classes
+    private class ApiCategory
+    {
+        public string Name { get; set; } = "";
+        public string Icon { get; set; } = Icons.Material.Filled.Api;
+        public List<ApiModule> Modules { get; set; } = new();
+    }
+
+    private class ApiModule
+    {
+        public string Name { get; set; } = "";
+        public string BasePath { get; set; } = "";
+        public string Description { get; set; } = "";
+        public string Icon { get; set; } = Icons.Material.Filled.Api;
+        public Color Color { get; set; } = Color.Primary;
+        public string[] Methods { get; set; } = Array.Empty<string>();
+        public List<ApiEndpoint> Endpoints { get; set; } = new();
+    }
+
+    private class ApiEndpoint
+    {
+        public string Method { get; set; }
+        public string Path { get; set; }
+        public string Description { get; set; }
+
+        public ApiEndpoint(string method, string path, string description)
+        {
+            Method = method;
+            Path = path;
+            Description = description;
+        }
+    }
+}

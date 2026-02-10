@@ -14,7 +14,17 @@ public static class DbInitializer
     public static async Task InitializeAsync(ApplicationDbContext context, ILogger logger)
     {
         // Ensure database is created and migrations are applied
-        await context.Database.MigrateAsync();
+        // Skip migration if there are pending model changes (dev mode)
+        try
+        {
+            await context.Database.MigrateAsync();
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("PendingModelChanges"))
+        {
+            logger.LogWarning("Pending model changes detected, skipping automatic migration. Run 'dotnet ef migrations add' manually.");
+            // Ensure the database exists at least
+            await context.Database.EnsureCreatedAsync();
+        }
 
         // Check if we already have users
         if (await context.Users.AnyAsync())

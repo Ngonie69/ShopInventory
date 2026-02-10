@@ -31,6 +31,7 @@ public static class Permissions
     // Inventory
     public const string ViewStock = "stock.view";
     public const string ViewInventory = "inventory.view";
+    public const string EditStock = "stock.edit";
     public const string TransferStock = "stock.transfer";
     public const string TransferInventory = "inventory.transfer";
     public const string AdjustStock = "stock.adjust";
@@ -75,6 +76,12 @@ public static class Permissions
     public const string ManageSync = "sync.manage";
     public const string SystemAdmin = "system.admin";
     public const string ManageBackups = "system.backups";
+
+    // Backups
+    public const string ViewBackups = "backups.view";
+    public const string CreateBackups = "backups.create";
+    public const string RestoreBackups = "backups.restore";
+    public const string DeleteBackups = "backups.delete";
 
     /// <summary>
     /// Get all permissions grouped by category
@@ -245,6 +252,7 @@ public static class Permission
     // Inventory
     public const string ViewStock = Permissions.ViewStock;
     public const string ViewInventory = Permissions.ViewInventory;
+    public const string EditStock = Permissions.EditStock;
     public const string TransferStock = Permissions.TransferStock;
     public const string TransferInventory = Permissions.TransferInventory;
     public const string AdjustStock = Permissions.AdjustStock;
@@ -289,6 +297,12 @@ public static class Permission
     public const string ManageSync = Permissions.ManageSync;
     public const string SystemAdmin = Permissions.SystemAdmin;
     public const string ManageBackups = Permissions.ManageBackups;
+
+    // Backups
+    public const string ViewBackups = Permissions.ViewBackups;
+    public const string CreateBackups = Permissions.CreateBackups;
+    public const string RestoreBackups = Permissions.RestoreBackups;
+    public const string DeleteBackups = Permissions.DeleteBackups;
 
     /// <summary>
     /// Get all permissions grouped by category (delegates to Permissions)

@@ -1,0 +1,603 @@
+@page "/inventory-transfer/create"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject IInventoryTransferService TransferService
+@inject IMasterDataCacheService CacheService
+@inject NavigationManager NavigationManager
+@inject ILogger<CreateInventoryTransfer> Logger
+@rendermode InteractiveServer
+
+<PageTitle>Create Inventory Transfer - Shop Inventory</PageTitle>
+
+<style>
+    .transfer-page {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        min-height: 100vh;
+        padding: 1.5rem;
+    }
+
+    .transfer-card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+        border: none;
+        overflow: hidden;
+    }
+
+    .transfer-card .card-header {
+        background: linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%);
+        color: white;
+        border: none;
+        padding: 1rem 1.25rem;
+    }
+
+    .transfer-card .card-header h5 {
+        margin: 0;
+        font-weight: 600;
+    }
+
+    .summary-card {
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        color: white;
+    }
+
+    .summary-card .card-header {
+        background: transparent;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-create-transfer {
+        background: linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%);
+        border: none;
+        padding: 0.75rem 1.5rem;
+        font-weight: 600;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .btn-create-transfer:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(33, 147, 176, 0.4);
+    }
+
+    .line-card {
+        background: #ffffff;
+        border: 1px solid #e9ecef;
+        border-radius: 10px;
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+        transition: box-shadow 0.2s, border-color 0.2s;
+    }
+
+    .line-card:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        border-color: #2193b0;
+    }
+
+    .line-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .line-number {
+        background: linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%);
+        color: white;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        font-size: 0.85rem;
+    }
+
+    .btn-remove-line {
+        color: #dc3545;
+        border: none;
+        background: transparent;
+        padding: 0.25rem 0.5rem;
+        transition: transform 0.2s;
+    }
+
+    .btn-remove-line:hover {
+        transform: scale(1.1);
+        color: #c82333;
+    }
+
+    .btn-add-line {
+        border: 2px dashed #2193b0;
+        color: #2193b0;
+        background: transparent;
+        padding: 0.75rem 1.25rem;
+        border-radius: 8px;
+        transition: all 0.2s;
+    }
+
+    .btn-add-line:hover {
+        background: rgba(33, 147, 176, 0.1);
+        border-color: #6dd5ed;
+        color: #6dd5ed;
+    }
+
+    .warning-card {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+    }
+</style>
+
+<div class="transfer-page">
+    <div class="container-fluid">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h2 class="mb-1"><i class="bi bi-arrow-left-right me-2"></i>Create Inventory Transfer</h2>
+                <p class="text-muted mb-0">Transfer stock immediately between warehouses</p>
+            </div>
+            <a href="/inventory-transfers" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left me-1"></i>Back to Transfers
+            </a>
+        </div>
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+                <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(successMessage))
+        {
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <i class="bi bi-check-circle me-2"></i>@successMessage
+                <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+            </div>
+        }
+
+        <div class="row">
+            <!-- Main Form -->
+            <div class="col-lg-8">
+                <!-- Header Info Card -->
+                <div class="card transfer-card mb-4">
+                    <div class="card-header">
+                        <h5><i class="bi bi-info-circle me-2"></i>Transfer Details</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">From Warehouse *</label>
+                                @if (isLoadingWarehouses)
+                                {
+                                    <div class="d-flex align-items-center">
+                                        <span class="spinner-border spinner-border-sm me-2"></span>
+                                        <span class="text-muted">Loading warehouses...</span>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <MudAutocomplete T="WarehouseDto" @bind-Value="selectedFromWarehouse"
+                                        Label="Select source warehouse..." SearchFunc="SearchWarehousesAsync"
+                                        ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
+                                        Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                        ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
+                                        DebounceInterval="150" Class="mt-0">
+                                        <ItemTemplate>
+                                            <div class="d-flex flex-column">
+                                                <span class="fw-semibold">@context.WarehouseCode</span>
+                                                <small class="text-muted">@context.WarehouseName</small>
+                                            </div>
+                                        </ItemTemplate>
+                                    </MudAutocomplete>
+                                }
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">To Warehouse *</label>
+                                @if (isLoadingWarehouses)
+                                {
+                                    <div class="d-flex align-items-center">
+                                        <span class="spinner-border spinner-border-sm me-2"></span>
+                                        <span class="text-muted">Loading warehouses...</span>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <MudAutocomplete T="WarehouseDto" @bind-Value="selectedToWarehouse"
+                                        Label="Select destination warehouse..." SearchFunc="SearchWarehousesAsync"
+                                        ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
+                                        Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                        ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
+                                        DebounceInterval="150" Class="mt-0">
+                                        <ItemTemplate>
+                                            <div class="d-flex flex-column">
+                                                <span class="fw-semibold">@context.WarehouseCode</span>
+                                                <small class="text-muted">@context.WarehouseName</small>
+                                            </div>
+                                        </ItemTemplate>
+                                    </MudAutocomplete>
+                                }
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Document Date</label>
+                                <input type="date" class="form-control" @bind="docDate" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Due Date</label>
+                                <input type="date" class="form-control" @bind="dueDate" />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Comments</label>
+                                <textarea class="form-control" rows="2" @bind="comments"
+                                    placeholder="Add any notes or comments..."></textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Line Items Card -->
+                <div class="card transfer-card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-list-ul me-2"></i>Transfer Items</h5>
+                        <span class="badge bg-light text-dark">@lines.Count item(s)</span>
+                    </div>
+                    <div class="card-body">
+                        @if (isLoadingProducts)
+                        {
+                            <div class="text-center py-4">
+                                <div class="spinner-border text-primary" role="status"></div>
+                                <p class="mt-2 text-muted">Loading products...</p>
+                            </div>
+                        }
+                        else
+                        {
+                            @foreach (var line in lines)
+                            {
+                                var index = lines.IndexOf(line);
+                                <div class="line-card">
+                                    <div class="line-card-header">
+                                        <div class="d-flex align-items-center">
+                                            <div class="line-number me-2">@(index + 1)</div>
+                                            <span class="text-muted small">Line Item</span>
+                                        </div>
+                                        <button class="btn-remove-line" @onclick="() => RemoveLine(line)"
+                                            disabled="@(lines.Count <= 1)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                    <div class="row g-3">
+                                        <div class="col-md-8">
+                                            <label class="form-label small">Product *</label>
+                                            <MudAutocomplete T="ProductDto" Value="line.SelectedProduct"
+                                                ValueChanged="(p) => OnProductSelected(line, p)" Label="Search product..."
+                                                SearchFunc="SearchProductsAsync"
+                                                ToStringFunc="@(p => p == null ? string.Empty : $"{p.ItemCode} - {p.ItemName}")"
+                                                Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
+                                                DebounceInterval="150">
+                                                <ItemTemplate>
+                                                    <div class="d-flex flex-column">
+                                                        <span class="fw-semibold">@context.ItemCode</span>
+                                                        <small class="text-muted">@context.ItemName</small>
+                                                        @if (context.QuantityInStock > 0)
+                                                        {
+                                                            <small class="text-success">Stock:
+                                                                @context.QuantityInStock.ToString("N0")</small>
+                                                        }
+                                                    </div>
+                                                </ItemTemplate>
+                                            </MudAutocomplete>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label small">Quantity *</label>
+                                            <input type="number" class="form-control" @bind="line.Quantity" min="0.01"
+                                                step="0.01" placeholder="0.00" />
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+
+                            <div class="text-center mt-3">
+                                <button class="btn-add-line" @onclick="AddLine">
+                                    <i class="bi bi-plus-lg me-1"></i>Add Item
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- Summary Sidebar -->
+            <div class="col-lg-4">
+                <!-- Warning Card -->
+                <div class="card warning-card mb-4">
+                    <div class="card-body">
+                        <h6 class="text-warning"><i class="bi bi-exclamation-triangle me-2"></i>Important</h6>
+                        <p class="small mb-0">
+                            This will immediately transfer stock between warehouses. The system will validate
+                            that sufficient stock exists in the source warehouse before processing.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Summary Card -->
+                <div class="card summary-card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-calculator me-2"></i>Summary</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>From Warehouse:</span>
+                            <strong>@(selectedFromWarehouse?.WarehouseCode ?? "-")</strong>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>To Warehouse:</span>
+                            <strong>@(selectedToWarehouse?.WarehouseCode ?? "-")</strong>
+                        </div>
+                        <hr class="my-2 opacity-50" />
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Total Items:</span>
+                            <strong>@lines.Count</strong>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <span>Total Quantity:</span>
+                            <strong>@lines.Sum(l => l.Quantity).ToString("N2")</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Actions Card -->
+                <div class="card action-card">
+                    <div class="card-body">
+                        <button class="btn btn-create-transfer w-100 text-white mb-3" @onclick="SubmitTransfer"
+                            disabled="@(isSubmitting || !IsFormValid())">
+                            @if (isSubmitting)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                <span>Processing...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-arrow-left-right me-2"></i>
+                                <span>Execute Transfer</span>
+                            }
+                        </button>
+                        <button class="btn btn-outline-secondary w-100" @onclick="ClearForm" disabled="@isSubmitting">
+                            <i class="bi bi-x-circle me-1"></i>Clear Form
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Alternative Action -->
+                <div class="card mt-4">
+                    <div class="card-body text-center">
+                        <p class="text-muted small mb-2">Need approval first?</p>
+                        <a href="/transfer-request/create" class="btn btn-outline-primary btn-sm">
+                            <i class="bi bi-file-earmark-plus me-1"></i>Create Transfer Request
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    // State
+    private bool isLoadingWarehouses = true;
+    private bool isLoadingProducts = true;
+    private bool isSubmitting = false;
+    private string? errorMessage;
+    private string? successMessage;
+
+    // Warehouses
+    private List<WarehouseDto> cachedWarehouses = new();
+    private WarehouseDto? selectedFromWarehouse;
+    private WarehouseDto? selectedToWarehouse;
+
+    // Products
+    private List<ProductDto> cachedProducts = new();
+
+    // Form fields
+    private DateTime docDate = DateTime.Today;
+    private DateTime? dueDate;
+    private string? comments;
+
+    // Line items
+    private List<TransferLineItem> lines = new() { new TransferLineItem() };
+
+    private bool _hasLoadedData = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_hasLoadedData)
+        {
+            _hasLoadedData = true;
+            await LoadInitialDataAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadInitialDataAsync()
+    {
+        await Task.WhenAll(LoadWarehousesAsync(), LoadProductsAsync());
+    }
+
+    private async Task LoadWarehousesAsync()
+    {
+        try
+        {
+            isLoadingWarehouses = true;
+            cachedWarehouses = await CacheService.GetWarehousesAsync();
+            Logger.LogInformation("Loaded {Count} warehouses", cachedWarehouses?.Count ?? 0);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load warehouses");
+            errorMessage = $"Failed to load warehouses: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingWarehouses = false;
+        }
+    }
+
+    private async Task LoadProductsAsync()
+    {
+        try
+        {
+            isLoadingProducts = true;
+            cachedProducts = await CacheService.GetProductsAsync();
+            Logger.LogInformation("Loaded {Count} products", cachedProducts?.Count ?? 0);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load products");
+            errorMessage = $"Failed to load products: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingProducts = false;
+        }
+    }
+
+    private async Task<IEnumerable<WarehouseDto>> SearchWarehousesAsync(string searchText, CancellationToken
+    cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            return cachedWarehouses.Take(20);
+        }
+
+        return cachedWarehouses
+        .Where(w =>
+        (w.WarehouseCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        (w.WarehouseName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Take(20);
+    }
+
+    private async Task<IEnumerable<ProductDto>> SearchProductsAsync(string searchText, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            return cachedProducts.Take(20);
+        }
+
+        return cachedProducts
+        .Where(p =>
+        (p.ItemCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        (p.ItemName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Take(20);
+    }
+
+    private void OnProductSelected(TransferLineItem line, ProductDto? product)
+    {
+        line.SelectedProduct = product;
+        line.ItemCode = product?.ItemCode;
+    }
+
+    private void AddLine()
+    {
+        lines.Add(new TransferLineItem());
+    }
+
+    private void RemoveLine(TransferLineItem line)
+    {
+        if (lines.Count > 1)
+        {
+            lines.Remove(line);
+        }
+    }
+
+    private bool IsFormValid()
+    {
+        return selectedFromWarehouse != null
+        && selectedToWarehouse != null
+        && selectedFromWarehouse.WarehouseCode != selectedToWarehouse.WarehouseCode
+        && lines.All(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0);
+    }
+
+    private async Task SubmitTransfer()
+    {
+        if (!IsFormValid())
+        {
+            errorMessage = "Please fill in all required fields correctly.";
+            return;
+        }
+
+        isSubmitting = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            var request = new CreateInventoryTransferDto
+            {
+                FromWarehouse = selectedFromWarehouse!.WarehouseCode,
+                ToWarehouse = selectedToWarehouse!.WarehouseCode,
+                DocDate = docDate.ToString("yyyy-MM-dd"),
+                DueDate = dueDate?.ToString("yyyy-MM-dd"),
+                Comments = comments,
+                Lines = lines.Select(l => new CreateInventoryTransferLineDto
+                {
+                    ItemCode = l.ItemCode,
+                    Quantity = l.Quantity,
+                    FromWarehouseCode = selectedFromWarehouse.WarehouseCode,
+                    ToWarehouseCode = selectedToWarehouse.WarehouseCode
+                }).ToList()
+            };
+
+            Logger.LogInformation("Submitting inventory transfer: {Request}", System.Text.Json.JsonSerializer.Serialize(request));
+
+            var (success, message, transfer) = await TransferService.CreateInventoryTransferAsync(request);
+
+            if (success)
+            {
+                successMessage = $"Inventory transfer #{transfer?.DocNum} created successfully!";
+                Logger.LogInformation("Inventory transfer created: DocNum={DocNum}, DocEntry={DocEntry}", transfer?.DocNum,
+                transfer?.DocEntry);
+
+                // Reset form
+                ClearForm();
+
+                // Navigate after a short delay
+                await Task.Delay(1500);
+                NavigationManager.NavigateTo("/inventory-transfers");
+            }
+            else
+            {
+                errorMessage = message;
+                Logger.LogWarning("Failed to create inventory transfer: {Message}", message);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error submitting inventory transfer");
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private void ClearForm()
+    {
+        selectedFromWarehouse = null;
+        selectedToWarehouse = null;
+        docDate = DateTime.Today;
+        dueDate = null;
+        comments = null;
+        lines = new() { new TransferLineItem() };
+        errorMessage = null;
+    }
+
+    // Inner class for line items
+    private class TransferLineItem
+    {
+        public ProductDto? SelectedProduct { get; set; }
+        public string? ItemCode { get; set; }
+        public decimal Quantity { get; set; }
+    }
+}

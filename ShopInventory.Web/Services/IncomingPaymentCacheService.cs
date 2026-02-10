@@ -121,6 +121,11 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
                 return apiResponse;
             }
         }
+        catch (TimeoutException)
+        {
+            // Re-throw timeout exceptions so the UI can show a user-friendly message
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching payments from API");
@@ -314,12 +319,26 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
         }
     }
 
-    private async Task<IncomingPaymentListResponse?> FetchPaymentsFromApiAsync(int page, int pageSize)
+    private async Task<IncomingPaymentListResponse?> FetchPaymentsFromApiAsync(int page, int pageSize, CancellationToken cancellationToken = default)
     {
         try
         {
+            // Use a 45-second timeout to stay under nginx's 60-second gateway timeout
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(45));
+
             return await _httpClient.GetFromJsonAsync<IncomingPaymentListResponse>(
-                $"api/incomingpayment?page={page}&pageSize={pageSize}", _jsonOptions);
+                $"api/incomingpayment?page={page}&pageSize={pageSize}", _jsonOptions, cts.Token);
+        }
+        catch (OperationCanceledException ex) when (ex.CancellationToken != cancellationToken)
+        {
+            _logger.LogWarning("Timeout fetching payments from API, page {Page} - SAP may be slow", page);
+            throw new TimeoutException($"The request timed out while fetching payments. SAP may be responding slowly. Please try again.", ex);
+        }
+        catch (HttpRequestException ex) when (ex.Message.Contains("504") || ex.Message.Contains("Gateway"))
+        {
+            _logger.LogWarning(ex, "Gateway timeout fetching payments from API, page {Page}", page);
+            throw new TimeoutException($"Gateway timeout while fetching payments. The server may be busy. Please try again.", ex);
         }
         catch (Exception ex)
         {

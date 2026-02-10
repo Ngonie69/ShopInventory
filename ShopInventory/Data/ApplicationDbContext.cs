@@ -35,6 +35,7 @@ public class ApplicationDbContext : DbContext
 
   // Item Price tables
   public DbSet<ItemPriceEntity> ItemPrices { get; set; }
+  public DbSet<PriceListEntity> PriceLists { get; set; }
 
   // Incoming Payment tables
   public DbSet<IncomingPaymentEntity> IncomingPayments { get; set; }
@@ -59,6 +60,41 @@ public class ApplicationDbContext : DbContext
 
   // Audit tables
   public DbSet<AuditLog> AuditLogs { get; set; }
+
+  // Sales Order tables
+  public DbSet<SalesOrderEntity> SalesOrders { get; set; }
+  public DbSet<SalesOrderLineEntity> SalesOrderLines { get; set; }
+
+  // Credit Note tables
+  public DbSet<CreditNoteEntity> CreditNotes { get; set; }
+  public DbSet<CreditNoteLineEntity> CreditNoteLines { get; set; }
+
+  // System tables
+  public DbSet<ExchangeRateEntity> ExchangeRates { get; set; }
+  public DbSet<SystemConfigEntity> SystemConfigs { get; set; }
+  public DbSet<BackupEntity> Backups { get; set; }
+  public DbSet<ApiRateLimitEntity> ApiRateLimits { get; set; }
+  public DbSet<UserPermissionEntity> UserPermissions { get; set; }
+  public DbSet<RoleEntity> Roles { get; set; }
+  public DbSet<RolePermissionEntity> RolePermissions { get; set; }
+
+  // Document Management tables
+  public DbSet<DocumentTemplateEntity> DocumentTemplates { get; set; }
+  public DbSet<DocumentAttachmentEntity> DocumentAttachments { get; set; }
+  public DbSet<DocumentHistoryEntity> DocumentHistory { get; set; }
+  public DbSet<DocumentSignatureEntity> DocumentSignatures { get; set; }
+  public DbSet<EmailTemplateEntity> EmailTemplates { get; set; }
+
+  // Stock Reservation tables (for desktop app integration)
+  public DbSet<StockReservationEntity> StockReservations { get; set; }
+  public DbSet<StockReservationLineEntity> StockReservationLines { get; set; }
+  public DbSet<StockReservationBatchEntity> StockReservationBatches { get; set; }
+
+  // Invoice Queue for batch posting
+  public DbSet<InvoiceQueueEntity> InvoiceQueue { get; set; }
+
+  // Inventory Transfer Queue for batch posting
+  public DbSet<InventoryTransferQueueEntity> InventoryTransferQueue { get; set; }
 
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
@@ -266,6 +302,13 @@ public class ApplicationDbContext : DbContext
 
       // CHECK constraint to prevent negative prices
       entity.ToTable(t => t.HasCheckConstraint("CK_ItemPrices_Price_NonNegative", "\"Price\" >= 0"));
+    });
+
+    // Price List configuration
+    modelBuilder.Entity<PriceListEntity>(entity =>
+    {
+      entity.HasIndex(p => p.ListNum).IsUnique();
+      entity.HasIndex(p => p.IsActive);
     });
 
     // Incoming Payment configuration with CHECK constraints
@@ -479,6 +522,248 @@ public class ApplicationDbContext : DbContext
       entity.HasIndex(a => a.EntityType);
       entity.HasIndex(a => a.Timestamp);
       entity.HasIndex(a => a.IsSuccess);
+    });
+
+    // Sales Order configuration
+    modelBuilder.Entity<SalesOrderEntity>(entity =>
+    {
+      entity.ToTable("SalesOrders");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.OrderNumber).IsUnique();
+      entity.HasIndex(e => e.CardCode);
+      entity.HasIndex(e => e.Status);
+      entity.HasIndex(e => e.OrderDate);
+      entity.HasIndex(e => e.SAPDocEntry);
+
+      entity.HasMany(e => e.Lines)
+            .WithOne(l => l.SalesOrder)
+            .HasForeignKey(l => l.SalesOrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.Invoice)
+            .WithMany()
+            .HasForeignKey(e => e.InvoiceId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasOne(e => e.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasOne(e => e.ApprovedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.ApprovedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // Sales Order Line configuration
+    modelBuilder.Entity<SalesOrderLineEntity>(entity =>
+    {
+      entity.ToTable("SalesOrderLines");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.ItemCode);
+
+      entity.HasOne(e => e.Product)
+            .WithMany()
+            .HasForeignKey(e => e.ProductId)
+            .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // Credit Note configuration
+    modelBuilder.Entity<CreditNoteEntity>(entity =>
+    {
+      entity.ToTable("CreditNotes");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.CreditNoteNumber).IsUnique();
+      entity.HasIndex(e => e.CardCode);
+      entity.HasIndex(e => e.Status);
+      entity.HasIndex(e => e.CreditNoteDate);
+      entity.HasIndex(e => e.SAPDocEntry);
+
+      entity.HasMany(e => e.Lines)
+            .WithOne(l => l.CreditNote)
+            .HasForeignKey(l => l.CreditNoteId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.OriginalInvoice)
+            .WithMany()
+            .HasForeignKey(e => e.OriginalInvoiceId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasOne(e => e.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasOne(e => e.ApprovedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.ApprovedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // Credit Note Line configuration
+    modelBuilder.Entity<CreditNoteLineEntity>(entity =>
+    {
+      entity.ToTable("CreditNoteLines");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.ItemCode);
+
+      entity.HasOne(e => e.Product)
+            .WithMany()
+            .HasForeignKey(e => e.ProductId)
+            .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // Exchange Rate configuration
+    modelBuilder.Entity<ExchangeRateEntity>(entity =>
+    {
+      entity.ToTable("ExchangeRates");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => new { e.FromCurrency, e.ToCurrency, e.EffectiveDate });
+      entity.HasIndex(e => e.IsActive);
+
+      entity.HasOne(e => e.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // System Config configuration
+    modelBuilder.Entity<SystemConfigEntity>(entity =>
+    {
+      entity.ToTable("SystemConfigs");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.Key).IsUnique();
+      entity.HasIndex(e => e.Category);
+    });
+
+    // Backup configuration
+    modelBuilder.Entity<BackupEntity>(entity =>
+    {
+      entity.ToTable("Backups");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.StartedAt);
+      entity.HasIndex(e => e.Status);
+
+      entity.HasOne(e => e.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // API Rate Limit configuration
+    modelBuilder.Entity<ApiRateLimitEntity>(entity =>
+    {
+      entity.ToTable("ApiRateLimits");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.ClientId);
+      entity.HasIndex(e => e.IsBlocked);
+      entity.HasIndex(e => e.LastRequestAt);
+    });
+
+    // User Permission configuration
+    modelBuilder.Entity<UserPermissionEntity>(entity =>
+    {
+      entity.ToTable("UserPermissions");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => new { e.UserId, e.Permission }).IsUnique();
+
+      entity.HasOne(e => e.User)
+            .WithMany()
+            .HasForeignKey(e => e.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.AssignedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.AssignedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // Role configuration
+    modelBuilder.Entity<RoleEntity>(entity =>
+    {
+      entity.ToTable("Roles");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.Name).IsUnique();
+
+      entity.HasMany(e => e.Permissions)
+            .WithOne(p => p.Role)
+            .HasForeignKey(p => p.RoleId)
+            .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    // Role Permission configuration
+    modelBuilder.Entity<RolePermissionEntity>(entity =>
+    {
+      entity.ToTable("RolePermissions");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => new { e.RoleId, e.Permission }).IsUnique();
+    });
+
+    // Stock Reservation configuration (for desktop app integration)
+    modelBuilder.Entity<StockReservationEntity>(entity =>
+    {
+      entity.ToTable("StockReservations");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.ReservationId).IsUnique();
+      entity.HasIndex(e => e.ExternalReferenceId).IsUnique();
+      entity.HasIndex(e => new { e.Status, e.ExpiresAt });
+      entity.HasIndex(e => e.CardCode);
+      entity.HasIndex(e => e.SourceSystem);
+
+      entity.HasMany(r => r.Lines)
+            .WithOne(l => l.Reservation)
+            .HasForeignKey(l => l.ReservationId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+      // CHECK constraint for non-negative total value
+      entity.ToTable(t => t.HasCheckConstraint("CK_StockReservations_TotalValue_NonNegative", "\"TotalValue\" >= 0"));
+    });
+
+    // Stock Reservation Line configuration
+    modelBuilder.Entity<StockReservationLineEntity>(entity =>
+    {
+      entity.ToTable("StockReservationLines");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => new { e.ItemCode, e.WarehouseCode });
+
+      entity.HasMany(l => l.BatchAllocations)
+            .WithOne(b => b.ReservationLine)
+            .HasForeignKey(b => b.ReservationLineId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+      // CHECK constraints to prevent negative quantities
+      entity.ToTable(t =>
+      {
+        t.HasCheckConstraint("CK_StockReservationLines_ReservedQuantity_Positive", "\"ReservedQuantity\" > 0");
+        t.HasCheckConstraint("CK_StockReservationLines_UnitPrice_NonNegative", "\"UnitPrice\" >= 0");
+        t.HasCheckConstraint("CK_StockReservationLines_LineTotal_NonNegative", "\"LineTotal\" >= 0");
+      });
+    });
+
+    // Stock Reservation Batch configuration
+    modelBuilder.Entity<StockReservationBatchEntity>(entity =>
+    {
+      entity.ToTable("StockReservationBatches");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => new { e.ItemCode, e.WarehouseCode, e.BatchNumber });
+
+      // CHECK constraint to prevent negative batch quantities
+      entity.ToTable(t => t.HasCheckConstraint("CK_StockReservationBatches_ReservedQuantity_Positive", "\"ReservedQuantity\" > 0"));
     });
   }
 }

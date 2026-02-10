@@ -29,12 +29,10 @@
         <div class="card-body">
             <div class="row g-3">
                 <div class="col-md-2">
-                    <label class="form-label">From Date</label>
-                    <input type="date" class="form-control" @bind="fromDate" />
+                    <FlexibleDatePicker Label="From Date" @bind-Date="fromDate" />
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label">To Date</label>
-                    <input type="date" class="form-control" @bind="toDate" />
+                    <FlexibleDatePicker Label="To Date" @bind-Date="toDate" />
                 </div>
                 <div class="col-md-2">
                     <label class="form-label">User</label>
@@ -63,6 +61,17 @@
                     <button class="btn btn-outline-secondary" @onclick="ClearFilters">
                         <i class="bi bi-x-circle me-1"></i>Clear
                     </button>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-2">
+                    <label class="form-label">Records per page</label>
+                    <select class="form-select" @bind="pageSize" @bind:after="OnPageSizeChanged">
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                    </select>
                 </div>
             </div>
         </div>
@@ -126,104 +135,90 @@
             <div class="card-body">
                 @if (logs.Any())
                 {
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead class="table-light">
-                                <tr>
-                                    <th style="width: 150px;">Timestamp</th>
-                                    <th style="width: 120px;">User</th>
-                                    <th style="width: 100px;">Role</th>
-                                    <th style="width: 150px;">Action</th>
-                                    <th>Details</th>
-                                    <th style="width: 80px;">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var log in logs)
-                                {
-                                    <tr class="@(log.IsSuccess ? "" : "table-danger")">
-                                        <td>
-                                            <small>@IAuditService.ToCAT(log.Timestamp).ToString("dd MMM yyyy")</small><br />
-                                            <small
-                                                class="text-muted">@IAuditService.ToCAT(log.Timestamp).ToString("HH:mm:ss")</small>
-                                        </td>
-                                        <td>
-                                            <strong>@log.Username</strong>
-                                        </td>
-                                        <td>
-                                            <span class="badge @GetRoleBadgeClass(log.UserRole)">@log.UserRole</span>
-                                        </td>
-                                        <td>
-                                            <span class="badge @GetActionBadgeClass(log.Action)">@log.Action</span>
-                                        </td>
-                                        <td>
-                                            @if (!string.IsNullOrEmpty(log.EntityType))
-                                            {
-                                                <span class="text-muted">@log.EntityType</span>
-                                                @if (!string.IsNullOrEmpty(log.EntityId))
-                                                {
-                                                    <span class="text-muted">: @log.EntityId</span>
-                                                }
-                                            }
-                                            @if (!string.IsNullOrEmpty(log.Details))
-                                            {
-                                                <br />
-
-                                                <small class="text-muted">@log.Details</small>
-                                            }
-                                            @if (!log.IsSuccess && !string.IsNullOrEmpty(log.ErrorMessage))
-                                            {
-                                                <br />
-
-                                                <small class="text-danger">@log.ErrorMessage</small>
-                                            }
-                                        </td>
-                                        <td>
-                                            @if (log.IsSuccess)
-                                            {
-                                                <span class="badge bg-success"><i class="bi bi-check"></i> OK</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="badge bg-danger"><i class="bi bi-x"></i> Failed</span>
-                                            }
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <!-- Pagination -->
-                    <div class="d-flex justify-content-between align-items-center mt-3">
-                        <div>
-                            Showing @((currentPage - 1) * pageSize + 1) - @Math.Min(currentPage * pageSize, totalCount) of
-                            @totalCount entries
-                        </div>
-                        <nav>
-                            <ul class="pagination mb-0">
-                                <li class="page-item @(currentPage <= 1 ? "disabled" : "")">
-                                    <button class="page-link" @onclick="() => GoToPage(currentPage - 1)"
-                                        disabled="@(currentPage <= 1)">
-                                        <i class="bi bi-chevron-left"></i>
-                                    </button>
-                                </li>
-                                @for (int i = Math.Max(1, currentPage - 2); i <= Math.Min(totalPages, currentPage + 2); i++)
-                                {
-                                    var pageNum = i;
-                                    <li class="page-item @(currentPage == pageNum ? "active" : "")">
-                                        <button class="page-link" @onclick="() => GoToPage(pageNum)">@pageNum</button>
-                                    </li>
-                                }
-                                <li class="page-item @(currentPage >= totalPages ? "disabled" : "")">
-                                    <button class="page-link" @onclick="() => GoToPage(currentPage + 1)"
-                                        disabled="@(currentPage >= totalPages)">
-                                        <i class="bi bi-chevron-right"></i>
-                                    </button>
-                                </li>
-                            </ul>
-                        </nav>
-                    </div>
+                    <MudDataGrid T="AuditLog" Items="@logs" SortMode="SortMode.Multiple" Filterable="true"
+                        QuickFilter="@_quickFilter" Hideable="true" Dense="true" Hover="true" Striped="true">
+                        <ToolBarContent>
+                            <MudText Typo="Typo.h6">Audit Logs</MudText>
+                            <MudSpacer />
+                            <MudTextField @bind-Value="_searchString" Placeholder="Search" Adornment="Adornment.Start"
+                                Immediate="true" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium"
+                                Class="mt-0"></MudTextField>
+                        </ToolBarContent>
+                        <Columns>
+                            <PropertyColumn Property="x => x.Timestamp" Title="Timestamp">
+                                <CellTemplate>
+                                    <div>
+                                        <MudText Typo="Typo.body2">@IAuditService.ToCAT(context.Item.Timestamp).ToString("dd MMM yyyy")</MudText>
+                                        <MudText Typo="Typo.caption" Class="text-muted">
+                                            @IAuditService.ToCAT(context.Item.Timestamp).ToString("HH:mm:ss")</MudText>
+                                    </div>
+                                </CellTemplate>
+                            </PropertyColumn>
+                            <PropertyColumn Property="x => x.Username" Title="User">
+                                <CellTemplate>
+                                    <MudText Typo="Typo.body2"><strong>@context.Item.Username</strong></MudText>
+                                </CellTemplate>
+                            </PropertyColumn>
+                            <PropertyColumn Property="x => x.UserRole" Title="Role">
+                                <CellTemplate>
+                                    <MudChip T="string" Color="@GetRoleChipColor(context.Item.UserRole)" Size="Size.Small">
+                                        @context.Item.UserRole</MudChip>
+                                </CellTemplate>
+                            </PropertyColumn>
+                            <PropertyColumn Property="x => x.Action" Title="Action">
+                                <CellTemplate>
+                                    <MudChip T="string" Color="@GetActionChipColor(context.Item.Action)" Size="Size.Small">
+                                        @context.Item.Action</MudChip>
+                                </CellTemplate>
+                            </PropertyColumn>
+                            <PropertyColumn Property="x => x.Details" Title="Details">
+                                <CellTemplate>
+                                    @if (!string.IsNullOrEmpty(context.Item.EntityType))
+                                    {
+                                        <span class="text-muted">@context.Item.EntityType</span>
+                                        @if (!string.IsNullOrEmpty(context.Item.EntityId))
+                                        {
+                                            <span class="text-muted">: @context.Item.EntityId</span>
+                                        }
+                                    }
+                                    @if (!string.IsNullOrEmpty(context.Item.Details))
+                                    {
+                                        <MudText Typo="Typo.caption" Class="d-block text-muted">@context.Item.Details</MudText>
+                                    }
+                                    @if (!context.Item.IsSuccess && !string.IsNullOrEmpty(context.Item.ErrorMessage))
+                                    {
+                                        <MudText Typo="Typo.caption" Class="d-block" Color="Color.Error">@context.Item.ErrorMessage
+                                        </MudText>
+                                    }
+                                </CellTemplate>
+                            </PropertyColumn>
+                            <PropertyColumn Property="x => x.IsSuccess" Title="Status">
+                                <CellTemplate>
+                                    @if (context.Item.IsSuccess)
+                                    {
+                                        <MudChip T="string" Color="Color.Success" Size="Size.Small">
+                                            <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small" /> OK
+                                        </MudChip>
+                                    }
+                                    else
+                                    {
+                                        <MudChip T="string" Color="Color.Error" Size="Size.Small">
+                                            <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" /> Failed
+                                        </MudChip>
+                                    }
+                                </CellTemplate>
+                            </PropertyColumn>
+                        </Columns>
+                        <PagerContent>
+                            <div class="d-flex flex-column align-items-center px-4 py-2">
+                                <MudPagination Color="Color.Primary" Count="totalPages" Selected="currentPage"
+                                    SelectedChanged="OnPageChanged" ShowFirstButton="true" ShowLastButton="true" />
+                                <MudText Typo="Typo.caption" Class="text-muted mt-2">
+                                    Page @currentPage of @totalPages (@totalCount total records)
+                                </MudText>
+                            </div>
+                        </PagerContent>
+                    </MudDataGrid>
                 }
                 else
                 {
@@ -243,6 +238,7 @@
     private List<string> distinctActions = new();
     private bool isLoading = true;
     private string? errorMessage;
+    private string _searchString = string.Empty;
 
     // Filters
     private DateTime? fromDate;
@@ -255,6 +251,52 @@
     private int pageSize = 50;
     private int totalCount = 0;
     private int totalPages => (int)Math.Ceiling((double)totalCount / pageSize);
+
+    // Quick filter - filter globally across multiple columns with the same input
+    private Func<AuditLog, bool> _quickFilter => x =>
+    {
+        if (string.IsNullOrWhiteSpace(_searchString))
+            return true;
+
+        if (x.Username?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.UserRole?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.Action?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.EntityType?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.Details?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        return false;
+    };
+
+    // Helper for role chip color
+    private Color GetRoleChipColor(string role) => role switch
+    {
+        UserRoles.Admin => Color.Error,
+        UserRoles.SalesPerson => Color.Primary,
+        UserRoles.ADR => Color.Info,
+        _ => Color.Default
+    };
+
+    // Helper for action chip color
+    private Color GetActionChipColor(string action) => action switch
+    {
+        AuditActions.Login or AuditActions.Logout => Color.Success,
+        AuditActions.LoginFailed => Color.Error,
+        var a when a.StartsWith("Create") => Color.Primary,
+        var a when a.StartsWith("Update") => Color.Warning,
+        var a when a.StartsWith("Delete") => Color.Error,
+        var a when a.StartsWith("View") => Color.Info,
+        var a when a.StartsWith("Sync") => Color.Default,
+        _ => Color.Default
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -324,6 +366,11 @@
         await LoadLogs();
     }
 
+    private async Task OnPageChanged(int page)
+    {
+        await GoToPage(page);
+    }
+
     private async Task GoToPage(int page)
     {
         if (page < 1 || page > totalPages) return;
@@ -331,6 +378,11 @@
         await LoadLogs();
     }
 
+    private async Task OnPageSizeChanged()
+    {
+        currentPage = 1;
+        await LoadLogs();
+    }
     private Task ExportLogs()
     {
         // TODO: Implement CSV export

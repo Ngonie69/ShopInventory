@@ -227,6 +227,38 @@
                                             </div>
                                         </div>
                                     </div>
+
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <div class="d-flex align-items-center mb-2">
+                                                    <i class="bi bi-diagram-3 text-secondary me-2 fs-4"></i>
+                                                    <h6 class="mb-0">Cost Centres</h6>
+                                                </div>
+                                                <p class="text-muted small mb-3">
+                                                    Sync cost centres (profit centers) from SAP
+                                                    @if (costCentresLastSync.HasValue)
+                                                    {
+                                                        <br />
+                                            
+                                                        <small>Last sync: @costCentresLastSync.Value.ToString("dd MMM yyyy HH:mm")</small>
+                                                    }
+                                                </p>
+                                                <button class="btn btn-outline-secondary btn-sm" @onclick="RefreshCostCentres"
+                                                    disabled="@isRefreshingCostCentres">
+                                                    @if (isRefreshingCostCentres)
+                                                    {
+                                                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i class="bi bi-arrow-repeat me-1"></i>
+                                                    }
+                                                    Refresh Cost Centres
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <hr class="my-4" />
@@ -452,6 +484,7 @@
     private bool isRefreshingPrices = false;
     private bool isRefreshingBP = false;
     private bool isRefreshingWarehouses = false;
+    private bool isRefreshingCostCentres = false;
     private bool isRefreshingAll = false;
     private string? refreshMessage;
     private bool refreshSuccess = false;
@@ -459,6 +492,7 @@
     private DateTime? pricesLastSync;
     private DateTime? bpLastSync;
     private DateTime? warehousesLastSync;
+    private DateTime? costCentresLastSync;
 
     // User Management fields
     private NewUserModel newUserModel = new();
@@ -487,6 +521,7 @@
         pricesLastSync = CacheService.GetLastRefreshTime("ItemPrices");
         bpLastSync = CacheService.GetLastRefreshTime("BusinessPartners");
         warehousesLastSync = CacheService.GetLastRefreshTime("Warehouses");
+        costCentresLastSync = CacheService.GetLastRefreshTime("CostCentres");
         await Task.CompletedTask;
     }
 
@@ -713,6 +748,32 @@
         }
     }
 
+    private async Task RefreshCostCentres()
+    {
+        isRefreshingCostCentres = true;
+        refreshMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var count = await CacheService.SyncCostCentresFromApiAsync();
+            refreshSuccess = true;
+            refreshMessage = $"Successfully synced {count} cost centres from SAP.";
+            costCentresLastSync = DateTime.Now;
+            await LogAudit(AuditActions.UpdateSettings, $"Refreshed cost centres cache: {count} items synced");
+        }
+        catch (Exception ex)
+        {
+            refreshSuccess = false;
+            refreshMessage = $"Failed to refresh cost centres: {ex.Message}";
+        }
+        finally
+        {
+            isRefreshingCostCentres = false;
+            StateHasChanged();
+        }
+    }
+
     private async Task RefreshAllData()
     {
         isRefreshingAll = true;
@@ -738,6 +799,10 @@
             var warehousesCount = await CacheService.SyncWarehousesFromApiAsync();
             results.Add($"Warehouses: {warehousesCount}");
             warehousesLastSync = DateTime.Now;
+
+            var costCentresCount = await CacheService.SyncCostCentresFromApiAsync();
+            results.Add($"Cost Centres: {costCentresCount}");
+            costCentresLastSync = DateTime.Now;
 
             refreshSuccess = true;
             refreshMessage = $"Successfully synced all data from SAP. {string.Join(", ", results)}";

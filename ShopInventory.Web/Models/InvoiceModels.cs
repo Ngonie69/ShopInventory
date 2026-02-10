@@ -10,8 +10,11 @@ public class InvoiceDto
     public string? CardName { get; set; }
     public string? NumAtCard { get; set; }
     public string? Comments { get; set; }
+    public string? DocStatus { get; set; }
+    public string? Remarks { get; set; }
     public decimal DocTotal { get; set; }
     public decimal VatSum { get; set; }
+    public decimal PaidToDate { get; set; }
     public string? DocCurrency { get; set; }
     public List<InvoiceLineDto>? Lines { get; set; }
 }
@@ -98,9 +101,14 @@ public class CreateInvoiceLineRequest
     public bool AutoAllocateBatches { get; set; } = true;
 
     /// <summary>
-    /// G/L Account code for revenue posting
+    /// G/L Account code for revenue posting (optional)
     /// </summary>
     public string? AccountCode { get; set; }
+
+    /// <summary>
+    /// Cost Centre code for cost allocation
+    /// </summary>
+    public string? CostCentreCode { get; set; }
 }
 
 /// <summary>

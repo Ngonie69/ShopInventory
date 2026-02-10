@@ -1,0 +1,1021 @@
+@using System.Globalization
+
+@page "/customer-portal/statements"
+@using ShopInventory.Web.Models
+@inject ICustomerStatementService StatementService
+@inject IJSRuntime JSRuntime
+@inject ILogger<CustomerStatements> Logger
+@attribute [AllowAnonymous]
+@rendermode InteractiveServer
+@layout CustomerPortalLayout
+
+<PageTitle>My Statements - Customer Portal</PageTitle>
+
+<div class="statements-page">
+    @if (isLoading && statement == null)
+    {
+        <div class="loading-overlay">
+            <div class="loading-spinner"></div>
+            <p>Loading your statement...</p>
+        </div>
+    }
+    else if (customerInfo == null)
+    {
+        <div class="auth-required">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" viewBox="0 0 16 16">
+                <path
+                    d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+            </svg>
+            <h2>Authentication Required</h2>
+            <p>Please login to view your statements</p>
+            <a href="/customer-portal/login" class="login-btn">Login to Portal</a>
+        </div>
+    }
+    else
+    {
+        <div class="page-header">
+            <div class="header-left">
+                <a href="/customer-portal/dashboard" class="back-link">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                        <path fill-rule="evenodd"
+                            d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z" />
+                    </svg>
+                    Back to Dashboard
+                </a>
+                <h1>Account Statement</h1>
+            </div>
+        </div>
+
+        <!-- Date Range Filter -->
+        <div class="filter-section">
+            <div class="filter-row">
+                <div class="filter-group">
+                    <MudDatePicker Label="From Date" Editable="true" Date="request.FromDate" ImmediateText="true"
+                        Placeholder="dd.MM.yyyy" DateFormat="dd.MM.yyyy" TextChanged="FromDateTextChanged" Clearable="true"
+                        Variant="Variant.Outlined" Class="date-picker-statement" />
+                </div>
+                <div class="filter-group">
+                    <MudDatePicker Label="To Date" Editable="true" Date="request.ToDate" ImmediateText="true"
+                        Placeholder="dd.MM.yyyy" DateFormat="dd.MM.yyyy" TextChanged="ToDateTextChanged" Clearable="true"
+                        Variant="Variant.Outlined" Class="date-picker-statement" />
+                </div>
+                <div class="filter-group checkbox-group">
+                    <label>
+                        <input type="checkbox" @bind="request.IncludeClosedInvoices" />
+                        Include Closed Invoices
+                    </label>
+                </div>
+                <div class="filter-actions">
+                    <button class="btn-primary" @onclick="GenerateStatement" disabled="@isLoading">
+                        @if (isLoading)
+                        {
+                            <span class="spinner"></span>
+                            <span>Loading...</span>
+                        }
+                        else
+                        {
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                                viewBox="0 0 16 16">
+                                <path
+                                    d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z" />
+                            </svg>
+                            <span>Generate</span>
+                        }
+                    </button>
+                    <button class="btn-secondary" @onclick="DownloadPdf" disabled="@(isDownloading || statement == null)">
+                        @if (isDownloading)
+                        {
+                            <span class="spinner"></span>
+                            <span>Downloading...</span>
+                        }
+                        else
+                        {
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                                viewBox="0 0 16 16">
+                                <path
+                                    d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
+                                <path
+                                    d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z" />
+                            </svg>
+                            <span>Download PDF</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        @if (statement != null)
+        {
+            <!-- Statement Summary -->
+            <div class="statement-summary">
+                <div class="summary-header">
+                    <div class="customer-details">
+                        <h2>@statement.Customer.CardName</h2>
+                        <p>Customer Code: @statement.Customer.CardCode</p>
+                        <p>Statement Period: @statement.FromDate.ToString("MMM dd, yyyy") - @statement.ToDate.ToString("MMM dd, yyyy")</p>
+                    </div>
+                    <div class="balance-summary">
+                        <div class="balance-item">
+                            <span class="label">Opening Balance</span>
+                            <span class="value">@FormatCurrency(statement.OpeningBalance)</span>
+                        </div>
+                        <div class="balance-item">
+                            <span class="label">Total Invoices</span>
+                            <span class="value debit">@FormatCurrency(statement.TotalInvoices)</span>
+                        </div>
+                        <div class="balance-item">
+                            <span class="label">Total Payments</span>
+                            <span class="value credit">@FormatCurrency(statement.TotalPayments)</span>
+                        </div>
+                        <div class="balance-item total">
+                            <span class="label">Closing Balance</span>
+                            <span class="value @(statement.ClosingBalance >= 0 ? "debit" : "credit")">
+                                @FormatCurrency(statement.ClosingBalance)
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Transaction Details -->
+            <div class="transactions-section">
+                <h3>Transaction Details</h3>
+                <div class="data-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Type</th>
+                                <th>Document #</th>
+                                <th>Description</th>
+                                <th class="amount-col">Debit</th>
+                                <th class="amount-col">Credit</th>
+                                <th class="amount-col">Balance</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (statement.Lines.Any())
+                            {
+                                <!-- Opening Balance Row -->
+                                <tr class="opening-balance-row">
+                                    <td>@statement.FromDate.ToString("MMM dd, yyyy")</td>
+                                    <td colspan="3"><strong>Opening Balance</strong></td>
+                                    <td class="amount-col">-</td>
+                                    <td class="amount-col">-</td>
+                                    <td class="amount-col"><strong>@FormatCurrency(statement.OpeningBalance)</strong></td>
+                                </tr>
+
+                                @foreach (var line in statement.Lines)
+                                {
+                                    <tr class="@(line.DocumentType == "Payment" ? "payment-row" : "invoice-row")">
+                                        <td>@line.Date.ToString("MMM dd, yyyy")</td>
+                                        <td>
+                                            <span class="doc-type @line.DocumentType.ToLower().Replace(" ", "-")">
+                                                @line.DocumentType
+                                            </span>
+                                        </td>
+                                        <td>@line.DocumentNumber</td>
+                                        <td>
+                                            @line.Description
+                                            @if (!string.IsNullOrEmpty(line.Reference))
+                                            {
+                                                <span class="reference">Ref: @line.Reference</span>
+                                            }
+                                            @if (line.DaysOverdue > 0)
+                                            {
+                                                <span class="overdue-badge">@line.DaysOverdue days overdue</span>
+                                            }
+                                        </td>
+                                        <td class="amount-col debit">@(line.Debit > 0 ? FormatCurrency(line.Debit) : "-")</td>
+                                        <td class="amount-col credit">@(line.Credit > 0 ? FormatCurrency(line.Credit) : "-")</td>
+                                        <td class="amount-col balance">@FormatCurrency(line.Balance)</td>
+                                    </tr>
+                                }
+
+                                <!-- Closing Balance Row -->
+                                <tr class="closing-balance-row">
+                                    <td>@statement.ToDate.ToString("MMM dd, yyyy")</td>
+                                    <td colspan="3"><strong>Closing Balance</strong></td>
+                                    <td class="amount-col debit">@FormatCurrency(statement.TotalInvoices)</td>
+                                    <td class="amount-col credit">@FormatCurrency(statement.TotalPayments)</td>
+                                    <td class="amount-col balance"><strong>@FormatCurrency(statement.ClosingBalance)</strong></td>
+                                </tr>
+                            }
+                            else
+                            {
+                                <tr>
+                                    <td colspan="7" class="no-data">No transactions found for this period</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Aging Summary -->
+            <div class="aging-section">
+                <h3>Aging Summary</h3>
+                <div class="aging-grid">
+                    <div class="aging-card current">
+                        <span class="aging-label">Current</span>
+                        <span class="aging-value">@FormatCurrency(statement.Aging.Current)</span>
+                    </div>
+                    <div class="aging-card days-30">
+                        <span class="aging-label">1-30 Days</span>
+                        <span class="aging-value">@FormatCurrency(statement.Aging.Days1To30)</span>
+                    </div>
+                    <div class="aging-card days-60">
+                        <span class="aging-label">31-60 Days</span>
+                        <span class="aging-value">@FormatCurrency(statement.Aging.Days31To60)</span>
+                    </div>
+                    <div class="aging-card days-90">
+                        <span class="aging-label">61-90 Days</span>
+                        <span class="aging-value">@FormatCurrency(statement.Aging.Days61To90)</span>
+                    </div>
+                    <div class="aging-card over-90">
+                        <span class="aging-label">Over 90 Days</span>
+                        <span class="aging-value">@FormatCurrency(statement.Aging.Over90Days)</span>
+                    </div>
+                    <div class="aging-card total">
+                        <span class="aging-label">Total Outstanding</span>
+                        <span class="aging-value">@FormatCurrency(statement.Aging.Total)</span>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="footer-note">
+            <p>Statement generated on @DateTime.Now.ToString("MMMM dd, yyyy 'at' HH:mm") UTC</p>
+            <p>If you have any questions about this statement, please contact our accounts department.</p>
+        </div>
+    }
+</div>
+
+<style>
+    /* Modern Black & White Theme */
+    .statements-page {
+        padding: 2rem;
+        max-width: 1400px;
+        margin: 0 auto;
+        background: #fafafa;
+        min-height: 100vh;
+    }
+
+    .loading-overlay {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 400px;
+        color: #666;
+    }
+
+    .loading-spinner {
+        width: 48px;
+        height: 48px;
+        border: 3px solid #e0e0e0;
+        border-top-color: #000;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-bottom: 1rem;
+    }
+
+    .auth-required {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 400px;
+        text-align: center;
+        color: #666;
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 2px 20px rgba(0, 0, 0, 0.06);
+        padding: 3rem;
+    }
+
+    .auth-required svg {
+        color: #000;
+        margin-bottom: 1.5rem;
+    }
+
+    .auth-required h2 {
+        color: #000;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+
+    .login-btn {
+        margin-top: 2rem;
+        padding: 0.875rem 2.5rem;
+        background: #000;
+        color: white;
+        text-decoration: none;
+        border-radius: 8px;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        letter-spacing: 0.025em;
+    }
+
+    .login-btn:hover {
+        background: #222;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    }
+
+    .page-header {
+        margin-bottom: 2rem;
+    }
+
+    .back-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: #666;
+        text-decoration: none;
+        font-size: 0.875rem;
+        margin-bottom: 0.75rem;
+        transition: color 0.2s;
+    }
+
+    .back-link:hover {
+        color: #000;
+    }
+
+    .page-header h1 {
+        font-size: 2rem;
+        color: #000;
+        font-weight: 700;
+        letter-spacing: -0.025em;
+    }
+
+    .filter-section {
+        background: white;
+        border-radius: 16px;
+        padding: 1.75rem;
+        box-shadow: 0 2px 20px rgba(0, 0, 0, 0.06);
+        margin-bottom: 1.5rem;
+        border: 1px solid #f0f0f0;
+    }
+
+    .filter-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.25rem;
+        align-items: flex-end;
+    }
+
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .filter-group label {
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: #333;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .date-input {
+        padding: 0.75rem 1rem;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        font-size: 0.9375rem;
+        transition: all 0.2s;
+        background: #fafafa;
+    }
+
+    .date-input:focus {
+        outline: none;
+        border-color: #000;
+        background: white;
+    }
+
+    /* MudDatePicker styling for statement page */
+    .date-picker-statement {
+        min-width: 160px;
+    }
+
+    .date-picker-statement .mud-input-outlined-border {
+        border-color: #e0e0e0 !important;
+        border-width: 2px !important;
+        border-radius: 8px !important;
+    }
+
+    .date-picker-statement:hover .mud-input-outlined-border {
+        border-color: #000 !important;
+    }
+
+    .date-picker-statement .mud-input-label {
+        color: #333;
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 0.8125rem;
+        letter-spacing: 0.05em;
+    }
+
+    .checkbox-group {
+        flex-direction: row;
+        align-items: center;
+    }
+
+    .checkbox-group label {
+        display: flex;
+        align-items: center;
+        gap: 0.625rem;
+        cursor: pointer;
+        font-size: 0.875rem;
+        text-transform: none;
+        font-weight: 500;
+    }
+
+    .checkbox-group input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        accent-color: #000;
+    }
+
+    .filter-actions {
+        display: flex;
+        gap: 0.75rem;
+        margin-left: auto;
+    }
+
+    .btn-primary,
+    .btn-secondary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.25rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.875rem;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        letter-spacing: 0.025em;
+    }
+
+    .btn-primary {
+        background: #000;
+        color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        background: #222;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    }
+
+    .btn-secondary {
+        background: white;
+        color: #000;
+        border: 2px solid #000;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+        background: #000;
+        color: white;
+    }
+
+    .btn-primary:disabled,
+    .btn-secondary:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+    }
+
+    .spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    .btn-secondary .spinner {
+        border: 2px solid rgba(0, 0, 0, 0.2);
+        border-top-color: #000;
+    }
+
+    .statement-summary {
+        background: white;
+        border-radius: 16px;
+        padding: 2rem;
+        box-shadow: 0 2px 20px rgba(0, 0, 0, 0.06);
+        margin-bottom: 1.5rem;
+        border: 1px solid #f0f0f0;
+    }
+
+    .summary-header {
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 2rem;
+    }
+
+    .customer-details h2 {
+        font-size: 1.5rem;
+        color: #000;
+        margin-bottom: 0.75rem;
+        font-weight: 700;
+    }
+
+    .customer-details p {
+        color: #666;
+        font-size: 0.9375rem;
+        margin-bottom: 0.375rem;
+    }
+
+    .balance-summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2rem;
+    }
+
+    .balance-item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+    }
+
+    .balance-item .label {
+        font-size: 0.75rem;
+        color: #888;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        font-weight: 600;
+    }
+
+    .balance-item .value {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #000;
+    }
+
+    .balance-item .value.debit {
+        color: #000;
+    }
+
+    .balance-item .value.credit {
+        color: #666;
+    }
+
+    .balance-item.total {
+        padding-left: 2rem;
+        border-left: 3px solid #000;
+    }
+
+    .transactions-section {
+        background: white;
+        border-radius: 16px;
+        padding: 2rem;
+        box-shadow: 0 2px 20px rgba(0, 0, 0, 0.06);
+        margin-bottom: 1.5rem;
+        border: 1px solid #f0f0f0;
+    }
+
+    .transactions-section h3 {
+        font-size: 1.25rem;
+        color: #000;
+        margin-bottom: 1.5rem;
+        font-weight: 700;
+    }
+
+    .data-table {
+        overflow-x: auto;
+    }
+
+    .data-table table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .data-table th,
+    .data-table td {
+        padding: 1rem 1.25rem;
+        text-align: left;
+        border-bottom: 1px solid #eee;
+    }
+
+    .data-table th {
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #888;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        background: #fafafa;
+    }
+
+    .data-table td {
+        font-size: 0.9375rem;
+        color: #333;
+    }
+
+    .data-table tbody tr:hover {
+        background: #fafafa;
+    }
+
+    .amount-col {
+        text-align: right !important;
+        font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+        font-size: 0.875rem;
+    }
+
+    .amount-col.debit {
+        color: #000;
+        font-weight: 600;
+    }
+
+    .amount-col.credit {
+        color: #666;
+        font-weight: 600;
+    }
+
+    .amount-col.balance {
+        font-weight: 700;
+        color: #000;
+    }
+
+    .doc-type {
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        border-radius: 100px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.025em;
+    }
+
+    .doc-type.invoice {
+        background: #000;
+        color: white;
+    }
+
+    .doc-type.payment {
+        background: #f0f0f0;
+        color: #333;
+    }
+
+    .doc-type.credit-note {
+        background: #666;
+        color: white;
+    }
+
+    .reference {
+        display: block;
+        font-size: 0.8125rem;
+        color: #999;
+        margin-top: 0.25rem;
+    }
+
+    .overdue-badge {
+        display: inline-block;
+        background: #000;
+        color: white;
+        font-size: 0.6875rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 100px;
+        margin-left: 0.5rem;
+        font-weight: 600;
+        letter-spacing: 0.025em;
+    }
+
+    .opening-balance-row,
+    .closing-balance-row {
+        background: #fafafa !important;
+    }
+
+    .closing-balance-row {
+        font-weight: 700;
+    }
+
+    .closing-balance-row td {
+        border-top: 2px solid #000;
+    }
+
+    .no-data {
+        text-align: center;
+        color: #999;
+        padding: 3rem !important;
+        font-size: 1rem;
+    }
+
+    .aging-section {
+        background: white;
+        border-radius: 16px;
+        padding: 2rem;
+        box-shadow: 0 2px 20px rgba(0, 0, 0, 0.06);
+        margin-bottom: 1.5rem;
+        border: 1px solid #f0f0f0;
+    }
+
+    .aging-section h3 {
+        font-size: 1.25rem;
+        color: #000;
+        margin-bottom: 1.5rem;
+        font-weight: 700;
+    }
+
+    .aging-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 1rem;
+    }
+
+    .aging-card {
+        padding: 1.25rem;
+        border-radius: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .aging-card:hover {
+        transform: translateY(-2px);
+    }
+
+    .aging-card.current {
+        background: #f5f5f5;
+        border: 2px solid #e0e0e0;
+    }
+
+    .aging-card.days-30 {
+        background: #f5f5f5;
+        border: 2px solid #ccc;
+    }
+
+    .aging-card.days-60 {
+        background: #eee;
+        border: 2px solid #aaa;
+    }
+
+    .aging-card.days-90 {
+        background: #e0e0e0;
+        border: 2px solid #888;
+    }
+
+    .aging-card.over-90 {
+        background: #333;
+        border: 2px solid #000;
+    }
+
+    .aging-card.over-90 .aging-label,
+    .aging-card.over-90 .aging-value {
+        color: white;
+    }
+
+    .aging-card.total {
+        background: #000;
+        border: 2px solid #000;
+    }
+
+    .aging-card.total .aging-label,
+    .aging-card.total .aging-value {
+        color: white;
+    }
+
+    .aging-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 0.075em;
+    }
+
+    .aging-value {
+        font-size: 1.375rem;
+        font-weight: 700;
+        color: #000;
+    }
+
+    .footer-note {
+        text-align: center;
+        color: #999;
+        font-size: 0.875rem;
+        padding: 2rem;
+        border-top: 1px solid #eee;
+        margin-top: 1rem;
+    }
+
+    .footer-note p {
+        margin-bottom: 0.375rem;
+    }
+
+    @@keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    @@media (max-width: 768px) {
+        .statements-page {
+            padding: 1rem;
+        }
+
+        .filter-row {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .filter-actions {
+            width: 100%;
+            margin-left: 0;
+            margin-top: 0.5rem;
+        }
+
+        .filter-actions button {
+            flex: 1;
+            justify-content: center;
+        }
+
+        .summary-header {
+            flex-direction: column;
+        }
+
+        .balance-summary {
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .balance-item.total {
+            padding-left: 0;
+            padding-top: 1rem;
+            border-left: none;
+            border-top: 3px solid #000;
+        }
+
+        .page-header h1 {
+            font-size: 1.5rem;
+        }
+
+        .statement-summary,
+        .transactions-section,
+        .aging-section,
+        .filter-section {
+            padding: 1.25rem;
+            border-radius: 12px;
+        }
+    }
+</style>
+
+@code {
+    private CustomerInfo? customerInfo;
+    private CustomerStatementResponse? statement;
+    private CustomerStatementRequest request = new()
+    {
+        FromDate = DateTime.Now.AddMonths(-3),
+        ToDate = DateTime.Now,
+        IncludeClosedInvoices = false
+    };
+    private bool isLoading = true;
+    private bool isDownloading = false;
+
+    private static readonly string[] DateFormats = {
+"ddMMyy", "ddMMyyyy", "dd.MM.yyyy", "dd.M.yyyy", "d.MM.yyyy", "d.M.yyyy",
+"dd.MM.yy", "dd.M.yy", "d.MM.yy", "d.M.yy", "dd/MM/yyyy", "dd/M/yyyy",
+"d/MM/yyyy", "d/M/yyyy", "dd/MM/yy", "dd/M/yy", "d/MM/yy", "d/M/yy",
+"dd-MM-yyyy", "dd-M-yyyy", "d-MM-yyyy", "d-M-yyyy", "dd-MM-yy", "dd-M-yy",
+"d-MM-yy", "d-M-yy", "yyyy-MM-dd"
+    };
+
+    private void FromDateTextChanged(string value)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length < 6)
+        {
+            request.FromDate = DateTime.Now.AddMonths(-3);
+        }
+        else if (DateTime.TryParseExact(value, DateFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime
+        validDate))
+        {
+            request.FromDate = validDate;
+        }
+    }
+
+    private void ToDateTextChanged(string value)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length < 6)
+        {
+            request.ToDate = DateTime.Now;
+        }
+        else if (DateTime.TryParseExact(value, DateFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime
+        validDate))
+        {
+            request.ToDate = validDate;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCustomerInfo();
+
+        if (customerInfo != null)
+        {
+            await GenerateStatement();
+        }
+    }
+
+    private async Task LoadCustomerInfo()
+    {
+        try
+        {
+            var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
+
+            if (!string.IsNullOrEmpty(customerInfoJson))
+            {
+                customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading customer info");
+        }
+        finally
+        {
+            if (customerInfo == null)
+            {
+                isLoading = false;
+            }
+        }
+    }
+
+    private async Task GenerateStatement()
+    {
+        if (customerInfo == null) return;
+
+        isLoading = true;
+
+        try
+        {
+            statement = await StatementService.GetStatementAsync(customerInfo.CardCode, request);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error generating statement");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task DownloadPdf()
+    {
+        if (customerInfo == null) return;
+
+        isDownloading = true;
+        StateHasChanged();
+
+        try
+        {
+            var pdfBytes = await StatementService.GenerateStatementPdfAsync(customerInfo.CardCode, request);
+
+            if (pdfBytes == null || pdfBytes.Length == 0)
+            {
+                Logger.LogError("PDF generation returned empty byte array");
+                await JSRuntime.InvokeVoidAsync("alert", "Failed to generate PDF. Please try again.");
+                return;
+            }
+
+            // Validate PDF magic bytes (%PDF-)
+            if (pdfBytes.Length >= 5)
+            {
+                var header = System.Text.Encoding.ASCII.GetString(pdfBytes, 0, 5);
+                if (!header.StartsWith("%PDF-"))
+                {
+                    // Log what we received (first 100 chars for debugging)
+                    var preview = System.Text.Encoding.UTF8.GetString(pdfBytes, 0, Math.Min(100, pdfBytes.Length));
+                    Logger.LogError("Invalid PDF response. First bytes: {Preview}", preview);
+                    await JSRuntime.InvokeVoidAsync("alert", "Failed to generate PDF. The server returned an invalid response.");
+                    return;
+                }
+            }
+
+            var base64 = Convert.ToBase64String(pdfBytes);
+            var fileName = $"Statement_{customerInfo.CardCode}_{DateTime.Now:yyyyMMdd}.pdf";
+
+            // Use 2-parameter version for auto content type detection
+            await JSRuntime.InvokeVoidAsync("downloadFile", fileName, base64);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error downloading PDF");
+            await JSRuntime.InvokeVoidAsync("alert", $"Error downloading PDF: {ex.Message}");
+        }
+        finally
+        {
+            isDownloading = false;
+            StateHasChanged();
+        }
+    }
+
+    private string FormatCurrency(decimal amount)
+    {
+        return $"${amount:N2}";
+    }
+}

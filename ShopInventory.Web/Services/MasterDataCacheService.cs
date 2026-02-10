@@ -19,6 +19,7 @@ public interface IMasterDataCacheService
     Task<List<ProductDto>> GetProductsAsync(string warehouseCode, bool forceRefresh = false);
     Task<List<WarehouseDto>> GetWarehousesAsync(bool forceRefresh = false);
     Task<List<GLAccountDto>> GetGLAccountsAsync(bool forceRefresh = false);
+    Task<List<CostCentreDto>> GetCostCentresAsync(bool forceRefresh = false);
     Task<List<ItemPriceDto>> GetItemPricesAsync(bool forceRefresh = false);
     void InvalidateCache(string? cacheKey = null);
     DateTime? GetLastRefreshTime(string cacheKey);
@@ -29,6 +30,7 @@ public interface IMasterDataCacheService
     Task<int> SyncBusinessPartnersFromApiAsync();
     Task<int> SyncWarehousesFromApiAsync();
     Task<int> SyncGLAccountsFromApiAsync();
+    Task<int> SyncCostCentresFromApiAsync();
 }
 
 public class MasterDataCacheService : IMasterDataCacheService
@@ -43,6 +45,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     private const string ProductsCacheKeyPrefix = "Products_";
     private const string WarehousesCacheKey = "Warehouses";
     private const string GLAccountsCacheKey = "GLAccounts";
+    private const string CostCentresCacheKey = "CostCentres";
     private const string ItemPricesCacheKey = "ItemPrices";
 
     private static readonly TimeSpan SyncInterval = TimeSpan.FromHours(1);
@@ -58,11 +61,13 @@ public class MasterDataCacheService : IMasterDataCacheService
     private static List<BusinessPartnerDto>? _cachedBusinessPartners;
     private static List<WarehouseDto>? _cachedWarehouses;
     private static List<GLAccountDto>? _cachedGLAccounts;
+    private static List<CostCentreDto>? _cachedCostCentres;
     private static List<ItemPriceDto>? _cachedPrices;
     private static DateTime _productsLoadedAt = DateTime.MinValue;
     private static DateTime _bpLoadedAt = DateTime.MinValue;
     private static DateTime _warehousesLoadedAt = DateTime.MinValue;
     private static DateTime _glAccountsLoadedAt = DateTime.MinValue;
+    private static DateTime _costCentresLoadedAt = DateTime.MinValue;
     private static DateTime _pricesLoadedAt = DateTime.MinValue;
     private static readonly TimeSpan MemoryCacheDuration = TimeSpan.FromMinutes(30);
 
@@ -133,8 +138,10 @@ public class MasterDataCacheService : IMasterDataCacheService
             var partnersTask = GetBusinessPartnersAsync(false);
             var productsTask = GetProductsAsync(false);
             var pricesTask = GetItemPricesAsync(false);
+            var costCentresTask = GetCostCentresAsync(false);
+            var glAccountsTask = GetGLAccountsAsync(false);
 
-            await Task.WhenAll(warehousesTask, partnersTask, productsTask, pricesTask);
+            await Task.WhenAll(warehousesTask, partnersTask, productsTask, pricesTask, costCentresTask, glAccountsTask);
             _isPreloaded = true;
             _logger.LogInformation("Master data cache preloaded successfully");
         }
@@ -1345,6 +1352,294 @@ public class MasterDataCacheService : IMasterDataCacheService
 
     #endregion
 
+    #region Cost Centres
+
+    /// <summary>
+    /// Sync cost centres from API to local database.
+    /// Cost centres rarely change, so this is primarily done on initial load.
+    /// </summary>
+    public async Task<int> SyncCostCentresFromApiAsync()
+    {
+        var loadLock = GetLoadLock(CostCentresCacheKey);
+        await loadLock.WaitAsync();
+
+        try
+        {
+            return await SyncCostCentresFromApiCoreAsync();
+        }
+        finally
+        {
+            loadLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Internal sync method that doesn't acquire lock (caller must hold lock).
+    /// </summary>
+    private async Task<int> SyncCostCentresFromApiCoreAsync()
+    {
+        try
+        {
+            _logger.LogInformation("Syncing cost centres from API to database...");
+
+            await EnsureAuthenticationAsync();
+
+            _logger.LogInformation("Calling API: api/costcentre with BaseAddress: {BaseAddress}", _httpClient.BaseAddress);
+
+            // Use GetAsync to get more detailed error information
+            using var httpResponse = await _httpClient.GetAsync("api/costcentre");
+
+            if (!httpResponse.IsSuccessStatusCode)
+            {
+                var errorContent = await httpResponse.Content.ReadAsStringAsync();
+                _logger.LogError("API call to costcentre failed with status {StatusCode}: {Error}",
+                    httpResponse.StatusCode, errorContent);
+                throw new HttpRequestException($"API returned {httpResponse.StatusCode}: {errorContent}");
+            }
+
+            // Log raw response for debugging
+            var rawJson = await httpResponse.Content.ReadAsStringAsync();
+            _logger.LogDebug("Raw API response for cost centres: {RawJson}", rawJson);
+
+            // Re-read for deserialization (create new stream)
+            var response = System.Text.Json.JsonSerializer.Deserialize<CostCentreListResponse>(rawJson,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var apiCostCentres = response?.CostCentres ?? new List<CostCentreDto>();
+
+            _logger.LogInformation("API returned {Count} cost centres (TotalCount: {TotalCount})",
+                apiCostCentres.Count, response?.TotalCount ?? 0);
+
+            if (apiCostCentres.Count == 0)
+            {
+                _logger.LogWarning("No cost centres received from API - response was: {@Response}", response);
+                return 0;
+            }
+
+            await using var db = await _dbContextFactory.CreateDbContextAsync();
+
+            var syncTime = DateTime.UtcNow;
+            var updatedCount = 0;
+            var insertedCount = 0;
+
+            var existingCodes = await db.CachedCostCentres
+                .Select(p => p.CenterCode)
+                .ToHashSetAsync();
+
+            foreach (var costCentre in apiCostCentres)
+            {
+                if (string.IsNullOrEmpty(costCentre.CenterCode)) continue;
+
+                DateTime? validFrom = null;
+                DateTime? validTo = null;
+
+                if (!string.IsNullOrEmpty(costCentre.ValidFrom) && DateTime.TryParse(costCentre.ValidFrom, out var from))
+                    validFrom = DateTime.SpecifyKind(from, DateTimeKind.Utc);
+                if (!string.IsNullOrEmpty(costCentre.ValidTo) && DateTime.TryParse(costCentre.ValidTo, out var to))
+                    validTo = DateTime.SpecifyKind(to, DateTimeKind.Utc);
+
+                if (existingCodes.Contains(costCentre.CenterCode))
+                {
+                    await db.CachedCostCentres
+                        .Where(cp => cp.CenterCode == costCentre.CenterCode)
+                        .ExecuteUpdateAsync(setters => setters
+                            .SetProperty(cp => cp.CenterName, costCentre.CenterName)
+                            .SetProperty(cp => cp.Dimension, costCentre.Dimension)
+                            .SetProperty(cp => cp.IsActive, costCentre.IsActive)
+                            .SetProperty(cp => cp.ValidFrom, validFrom)
+                            .SetProperty(cp => cp.ValidTo, validTo)
+                            .SetProperty(cp => cp.LastSyncedAt, syncTime));
+                    updatedCount++;
+                }
+                else
+                {
+                    db.CachedCostCentres.Add(new CachedCostCentre
+                    {
+                        CenterCode = costCentre.CenterCode,
+                        CenterName = costCentre.CenterName,
+                        Dimension = costCentre.Dimension,
+                        IsActive = costCentre.IsActive,
+                        ValidFrom = validFrom,
+                        ValidTo = validTo,
+                        LastSyncedAt = syncTime
+                    });
+                    insertedCount++;
+                }
+            }
+
+            await db.SaveChangesAsync();
+            await UpdateSyncInfoAsync(db, CostCentresCacheKey, apiCostCentres.Count, true, null);
+            _lastRefreshTimes[CostCentresCacheKey] = DateTime.Now;
+
+            _logger.LogInformation(
+                "Cost centres sync completed: {Inserted} inserted, {Updated} updated",
+                insertedCount, updatedCount);
+
+            return apiCostCentres.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to sync cost centres from API");
+            await UpdateSyncInfoAsync(null, CostCentresCacheKey, 0, false, ex.Message);
+            throw;
+        }
+    }
+
+    public async Task<List<CostCentreDto>> GetCostCentresAsync(bool forceRefresh = false)
+    {
+        // Return from memory cache if valid AND has data
+        // Don't return empty cache - need to try to sync
+        if (!forceRefresh && _cachedCostCentres != null && _cachedCostCentres.Count > 0 &&
+            (DateTime.Now - _costCentresLoadedAt) < TimeSpan.FromHours(24))
+        {
+            _logger.LogDebug("Returning {Count} cost centres from memory cache", _cachedCostCentres.Count);
+            return _cachedCostCentres;
+        }
+
+        var loadLock = GetLoadLock(CostCentresCacheKey);
+        await loadLock.WaitAsync();
+        try
+        {
+            // Double-check after acquiring lock - also verify count > 0
+            if (!forceRefresh && _cachedCostCentres != null && _cachedCostCentres.Count > 0 &&
+                (DateTime.Now - _costCentresLoadedAt) < TimeSpan.FromHours(24))
+            {
+                return _cachedCostCentres;
+            }
+
+            _logger.LogInformation("GetCostCentresAsync: Loading cost centres from database...");
+
+            await using var db = await _dbContextFactory.CreateDbContextAsync();
+
+            // ALWAYS load from database first for quick response
+            var costCentres = await db.CachedCostCentres
+                .Where(p => p.IsActive)
+                .OrderBy(p => p.CenterCode)
+                .Select(p => new CostCentreDto
+                {
+                    CenterCode = p.CenterCode,
+                    CenterName = p.CenterName,
+                    Dimension = p.Dimension,
+                    IsActive = p.IsActive,
+                    ValidFrom = p.ValidFrom.HasValue ? p.ValidFrom.Value.ToString("yyyy-MM-dd") : null,
+                    ValidTo = p.ValidTo.HasValue ? p.ValidTo.Value.ToString("yyyy-MM-dd") : null
+                })
+                .ToListAsync();
+
+            // If no active cost centres found, check total count in database for diagnostics
+            if (costCentres.Count == 0)
+            {
+                var totalInDb = await db.CachedCostCentres.CountAsync();
+                var inactiveCount = await db.CachedCostCentres.CountAsync(c => !c.IsActive);
+                _logger.LogWarning("No active cost centres in database. Total records: {Total}, Inactive: {Inactive}",
+                    totalInDb, inactiveCount);
+            }
+
+            // Store in memory cache immediately
+            _cachedCostCentres = costCentres;
+            _costCentresLoadedAt = DateTime.Now;
+            _lastRefreshTimes[CostCentresCacheKey] = DateTime.Now;
+
+            _logger.LogDebug("Loaded {Count} cost centres from database into memory cache", costCentres.Count);
+
+            // Check if we need to sync from API - cost centres rarely change so use longer interval
+            var syncInfo = await db.CacheSyncInfo.FindAsync(CostCentresCacheKey);
+            var hasNoCostCentres = costCentres.Count == 0;
+            var needsSync = syncInfo == null ||
+                            hasNoCostCentres ||
+                            forceRefresh ||
+                            (DateTime.UtcNow - syncInfo.LastSyncedAt) > TimeSpan.FromDays(1); // Sync daily
+
+            if (needsSync)
+            {
+                // If database is empty, sync SYNCHRONOUSLY to provide data on first load
+                // Otherwise sync in background to not block the UI
+                if (hasNoCostCentres)
+                {
+                    _logger.LogInformation("No cost centres in database, syncing from API synchronously...");
+                    try
+                    {
+                        // Use internal method to avoid deadlock (we already hold the lock)
+                        await SyncCostCentresFromApiCoreAsync();
+                        // Reload from database after sync - use a NEW context to see the changes
+                        await using var freshDb = await _dbContextFactory.CreateDbContextAsync();
+                        costCentres = await freshDb.CachedCostCentres
+                            .Where(p => p.IsActive)
+                            .OrderBy(p => p.CenterCode)
+                            .Select(p => new CostCentreDto
+                            {
+                                CenterCode = p.CenterCode,
+                                CenterName = p.CenterName,
+                                Dimension = p.Dimension,
+                                IsActive = p.IsActive,
+                                ValidFrom = p.ValidFrom.HasValue ? p.ValidFrom.Value.ToString("yyyy-MM-dd") : null,
+                                ValidTo = p.ValidTo.HasValue ? p.ValidTo.Value.ToString("yyyy-MM-dd") : null
+                            })
+                            .ToListAsync();
+                        _cachedCostCentres = costCentres;
+                        _costCentresLoadedAt = DateTime.Now;
+                        _logger.LogInformation("Initial sync completed, loaded {Count} cost centres", costCentres.Count);
+                    }
+                    catch (HttpRequestException httpEx)
+                    {
+                        _logger.LogError(httpEx, "Initial sync of cost centres failed - HTTP error. Check API connectivity and authentication. BaseAddress: {BaseAddress}",
+                            _httpClient.BaseAddress);
+                    }
+                    catch (System.Text.Json.JsonException jsonEx)
+                    {
+                        _logger.LogError(jsonEx, "Initial sync of cost centres failed - JSON deserialization error. API response format may not match expected format.");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Initial sync of cost centres failed with unexpected error: {ErrorType}", ex.GetType().Name);
+                    }
+                }
+                else
+                {
+                    // Sync in background - don't block the UI
+                    _logger.LogInformation("Cost centres need refresh, triggering background sync...");
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            // Background task can use public method (gets its own lock)
+                            await SyncCostCentresFromApiAsync();
+                            // Reload from database after sync
+                            await using var bgDb = await _dbContextFactory.CreateDbContextAsync();
+                            var updatedCostCentres = await bgDb.CachedCostCentres
+                                .Where(p => p.IsActive)
+                                .OrderBy(p => p.CenterCode)
+                                .Select(p => new CostCentreDto
+                                {
+                                    CenterCode = p.CenterCode,
+                                    CenterName = p.CenterName,
+                                    Dimension = p.Dimension,
+                                    IsActive = p.IsActive,
+                                    ValidFrom = p.ValidFrom.HasValue ? p.ValidFrom.Value.ToString("yyyy-MM-dd") : null,
+                                    ValidTo = p.ValidTo.HasValue ? p.ValidTo.Value.ToString("yyyy-MM-dd") : null
+                                })
+                                .ToListAsync();
+                            _cachedCostCentres = updatedCostCentres;
+                            _costCentresLoadedAt = DateTime.Now;
+                            _logger.LogInformation("Background sync completed, loaded {Count} cost centres", updatedCostCentres.Count);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Background sync of cost centres failed");
+                        }
+                    });
+                }
+            }
+
+            return costCentres;
+        }
+        finally
+        {
+            loadLock.Release();
+        }
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private async Task<bool> NeedsSyncAsync(WebAppDbContext db, string cacheKey, bool forceRefresh)
@@ -1361,6 +1656,7 @@ public class MasterDataCacheService : IMasterDataCacheService
             var k when k == BusinessPartnersCacheKey => await db.CachedBusinessPartners.AnyAsync(),
             var k when k == WarehousesCacheKey => await db.CachedWarehouses.AnyAsync(),
             var k when k == GLAccountsCacheKey => await db.CachedGLAccounts.AnyAsync(),
+            var k when k == CostCentresCacheKey => await db.CachedCostCentres.AnyAsync(),
             _ => false
         };
 
@@ -1417,7 +1713,16 @@ public class MasterDataCacheService : IMasterDataCacheService
             _cachedBusinessPartners = null;
             _cachedWarehouses = null;
             _cachedGLAccounts = null;
+            _cachedCostCentres = null;
             _cachedPrices = null;
+
+            // Reset load times
+            _productsLoadedAt = DateTime.MinValue;
+            _bpLoadedAt = DateTime.MinValue;
+            _warehousesLoadedAt = DateTime.MinValue;
+            _glAccountsLoadedAt = DateTime.MinValue;
+            _costCentresLoadedAt = DateTime.MinValue;
+            _pricesLoadedAt = DateTime.MinValue;
 
             _logger.LogInformation("All master data cache invalidated (including memory cache)");
         }
@@ -1431,18 +1736,27 @@ public class MasterDataCacheService : IMasterDataCacheService
             {
                 case ProductsCacheKey:
                     _cachedProducts = null;
+                    _productsLoadedAt = DateTime.MinValue;
                     break;
                 case BusinessPartnersCacheKey:
                     _cachedBusinessPartners = null;
+                    _bpLoadedAt = DateTime.MinValue;
                     break;
                 case WarehousesCacheKey:
                     _cachedWarehouses = null;
+                    _warehousesLoadedAt = DateTime.MinValue;
                     break;
                 case GLAccountsCacheKey:
                     _cachedGLAccounts = null;
+                    _glAccountsLoadedAt = DateTime.MinValue;
+                    break;
+                case CostCentresCacheKey:
+                    _cachedCostCentres = null;
+                    _costCentresLoadedAt = DateTime.MinValue;
                     break;
                 case ItemPricesCacheKey:
                     _cachedPrices = null;
+                    _pricesLoadedAt = DateTime.MinValue;
                     break;
             }
 

@@ -23,6 +23,12 @@ public class ItemPriceEntity
     public string? ItemName { get; set; }
 
     /// <summary>
+    /// Foreign name from OITM.FrgnName - used for fiscalisation
+    /// </summary>
+    [MaxLength(200)]
+    public string? ForeignName { get; set; }
+
+    /// <summary>
     /// SAP Price List number
     /// </summary>
     public int PriceList { get; set; }

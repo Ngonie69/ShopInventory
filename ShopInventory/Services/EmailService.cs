@@ -31,6 +31,7 @@ public class EmailSettings
 public interface IEmailService
 {
     Task<EmailSentResponseDto> SendEmailAsync(SendEmailRequest request, CancellationToken cancellationToken = default);
+    Task<bool> SendEmailAsync(string toEmail, string subject, string body, List<(byte[] content, string fileName, string mimeType)>? attachments = null, string[]? ccEmails = null, CancellationToken cancellationToken = default);
     Task<EmailSentResponseDto> SendEmailFromTemplateAsync(string templateName, Dictionary<string, string> parameters, List<string> to, string subject, CancellationToken cancellationToken = default);
     Task QueueEmailAsync(SendEmailRequest request, string? category = null, CancellationToken cancellationToken = default);
     Task ProcessEmailQueueAsync(CancellationToken cancellationToken = default);
@@ -130,6 +131,74 @@ public class EmailService : IEmailService
                 Message = $"Failed to send email: {ex.Message}",
                 SentAt = DateTime.UtcNow
             };
+        }
+    }
+
+    /// <summary>
+    /// Send email with attachments - overload for document service
+    /// </summary>
+    public async Task<bool> SendEmailAsync(
+        string toEmail,
+        string subject,
+        string body,
+        List<(byte[] content, string fileName, string mimeType)>? attachments = null,
+        string[]? ccEmails = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_settings.Enabled)
+        {
+            _logger.LogWarning("Email service is disabled. Email not sent to: {Email}", toEmail);
+            return false;
+        }
+
+        try
+        {
+            using var client = new SmtpClient(_settings.SmtpServer, _settings.SmtpPort)
+            {
+                EnableSsl = _settings.UseSsl,
+                Credentials = new NetworkCredential(_settings.Username, _settings.Password)
+            };
+
+            var message = new MailMessage
+            {
+                From = new MailAddress(_settings.FromEmail, _settings.FromName),
+                Subject = subject,
+                Body = body,
+                IsBodyHtml = true
+            };
+
+            message.To.Add(toEmail);
+
+            if (ccEmails != null)
+            {
+                foreach (var cc in ccEmails)
+                {
+                    message.CC.Add(cc);
+                }
+            }
+
+            // Add attachments
+            if (attachments != null)
+            {
+                foreach (var (content, fileName, mimeType) in attachments)
+                {
+                    var stream = new MemoryStream(content);
+                    var attachment = new Attachment(stream, fileName, mimeType);
+                    message.Attachments.Add(attachment);
+                }
+            }
+
+            await client.SendMailAsync(message, cancellationToken);
+
+            _logger.LogInformation("Email with {Count} attachments sent successfully to: {Email}",
+                attachments?.Count ?? 0, toEmail);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send email to: {Email}", toEmail);
+            return false;
         }
     }
 

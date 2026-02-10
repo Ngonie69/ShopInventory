@@ -3,77 +3,70 @@
 @inject NavigationManager NavigationManager
 @inject IThemeService ThemeService
 @inject ILocalizationService L
+@inject IJSRuntime JS
 @implements IDisposable
 
-<MudThemeProvider />
+<MudThemeProvider @ref="_mudThemeProvider" @bind-IsDarkMode="@_isDarkMode" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
-<div class="page @(sidebarOpen ? "sidebar-open" : "sidebar-collapsed") @themeClass">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
-
-    <main>
-        <div class="top-row px-4">
-            <button class="hamburger-btn" @onclick="ToggleSidebar" title="@(sidebarOpen ? "Close menu" : "Open menu")">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
-                    @if (sidebarOpen)
-                    {
-                        <path
-                            d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854Z" />
-                    }
-                    else
-                    {
-                        <path fill-rule="evenodd"
-                            d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z" />
-                    }
-                </svg>
-            </button>
-
-            <div class="top-row-right">
-                <LanguageSelector />
-                <ThemeToggle />
-
-                <AuthorizeView>
-                    <Authorized>
-                        <div class="d-flex align-items-center gap-3">
-                            <span class="welcome-text">@L.Translate("common.welcome"), <span
-                                    class="user-name">@context.User.Identity?.Name</span></span>
-                            <button class="btn btn-outline-danger btn-sm" @onclick="Logout">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-                                    viewBox="0 0 16 16" style="margin-right: 0.5rem;">
-                                    <path fill-rule="evenodd"
-                                        d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0v2z" />
-                                    <path fill-rule="evenodd"
-                                        d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z" />
-                                </svg>
-                                @L.Translate("common.logout")
-                            </button>
-                        </div>
-                    </Authorized>
-                    <NotAuthorized>
-                        <a href="login" class="btn btn-primary btn-sm">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-                                viewBox="0 0 16 16" style="margin-right: 0.5rem;">
-                                <path fill-rule="evenodd"
-                                    d="M6 3.5a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-2a.5.5 0 0 0-1 0v2A1.5 1.5 0 0 0 6.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 14.5 2h-8A1.5 1.5 0 0 0 5 3.5v2a.5.5 0 0 0 1 0v-2z" />
-                                <path fill-rule="evenodd"
-                                    d="M11.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L10.293 7.5H1.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z" />
-                            </svg>
-                            @L.Translate("common.login")
-                        </a>
-                    </NotAuthorized>
-                </AuthorizeView>
-            </div>
+<MudLayout Class="staff-shell">
+    <MudAppBar Elevation="1" Dense="true" Class="staff-appbar">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
+            OnClick="@ToggleDrawer" />
+        <div class="staff-brand">
+            <img src="images/kefalos-logo.jpg" alt="Kefalos" class="brand-logo" onerror="this.style.display='none'" />
+            <MudText Typo="Typo.h6" Class="brand-title">Kefalos</MudText>
         </div>
+        <MudSpacer />
 
-        <article class="content px-4">
+        <LanguageSelector />
+        <MudIconButton Icon="@(_isDarkMode? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+            Color="Color.Inherit" OnClick="@ToggleTheme" aria-label="@(_isDarkMode ? "Light Mode" : "Dark Mode")" />
+
+        <AuthorizeView>
+            <Authorized>
+                <MudText Class="mx-3" Style="color: white;">@L.Translate("common.welcome"), @context.User.Identity?.Name
+                </MudText>
+                <MudButton Variant="Variant.Outlined" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Logout"
+                    OnClick="@Logout" Size="Size.Small">
+                    @L.Translate("common.logout")
+                </MudButton>
+            </Authorized>
+            <NotAuthorized>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Login"
+                    Href="/login" Size="Size.Small">
+                    @L.Translate("common.login")
+                </MudButton>
+            </NotAuthorized>
+        </AuthorizeView>
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="@_drawerOpen" Elevation="2" Variant="@DrawerVariant.Mini" OpenMiniOnHover="true"
+        ClipMode="DrawerClipMode.Always" Breakpoint="Breakpoint.Lg" Class="staff-drawer">
+        <MudDrawerHeader Dense="true" Class="staff-drawer-header">
+            <div class="drawer-brand">
+                @if (_drawerOpen)
+                {
+                    <img src="images/kefalos-logo.jpg" alt="Kefalos" class="drawer-logo"
+                        onerror="this.outerHTML='<span>Kefalos</span>'" />
+                }
+                else
+                {
+                    <MudIcon Icon="@Icons.Material.Filled.Inventory" Class="drawer-icon" />
+                }
+            </div>
+        </MudDrawerHeader>
+        <NavMenu />
+    </MudDrawer>
+
+    <MudMainContent Class="staff-main">
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-4 staff-container">
             @Body
-        </article>
-    </main>
-</div>
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
@@ -82,14 +75,15 @@
 </div>
 
 @code {
-    private bool sidebarOpen = true;
-    private string themeClass = "";
+    private bool _drawerOpen = true;
+    private bool _isDarkMode = false;
+    private MudThemeProvider? _mudThemeProvider;
 
     protected override async Task OnInitializedAsync()
     {
         // Initialize theme
         var theme = await ThemeService.GetThemeAsync();
-        themeClass = theme == "dark" ? "dark-theme" : "";
+        _isDarkMode = theme == "dark";
         ThemeService.OnThemeChanged += OnThemeChanged;
 
         // Initialize localization
@@ -97,15 +91,32 @@
         L.OnLanguageChanged += () => InvokeAsync(StateHasChanged);
     }
 
-    private void OnThemeChanged()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        themeClass = ThemeService.IsDarkMode ? "dark-theme" : "";
-        InvokeAsync(StateHasChanged);
+        if (firstRender)
+        {
+            // Sync theme from storage
+            var theme = await ThemeService.GetThemeAsync();
+            _isDarkMode = theme == "dark";
+            StateHasChanged();
+        }
     }
 
-    private void ToggleSidebar()
+    private async void OnThemeChanged()
     {
-        sidebarOpen = !sidebarOpen;
+        _isDarkMode = ThemeService.IsDarkMode;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleDrawer()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+
+    private async Task ToggleTheme()
+    {
+        _isDarkMode = !_isDarkMode;
+        await ThemeService.SetThemeAsync(_isDarkMode ? "dark" : "light");
     }
 
     private async Task Logout()

@@ -238,6 +238,30 @@ public class AppSettingsService : IAppSettingsService
                 DataType = "int",
                 Description = "Number of days to retain audit logs",
                 DisplayOrder = 2
+            },
+
+            // Statement email tracking (internal)
+            new()
+            {
+                Category = SettingCategories.Notifications,
+                Key = SettingKeys.StatementEmailsLastWeeklySentUtc,
+                Value = "",
+                DataType = "string",
+                Description = "Last weekly statement sent timestamp (UTC)",
+                DisplayOrder = 1,
+                IsVisible = false,
+                IsEditable = false
+            },
+            new()
+            {
+                Category = SettingCategories.Notifications,
+                Key = SettingKeys.StatementEmailsLastMonthlySentUtc,
+                Value = "",
+                DataType = "string",
+                Description = "Last monthly statement sent timestamp (UTC)",
+                DisplayOrder = 2,
+                IsVisible = false,
+                IsEditable = false
             }
         };
 

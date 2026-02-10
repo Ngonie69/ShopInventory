@@ -1,0 +1,207 @@
+@page "/swagger"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@inject IConfiguration Configuration
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<PageTitle>API Documentation - Shop Inventory</PageTitle>
+
+<style>
+    .swagger-container {
+        position: relative;
+        width: 100%;
+        height: calc(100vh - 120px);
+        border: none;
+        border-radius: 8px;
+        overflow: hidden;
+        background: white;
+    }
+
+    .swagger-iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+    }
+
+    .swagger-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 16px;
+        background: var(--mud-palette-surface);
+        border-radius: 8px;
+        margin-bottom: 16px;
+    }
+
+    .swagger-error {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 400px;
+        text-align: center;
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-4">
+    <div class="swagger-toolbar">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <MudIcon Icon="@Icons.Material.Filled.Api" Size="Size.Large" Color="Color.Primary" />
+            <div>
+                <MudText Typo="Typo.h5">API Documentation</MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@_swaggerUrl</MudText>
+            </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh"
+                       OnClick="RefreshSwagger">
+                Refresh
+            </MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.OpenInNew"
+                       OnClick="OpenInNewTab">
+                Open in New Tab
+            </MudButton>
+        </div>
+    </div>
+
+    @if (_isLoading)
+    {
+        <MudPaper Elevation="2" Class="swagger-container"
+                  Style="display: flex; align-items: center; justify-content: center;">
+            <MudProgressCircular Indeterminate="true" Size="Size.Large" />
+            <MudText Typo="Typo.body1" Class="ml-4">Loading API Documentation...</MudText>
+        </MudPaper>
+    }
+    else if (_hasError)
+    {
+        <MudPaper Elevation="2" Class="swagger-container">
+            <div class="swagger-error">
+                <MudIcon Icon="@Icons.Material.Filled.Error" Size="Size.Large" Color="Color.Error" Class="mb-4" />
+                <MudText Typo="Typo.h6" Class="mb-2">Unable to load Swagger UI</MudText>
+                <MudText Typo="Typo.body1" Class="mud-text-secondary mb-4">
+                    The API server may not be running at @_swaggerUrl
+                </MudText>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RefreshSwagger">
+                    Try Again
+                </MudButton>
+            </div>
+        </MudPaper>
+    }
+    else
+    {
+        <MudPaper Elevation="2" Class="swagger-container">
+            <iframe @ref="_iframeRef" src="@_swaggerUrl" class="swagger-iframe" @onload="OnIframeLoaded"
+                    @onerror="OnIframeError" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
+                    title="Swagger API Documentation">
+            </iframe>
+        </MudPaper>
+    }
+
+    <MudPaper Elevation="1" Class="pa-4 mt-4">
+        <MudText Typo="Typo.subtitle1" Class="mb-2">
+            <MudIcon Icon="@Icons.Material.Filled.Key" Class="mr-2" Size="Size.Small" />
+            API Key (Click to Copy)
+        </MudText>
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+            Click "Authorize" in Swagger UI above, then paste this API key in the <strong>X-API-Key</strong> field.
+        </MudAlert>
+        <MudTextField @bind-Value="_apiKey" Label="API Key" Variant="Variant.Outlined" ReadOnly="true"
+                      Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.ContentCopy" OnAdornmentClick="CopyApiKey"
+                      AdornmentColor="Color.Primary" />
+        <MudDivider Class="my-3" />
+        <MudGrid>
+            <MudItem xs="12" md="4">
+                <MudText Typo="Typo.subtitle2">API Key Authentication</MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                    Use the X-API-Key header with your API key
+                </MudText>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudText Typo="Typo.subtitle2">JWT Authentication</MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                    Login via /api/auth/login to get a Bearer token
+                </MudText>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudText Typo="Typo.subtitle2">Base URL</MudText>
+                <MudText Typo="Typo.caption" Style="font-family: monospace;">
+                    @_apiBaseUrl
+                </MudText>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private string _apiBaseUrl = "";
+    private string _swaggerUrl = "";
+    private string _apiKey = "";
+    private bool _isLoading = true;
+    private bool _hasError = false;
+    private ElementReference _iframeRef;
+
+    protected override void OnInitialized()
+    {
+        _apiBaseUrl = Configuration["ApiSettings:BaseUrl"]?.TrimEnd('/') ?? "http://localhost:5106";
+        _swaggerUrl = $"{_apiBaseUrl}/swagger/index.html";
+        _apiKey = Configuration["ApiSettings:ApiKey"] ?? "";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Give the iframe a moment to load
+            await Task.Delay(1000);
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void OnIframeLoaded()
+    {
+        _isLoading = false;
+        _hasError = false;
+        StateHasChanged();
+    }
+
+    private void OnIframeError()
+    {
+        _isLoading = false;
+        _hasError = true;
+        StateHasChanged();
+    }
+
+    private void RefreshSwagger()
+    {
+        _isLoading = true;
+        _hasError = false;
+        StateHasChanged();
+
+        // Force iframe refresh by updating URL with timestamp
+        _swaggerUrl = $"{_apiBaseUrl}/swagger/index.html?t={DateTime.Now.Ticks}";
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(1000);
+            await InvokeAsync(() =>
+    {
+        _isLoading = false;
+        StateHasChanged();
+    });
+        });
+    }
+
+    private async Task OpenInNewTab()
+    {
+        await JS.InvokeVoidAsync("window.open", _swaggerUrl, "_blank");
+    }
+
+    private async Task CopyApiKey()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _apiKey);
+        Snackbar.Add("API Key copied to clipboard!", Severity.Success);
+    }
+}

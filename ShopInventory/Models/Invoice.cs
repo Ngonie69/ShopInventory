@@ -92,6 +92,24 @@ public class InvoiceLine
 
     [JsonPropertyName("UoMEntry")]
     public int? UoMEntry { get; set; }
+
+    /// <summary>
+    /// Batch numbers used in this invoice line (returned by SAP)
+    /// </summary>
+    [JsonPropertyName("BatchNumbers")]
+    public List<InvoiceLineBatch>? BatchNumbers { get; set; }
+}
+
+/// <summary>
+/// Batch number information from SAP invoice line
+/// </summary>
+public class InvoiceLineBatch
+{
+    [JsonPropertyName("BatchNumber")]
+    public string? BatchNumber { get; set; }
+
+    [JsonPropertyName("Quantity")]
+    public decimal Quantity { get; set; }
 }
 
 public class CreateInvoiceRequest

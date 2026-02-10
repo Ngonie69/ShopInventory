@@ -13,12 +13,19 @@ public class WebAppDbContext : DbContext
     public DbSet<CachedBusinessPartner> CachedBusinessPartners { get; set; }
     public DbSet<CachedWarehouse> CachedWarehouses { get; set; }
     public DbSet<CachedGLAccount> CachedGLAccounts { get; set; }
+    public DbSet<CachedCostCentre> CachedCostCentres { get; set; }
     public DbSet<CachedWarehouseStock> CachedWarehouseStocks { get; set; }
     public DbSet<CachedIncomingPayment> CachedIncomingPayments { get; set; }
     public DbSet<CachedInventoryTransfer> CachedInventoryTransfers { get; set; }
     public DbSet<CacheSyncInfo> CacheSyncInfo { get; set; }
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<AppSetting> AppSettings { get; set; }
+
+    // Customer Portal entities
+    public DbSet<CustomerPortalUser> CustomerPortalUsers { get; set; }
+    public DbSet<CustomerSecurityLog> CustomerSecurityLogs { get; set; }
+    public DbSet<CustomerRefreshToken> CustomerRefreshTokens { get; set; }
+    public DbSet<CustomerRateLimit> CustomerRateLimits { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -143,6 +150,25 @@ public class WebAppDbContext : DbContext
             // Index for searching
             entity.HasIndex(e => e.Name);
             entity.HasIndex(e => e.AccountType);
+            entity.HasIndex(e => e.IsActive);
+        });
+
+        // CachedCostCentre configuration
+        modelBuilder.Entity<CachedCostCentre>(entity =>
+        {
+            entity.ToTable("CachedCostCentres");
+            entity.HasKey(e => e.CenterCode);
+
+            entity.Property(e => e.CenterCode)
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(e => e.CenterName)
+                .HasMaxLength(200);
+
+            // Index for searching
+            entity.HasIndex(e => e.CenterName);
+            entity.HasIndex(e => e.Dimension);
             entity.HasIndex(e => e.IsActive);
         });
 
@@ -351,6 +377,155 @@ public class WebAppDbContext : DbContext
             // Unique index on key
             entity.HasIndex(e => e.Key).IsUnique();
             entity.HasIndex(e => e.Category);
+        });
+
+        // CustomerPortalUser configuration
+        modelBuilder.Entity<CustomerPortalUser>(entity =>
+        {
+            entity.ToTable("CustomerPortalUsers");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.CardCode)
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(e => e.CardName)
+                .HasMaxLength(200);
+
+            entity.Property(e => e.Email)
+                .HasMaxLength(200);
+
+            entity.Property(e => e.PasswordHash)
+                .HasMaxLength(200)
+                .IsRequired();
+
+            entity.Property(e => e.PasswordSalt)
+                .HasMaxLength(100);
+
+            entity.Property(e => e.TwoFactorSecret)
+                .HasMaxLength(100);
+
+            entity.Property(e => e.ReceiveStatements)
+                .HasDefaultValue(true)
+                .IsRequired();
+
+            entity.Property(e => e.EmailVerificationToken)
+                .HasMaxLength(200);
+
+            entity.Property(e => e.PasswordResetToken)
+                .HasMaxLength(200);
+
+            entity.Property(e => e.LastLoginIp)
+                .HasMaxLength(50);
+
+            entity.Property(e => e.PreviousPasswordHashes)
+                .HasMaxLength(2000);
+
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .HasDefaultValue("Active");
+
+            // Unique index on CardCode
+            entity.HasIndex(e => e.CardCode).IsUnique();
+            entity.HasIndex(e => e.Email);
+            entity.HasIndex(e => e.Status);
+        });
+
+        // CustomerSecurityLog configuration
+        modelBuilder.Entity<CustomerSecurityLog>(entity =>
+        {
+            entity.ToTable("CustomerSecurityLogs");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.CardCode)
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(e => e.Action)
+                .HasMaxLength(100)
+                .IsRequired();
+
+            entity.Property(e => e.IpAddress)
+                .HasMaxLength(50);
+
+            entity.Property(e => e.UserAgent)
+                .HasMaxLength(500);
+
+            entity.Property(e => e.Details)
+                .HasMaxLength(1000);
+
+            entity.Property(e => e.FailureReason)
+                .HasMaxLength(500);
+
+            entity.Property(e => e.RequestId)
+                .HasMaxLength(100);
+
+            entity.Property(e => e.GeoLocation)
+                .HasMaxLength(200);
+
+            // Indexes for querying
+            entity.HasIndex(e => e.CardCode);
+            entity.HasIndex(e => e.Action);
+            entity.HasIndex(e => e.Timestamp);
+            entity.HasIndex(e => new { e.CardCode, e.Timestamp });
+        });
+
+        // CustomerRefreshToken configuration
+        modelBuilder.Entity<CustomerRefreshToken>(entity =>
+        {
+            entity.ToTable("CustomerRefreshTokens");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.CardCode)
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(e => e.TokenHash)
+                .HasMaxLength(200)
+                .IsRequired();
+
+            entity.Property(e => e.CreatedByIp)
+                .HasMaxLength(50);
+
+            entity.Property(e => e.RevokedByIp)
+                .HasMaxLength(50);
+
+            entity.Property(e => e.ReplacedByToken)
+                .HasMaxLength(200);
+
+            entity.Property(e => e.UserAgent)
+                .HasMaxLength(500);
+
+            entity.Property(e => e.DeviceFingerprint)
+                .HasMaxLength(200);
+
+            // Indexes
+            entity.HasIndex(e => e.CardCode);
+            entity.HasIndex(e => e.TokenHash);
+            entity.HasIndex(e => e.ExpiresAt);
+        });
+
+        // CustomerRateLimit configuration
+        modelBuilder.Entity<CustomerRateLimit>(entity =>
+        {
+            entity.ToTable("CustomerRateLimits");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Identifier)
+                .HasMaxLength(200)
+                .IsRequired();
+
+            entity.Property(e => e.IdentifierType)
+                .HasMaxLength(20)
+                .HasDefaultValue("IP");
+
+            entity.Property(e => e.Endpoint)
+                .HasMaxLength(100)
+                .IsRequired();
+
+            // Indexes
+            entity.HasIndex(e => new { e.Identifier, e.Endpoint }).IsUnique();
+            entity.HasIndex(e => e.WindowEnd);
         });
 
         // Seed default warehouses for fast initial load

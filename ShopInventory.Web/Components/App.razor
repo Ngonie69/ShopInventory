@@ -5,15 +5,17 @@
 
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="color-scheme" content="light dark" />
     <base href="/" />
 
     <!-- PWA Meta Tags -->
-    <meta name="theme-color" content="#0d6efd" />
+    <meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
     <meta name="description"
-        content="Inventory management system with SAP Business One integration for retail operations in Zimbabwe" />
+          content="Inventory management system with SAP Business One integration for retail operations in Zimbabwe" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Shop Inventory" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/images/icons/icon-192x192.png" />
@@ -31,29 +33,110 @@
     <ImportMap />
     <link rel="icon" type="image/png" href="favicon.png" />
     <HeadOutlet />
+
+    <!-- Early theme initialization to prevent flash of unstyled content on iOS -->
+    <script>
+            (function () {
+                try {
+                    var theme = localStorage.getItem('app-theme') || 'light';
+                    // Remove quotes if stored as JSON string
+                    theme = theme.replace(/"/g, '');
+                    var htmlEl = document.documentElement;
+                    htmlEl.setAttribute('data-theme', theme);
+                    htmlEl.setAttribute('data-bs-theme', theme);
+                    htmlEl.classList.add(theme + '-theme');
+
+                    // Update color-scheme meta
+                    var metaCS = document.querySelector('meta[name="color-scheme"]');
+                    if (metaCS) metaCS.content = theme;
+
+                    // Update theme-color meta
+                    var metaTC = document.querySelector('meta[name="theme-color"]:not([media])');
+                    if (!metaTC) {
+                        metaTC = document.createElement('meta');
+                        metaTC.name = 'theme-color';
+                        document.head.appendChild(metaTC);
+                    }
+                    metaTC.content = theme === 'dark' ? '#0f172a' : '#f8fafc';
+                } catch (e) { }
+            })();
+    </script>
 </head>
 
 <body>
+    <!-- Inline critical JS functions BEFORE anything else -->
+    <script>
+            // Download file function - supports both signatures (from Kefalos-Workshop)
+            window.downloadFile = function (fileName, contentTypeOrBase64, base64Content) {
+                let base64Data, contentType;
+
+                // Check if called with 2 parameters (fileName, base64) or 3 parameters (fileName, contentType, base64)
+                if (arguments.length === 2) {
+                    base64Data = contentTypeOrBase64;
+                    // Auto-detect content type based on file extension
+                    if (fileName.endsWith('.xlsx')) {
+                        contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+                    } else if (fileName.endsWith('.pdf')) {
+                        contentType = 'application/pdf';
+                    } else if (fileName.endsWith('.csv')) {
+                        contentType = 'text/csv';
+                    } else {
+                        contentType = 'application/octet-stream';
+                    }
+                } else {
+                    contentType = contentTypeOrBase64;
+                    base64Data = base64Content;
+                }
+
+                const linkSource = `data:${contentType};base64,${base64Data}`;
+                const downloadLink = document.createElement('a');
+                downloadLink.href = linkSource;
+                downloadLink.download = fileName;
+                downloadLink.click();
+            };
+    </script>
+    <script src="js/app.js?v=4"></script>
+    <script src="js/signature-pad.js"></script>
+
+    <!-- Loading screen shown while Blazor connects -->
+    <div id="blazor-loading" style="display: flex; justify-content: center; align-items: center; height: 100vh; background: linear-gradient(135deg, #0b0b0b 0%, #151515 45%, #242424 100%); position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999;">
+        <div style="text-align: center; color: #f5f5f5;">
+            <div style="width: 48px; height: 48px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #fff; border-radius: 50%; animation: blazor-spin 0.8s linear infinite; margin: 0 auto 1rem;"></div>
+            <p style="font-family: 'Segoe UI', sans-serif; font-size: 1rem; opacity: 0.8; margin: 0;">Loading...</p>
+        </div>
+    </div>
+    <style>
+        @@keyframes blazor-spin { to { transform: rotate(360deg); } }
+    </style>
+
     <CascadingAuthenticationState>
         <Routes @rendermode="new InteractiveServerRenderMode(prerender: false)" />
     </CascadingAuthenticationState>
     <ReconnectModal />
+
     <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script>
+        // Hide loading screen after a delay (Blazor will be connected by then)
+        setTimeout(function() {
+            var loader = document.getElementById('blazor-loading');
+            if (loader) loader.style.display = 'none';
+        }, 2000);
+    </script>
+    
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
-    <script src="js/app.js"></script>
 
     <!-- Service Worker Registration -->
     <script>
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', function () {
-                navigator.serviceWorker.register('/service-worker.js')
-                    .then(function (registration) {
-                        console.log('ServiceWorker registered: ', registration.scope);
-                    })
-                    .catch(function (error) {
-                        console.log('ServiceWorker registration failed: ', error);
-                    });
-            });
+        window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/service-worker.js')
+        .then(function (registration) {
+        console.log('ServiceWorker registered: ', registration.scope);
+        })
+        .catch(function (error) {
+        console.log('ServiceWorker registration failed: ', error);
+        });
+        });
         }
     </script>
 </body>

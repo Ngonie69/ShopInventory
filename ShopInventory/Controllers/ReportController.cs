@@ -23,6 +23,16 @@ public class ReportController : ControllerBase
     }
 
     /// <summary>
+    /// Ensures a DateTime is in UTC format for PostgreSQL compatibility
+    /// </summary>
+    private static DateTime ToUtc(DateTime dateTime)
+    {
+        return dateTime.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(dateTime, DateTimeKind.Utc)
+            : dateTime.ToUniversalTime();
+    }
+
+    /// <summary>
     /// Gets sales summary report for a date range
     /// </summary>
     /// <param name="fromDate">Start date (defaults to 30 days ago)</param>
@@ -37,8 +47,8 @@ public class ReportController : ControllerBase
     {
         try
         {
-            var from = fromDate ?? DateTime.UtcNow.AddDays(-30);
-            var to = toDate ?? DateTime.UtcNow;
+            var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
+            var to = ToUtc(toDate ?? DateTime.UtcNow);
 
             var report = await _reportService.GetSalesSummaryAsync(from, to, cancellationToken);
             return Ok(report);
@@ -69,8 +79,8 @@ public class ReportController : ControllerBase
     {
         try
         {
-            var from = fromDate ?? DateTime.UtcNow.AddDays(-30);
-            var to = toDate ?? DateTime.UtcNow;
+            var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
+            var to = ToUtc(toDate ?? DateTime.UtcNow);
 
             var report = await _reportService.GetTopProductsAsync(from, to, topCount, warehouseCode, cancellationToken);
             return Ok(report);
@@ -99,8 +109,8 @@ public class ReportController : ControllerBase
     {
         try
         {
-            var from = fromDate ?? DateTime.UtcNow.AddDays(-90);
-            var to = toDate ?? DateTime.UtcNow;
+            var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-90));
+            var to = ToUtc(toDate ?? DateTime.UtcNow);
 
             var report = await _reportService.GetSlowMovingProductsAsync(from, to, daysThreshold, cancellationToken);
             return Ok(report);
@@ -152,8 +162,8 @@ public class ReportController : ControllerBase
     {
         try
         {
-            var from = fromDate ?? DateTime.UtcNow.AddDays(-30);
-            var to = toDate ?? DateTime.UtcNow;
+            var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
+            var to = ToUtc(toDate ?? DateTime.UtcNow);
 
             var report = await _reportService.GetStockMovementAsync(from, to, warehouseCode, cancellationToken);
             return Ok(report);
@@ -205,8 +215,8 @@ public class ReportController : ControllerBase
     {
         try
         {
-            var from = fromDate ?? DateTime.UtcNow.AddDays(-30);
-            var to = toDate ?? DateTime.UtcNow;
+            var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
+            var to = ToUtc(toDate ?? DateTime.UtcNow);
 
             var report = await _reportService.GetPaymentSummaryAsync(from, to, cancellationToken);
             return Ok(report);
@@ -235,8 +245,8 @@ public class ReportController : ControllerBase
     {
         try
         {
-            var from = fromDate ?? DateTime.UtcNow.AddDays(-30);
-            var to = toDate ?? DateTime.UtcNow;
+            var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
+            var to = ToUtc(toDate ?? DateTime.UtcNow);
 
             var report = await _reportService.GetTopCustomersAsync(from, to, topCount, cancellationToken);
             return Ok(report);

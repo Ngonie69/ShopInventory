@@ -1,5 +1,10 @@
 @page "/invoices"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
+@attribute [Authorize]
 @inject IInvoiceService InvoiceService
+@inject ICreditNoteService CreditNoteService
 @inject NavigationManager NavigationManager
 @rendermode InteractiveServer
 
@@ -30,12 +35,10 @@
                         @onkeyup="OnCustomerCodeChanged" placeholder="e.g., C001" />
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label">From Date</label>
-                    <input type="date" class="form-control" @bind="fromDate" />
+                    <FlexibleDatePicker Label="From Date" @bind-Date="fromDate" />
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label">To Date</label>
-                    <input type="date" class="form-control" @bind="toDate" />
+                    <FlexibleDatePicker Label="To Date" @bind-Date="toDate" />
                 </div>
                 <div class="col-md-3 d-flex align-items-end">
                     <button class="btn btn-primary me-2" @onclick="ApplyFilter">
@@ -44,6 +47,17 @@
                     <button class="btn btn-outline-secondary" @onclick="ClearFilter">
                         <i class="bi bi-x-circle me-1"></i>Clear
                     </button>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-2">
+                    <label class="form-label">Records per page</label>
+                    <select class="form-select" @bind="pageSize" @bind:after="OnPageSizeChanged">
+                        <option value="10">10</option>
+                        <option value="20">20</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
                 </div>
             </div>
         </div>
@@ -66,66 +80,75 @@
     }
     else if (invoices?.Any() == true)
     {
-        <div class="card">
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-hover">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Doc Entry</th>
-                                <th>Doc #</th>
-                                <th>Customer</th>
-                                <th>Date</th>
-                                <th>Due Date</th>
-                                <th>Currency</th>
-                                <th class="text-end">VAT</th>
-                                <th class="text-end">Total</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var invoice in invoices)
-                            {
-                                <tr>
-                                    <td>@invoice.DocEntry</td>
-                                    <td><strong>@invoice.DocNum</strong></td>
-                                    <td>
-                                        <span class="badge bg-secondary">@invoice.CardCode</span>
-                                        @invoice.CardName
-                                    </td>
-                                    <td>@FormatDate(invoice.DocDate)</td>
-                                    <td>@FormatDate(invoice.DocDueDate)</td>
-                                    <td>@invoice.DocCurrency</td>
-                                    <td class="text-end">@invoice.VatSum.ToString("N2")</td>
-                                    <td class="text-end"><strong>@invoice.DocTotal.ToString("N2")</strong></td>
-                                    <td>
-                                        <button class="btn btn-sm btn-outline-primary"
-                                            @onclick="() => ViewInvoice(invoice.DocEntry)">
-                                            <i class="bi bi-eye"></i>
-                                        </button>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="d-flex justify-content-between align-items-center mt-3">
+        <MudDataGrid T="InvoiceDto" Items="@invoices" SortMode="SortMode.Multiple" Filterable="true"
+            QuickFilter="@_quickFilter" Hideable="true" RowClick="@OnInvoiceRowClicked" Dense="true" Hover="true"
+            Striped="true">
+            <ToolBarContent>
+                <MudText Typo="Typo.h6">Invoices</MudText>
+                <MudSpacer />
+                <MudTextField @bind-Value="_searchString" Placeholder="Search" Adornment="Adornment.Start" Immediate="true"
+                    AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+            </ToolBarContent>
+            <Columns>
+                <PropertyColumn Property="x => x.DocEntry" Title="Doc Entry" />
+                <PropertyColumn Property="x => x.DocNum" Title="Doc #">
+                    <CellTemplate>
+                        <MudText Typo="Typo.body2"><strong>@context.Item.DocNum</strong></MudText>
+                    </CellTemplate>
+                </PropertyColumn>
+                <PropertyColumn Property="x => x.CardName" Title="Customer">
+                    <CellTemplate>
+                        <MudChip T="string" Color="Color.Default" Size="Size.Small" Class="me-1">@context.Item.CardCode
+                        </MudChip>
+                        @context.Item.CardName
+                    </CellTemplate>
+                </PropertyColumn>
+                <PropertyColumn Property="x => x.DocDate" Title="Date">
+                    <CellTemplate>
+                        @FormatDate(context.Item.DocDate)
+                    </CellTemplate>
+                </PropertyColumn>
+                <PropertyColumn Property="x => x.DocDueDate" Title="Due Date">
+                    <CellTemplate>
+                        @FormatDate(context.Item.DocDueDate)
+                    </CellTemplate>
+                </PropertyColumn>
+                <PropertyColumn Property="x => x.DocCurrency" Title="Currency" />
+                <PropertyColumn Property="x => x.VatSum" Title="VAT">
+                    <CellTemplate>
+                        <MudText Typo="Typo.body2" Align="Align.End">@context.Item.VatSum.ToString("N2")</MudText>
+                    </CellTemplate>
+                </PropertyColumn>
+                <PropertyColumn Property="x => x.DocTotal" Title="Total">
+                    <CellTemplate>
+                        <MudText Typo="Typo.body2" Align="Align.End"><strong>@context.Item.DocTotal.ToString("N2")</strong>
+                        </MudText>
+                    </CellTemplate>
+                </PropertyColumn>
+                <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
+                    <CellTemplate>
+                        <MudIconButton Icon="@Icons.Material.Filled.Visibility" Color="Color.Primary" Size="Size.Small"
+                            OnClick="@(() => ViewInvoice(context.Item.DocEntry))" />
+                    </CellTemplate>
+                </TemplateColumn>
+            </Columns>
+            <PagerContent>
+                <div class="d-flex justify-content-between align-items-center px-4 py-2">
+                    <MudText Typo="Typo.body2">Showing @invoices.Count invoices (Page @currentPage)</MudText>
                     <div>
-                        Showing @invoices.Count invoices (Page @currentPage)
-                    </div>
-                    <div>
-                        <button class="btn btn-outline-primary btn-sm me-2" @onclick="PreviousPage"
-                            disabled="@(currentPage <= 1)">
-                            <i class="bi bi-chevron-left"></i> Previous
-                        </button>
-                        <button class="btn btn-outline-primary btn-sm" @onclick="NextPage" disabled="@(!hasMore)">
-                            Next <i class="bi bi-chevron-right"></i>
-                        </button>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" Class="me-2"
+                            Disabled="@(currentPage <= 1)" OnClick="PreviousPage">
+                            <MudIcon Icon="@Icons.Material.Filled.ChevronLeft" Size="Size.Small" /> Previous
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" Disabled="@(!hasMore)"
+                            OnClick="NextPage">
+                            Next
+                            <MudIcon Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" />
+                        </MudButton>
                     </div>
                 </div>
-            </div>
-        </div>
+            </PagerContent>
+        </MudDataGrid>
     }
     else
     {
@@ -146,6 +169,23 @@
                     <button type="button" class="btn-close" @onclick="CloseModal"></button>
                 </div>
                 <div class="modal-body">
+                    <!-- Credit Note Warning Banner -->
+                    @if (existingCreditNotes?.HasExistingCreditNotes == true)
+                    {
+                        <div class="alert alert-warning d-flex align-items-center mb-3">
+                            <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
+                            <div>
+                                <strong>Credit Note Warning:</strong> This invoice already has
+                                <strong>@existingCreditNotes.CreditNotes.Count</strong> credit note(s) totaling
+                                <strong>@existingCreditNotes.TotalCreditedAmount.ToString("N2")
+                                    @selectedInvoice.DocCurrency</strong>.
+                                <button class="btn btn-link btn-sm p-0 ms-2" @onclick="ShowExistingCreditNotes">
+                                    View Details
+                                </button>
+                            </div>
+                        </div>
+                    }
+
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <p><strong>Customer:</strong> @selectedInvoice.CardName (@selectedInvoice.CardCode)</p>
@@ -206,8 +246,226 @@
                     }
                 </div>
                 <div class="modal-footer">
+                    <button type="button" class="btn btn-warning" @onclick="OpenCreateCreditNoteModal">
+                        <i class="bi bi-file-earmark-minus me-1"></i>Create Credit Note
+                    </button>
                     <button type="button" class="btn btn-secondary" @onclick="CloseModal">Close</button>
                 </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Existing Credit Notes Modal -->
+@if (showExistingCreditNotesModal && existingCreditNotes != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5); z-index: 1060;">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title">
+                        <i class="bi bi-file-earmark-minus me-2"></i>Existing Credit Notes for Invoice
+                        #@selectedInvoice?.DocNum
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="() => showExistingCreditNotesModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info mb-3">
+                        <strong>Total Credited:</strong> @existingCreditNotes.TotalCreditedAmount.ToString("N2")
+                        @selectedInvoice?.DocCurrency
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Credit Note #</th>
+                                    <th>Date</th>
+                                    <th>Type</th>
+                                    <th>Status</th>
+                                    <th>Reason</th>
+                                    <th class="text-end">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var cn in existingCreditNotes.CreditNotes)
+                                {
+                                    <tr>
+                                        <td><strong>@cn.CreditNoteNumber</strong></td>
+                                        <td>@cn.CreditNoteDate.ToString("dd MMM yyyy")</td>
+                                        <td><span class="badge bg-info">@cn.TypeName</span></td>
+                                        <td><span class="badge @GetCreditNoteStatusBadge(cn.Status)">@cn.StatusName</span></td>
+                                        <td>@TruncateText(cn.Reason, 30)</td>
+                                        <td class="text-end"><strong>@cn.DocTotal.ToString("N2")</strong></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary"
+                        @onclick="() => showExistingCreditNotesModal = false">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Create Credit Note Modal -->
+@if (showCreateCreditNoteModal && selectedInvoice != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5); z-index: 1060;">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content position-relative">
+                @* Loading Overlay *@
+                        @if (isCreatingCreditNote)
+                {
+                    <div class="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column justify-content-center align-items-center"
+                        style="background-color: rgba(255,255,255,0.95); z-index: 1070; border-radius: inherit;">
+                        <div class="text-center">
+                            <div class="position-relative d-inline-block mb-3">
+                                @* Animated Progress Circles *@
+                                                <div class="d-flex justify-content-center gap-2 mb-3">
+                                    <div class="spinner-grow text-primary"
+                                        style="width: 1rem; height: 1rem; animation-delay: 0s;" role="status"></div>
+                                    <div class="spinner-grow text-warning"
+                                        style="width: 1rem; height: 1rem; animation-delay: 0.2s;" role="status"></div>
+                                    <div class="spinner-grow text-success"
+                                        style="width: 1rem; height: 1rem; animation-delay: 0.4s;" role="status"></div>
+                                </div>
+                                @* Main Progress Circle *@
+                                                <svg width="120" height="120" viewBox="0 0 120 120" class="progress-ring">
+                                    <circle cx="60" cy="60" r="52" fill="none" stroke="#e9ecef" stroke-width="8" />
+                                    <circle cx="60" cy="60" r="52" fill="none" stroke="#ffc107" stroke-width="8"
+                                        stroke-linecap="round" stroke-dasharray="@(327 * creditNoteProgress / 100) 327"
+                                        style="transform: rotate(-90deg); transform-origin: center; transition: stroke-dasharray 0.3s ease;">
+                                    </circle>
+                                </svg>
+                                <div class="position-absolute top-50 start-50 translate-middle">
+                                    <span class="fs-4 fw-bold text-warning">@creditNoteProgress%</span>
+                                </div>
+                            </div>
+                            <h5 class="text-warning mb-2">
+                                <i class="bi bi-cloud-upload me-2"></i>Posting to SAP
+                            </h5>
+                            <p class="text-muted mb-1">@creditNoteProgressMessage</p>
+                            <small class="text-secondary">Please wait while the credit note is being created...</small>
+                        </div>
+                    </div>
+                }
+
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-file-earmark-minus me-2"></i>Create Credit Note from Invoice
+                        #@selectedInvoice.DocNum
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="() => showCreateCreditNoteModal = false"
+                        disabled="@isCreatingCreditNote"></button>
+                </div>
+                <div class="modal-body">
+                    @if (existingCreditNotes?.HasExistingCreditNotes == true)
+                    {
+                        <div class="alert alert-warning">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                            <strong>Warning:</strong> This invoice already has @existingCreditNotes.CreditNotes.Count credit
+                            note(s)
+                            totaling @existingCreditNotes.TotalCreditedAmount.ToString("N2") @selectedInvoice.DocCurrency.
+                            Are you sure you want to create another credit note?
+                        </div>
+                    }
+
+                    <div class="mb-3">
+                        <label class="form-label"><strong>Reason for Credit Note *</strong></label>
+                        <textarea class="form-control" @bind="creditNoteReason" rows="3"
+                            placeholder="Enter the reason for creating this credit note..."
+                            disabled="@isCreatingCreditNote"></textarea>
+                    </div>
+
+                    <h6 class="mb-3">Select Items to Credit</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width: 40px;">
+                                        <input type="checkbox" class="form-check-input" @bind="selectAllLines"
+                                            @bind:after="ToggleAllLines" disabled="@isCreatingCreditNote" />
+                                    </th>
+                                    <th>Item</th>
+                                    <th>Description</th>
+                                    <th class="text-end">Qty</th>
+                                    <th class="text-end">Credit Qty</th>
+                                    <th class="text-end">Price</th>
+                                    <th class="text-end">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (creditNoteLines != null)
+                                {
+                                    @foreach (var line in creditNoteLines)
+                                    {
+                                        <tr class="@(line.IsSelected ? "table-active" : "")">
+                                            <td>
+                                                <input type="checkbox" class="form-check-input" @bind="line.IsSelected"
+                                                    disabled="@isCreatingCreditNote" />
+                                            </td>
+                                            <td>@line.ItemCode</td>
+                                            <td>@line.ItemDescription</td>
+                                            <td class="text-end">@line.OriginalQuantity</td>
+                                            <td class="text-end" style="width: 100px;">
+                                                <input type="number" class="form-control form-control-sm text-end"
+                                                    @bind="line.CreditQuantity" min="0" max="@line.OriginalQuantity" step="0.01"
+                                                    disabled="@(!line.IsSelected || isCreatingCreditNote)" />
+                                            </td>
+                                            <td class="text-end">@line.UnitPrice.ToString("N2")</td>
+                                            <td class="text-end">@((line.IsSelected ? line.CreditQuantity * line.UnitPrice :
+                                                                                    0).ToString("N2"))</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr class="table-primary">
+                                    <td colspan="6" class="text-end"><strong>Credit Note Total:</strong></td>
+                                    <td class="text-end"><strong>@CalculateCreditNoteTotal().ToString("N2")</strong></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showCreateCreditNoteModal = false"
+                        disabled="@isCreatingCreditNote">Cancel</button>
+                    <button type="button" class="btn btn-warning" @onclick="CreateCreditNote"
+                        disabled="@(isCreatingCreditNote || string.IsNullOrWhiteSpace(creditNoteReason) || !HasSelectedLines())">
+                        @if (isCreatingCreditNote)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>Posting...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check-lg me-1"></i>
+                            <span>Create Credit Note</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Success/Error Message Toast -->
+@if (!string.IsNullOrEmpty(creditNoteMessage))
+{
+    <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1100;">
+        <div class="toast show @(creditNoteSuccess ? "bg-success" : "bg-danger") text-white">
+            <div class="toast-header @(creditNoteSuccess ? "bg-success" : "bg-danger") text-white">
+                <i class="bi @(creditNoteSuccess ? "bi-check-circle" : "bi-exclamation-circle") me-2"></i>
+                <strong class="me-auto">@(creditNoteSuccess ? "Success" : "Error")</strong>
+                <button type="button" class="btn-close btn-close-white" @onclick="() => creditNoteMessage = null"></button>
+            </div>
+            <div class="toast-body">
+                @creditNoteMessage
             </div>
         </div>
     </div>
@@ -222,6 +480,7 @@
     private int currentPage = 1;
     private int pageSize = 20;
     private bool hasMore = false;
+    private string _searchString = string.Empty;
 
     private int? docNumSearch;
     private string? customerCode;
@@ -230,6 +489,50 @@
 
     private CancellationTokenSource? _debounceTokenSource;
     private const int DebounceDelayMs = 300;
+
+    // Credit Note state
+    private CreditNotesByInvoiceResponse? existingCreditNotes;
+    private bool showExistingCreditNotesModal = false;
+    private bool showCreateCreditNoteModal = false;
+    private bool isCreatingCreditNote = false;
+    private string? creditNoteReason;
+    private List<CreditNoteLineSelection>? creditNoteLines;
+    private bool selectAllLines = false;
+    private string? creditNoteMessage;
+    private bool creditNoteSuccess = false;
+    private int creditNoteProgress = 0;
+    private string creditNoteProgressMessage = "Initializing...";
+    private CancellationTokenSource? _progressCancellationTokenSource;
+
+    // Quick filter - filter globally across multiple columns with the same input
+    private Func<InvoiceDto, bool> _quickFilter => x =>
+    {
+        if (string.IsNullOrWhiteSpace(_searchString))
+            return true;
+
+        if (x.DocNum.ToString().Contains(_searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (x.CardCode?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.CardName?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.DocCurrency?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if ($"{x.DocEntry} {x.DocTotal}".Contains(_searchString))
+            return true;
+
+        return false;
+    };
+
+    // Row click handler
+    private void OnInvoiceRowClicked(DataGridRowClickEventArgs<InvoiceDto> args)
+    {
+        ViewInvoice(args.Item.DocEntry);
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -463,11 +766,213 @@
     private async Task ViewInvoice(int docEntry)
     {
         selectedInvoice = await InvoiceService.GetInvoiceByDocEntryAsync(docEntry);
+        if (selectedInvoice != null)
+        {
+            // Check for existing credit notes
+            existingCreditNotes = await CreditNoteService.GetCreditNotesForInvoiceAsync(docEntry);
+        }
     }
 
     private void CloseModal()
     {
         selectedInvoice = null;
+        existingCreditNotes = null;
+        showExistingCreditNotesModal = false;
+        showCreateCreditNoteModal = false;
+        creditNoteReason = null;
+        creditNoteLines = null;
+    }
+
+    private void ShowExistingCreditNotes()
+    {
+        showExistingCreditNotesModal = true;
+    }
+
+    private void OpenCreateCreditNoteModal()
+    {
+        if (selectedInvoice?.Lines == null) return;
+
+        // Initialize credit note lines from invoice lines
+        creditNoteLines = selectedInvoice.Lines.Select(line => new CreditNoteLineSelection
+        {
+            ItemCode = line.ItemCode ?? "",
+            ItemDescription = line.ItemDescription,
+            OriginalQuantity = line.Quantity,
+            CreditQuantity = line.Quantity,
+            UnitPrice = line.UnitPrice,
+            WarehouseCode = line.WarehouseCode,
+            LineNum = line.LineNum,
+            IsSelected = true
+        }).ToList();
+
+        selectAllLines = true;
+        creditNoteReason = null;
+        showCreateCreditNoteModal = true;
+    }
+
+    private void ToggleAllLines()
+    {
+        if (creditNoteLines != null)
+        {
+            foreach (var line in creditNoteLines)
+            {
+                line.IsSelected = selectAllLines;
+            }
+        }
+    }
+
+    private bool HasSelectedLines()
+    {
+        return creditNoteLines?.Any(l => l.IsSelected && l.CreditQuantity > 0) ?? false;
+    }
+
+    private decimal CalculateCreditNoteTotal()
+    {
+        if (creditNoteLines == null) return 0;
+        return creditNoteLines.Where(l => l.IsSelected).Sum(l => l.CreditQuantity * l.UnitPrice);
+    }
+
+    private async Task CreateCreditNote()
+    {
+        if (selectedInvoice == null || creditNoteLines == null || string.IsNullOrWhiteSpace(creditNoteReason))
+            return;
+
+        isCreatingCreditNote = true;
+        creditNoteMessage = null;
+        creditNoteProgress = 0;
+        creditNoteProgressMessage = "Initializing...";
+
+        // Start progress simulation
+        _progressCancellationTokenSource = new CancellationTokenSource();
+        _ = SimulateSapProgressAsync(_progressCancellationTokenSource.Token);
+
+        try
+        {
+            var selectedLines = creditNoteLines
+            .Where(l => l.IsSelected && l.CreditQuantity > 0)
+            .Select(l => new CreateCreditNoteLineRequest
+            {
+                ItemCode = l.ItemCode,
+                ItemDescription = l.ItemDescription,
+                Quantity = l.CreditQuantity,
+                UnitPrice = l.UnitPrice,
+                WarehouseCode = l.WarehouseCode,
+                OriginalInvoiceLineId = l.LineNum // Link to original invoice line for SAP BaseLine reference
+            })
+            .ToList();
+
+            var result = await CreditNoteService.CreateFromInvoiceAsync(
+            selectedInvoice.DocEntry,
+            selectedLines,
+            creditNoteReason
+            );
+
+            // Stop progress simulation
+            _progressCancellationTokenSource?.Cancel();
+
+            if (result.Success && result.CreditNote != null)
+            {
+                // Show completion
+                creditNoteProgress = 100;
+                creditNoteProgressMessage = "Credit note created successfully!";
+                StateHasChanged();
+                await Task.Delay(500); // Brief pause to show 100%
+
+                creditNoteSuccess = true;
+                creditNoteMessage = $"Credit Note {result.CreditNote.CreditNoteNumber} created successfully!";
+                showCreateCreditNoteModal = false;
+
+                // Refresh credit notes for this invoice
+                existingCreditNotes = await CreditNoteService.GetCreditNotesForInvoiceAsync(selectedInvoice.DocEntry);
+            }
+            else
+            {
+                creditNoteSuccess = false;
+                creditNoteMessage = result.ErrorMessage ?? "Failed to create credit note. Please try again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _progressCancellationTokenSource?.Cancel();
+            creditNoteSuccess = false;
+            creditNoteMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isCreatingCreditNote = false;
+            creditNoteProgress = 0;
+        }
+    }
+
+    private async Task SimulateSapProgressAsync(CancellationToken cancellationToken)
+    {
+        var progressSteps = new[]
+        {
+(10, "Validating credit note data..."),
+(25, "Connecting to SAP Business One..."),
+(40, "Authenticating with SAP..."),
+(55, "Preparing credit note document..."),
+(70, "Posting credit note to SAP..."),
+(85, "Processing inventory adjustments..."),
+(95, "Finalizing transaction...")
+};
+
+        try
+        {
+            foreach (var (progress, message) in progressSteps)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    return;
+
+                // Animate progress smoothly
+                while (creditNoteProgress < progress && !cancellationToken.IsCancellationRequested)
+                {
+                    creditNoteProgress += 2;
+                    if (creditNoteProgress > progress)
+                        creditNoteProgress = progress;
+                    await InvokeAsync(StateHasChanged);
+                    await Task.Delay(100, cancellationToken);
+                }
+
+                creditNoteProgressMessage = message;
+                await InvokeAsync(StateHasChanged);
+                await Task.Delay(800, cancellationToken);
+            }
+
+            // Keep cycling near the end if still waiting
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                if (creditNoteProgress >= 95)
+                {
+                    creditNoteProgress = 85;
+                }
+                creditNoteProgress += 1;
+                await InvokeAsync(StateHasChanged);
+                await Task.Delay(300, cancellationToken);
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // Expected when operation completes
+        }
+    }
+
+    private string GetCreditNoteStatusBadge(CreditNoteStatus status) => status switch
+    {
+        CreditNoteStatus.Draft => "bg-secondary",
+        CreditNoteStatus.Pending => "bg-warning text-dark",
+        CreditNoteStatus.Approved => "bg-success",
+        CreditNoteStatus.Applied => "bg-primary",
+        CreditNoteStatus.PartiallyApplied => "bg-info",
+        CreditNoteStatus.Cancelled => "bg-danger",
+        CreditNoteStatus.Voided => "bg-dark",
+        _ => "bg-secondary"
+    };
+
+    private string TruncateText(string? text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text)) return "-";
+        return text.Length <= maxLength ? text : text.Substring(0, maxLength) + "...";
     }
 
     private async Task PreviousPage()
@@ -486,5 +991,24 @@
             currentPage++;
             await LoadInvoices();
         }
+    }
+
+    private async Task OnPageSizeChanged()
+    {
+        currentPage = 1;
+        await LoadInvoices();
+    }
+
+    // Helper class for credit note line selection
+    private class CreditNoteLineSelection
+    {
+        public string ItemCode { get; set; } = "";
+        public string? ItemDescription { get; set; }
+        public decimal OriginalQuantity { get; set; }
+        public decimal CreditQuantity { get; set; }
+        public decimal UnitPrice { get; set; }
+        public string? WarehouseCode { get; set; }
+        public int LineNum { get; set; }
+        public bool IsSelected { get; set; }
     }
 }

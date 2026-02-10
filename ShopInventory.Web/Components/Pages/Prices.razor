@@ -1,4 +1,6 @@
 @page "/prices"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
 @inject IPriceService PriceService
 @inject IMasterDataCacheService CacheService
 @inject AuthenticationStateProvider AuthStateProvider
@@ -12,11 +14,34 @@
 
     <div class="card mb-4">
         <div class="card-header">
-            <h5 class="mb-0"><i class="bi bi-search me-2"></i>Search</h5>
+            <h5 class="mb-0"><i class="bi bi-filter me-2"></i>Price List Selection & Search</h5>
         </div>
         <div class="card-body">
             <div class="row g-3">
-                <div class="col-md-8">
+                <div class="col-md-4">
+                    <label class="form-label">Select Price List</label>
+                    <select class="form-select" @bind="selectedPriceListNum" @bind:after="OnPriceListChanged">
+                        <option value="0">-- Select a Price List --</option>
+                        @if (priceLists != null)
+                        {
+                            @foreach (var priceList in priceLists.Where(p => p.IsActive))
+                            {
+                                <option value="@priceList.ListNum">
+                                    @priceList.ListName @(string.IsNullOrEmpty(priceList.Currency) ? "" :
+                                    $"({priceList.Currency})")
+                                </option>
+                            }
+                        }
+                    </select>
+                    @if (isLoadingPriceLists)
+                    {
+                        <small class="text-muted mt-1 d-block">
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                            Loading price lists...
+                        </small>
+                    }
+                </div>
+                <div class="col-md-5">
                     <label class="form-label">Search by Item Code or Description</label>
                     <div class="input-group">
                         <span class="input-group-text"><i class="bi bi-search"></i></span>
@@ -32,13 +57,13 @@
                     @if (!string.IsNullOrWhiteSpace(searchTerm) && filteredPrices != null)
                     {
                         <small class="text-muted mt-1 d-block">
-                            Showing @filteredPrices.Count of @allPrices?.Count items
+                            Showing @filteredPrices.Count of @allPricesForList?.Count items
                         </small>
                     }
                 </div>
-                <div class="col-md-4 d-flex align-items-end">
-                    <button class="btn btn-success w-100" @onclick="LoadGroupedPrices" disabled="@isLoading">
-                        @if (isLoading)
+                <div class="col-md-3 d-flex align-items-end">
+                    <button class="btn btn-success w-100" @onclick="RefreshPriceLists" disabled="@isLoadingPriceLists">
+                        @if (isLoadingPriceLists)
                         {
                             <span class="spinner-border spinner-border-sm me-1" role="status"></span>
                         }
@@ -46,10 +71,31 @@
                         {
                             <i class="bi bi-arrow-clockwise me-1"></i>
                         }
-                        Refresh Prices
+                        Refresh
                     </button>
                 </div>
             </div>
+
+            @if (selectedPriceList != null)
+            {
+                <div class="alert alert-info mt-3 mb-0">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-info-circle me-2"></i>
+                        <div>
+                            <strong>@selectedPriceList.ListName</strong>
+                            @if (!string.IsNullOrEmpty(selectedPriceList.Currency))
+                            {
+                                <span class="badge bg-primary ms-2">@selectedPriceList.Currency</span>
+                            }
+                            @if (selectedPriceList.Factor.HasValue && selectedPriceList.Factor != 1)
+                            {
+                                <span class="badge bg-secondary ms-2">Factor:
+                                    @selectedPriceList.Factor.Value.ToString("N2")</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
         </div>
     </div>
 
@@ -59,7 +105,7 @@
             <div class="spinner-border text-primary" role="status">
                 <span class="visually-hidden">Loading...</span>
             </div>
-            <p class="mt-2">Loading prices...</p>
+            <p class="mt-2">Loading prices for @(selectedPriceList?.ListName ?? "selected list")...</p>
         </div>
     }
     else if (errorMessage != null)
@@ -67,6 +113,41 @@
         <div class="alert alert-danger">
             <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
         </div>
+    }
+    else if (selectedPriceListNum == 0)
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>
+            Select a price list above to view item prices.
+        </div>
+
+        <!-- Show available price lists as cards -->
+        @if (priceLists?.Any() == true)
+        {
+            <div class="row g-4 mt-3">
+                @foreach (var priceList in priceLists.Where(p => p.IsActive).OrderBy(p => p.ListNum))
+                {
+                    <div class="col-md-4 col-lg-3">
+                        <div class="card h-100 cursor-pointer price-list-card" @onclick="() => SelectPriceList(priceList.ListNum)">
+                            <div class="card-body text-center">
+                                <i class="bi bi-tags fs-1 text-primary mb-2"></i>
+                                <h5 class="card-title">@priceList.ListName</h5>
+                                <p class="card-text">
+                                    @if (!string.IsNullOrEmpty(priceList.Currency))
+                                    {
+                                        <span class="badge bg-success">@priceList.Currency</span>
+                                    }
+                                    <span class="badge bg-secondary">List #@priceList.ListNum</span>
+                                </p>
+                            </div>
+                            <div class="card-footer bg-transparent border-top-0 text-center">
+                                <small class="text-muted">Click to view prices</small>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
     }
     else if (searchedPrice != null)
     {
@@ -81,40 +162,16 @@
                         <p class="text-muted mb-3">Item Code: <strong>@searchedPrice.ItemCode</strong></p>
                     </div>
                     <div class="col-md-6">
-                        <div class="row g-3">
-                            <div class="col-6">
-                                <div class="card bg-success bg-opacity-10">
-                                    <div class="card-body text-center">
-                                        <h6 class="text-muted">USD Price</h6>
-                                        <h3 class="text-success mb-0">
-                                            @if (searchedPrice.UsdPrice.HasValue)
-                                            {
-                                                <span>$@searchedPrice.UsdPrice.Value.ToString("N2")</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="text-muted">N/A</span>
-                                            }
-                                        </h3>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="card bg-primary bg-opacity-10">
-                                    <div class="card-body text-center">
-                                        <h6 class="text-muted">ZIG Price</h6>
-                                        <h3 class="text-primary mb-0">
-                                            @if (searchedPrice.ZigPrice.HasValue)
-                                            {
-                                                <span>ZIG @searchedPrice.ZigPrice.Value.ToString("N2")</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="text-muted">N/A</span>
-                                            }
-                                        </h3>
-                                    </div>
-                                </div>
+                        <div class="card bg-success bg-opacity-10">
+                            <div class="card-body text-center">
+                                <h6 class="text-muted">@(selectedPriceList?.ListName ?? "Price")</h6>
+                                <h3 class="text-success mb-0">
+                                    @GetCurrencySymbol(selectedPriceList?.Currency)@searchedPrice.Price.ToString("N2")
+                                </h3>
+                                @if (!string.IsNullOrEmpty(selectedPriceList?.Currency))
+                                {
+                                    <small class="text-muted">@selectedPriceList.Currency</small>
+                                }
                             </div>
                         </div>
                     </div>
@@ -126,7 +183,13 @@
     {
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Item Prices</h5>
+                <h5 class="mb-0">
+                    @(selectedPriceList?.ListName ?? "Prices")
+                    @if (!string.IsNullOrEmpty(selectedPriceList?.Currency))
+                    {
+                        <span class="badge bg-primary ms-2">@selectedPriceList.Currency</span>
+                    }
+                </h5>
                 <span class="badge bg-primary">@filteredPrices.Count items</span>
             </div>
             <div class="card-body">
@@ -136,8 +199,7 @@
                             <tr>
                                 <th>Item Code</th>
                                 <th>Item Name</th>
-                                <th class="text-end">USD Price</th>
-                                <th class="text-end">ZIG Price</th>
+                                <th class="text-end">Price (@(selectedPriceList?.Currency ?? ""))</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -147,24 +209,9 @@
                                     <td><strong>@HighlightMatch(item.ItemCode, searchTerm)</strong></td>
                                     <td>@HighlightMatch(item.ItemName, searchTerm)</td>
                                     <td class="text-end">
-                                        @if (item.UsdPrice.HasValue)
-                                        {
-                                            <span class="text-success fw-bold">$@item.UsdPrice.Value.ToString("N2")</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted">-</span>
-                                        }
-                                    </td>
-                                    <td class="text-end">
-                                        @if (item.ZigPrice.HasValue)
-                                        {
-                                            <span class="text-primary fw-bold">ZIG @item.ZigPrice.Value.ToString("N2")</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted">-</span>
-                                        }
+                                        <span class="text-success fw-bold">
+                                            @GetCurrencySymbol(selectedPriceList?.Currency)@item.Price.ToString("N2")
+                                        </span>
                                     </td>
                                 </tr>
                             }
@@ -174,45 +221,158 @@
             </div>
         </div>
     }
-    else if (allPrices != null && !string.IsNullOrWhiteSpace(searchTerm))
+    else if (allPricesForList != null && !string.IsNullOrWhiteSpace(searchTerm))
     {
         <div class="alert alert-warning">
             <i class="bi bi-search me-2"></i>
             No items found matching "<strong>@searchTerm</strong>". Try a different search term.
         </div>
     }
-    else
+    else if (selectedPriceListNum > 0 && allPricesForList?.Count == 0)
     {
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle me-2"></i>
-            Search for a specific item or click "Load All Prices" to view the complete price list.
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle me-2"></i>
+            No items found in this price list. The price list may be empty.
         </div>
     }
 </div>
 
+<style>
+    .price-list-card {
+        cursor: pointer;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .price-list-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    }
+</style>
+
 @code {
-    private List<ItemPriceGroupedDto>? allPrices;
-    private List<ItemPriceGroupedDto>? filteredPrices;
-    private ItemPriceGroupedDto? searchedPrice;
+    private List<PriceListDto>? priceLists;
+    private List<ItemPriceByListDto>? allPricesForList;
+    private List<ItemPriceByListDto>? filteredPrices;
+    private ItemPriceByListDto? searchedPrice;
+    private PriceListDto? selectedPriceList;
+    private int selectedPriceListNum = 0;
     private bool isLoading = false;
+    private bool isLoadingPriceLists = false;
     private string? errorMessage;
     private string? searchTerm;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadGroupedPrices();
+        await LoadPriceLists();
     }
 
     private async Task EnsureAuthenticatedAsync()
     {
-        // This forces the auth state provider to fetch the auth state
-        // which also sets the Authorization header on the HttpClient
         await AuthStateProvider.GetAuthenticationStateAsync();
+    }
+
+    private async Task LoadPriceLists()
+    {
+        isLoadingPriceLists = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            await EnsureAuthenticatedAsync();
+            var response = await PriceService.GetPriceListsAsync();
+
+            if (response?.PriceLists != null)
+            {
+                priceLists = response.PriceLists;
+                Logger.LogInformation("Loaded {Count} price lists", priceLists.Count);
+            }
+            else
+            {
+                errorMessage = "Failed to load price lists.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading price lists");
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingPriceLists = false;
+        }
+    }
+
+    private async Task RefreshPriceLists()
+    {
+        await LoadPriceLists();
+        if (selectedPriceListNum > 0)
+        {
+            await LoadPricesForList();
+        }
+    }
+
+    private void SelectPriceList(int listNum)
+    {
+        selectedPriceListNum = listNum;
+        _ = OnPriceListChanged();
+    }
+
+    private async Task OnPriceListChanged()
+    {
+        selectedPriceList = priceLists?.FirstOrDefault(p => p.ListNum == selectedPriceListNum);
+        allPricesForList = null;
+        filteredPrices = null;
+        searchedPrice = null;
+        searchTerm = null;
+        errorMessage = null;
+
+        if (selectedPriceListNum > 0)
+        {
+            await LoadPricesForList();
+        }
+    }
+
+    private async Task LoadPricesForList()
+    {
+        if (selectedPriceListNum == 0) return;
+
+        isLoading = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            await EnsureAuthenticatedAsync();
+            var response = await PriceService.GetPricesByPriceListAsync(selectedPriceListNum);
+
+            if (response?.Prices != null)
+            {
+                allPricesForList = response.Prices;
+                filteredPrices = allPricesForList.OrderBy(p => p.ItemCode).ToList();
+                Logger.LogInformation("Loaded {Count} prices for list {ListNum}", allPricesForList.Count, selectedPriceListNum);
+            }
+            else
+            {
+                allPricesForList = new List<ItemPriceByListDto>();
+                filteredPrices = new List<ItemPriceByListDto>();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading prices for list {ListNum}", selectedPriceListNum);
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
     }
 
     private void FilterPrices()
     {
-        if (allPrices == null)
+        if (allPricesForList == null)
         {
             filteredPrices = null;
             return;
@@ -220,17 +380,18 @@
 
         if (string.IsNullOrWhiteSpace(searchTerm))
         {
-            filteredPrices = allPrices;
+            filteredPrices = allPricesForList.OrderBy(p => p.ItemCode).ToList();
             searchedPrice = null;
             return;
         }
 
         var term = searchTerm.Trim();
 
-        filteredPrices = allPrices
+        filteredPrices = allPricesForList
         .Where(p =>
         (p.ItemCode != null && p.ItemCode.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
         (p.ItemName != null && p.ItemName.Contains(term, StringComparison.OrdinalIgnoreCase)))
+        .OrderBy(p => p.ItemCode)
         .ToList();
 
         // If exactly one result, show it as the featured search result
@@ -261,66 +422,24 @@
         return new MarkupString($"{before}<mark class=\"bg-warning px-0\">{match}</mark>{after}");
     }
 
-    private async Task LoadGroupedPrices()
+    private string GetCurrencySymbol(string? currency)
     {
-        Logger.LogInformation("Prices page: LoadGroupedPrices started");
-        isLoading = true;
-        errorMessage = null;
-        searchedPrice = null;
-        StateHasChanged();
-
-        try
+        return currency?.ToUpperInvariant() switch
         {
-            // Ensure auth header is set before making API call
-            await EnsureAuthenticatedAsync();
-            Logger.LogDebug("Prices page: Auth ensured, calling CacheService.GetItemPricesAsync()");
-
-            // Use CacheService for fast local database access
-            var prices = await CacheService.GetItemPricesAsync();
-            Logger.LogInformation("Prices page: Received {Count} prices from cache", prices?.Count ?? 0);
-
-            if (prices != null && prices.Count > 0)
-            {
-                // Group prices by item code
-                allPrices = prices
-                .GroupBy(p => p.ItemCode)
-                .Select(g => new ItemPriceGroupedDto
-                {
-                    ItemCode = g.Key,
-                    ItemName = g.First().ItemName,
-                    UsdPrice = g.FirstOrDefault(p => p.Currency == "USD")?.Price,
-                    ZigPrice = g.FirstOrDefault(p => p.Currency == "ZIG")?.Price
-                })
-                .OrderBy(i => i.ItemCode)
-                .ToList();
-
-                // Apply any existing filter
-                FilterPrices();
-                Logger.LogInformation("Prices page: Grouped into {Count} items", allPrices.Count);
-            }
-            else
-            {
-                Logger.LogWarning("Prices page: No prices found");
-                errorMessage = "No prices found. Try refreshing the data.";
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Prices page: Error loading prices");
-            errorMessage = $"Error: {ex.Message}";
-        }
-        finally
-        {
-            isLoading = false;
-            Logger.LogDebug("Prices page: LoadGroupedPrices completed");
-        }
+            "USD" => "$",
+            "ZIG" => "ZIG ",
+            "EUR" => "€",
+            "GBP" => "£",
+            "ZAR" => "R",
+            _ => ""
+        };
     }
 
     private void ClearSearch()
     {
         searchTerm = null;
         searchedPrice = null;
-        filteredPrices = allPrices;
+        filteredPrices = allPricesForList?.OrderBy(p => p.ItemCode).ToList();
         errorMessage = null;
     }
 }

@@ -1,0 +1,457 @@
+@page "/backups"
+@inject IBackupService BackupService
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+
+<PageTitle>Backups - Shop Inventory</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-cloud-arrow-up me-2"></i>Database Backups</h2>
+        <button class="btn btn-primary" @onclick="() => showCreateModal = true" disabled="@isCreating">
+            <i class="bi bi-plus-circle me-2"></i>Create Backup
+        </button>
+    </div>
+
+    <!-- Stats Cards -->
+    @if (stats != null)
+    {
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card bg-primary text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h4>@stats.TotalBackups</h4>
+                                <p class="mb-0">Total Backups</p>
+                            </div>
+                            <i class="bi bi-database fs-1 opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-success text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h4>@stats.SuccessfulBackups</h4>
+                                <p class="mb-0">Successful</p>
+                            </div>
+                            <i class="bi bi-check-circle fs-1 opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-danger text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h4>@stats.FailedBackups</h4>
+                                <p class="mb-0">Failed</p>
+                            </div>
+                            <i class="bi bi-x-circle fs-1 opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-info text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h4>@stats.TotalSizeFormatted</h4>
+                                <p class="mb-0">Total Size</p>
+                            </div>
+                            <i class="bi bi-hdd fs-1 opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (stats.LastBackupAt.HasValue)
+        {
+            <div class="alert alert-info mb-4">
+                <i class="bi bi-info-circle me-2"></i>
+                <strong>Last Backup:</strong> @stats.LastBackupAt.Value.ToString("dd MMM yyyy HH:mm")
+                @if (stats.NextScheduledBackup.HasValue)
+                {
+                    <span class="ms-4">
+                        <strong>Next Scheduled:</strong> @stats.NextScheduledBackup.Value.ToString("dd MMM yyyy HH:mm")
+                    </span>
+                }
+            </div>
+        }
+    }
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading backups...</p>
+        </div>
+    }
+    else if (errorMessage != null)
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+        </div>
+    }
+    else if (backups?.Any() == true)
+    {
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-list-ul me-2"></i>Backup History</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>File Name</th>
+                                <th>Type</th>
+                                <th>Status</th>
+                                <th>Size</th>
+                                <th>Started</th>
+                                <th>Duration</th>
+                                <th>Created By</th>
+                                <th>Offsite</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var backup in backups)
+                            {
+                                <tr>
+                                    <td>
+                                        <strong>@backup.FileName</strong>
+                                        @if (!string.IsNullOrEmpty(backup.Description))
+                                        {
+                                            <small class="d-block text-muted">@backup.Description</small>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="badge @GetTypeBadgeClass(backup.BackupType)">@backup.BackupType</span>
+                                    </td>
+                                    <td>
+                                        <span class="badge @GetStatusBadgeClass(backup.Status)">@backup.Status</span>
+                                        @if (!string.IsNullOrEmpty(backup.ErrorMessage))
+                                        {
+                                            <i class="bi bi-exclamation-triangle text-danger ms-1" title="@backup.ErrorMessage"></i>
+                                        }
+                                    </td>
+                                    <td>@backup.SizeFormatted</td>
+                                    <td>@backup.StartedAt.ToString("dd MMM HH:mm")</td>
+                                    <td>
+                                        @if (backup.Duration.HasValue)
+                                        {
+                                            @backup.Duration.Value.ToString(@"mm\:ss")
+                                        }
+                                        else if (backup.Status == "InProgress")
+                                        {
+                                            <span class="spinner-border spinner-border-sm"></span>
+                                        }
+                                        else
+                                        {
+                                            <span>-</span>
+                                        }
+                                    </td>
+                                    <td>@(backup.CreatedByUserName ?? "System")</td>
+                                    <td>
+                                        @if (backup.IsOffsite)
+                                        {
+                                            <i class="bi bi-cloud-check text-success" title="Uploaded to cloud"></i>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-hdd text-muted" title="Local only"></i>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm">
+                                            @if (backup.Status == "Completed")
+                                            {
+                                                <button class="btn btn-outline-primary" @onclick="() => DownloadBackup(backup.Id)"
+                                                    title="Download">
+                                                    <i class="bi bi-download"></i>
+                                                </button>
+                                                <button class="btn btn-outline-warning" @onclick="() => ConfirmRestore(backup)"
+                                                    title="Restore">
+                                                    <i class="bi bi-arrow-counterclockwise"></i>
+                                                </button>
+                                            }
+                                            <button class="btn btn-outline-danger" @onclick="() => ConfirmDelete(backup)"
+                                                title="Delete">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>No backups found. Create your first backup to get started.
+        </div>
+    }
+</div>
+
+<!-- Create Backup Modal -->
+@if (showCreateModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Create Backup</h5>
+                    <button type="button" class="btn-close" @onclick="() => showCreateModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Backup Type</label>
+                        <select class="form-select" @bind="newBackup.BackupType">
+                            <option value="Full">Full Backup</option>
+                            <option value="Incremental">Incremental</option>
+                            <option value="Differential">Differential</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" @bind="newBackup.Description" rows="2"
+                        placeholder="Optional description"></textarea>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" @bind="newBackup.UploadToCloud" id="cloudCheck">
+                        <label class="form-check-label" for="cloudCheck">
+                            <i class="bi bi-cloud-upload me-1"></i>Upload to Cloud Storage
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showCreateModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="CreateBackup" disabled="@isCreating">
+                        @if (isCreating)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Start Backup
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Restore Confirmation Modal -->
+@if (showRestoreModal && backupToRestore != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-warning">
+                    <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>Confirm Restore</h5>
+                    <button type="button" class="btn-close" @onclick="() => showRestoreModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-danger">
+                        <strong>Warning!</strong> Restoring a backup will overwrite all current data. This action cannot be
+                        undone.
+                    </div>
+                    <p>Are you sure you want to restore from:</p>
+                    <ul>
+                        <li><strong>File:</strong> @backupToRestore.FileName</li>
+                        <li><strong>Created:</strong> @backupToRestore.StartedAt.ToString("dd MMM yyyy HH:mm")</li>
+                        <li><strong>Size:</strong> @backupToRestore.SizeFormatted</li>
+                    </ul>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary"
+                        @onclick="() => showRestoreModal = false">Cancel</button>
+                    <button type="button" class="btn btn-danger" @onclick="RestoreBackup" disabled="@isRestoring">
+                        @if (isRestoring)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Restore Database
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Delete Confirmation Modal -->
+@if (showDeleteModal && backupToDelete != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-trash me-2"></i>Delete Backup</h5>
+                    <button type="button" class="btn-close" @onclick="() => showDeleteModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete this backup?</p>
+                    <p><strong>@backupToDelete.FileName</strong></p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showDeleteModal = false">Cancel</button>
+                    <button type="button" class="btn btn-danger" @onclick="DeleteBackup">Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<BackupDto>? backups;
+    private BackupStatsDto? stats;
+    private BackupDto? backupToRestore;
+    private BackupDto? backupToDelete;
+    private bool isLoading = true;
+    private bool isCreating = false;
+    private bool isRestoring = false;
+    private bool showCreateModal = false;
+    private bool showRestoreModal = false;
+    private bool showDeleteModal = false;
+    private string? errorMessage;
+
+    private CreateBackupRequest newBackup = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadBackups();
+        await LoadStats();
+    }
+
+    private async Task LoadBackups()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var response = await BackupService.GetAllBackupsAsync();
+            if (response != null)
+            {
+                backups = response.Backups.OrderByDescending(b => b.StartedAt).ToList();
+            }
+            else
+            {
+                errorMessage = "Failed to load backups.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadStats()
+    {
+        stats = await BackupService.GetStatsAsync();
+    }
+
+    private async Task CreateBackup()
+    {
+        isCreating = true;
+        try
+        {
+            var result = await BackupService.CreateBackupAsync(newBackup);
+            if (result != null)
+            {
+                showCreateModal = false;
+                newBackup = new();
+                await LoadBackups();
+                await LoadStats();
+            }
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private void ConfirmRestore(BackupDto backup)
+    {
+        backupToRestore = backup;
+        showRestoreModal = true;
+    }
+
+    private async Task RestoreBackup()
+    {
+        if (backupToRestore == null) return;
+
+        isRestoring = true;
+        try
+        {
+            var success = await BackupService.RestoreBackupAsync(backupToRestore.Id);
+            if (success)
+            {
+                showRestoreModal = false;
+                backupToRestore = null;
+            }
+        }
+        finally
+        {
+            isRestoring = false;
+        }
+    }
+
+    private void ConfirmDelete(BackupDto backup)
+    {
+        backupToDelete = backup;
+        showDeleteModal = true;
+    }
+
+    private async Task DeleteBackup()
+    {
+        if (backupToDelete == null) return;
+
+        var success = await BackupService.DeleteBackupAsync(backupToDelete.Id);
+        if (success)
+        {
+            showDeleteModal = false;
+            backupToDelete = null;
+            await LoadBackups();
+            await LoadStats();
+        }
+    }
+
+    private async Task DownloadBackup(int id)
+    {
+        // In a real implementation, this would trigger a file download
+        var stream = await BackupService.DownloadBackupAsync(id);
+        // Handle download
+    }
+
+    private string GetStatusBadgeClass(string status) => status switch
+    {
+        "Completed" => "bg-success",
+        "InProgress" => "bg-info",
+        "Failed" => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private string GetTypeBadgeClass(string type) => type switch
+    {
+        "Full" => "bg-primary",
+        "Incremental" => "bg-info",
+        "Differential" => "bg-warning text-dark",
+        _ => "bg-secondary"
+    };
+}

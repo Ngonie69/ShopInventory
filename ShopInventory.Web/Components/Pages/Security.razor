@@ -1,0 +1,603 @@
+@page "/security"
+@using ShopInventory.Web.Services
+@inject ITwoFactorWebService TwoFactorService
+@inject IAuditService AuditService
+@inject IJSRuntime JS
+@inject NavigationManager NavigationManager
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Security Settings - Shop Inventory</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-shield-lock me-2"></i>Security Settings</h2>
+    </div>
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show">
+            <i class="bi bi-check-circle me-2"></i>@successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show">
+            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading security settings...</p>
+        </div>
+    }
+    else
+    {
+        <div class="row">
+            <div class="col-lg-8">
+                <!-- Two-Factor Authentication Card -->
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-phone me-2"></i>Two-Factor Authentication</h5>
+                        @if (twoFactorStatus?.IsEnabled == true)
+                        {
+                            <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Enabled</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-warning text-dark"><i
+                                    class="bi bi-exclamation-triangle me-1"></i>Disabled</span>
+                        }
+                    </div>
+                    <div class="card-body">
+                        @if (twoFactorStatus?.IsEnabled == true)
+                        {
+                            <!-- 2FA Enabled State -->
+                            <p class="text-muted">
+                                Two-factor authentication is currently enabled for your account.
+                                This adds an extra layer of security by requiring a code from your authenticator app when
+                                signing in.
+                            </p>
+
+                            <div class="alert alert-info">
+                                <i class="bi bi-info-circle me-2"></i>
+                                <strong>Backup Codes Remaining:</strong> @twoFactorStatus.BackupCodesRemaining
+                                @if (twoFactorStatus.EnabledAt.HasValue)
+                                {
+                                    <br />
+                                    <small class="text-muted">Enabled on: @twoFactorStatus.EnabledAt.Value.ToString("MMMM dd,                   yyyy")</small>
+                                }
+                            </div>
+
+                            <div class="d-flex gap-2 mt-3">
+                                <button class="btn btn-outline-primary" @onclick="ShowRegenerateBackupCodes">
+                                    <i class="bi bi-key me-1"></i>Regenerate Backup Codes
+                                </button>
+                                <button class="btn btn-outline-danger" @onclick="ShowDisable2FA">
+                                    <i class="bi bi-shield-x me-1"></i>Disable 2FA
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <!-- 2FA Disabled State -->
+                            <p class="text-muted">
+                                Two-factor authentication adds an extra layer of security to your account.
+                                When enabled, you'll need to enter a code from your authenticator app in addition to your
+                                password when signing in.
+                            </p>
+
+                            <div class="alert alert-warning">
+                                <i class="bi bi-shield-exclamation me-2"></i>
+                                <strong>Recommended:</strong> Enable two-factor authentication to protect your account from
+                                unauthorized access.
+                            </div>
+
+                            <button class="btn btn-primary" @onclick="StartSetup2FA">
+                                <i class="bi bi-shield-check me-1"></i>Enable Two-Factor Authentication
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                <!-- 2FA Setup Section (shown when setting up) -->
+                @if (isSettingUp && setupData != null)
+                {
+                    <div class="card mb-4 border-primary">
+                        <div class="card-header bg-primary text-white">
+                            <h5 class="mb-0"><i class="bi bi-qr-code me-2"></i>Set Up Two-Factor Authentication</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6 class="mb-3">Step 1: Scan QR Code</h6>
+                                    <p class="text-muted small">
+                                        Scan this QR code with your authenticator app (Google Authenticator, Microsoft
+                                        Authenticator, Authy, etc.)
+                                    </p>
+
+                                    <!-- QR Code Display -->
+                                    <div class="text-center mb-3 p-3 bg-white rounded border">
+                                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=@Uri.EscapeDataString(setupData.QrCodeUri)"
+                                            alt="2FA QR Code" class="img-fluid" style="max-width: 200px;" />
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label class="form-label text-muted small">Can't scan? Enter this key manually:</label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control font-monospace"
+                                                value="@setupData.ManualEntryKey" readonly />
+                                            <button class="btn btn-outline-secondary" type="button"
+                                                @onclick="() => CopyToClipboard(setupData.ManualEntryKey)">
+                                                <i class="bi bi-clipboard"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <h6 class="mb-3">Step 2: Enter Verification Code</h6>
+                                    <p class="text-muted small">
+                                        Enter the 6-digit code displayed in your authenticator app to verify setup.
+                                    </p>
+
+                                    <div class="mb-3">
+                                        <label class="form-label">Verification Code</label>
+                                        <input type="text" class="form-control form-control-lg text-center font-monospace"
+                                            maxlength="6" placeholder="000000" @bind="verificationCode" @bind:event="oninput" />
+                                    </div>
+
+                                    <div class="d-grid gap-2">
+                                        <button class="btn btn-primary" @onclick="VerifyAndEnable2FA"
+                                            disabled="@(string.IsNullOrEmpty(verificationCode) || verificationCode.Length != 6 || isVerifying)">
+                                            @if (isVerifying)
+                                            {
+                                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                            }
+                                            <i class="bi bi-check-circle me-1"></i>Verify and Enable
+                                        </button>
+                                        <button class="btn btn-outline-secondary" @onclick="CancelSetup">
+                                            <i class="bi bi-x-circle me-1"></i>Cancel
+                                        </button>
+                                    </div>
+
+                                    <hr class="my-3" />
+
+                                    <h6 class="mb-3">Step 3: Save Backup Codes</h6>
+                                    <p class="text-muted small">
+                                        Save these backup codes in a safe place. You can use them to access your account if you
+                                        lose your phone.
+                                    </p>
+
+                                    <div class="bg-light p-3 rounded border mb-2">
+                                        <div class="row">
+                                            @foreach (var backupCode in setupData.BackupCodes)
+                                            {
+                                                <div class="col-6 mb-1">
+                                                    <code class="text-dark">@backupCode</code>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+
+                                    <button class="btn btn-sm btn-outline-secondary"
+                                        @onclick="() => CopyBackupCodesToClipboard()">
+                                        <i class="bi bi-clipboard me-1"></i>Copy Backup Codes
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                <!-- Disable 2FA Modal -->
+                @if (showDisableModal)
+                {
+                    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content">
+                                <div class="modal-header bg-danger text-white">
+                                    <h5 class="modal-title"><i class="bi bi-shield-x me-2"></i>Disable Two-Factor Authentication
+                                    </h5>
+                                    <button type="button" class="btn-close btn-close-white"
+                                        @onclick="() => showDisableModal = false"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="alert alert-warning">
+                                        <i class="bi bi-exclamation-triangle me-2"></i>
+                                        <strong>Warning:</strong> Disabling 2FA will make your account less secure.
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label class="form-label">Current Password</label>
+                                        <input type="password" class="form-control" @bind="disablePassword" />
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label class="form-label">Authenticator Code</label>
+                                        <input type="text" class="form-control text-center font-monospace" maxlength="6"
+                                            placeholder="000000" @bind="disableCode" />
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary"
+                                        @onclick="() => showDisableModal = false">Cancel</button>
+                                    <button type="button" class="btn btn-danger" @onclick="Disable2FA"
+                                        disabled="@(string.IsNullOrEmpty(disablePassword) || string.IsNullOrEmpty(disableCode) || isDisabling)">
+                                        @if (isDisabling)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                        }
+                                        Disable 2FA
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                <!-- Regenerate Backup Codes Modal -->
+                @if (showRegenerateModal)
+                {
+                    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title"><i class="bi bi-key me-2"></i>Regenerate Backup Codes</h5>
+                                    <button type="button" class="btn-close"
+                                        @onclick="() => showRegenerateModal = false"></button>
+                                </div>
+                                <div class="modal-body">
+                                    @if (newBackupCodes == null)
+                                    {
+                                        <div class="alert alert-info">
+                                            <i class="bi bi-info-circle me-2"></i>
+                                            This will invalidate all your existing backup codes and generate new ones.
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label">Enter Authenticator Code to Confirm</label>
+                                            <input type="text" class="form-control text-center font-monospace" maxlength="6"
+                                                placeholder="000000" @bind="regenerateCode" />
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <p class="text-muted">Your new backup codes are below. Save them in a safe place.</p>
+                                        <div class="bg-light p-3 rounded border mb-2">
+                                            <div class="row">
+                                                @foreach (var backupCode in newBackupCodes)
+                                                {
+                                                    <div class="col-6 mb-1">
+                                                        <code class="text-dark">@backupCode</code>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="modal-footer">
+                                    @if (newBackupCodes == null)
+                                    {
+                                        <button type="button" class="btn btn-secondary"
+                                            @onclick="() => showRegenerateModal = false">Cancel</button>
+                                        <button type="button" class="btn btn-primary" @onclick="RegenerateBackupCodes"
+                                            disabled="@(string.IsNullOrEmpty(regenerateCode) || isRegenerating)">
+                                            @if (isRegenerating)
+                                            {
+                                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                            }
+                                            Regenerate
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="btn btn-outline-secondary"
+                                            @onclick="() => CopyNewBackupCodesToClipboard()">
+                                            <i class="bi bi-clipboard me-1"></i>Copy Codes
+                                        </button>
+                                        <button type="button" class="btn btn-primary" @onclick="CloseRegenerateModal">Done</button>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- Security Tips Sidebar -->
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-lightbulb me-2"></i>Security Tips</h5>
+                    </div>
+                    <div class="card-body">
+                        <ul class="list-unstyled mb-0">
+                            <li class="mb-3">
+                                <i class="bi bi-check-circle text-success me-2"></i>
+                                <strong>Use a strong password</strong>
+                                <p class="text-muted small mb-0">At least 12 characters with numbers and symbols</p>
+                            </li>
+                            <li class="mb-3">
+                                <i class="bi bi-check-circle text-success me-2"></i>
+                                <strong>Enable 2FA</strong>
+                                <p class="text-muted small mb-0">Adds an extra layer of protection</p>
+                            </li>
+                            <li class="mb-3">
+                                <i class="bi bi-check-circle text-success me-2"></i>
+                                <strong>Save backup codes</strong>
+                                <p class="text-muted small mb-0">Store them securely offline</p>
+                            </li>
+                            <li class="mb-0">
+                                <i class="bi bi-check-circle text-success me-2"></i>
+                                <strong>Don't share credentials</strong>
+                                <p class="text-muted small mb-0">Never share your password or 2FA codes</p>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-question-circle me-2"></i>Need Help?</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small">
+                            If you're having trouble with two-factor authentication, contact your system administrator for
+                            assistance.
+                        </p>
+                        <a href="/user-activity" class="btn btn-outline-primary btn-sm">
+                            <i class="bi bi-clock-history me-1"></i>View Login History
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private string? successMessage;
+    private string? errorMessage;
+
+    private TwoFactorStatusModel? twoFactorStatus;
+
+    // Setup state
+    private bool isSettingUp = false;
+    private TwoFactorSetupModel? setupData;
+    private string verificationCode = "";
+    private bool isVerifying = false;
+
+    // Disable state
+    private bool showDisableModal = false;
+    private string disablePassword = "";
+    private string disableCode = "";
+    private bool isDisabling = false;
+
+    // Regenerate state
+    private bool showRegenerateModal = false;
+    private string regenerateCode = "";
+    private bool isRegenerating = false;
+    private List<string>? newBackupCodes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTwoFactorStatus();
+    }
+
+    private async Task LoadTwoFactorStatus()
+    {
+        isLoading = true;
+        try
+        {
+            twoFactorStatus = await TwoFactorService.GetStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load 2FA status: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task StartSetup2FA()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            setupData = await TwoFactorService.InitiateSetupAsync();
+            if (setupData != null)
+            {
+                isSettingUp = true;
+            }
+            else
+            {
+                errorMessage = "Failed to initiate 2FA setup. Please try again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error starting 2FA setup: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void CancelSetup()
+    {
+        isSettingUp = false;
+        setupData = null;
+        verificationCode = "";
+    }
+
+    private async Task VerifyAndEnable2FA()
+    {
+        if (string.IsNullOrEmpty(verificationCode) || verificationCode.Length != 6)
+            return;
+
+        isVerifying = true;
+        errorMessage = null;
+
+        try
+        {
+            var (success, message) = await TwoFactorService.EnableTwoFactorAsync(verificationCode);
+
+            if (success)
+            {
+                successMessage = "Two-factor authentication has been enabled successfully!";
+                isSettingUp = false;
+                setupData = null;
+                verificationCode = "";
+                await LoadTwoFactorStatus();
+                await AuditService.LogAsync("Enable2FA", "Security", "Two-factor authentication enabled");
+            }
+            else
+            {
+                errorMessage = message;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error enabling 2FA: {ex.Message}";
+        }
+        finally
+        {
+            isVerifying = false;
+        }
+    }
+
+    private void ShowDisable2FA()
+    {
+        disablePassword = "";
+        disableCode = "";
+        showDisableModal = true;
+    }
+
+    private async Task Disable2FA()
+    {
+        if (string.IsNullOrEmpty(disablePassword) || string.IsNullOrEmpty(disableCode))
+            return;
+
+        isDisabling = true;
+        errorMessage = null;
+
+        try
+        {
+            var (success, message) = await TwoFactorService.DisableTwoFactorAsync(disablePassword, disableCode);
+
+            if (success)
+            {
+                successMessage = "Two-factor authentication has been disabled.";
+                showDisableModal = false;
+                disablePassword = "";
+                disableCode = "";
+                await LoadTwoFactorStatus();
+                await AuditService.LogAsync("Disable2FA", "Security", "Two-factor authentication disabled");
+            }
+            else
+            {
+                errorMessage = message;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error disabling 2FA: {ex.Message}";
+        }
+        finally
+        {
+            isDisabling = false;
+        }
+    }
+
+    private void ShowRegenerateBackupCodes()
+    {
+        regenerateCode = "";
+        newBackupCodes = null;
+        showRegenerateModal = true;
+    }
+
+    private async Task RegenerateBackupCodes()
+    {
+        if (string.IsNullOrEmpty(regenerateCode))
+            return;
+
+        isRegenerating = true;
+        errorMessage = null;
+
+        try
+        {
+            newBackupCodes = await TwoFactorService.RegenerateBackupCodesAsync(regenerateCode);
+
+            if (newBackupCodes == null)
+            {
+                errorMessage = "Failed to regenerate backup codes. Please check your code and try again.";
+            }
+            else
+            {
+                await LoadTwoFactorStatus();
+                await AuditService.LogAsync("RegenerateBackupCodes", "Security", "Backup codes regenerated");
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error regenerating backup codes: {ex.Message}";
+        }
+        finally
+        {
+            isRegenerating = false;
+        }
+    }
+
+    private void CloseRegenerateModal()
+    {
+        showRegenerateModal = false;
+        regenerateCode = "";
+        newBackupCodes = null;
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            successMessage = "Copied to clipboard!";
+        }
+        catch
+        {
+            // Fallback if clipboard API fails
+        }
+    }
+
+    private async Task CopyBackupCodesToClipboard()
+    {
+        if (setupData?.BackupCodes != null)
+        {
+            var codes = string.Join("\n", setupData.BackupCodes);
+            await CopyToClipboard(codes);
+        }
+    }
+
+    private async Task CopyNewBackupCodesToClipboard()
+    {
+        if (newBackupCodes != null)
+        {
+            var codes = string.Join("\n", newBackupCodes);
+            await CopyToClipboard(codes);
+        }
+    }
+}

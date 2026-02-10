@@ -36,6 +36,11 @@ public class PaymentService : IPaymentService
             // Use cache service for faster loading
             return await _cacheService.GetCachedPaymentsAsync(page, pageSize);
         }
+        catch (TimeoutException)
+        {
+            // Re-throw timeout exceptions so the UI can handle them
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting payments from cache, falling back to API");

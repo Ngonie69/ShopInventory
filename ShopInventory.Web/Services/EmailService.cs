@@ -2,6 +2,8 @@ using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
 using Microsoft.Extensions.Options;
+using ShopInventory.Web.Models;
+using System.Globalization;
 
 namespace ShopInventory.Web.Services;
 
@@ -22,10 +24,12 @@ public interface IEmailService
 {
     Task<bool> SendEmailAsync(string toEmail, string toName, string subject, string htmlBody, string? textBody = null);
     Task<bool> SendInvoiceNotificationAsync(string toEmail, string toName, int invoiceDocEntry, string invoiceNumber, decimal totalAmount);
+    Task<bool> SendCustomerInvoiceNotificationAsync(string toEmail, string toName, int invoiceDocEntry, string invoiceNumber, decimal totalAmount);
     Task<bool> SendPaymentReceivedAsync(string toEmail, string toName, string paymentReference, decimal amount);
     Task<bool> SendLowStockAlertAsync(string toEmail, string toName, List<LowStockItem> items);
     Task<bool> SendPasswordResetAsync(string toEmail, string toName, string resetToken);
     Task<bool> SendWelcomeEmailAsync(string toEmail, string toName, string username);
+    Task<bool> SendStatementEmailAsync(string toEmail, string toName, CustomerStatementResponse statement, DateTime fromDate, DateTime toDate, string frequencyLabel);
 }
 
 public class LowStockItem
@@ -112,6 +116,36 @@ public class EmailService : IEmailService
                 <a href='{_settings.ApplicationUrl}/invoices/{invoiceDocEntry}' 
                    style='background: #4f46e5; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;'>
                    View Invoice
+                </a>
+            </p>
+            <p>Thank you for your business!</p>";
+
+        return await SendEmailAsync(toEmail, toName, subject, htmlBody);
+    }
+
+    public async Task<bool> SendCustomerInvoiceNotificationAsync(string toEmail, string toName, int invoiceDocEntry, string invoiceNumber, decimal totalAmount)
+    {
+        var subject = $"New Invoice #{invoiceNumber} - Kefalos Workshop";
+        var portalUrl = $"{_settings.ApplicationUrl}/customer-portal/invoices?invoice={invoiceDocEntry}";
+
+        var htmlBody = $@"
+            <h2>New Invoice Available</h2>
+            <p>Dear {toName},</p>
+            <p>Your invoice is ready in the customer portal.</p>
+            <table style='border-collapse: collapse; width: 100%; max-width: 400px;'>
+                <tr>
+                    <td style='padding: 8px; border: 1px solid #ddd; background: #f5f5f5;'><strong>Invoice Number</strong></td>
+                    <td style='padding: 8px; border: 1px solid #ddd;'>{invoiceNumber}</td>
+                </tr>
+                <tr>
+                    <td style='padding: 8px; border: 1px solid #ddd; background: #f5f5f5;'><strong>Total Amount</strong></td>
+                    <td style='padding: 8px; border: 1px solid #ddd;'>${totalAmount:N2}</td>
+                </tr>
+            </table>
+            <p style='margin-top: 20px;'>
+                <a href='{portalUrl}' 
+                   style='background: #4f46e5; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;'>
+                   View Invoices
                 </a>
             </p>
             <p>Thank you for your business!</p>";
@@ -232,6 +266,21 @@ public class EmailService : IEmailService
         return await SendEmailAsync(toEmail, toName, subject, htmlBody);
     }
 
+    public async Task<bool> SendStatementEmailAsync(
+        string toEmail,
+        string toName,
+        CustomerStatementResponse statement,
+        DateTime fromDate,
+        DateTime toDate,
+        string frequencyLabel)
+    {
+        var periodLabel = $"{FormatDate(fromDate)} - {FormatDate(toDate)}";
+        var subject = $"{frequencyLabel} Statement - {periodLabel}";
+        var htmlBody = BuildStatementEmailBody(toName, statement, fromDate, toDate, frequencyLabel);
+
+        return await SendEmailAsync(toEmail, toName, subject, htmlBody);
+    }
+
     private string WrapInEmailTemplate(string content, string title)
     {
         return $@"
@@ -276,6 +325,100 @@ public class EmailService : IEmailService
     </table>
 </body>
 </html>";
+    }
+
+    private string BuildStatementEmailBody(
+        string toName,
+        CustomerStatementResponse statement,
+        DateTime fromDate,
+        DateTime toDate,
+        string frequencyLabel)
+    {
+        var currency = statement.Customer.Currency;
+        var periodLabel = $"{FormatDate(fromDate)} - {FormatDate(toDate)}";
+        var statementUrl = $"{_settings.ApplicationUrl}/customer-portal/statements";
+        var recentLines = statement.Lines
+            .OrderByDescending(l => l.Date)
+            .Take(10)
+            .ToList();
+
+        var lineRows = recentLines.Any()
+            ? string.Join("", recentLines.Select(line => $@"
+                <tr>
+                    <td style='padding: 8px; border: 1px solid #ddd;'>{FormatDate(line.Date)}</td>
+                    <td style='padding: 8px; border: 1px solid #ddd;'>{line.Description ?? line.DocumentType}</td>
+                    <td style='padding: 8px; border: 1px solid #ddd; text-align: right;'>{FormatAmount(line.Debit, currency)}</td>
+                    <td style='padding: 8px; border: 1px solid #ddd; text-align: right;'>{FormatAmount(line.Credit, currency)}</td>
+                    <td style='padding: 8px; border: 1px solid #ddd; text-align: right;'>{FormatAmount(line.Balance, currency, true)}</td>
+                </tr>"))
+            : "<tr><td colspan='5' style='padding: 12px; border: 1px solid #ddd; text-align: center; color: #666;'>No transactions recorded for this period.</td></tr>";
+
+        return $@"
+            <h2>{frequencyLabel} Statement</h2>
+            <p>Dear {toName},</p>
+            <p>Here is your account statement for <strong>{periodLabel}</strong>.</p>
+            <table style='border-collapse: collapse; width: 100%; max-width: 520px;'>
+                <tr>
+                    <td style='padding: 8px; border: 1px solid #ddd; background: #f5f5f5;'><strong>Opening Balance</strong></td>
+                    <td style='padding: 8px; border: 1px solid #ddd; text-align: right;'>{FormatAmount(statement.OpeningBalance, currency, true)}</td>
+                </tr>
+                <tr>
+                    <td style='padding: 8px; border: 1px solid #ddd; background: #f5f5f5;'><strong>Total Invoices</strong></td>
+                    <td style='padding: 8px; border: 1px solid #ddd; text-align: right;'>{FormatAmount(statement.TotalInvoices, currency, true)}</td>
+                </tr>
+                <tr>
+                    <td style='padding: 8px; border: 1px solid #ddd; background: #f5f5f5;'><strong>Total Payments</strong></td>
+                    <td style='padding: 8px; border: 1px solid #ddd; text-align: right;'>{FormatAmount(statement.TotalPayments, currency, true)}</td>
+                </tr>
+                <tr>
+                    <td style='padding: 8px; border: 1px solid #ddd; background: #f5f5f5;'><strong>Total Credit Notes</strong></td>
+                    <td style='padding: 8px; border: 1px solid #ddd; text-align: right;'>{FormatAmount(statement.TotalCreditNotes, currency, true)}</td>
+                </tr>
+                <tr>
+                    <td style='padding: 8px; border: 1px solid #ddd; background: #f5f5f5;'><strong>Closing Balance</strong></td>
+                    <td style='padding: 8px; border: 1px solid #ddd; text-align: right; font-weight: bold;'>{FormatAmount(statement.ClosingBalance, currency, true)}</td>
+                </tr>
+            </table>
+
+            <h3 style='margin-top: 24px;'>Recent Activity</h3>
+            <table style='border-collapse: collapse; width: 100%;'>
+                <thead>
+                    <tr style='background: #f5f5f5;'>
+                        <th style='padding: 10px; border: 1px solid #ddd; text-align: left;'>Date</th>
+                        <th style='padding: 10px; border: 1px solid #ddd; text-align: left;'>Description</th>
+                        <th style='padding: 10px; border: 1px solid #ddd; text-align: right;'>Debit</th>
+                        <th style='padding: 10px; border: 1px solid #ddd; text-align: right;'>Credit</th>
+                        <th style='padding: 10px; border: 1px solid #ddd; text-align: right;'>Balance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {lineRows}
+                </tbody>
+            </table>
+
+            <p style='margin-top: 20px;'>
+                <a href='{statementUrl}' 
+                   style='background: #4f46e5; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;'>
+                   View Statement Online
+                </a>
+            </p>
+            <p>If you have any questions, please contact support.</p>";
+    }
+
+    private static string FormatAmount(decimal amount, string? currency, bool showZero = false)
+    {
+        if (!showZero && amount == 0m)
+        {
+            return "-";
+        }
+
+        var formatted = amount.ToString("N2", CultureInfo.InvariantCulture);
+        return string.IsNullOrWhiteSpace(currency) ? formatted : $"{formatted} {currency}";
+    }
+
+    private static string FormatDate(DateTime date)
+    {
+        return date.ToString("MMM dd, yyyy", CultureInfo.InvariantCulture);
     }
 
     private static string StripHtml(string html)

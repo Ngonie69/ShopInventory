@@ -151,11 +151,60 @@ public class SyncController : ControllerBase
     /// Get offline queue status
     /// </summary>
     [HttpGet("queue")]
+    [HttpGet("queue/status")]
     [ProducesResponseType(typeof(OfflineQueueStatusDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetQueueStatus(CancellationToken cancellationToken)
     {
         var status = await _offlineQueueService.GetQueueStatusAsync(cancellationToken);
         return Ok(status);
+    }
+
+    /// <summary>
+    /// Get queued transaction items
+    /// </summary>
+    [HttpGet("queue/items")]
+    [ProducesResponseType(typeof(List<QueuedTransactionDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetQueuedItems(CancellationToken cancellationToken)
+    {
+        var status = await _offlineQueueService.GetQueueStatusAsync(cancellationToken);
+        return Ok(status.PendingTransactions ?? new List<QueuedTransactionDto>());
+    }
+
+    /// <summary>
+    /// Get cache sync status
+    /// </summary>
+    [HttpGet("cache-status")]
+    [ProducesResponseType(typeof(List<CacheSyncStatusDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetCacheStatus(CancellationToken cancellationToken)
+    {
+        var dashboard = await _syncStatusService.GetSyncStatusDashboardAsync(cancellationToken);
+        return Ok(dashboard.CacheStatuses ?? new List<CacheSyncStatusDto>());
+    }
+
+    /// <summary>
+    /// Get connection logs
+    /// </summary>
+    [HttpGet("logs")]
+    [ProducesResponseType(typeof(List<object>), StatusCodes.Status200OK)]
+    public IActionResult GetConnectionLogs([FromQuery] int count = 50)
+    {
+        // Connection logging not yet implemented - return empty list
+        return Ok(new List<object>());
+    }
+
+    /// <summary>
+    /// Test SAP connection
+    /// </summary>
+    [HttpPost("test-connection")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    public async Task<IActionResult> TestConnection(CancellationToken cancellationToken)
+    {
+        var status = await _syncStatusService.CheckSapConnectionAsync(cancellationToken);
+        return Ok(new
+        {
+            IsConnected = status.IsConnected,
+            Message = status.IsConnected ? "Connection successful" : (status.LastError ?? "Connection failed")
+        });
     }
 
     /// <summary>

@@ -3,6 +3,21 @@ using System.ComponentModel.DataAnnotations;
 namespace ShopInventory.DTOs;
 
 /// <summary>
+/// Payment data transfer object for SAP payments
+/// </summary>
+public class PaymentDto
+{
+    public int DocEntry { get; set; }
+    public int DocNum { get; set; }
+    public string? DocDate { get; set; }
+    public string? CardCode { get; set; }
+    public string? CardName { get; set; }
+    public decimal DocTotal { get; set; }
+    public string? DocCurrency { get; set; }
+    public string? Remarks { get; set; }
+}
+
+/// <summary>
 /// Request to initiate a payment
 /// </summary>
 public class InitiatePaymentRequest

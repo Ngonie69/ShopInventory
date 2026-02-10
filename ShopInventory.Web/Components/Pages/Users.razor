@@ -79,125 +79,111 @@
             }
             else if (users.Any())
             {
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle">
-                        <thead>
-                            <tr>
-                                <th>User</th>
-                                <th>Role</th>
-                                <th>Status</th>
-                                <th>Last Login</th>
-                                <th>Created</th>
-                                <th class="text-end">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var user in users)
-                            {
-                                <tr>
-                                    <td>
-                                        <div class="d-flex align-items-center">
-                                            <div class="avatar-circle me-3 @(user.IsActive ? "bg-primary" : "bg-secondary")">
-                                                @user.Username.Substring(0, 1).ToUpper()
-                                            </div>
-                                            <div>
-                                                <strong>@user.Username</strong>
-                                                <br><small class="text-muted">@user.Email</small>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <span class="badge @GetRoleBadgeClass(user.Role)">@user.Role</span>
-                                    </td>
-                                    <td>
-                                        @if (user.IsLocked)
-                                        {
-                                            <span class="badge bg-danger">Locked</span>
-                                        }
-                                        else if (user.IsActive)
-                                        {
-                                            <span class="badge bg-success">Active</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="badge bg-secondary">Inactive</span>
-                                        }
-                                    </td>
-                                    <td>
-                                        @if (user.LastLoginAt.HasValue)
-                                        {
-                                            <span title="@user.LastLoginAt.Value.ToString("dd MMM yyyy HH:mm")">@user.TimeAgo</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted">Never</span>
-                                        }
-                                    </td>
-                                    <td>@user.CreatedAt.ToString("dd MMM yyyy")</td>
-                                    <td class="text-end">
-                                        <div class="btn-group">
-                                            <button class="btn btn-sm btn-outline-primary" @onclick="() => ShowEditModal(user)"
-                                                title="Edit">
-                                                <i class="bi bi-pencil"></i>
-                                            </button>
-                                            <button class="btn btn-sm btn-outline-warning"
-                                                @onclick="() => ShowPasswordModal(user)" title="Change Password">
-                                                <i class="bi bi-key"></i>
-                                            </button>
-                                            @if (user.IsLocked)
-                                            {
-                                                <button class="btn btn-sm btn-outline-success" @onclick="() => UnlockUser(user)"
-                                                    title="Unlock">
-                                                    <i class="bi bi-unlock"></i>
-                                                </button>
-                                            }
-                                            @if (user.IsActive)
-                                            {
-                                                <button class="btn btn-sm btn-outline-secondary"
-                                                    @onclick="() => DeactivateUser(user)" title="Deactivate">
-                                                    <i class="bi bi-person-slash"></i>
-                                                </button>
-                                            }
-                                            else
-                                            {
-                                                <button class="btn btn-sm btn-outline-success" @onclick="() => ActivateUser(user)"
-                                                    title="Activate">
-                                                    <i class="bi bi-person-check"></i>
-                                                </button>
-                                            }
-                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(user)"
-                                                title="Delete">
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Pagination -->
-                @if (totalPages > 1)
-                {
-                    <nav class="mt-4">
-                        <ul class="pagination justify-content-center">
-                            <li class="page-item @(currentPage == 1 ? "disabled" : "")">
-                                <button class="page-link" @onclick="() => GoToPage(currentPage - 1)">Previous</button>
-                            </li>
-                            @for (int i = 1; i <= totalPages; i++)
-                            {
-                                var pageNum = i;
-                                <li class="page-item @(currentPage == pageNum ? "active" : "")">
-                                    <button class="page-link" @onclick="() => GoToPage(pageNum)">@pageNum</button>
-                                </li>
-                            }
-                            <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
-                                <button class="page-link" @onclick="() => GoToPage(currentPage + 1)">Next</button>
-                            </li>
-                        </ul>
-                    </nav>
-                }
+                <MudDataGrid T="UserModel" Items="@users" SortMode="SortMode.Multiple" Filterable="true"
+                    QuickFilter="@_quickFilter" Hideable="true" Dense="true" Hover="true" Striped="true">
+                    <ToolBarContent>
+                        <MudText Typo="Typo.h6">Users</MudText>
+                        <MudSpacer />
+                        <MudChip T="string" Color="Color.Primary" Size="Size.Small">@totalUsers total</MudChip>
+                        <MudTextField @bind-Value="_searchString" Placeholder="Search" Adornment="Adornment.Start"
+                            Immediate="true" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium"
+                            Class="mt-0 ms-4"></MudTextField>
+                    </ToolBarContent>
+                    <Columns>
+                        <PropertyColumn Property="x => x.Username" Title="User">
+                            <CellTemplate>
+                                <div class="d-flex align-items-center">
+                                    <div
+                                        class="avatar-circle me-3 @(context.Item.IsActive ? "bg-primary" : "bg-secondary")">
+                                        @context.Item.Username.Substring(0, 1).ToUpper()
+                                    </div>
+                                    <div>
+                                        <MudText Typo="Typo.body2"><strong>@context.Item.Username</strong></MudText>
+                                        <MudText Typo="Typo.caption" Class="text-muted">@context.Item.Email</MudText>
+                                    </div>
+                                </div>
+                            </CellTemplate>
+                        </PropertyColumn>
+                        <PropertyColumn Property="x => x.Role" Title="Role">
+                            <CellTemplate>
+                                <MudChip T="string" Color="@GetRoleChipColor(context.Item.Role)" Size="Size.Small">
+                                    @context.Item.Role</MudChip>
+                            </CellTemplate>
+                        </PropertyColumn>
+                        <PropertyColumn Property="x => x.IsActive" Title="Status">
+                            <CellTemplate>
+                                @if (context.Item.IsLocked)
+                                {
+                                    <MudChip T="string" Color="Color.Error" Size="Size.Small">Locked</MudChip>
+                                }
+                                else if (context.Item.IsActive)
+                                {
+                                    <MudChip T="string" Color="Color.Success" Size="Size.Small">Active</MudChip>
+                                }
+                                else
+                                {
+                                    <MudChip T="string" Color="Color.Default" Size="Size.Small">Inactive</MudChip>
+                                }
+                            </CellTemplate>
+                        </PropertyColumn>
+                        <PropertyColumn Property="x => x.LastLoginAt" Title="Last Login">
+                            <CellTemplate>
+                                @if (context.Item.LastLoginAt.HasValue)
+                                {
+                                    <MudTooltip Text="@context.Item.LastLoginAt.Value.ToString("dd MMM yyyy HH:mm")">
+                                        <span>@context.Item.TimeAgo</span>
+                                    </MudTooltip>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Never</span>
+                                }
+                            </CellTemplate>
+                        </PropertyColumn>
+                        <PropertyColumn Property="x => x.CreatedAt" Title="Created">
+                            <CellTemplate>
+                                @context.Item.CreatedAt.ToString("dd MMM yyyy")
+                            </CellTemplate>
+                        </PropertyColumn>
+                        <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
+                            <CellTemplate>
+                                <MudButtonGroup Size="Size.Small" Variant="Variant.Outlined">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary"
+                                        Size="Size.Small" OnClick="@(() => ShowEditModal(context.Item))" Title="Edit" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Key" Color="Color.Warning" Size="Size.Small"
+                                        OnClick="@(() => ShowPasswordModal(context.Item))" Title="Change Password" />
+                                    @if (context.Item.IsLocked)
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Filled.LockOpen" Color="Color.Success"
+                                            Size="Size.Small" OnClick="@(() => UnlockUser(context.Item))" Title="Unlock" />
+                                    }
+                                    @if (context.Item.IsActive)
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Filled.PersonOff" Color="Color.Default"
+                                            Size="Size.Small" OnClick="@(() => DeactivateUser(context.Item))"
+                                            Title="Deactivate" />
+                                    }
+                                    else
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Filled.PersonAdd" Color="Color.Success"
+                                            Size="Size.Small" OnClick="@(() => ActivateUser(context.Item))" Title="Activate" />
+                                    }
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                                        Size="Size.Small" OnClick="@(() => ConfirmDelete(context.Item))" Title="Delete" />
+                                </MudButtonGroup>
+                            </CellTemplate>
+                        </TemplateColumn>
+                    </Columns>
+                    <PagerContent>
+                        <div class="d-flex flex-column align-items-center px-4 py-2">
+                            <MudPagination Color="Color.Primary" Count="totalPages" Selected="currentPage"
+                                SelectedChanged="OnPageChanged" ShowFirstButton="true" ShowLastButton="true" />
+                            <MudText Typo="Typo.caption" Class="text-muted mt-2">
+                                Page @currentPage of @totalPages (@totalUsers total records)
+                            </MudText>
+                        </div>
+                    </PagerContent>
+                </MudDataGrid>
             }
             else
             {
@@ -379,6 +365,7 @@
     private bool alertSuccess;
     private string currentUsername = "Unknown";
     private string currentUserRole = "Admin";
+    private string _searchString = string.Empty;
 
     // Filters
     private string searchTerm = "";
@@ -388,6 +375,34 @@
     private int pageSize = 10;
     private int totalPages = 1;
     private int totalUsers = 0;
+
+    // Quick filter - filter globally across multiple columns with the same input
+    private Func<UserModel, bool> _quickFilter => x =>
+    {
+        if (string.IsNullOrWhiteSpace(_searchString))
+            return true;
+
+        if (x.Username?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.Email?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.Role?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        return false;
+    };
+
+    // Helper for role chip color
+    private Color GetRoleChipColor(string role) => role switch
+    {
+        "Admin" => Color.Error,
+        "Manager" => Color.Primary,
+        "User" => Color.Info,
+        "ReadOnly" => Color.Default,
+        _ => Color.Default
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -445,6 +460,11 @@
             currentPage = 1;
             await LoadUsers();
         }
+    }
+
+    private async Task OnPageChanged(int page)
+    {
+        await GoToPage(page);
     }
 
     private async Task GoToPage(int page)

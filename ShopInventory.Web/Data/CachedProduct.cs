@@ -164,6 +164,33 @@ public class CachedGLAccount
 }
 
 /// <summary>
+/// Entity for storing cached cost centre (profit center) data from SAP
+/// These rarely change and are cached locally for performance
+/// </summary>
+public class CachedCostCentre
+{
+    [Key]
+    [MaxLength(50)]
+    public string CenterCode { get; set; } = string.Empty;
+
+    [MaxLength(200)]
+    public string? CenterName { get; set; }
+
+    /// <summary>
+    /// Dimension type in SAP (1-5)
+    /// </summary>
+    public int Dimension { get; set; }
+
+    public bool IsActive { get; set; } = true;
+
+    public DateTime? ValidFrom { get; set; }
+
+    public DateTime? ValidTo { get; set; }
+
+    public DateTime LastSyncedAt { get; set; }
+}
+
+/// <summary>
 /// Tracks when each cache type was last synced
 /// </summary>
 public class CacheSyncInfo

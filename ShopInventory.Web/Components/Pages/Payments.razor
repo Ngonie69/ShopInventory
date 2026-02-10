@@ -1,46 +1,65 @@
 @page "/payments"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
 @inject IPaymentService PaymentService
 @inject ILogger<Payments> Logger
 @rendermode InteractiveServer
 
 <PageTitle>Incoming Payments - Shop Inventory</PageTitle>
 
-<div class="container-fluid">
-    <h2 class="mb-4"><i class="bi bi-cash-stack me-2"></i>Incoming Payments</h2>
-
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5 class="mb-0"><i class="bi bi-funnel me-2"></i>Filter</h5>
+<div class="page-shell">
+    <div class="container-fluid">
+        <div class="page-hero">
+            <div>
+                <h2 class="page-title mb-1"><i class="bi bi-cash-stack me-2 text-primary"></i>Incoming Payments</h2>
+                <p class="page-subtitle">Review incoming receipts and applied invoices</p>
+            </div>
         </div>
-        <div class="card-body">
-            <div class="row g-3">
-                <div class="col-md-2">
-                    <label class="form-label">Doc Number</label>
-                    <input type="number" class="form-control" @bind="docNum" placeholder="e.g., 123" />
+
+        <div class="card page-card mb-4">
+            <div class="card-header">
+                <h5><i class="bi bi-funnel me-2"></i>Filter</h5>
+            </div>
+            <div class="card-body p-4">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-2">
+                        <label class="form-label">Doc Number</label>
+                        <input type="number" class="form-control" @bind="docNum" placeholder="e.g., 123" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Customer Code</label>
+                        <input type="text" class="form-control" @bind="customerCode" placeholder="e.g., C001" />
+                    </div>
+                    <div class="col-md-3">
+                        <FlexibleDatePicker Label="From Date" @bind-Date="fromDate" Class="w-100" />
+                    </div>
+                    <div class="col-md-3">
+                        <FlexibleDatePicker Label="To Date" @bind-Date="toDate" Class="w-100" />
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-page-primary" @onclick="ApplyFilter">
+                                <i class="bi bi-search me-1"></i>Search
+                            </button>
+                            <button class="btn btn-outline-secondary" @onclick="ClearFilter">
+                                <i class="bi bi-x-circle me-1"></i>Clear
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                <div class="col-md-2">
-                    <label class="form-label">Customer Code</label>
-                    <input type="text" class="form-control" @bind="customerCode" placeholder="e.g., C001" />
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">From Date</label>
-                    <input type="date" class="form-control" @bind="fromDate" />
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">To Date</label>
-                    <input type="date" class="form-control" @bind="toDate" />
-                </div>
-                <div class="col-md-2 d-flex align-items-end">
-                    <button class="btn btn-primary me-2" @onclick="ApplyFilter">
-                        <i class="bi bi-search me-1"></i>Search
-                    </button>
-                    <button class="btn btn-outline-secondary" @onclick="ClearFilter">
-                        <i class="bi bi-x-circle me-1"></i>Clear
-                    </button>
+                <div class="row g-3 mt-3">
+                    <div class="col-md-2">
+                        <label class="form-label">Records per page</label>
+                        <select class="form-select" @bind="pageSize" @bind:after="OnPageSizeChanged">
+                            <option value="10">10</option>
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
 
     @if (isLoading)
     {
@@ -53,16 +72,22 @@
     }
     else if (errorMessage != null)
     {
-        <div class="alert alert-danger">
-            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+        <div class="alert @(isTimeoutError ? "alert-warning" : "alert-danger")">
+            <i class="bi @(isTimeoutError ? "bi-clock-history" : "bi-exclamation-triangle") me-2"></i>@errorMessage
+            @if (isTimeoutError)
+            {
+                <button class="btn btn-sm btn-warning ms-3" @onclick="RetryLoad">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Try Again
+                </button>
+            }
         </div>
     }
     else if (payments?.Any() == true)
     {
-        <div class="card">
-            <div class="card-body">
+        <div class="card page-card">
+            <div class="card-body p-4">
                 <div class="table-responsive">
-                    <table class="table table-hover">
+                    <table class="table table-hover align-middle page-table">
                         <thead class="table-light">
                             <tr>
                                 <th>Doc Entry</th>
@@ -107,13 +132,13 @@
                     </table>
                 </div>
 
-                <div class="d-flex justify-content-between align-items-center mt-3">
+                <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
                     <div>
                         Showing @payments.Count payments (Page @currentPage)
                     </div>
                     <div>
                         <button class="btn btn-outline-success btn-sm me-2" @onclick="PreviousPage"
-                            disabled="@(currentPage <= 1)">
+                                disabled="@(currentPage <= 1)">
                             <i class="bi bi-chevron-left"></i> Previous
                         </button>
                         <button class="btn btn-outline-success btn-sm" @onclick="NextPage" disabled="@(!hasMore)">
@@ -130,6 +155,7 @@
             <i class="bi bi-info-circle me-2"></i>No payments found.
         </div>
     }
+    </div>
 </div>
 
 <!-- Payment Detail Modal -->
@@ -231,7 +257,7 @@
                                             <td>@invoice.LineNum</td>
                                             <td>@invoice.DocEntry</td>
                                             <td>@invoice.InvoiceType</td>
-                                            <td class="text-end">@invoice.SumApplied.ToString("N2")</td>
+                                            <td class="text-end">@FormatAppliedAmount(invoice)</td>
                                         </tr>
                                     }
                                 </tbody>
@@ -252,22 +278,23 @@
                             <span class="fs-5">Total Payment:</span>
                             <strong class="fs-4 text-success">@selectedPayment.DocCurrency
                                 @selectedPayment.DocTotal.ToString("N2")</strong>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Close</button>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseModal">Close</button>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
-}
+    }
 
 @code {
     private List<IncomingPaymentDto>? payments;
     private IncomingPaymentDto? selectedPayment;
     private bool isLoading = true;
     private string? errorMessage;
+    private bool isTimeoutError;
     private int currentPage = 1;
     private int pageSize = 20;
     private bool hasMore = false;
@@ -288,6 +315,7 @@
         Logger.LogInformation("Payments page: LoadPayments started, page={Page}, pageSize={PageSize}", currentPage, pageSize);
         isLoading = true;
         errorMessage = null;
+        isTimeoutError = false;
 
         try
         {
@@ -304,10 +332,25 @@
                 errorMessage = "Failed to load payments";
             }
         }
+        catch (TimeoutException ex)
+        {
+            Logger.LogWarning(ex, "Payments page: Timeout loading payments");
+            errorMessage = "The request timed out while loading payments. SAP may be responding slowly.";
+            isTimeoutError = true;
+        }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Payments page: Error loading payments");
-            errorMessage = $"Error: {ex.Message}";
+            if (ex.Message.Contains("504") || ex.Message.Contains("Gateway") || ex.Message.Contains("timeout",
+StringComparison.OrdinalIgnoreCase))
+            {
+                errorMessage = "Gateway timeout - the server took too long to respond. Please try again.";
+                isTimeoutError = true;
+            }
+            else
+            {
+                errorMessage = $"Error: {ex.Message}";
+            }
         }
         finally
         {
@@ -316,10 +359,16 @@
         }
     }
 
+    private async Task RetryLoad()
+    {
+        await LoadPayments();
+    }
+
     private async Task ApplyFilter()
     {
         isLoading = true;
         errorMessage = null;
+        isTimeoutError = false;
 
         try
         {
@@ -356,9 +405,24 @@
                 await LoadPayments();
             }
         }
+        catch (TimeoutException ex)
+        {
+            Logger.LogWarning(ex, "Payments page: Timeout during filter");
+            errorMessage = "The request timed out. SAP may be responding slowly.";
+            isTimeoutError = true;
+        }
         catch (Exception ex)
         {
-            errorMessage = $"Error: {ex.Message}";
+            if (ex.Message.Contains("504") || ex.Message.Contains("Gateway") || ex.Message.Contains("timeout",
+StringComparison.OrdinalIgnoreCase))
+            {
+                errorMessage = "Gateway timeout - the server took too long to respond. Please try again.";
+                isTimeoutError = true;
+            }
+            else
+            {
+                errorMessage = $"Error: {ex.Message}";
+            }
         }
         finally
         {
@@ -391,6 +455,12 @@
         return amount > 0 ? amount.ToString("N2") : "-";
     }
 
+    private string FormatAppliedAmount(PaymentInvoiceDto invoice)
+    {
+        var appliedAmount = invoice.SumApplied != 0 ? invoice.SumApplied : invoice.SumAppliedFC;
+        return appliedAmount.ToString("N2");
+    }
+
     private string FormatDate(string? dateStr)
     {
         if (string.IsNullOrEmpty(dateStr))
@@ -418,5 +488,11 @@
             currentPage++;
             await LoadPayments();
         }
+    }
+
+    private async Task OnPageSizeChanged()
+    {
+        currentPage = 1;
+        await LoadPayments();
     }
 }

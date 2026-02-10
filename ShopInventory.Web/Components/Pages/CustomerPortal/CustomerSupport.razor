@@ -1,0 +1,102 @@
+@page "/customer-portal/support"
+@attribute [AllowAnonymous]
+@rendermode InteractiveServer
+@layout CustomerPortalLayout
+
+<PageTitle>Support - Customer Portal</PageTitle>
+
+<div class="container-fluid fade-in staff-dashboard staff-shell customer-support">
+    <div class="dashboard-hero">
+        <div class="page-header staff-dashboard-header">
+            <div class="dashboard-title">
+                <h2>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M8 0a5 5 0 0 0-5 5v1a3 3 0 0 0 3 3h1V7H6a2 2 0 0 1-2-2V5a4 4 0 0 1 8 0v1a2 2 0 0 1-2 2h-1v2h1a3 3 0 0 0 3-3V5a5 5 0 0 0-5-5z" />
+                        <path d="M5 10a1 1 0 0 0-1 1v3h2v-3a1 1 0 0 0-1-1zm6 0a1 1 0 0 0-1 1v3h2v-3a1 1 0 0 0-1-1z" />
+                    </svg>
+                    Support
+                </h2>
+                <span class="text-muted">We are here to help with your account questions.</span>
+            </div>
+            <div class="dashboard-meta">
+                <span class="meta-pill">
+                    <span class="meta-dot"></span>
+                    Support Desk
+                </span>
+                <span class="meta-subtitle">Mon-Fri, 08:00-17:00 UTC</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-7">
+            <div class="card dashboard-panel">
+                <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
+                    <h5 class="mb-0 d-flex align-items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" class="panel-icon">
+                            <path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4zm2-1a1 1 0 0 0-1 1v.217l7 4.2 7-4.2V4a1 1 0 0 0-1-1H2zm13 2.383-4.708 2.825L15 11.105V5.383Zm-.034 6.876-5.64-3.471L8 9.583l-1.326-.795-5.64 3.47A1 1 0 0 0 2 13h12a1 1 0 0 0 .966-.741ZM1 11.105l4.708-2.897L1 5.383v5.722Z" />
+                        </svg>
+                        Contact Support
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex flex-column gap-3">
+                        <div class="d-flex gap-3 align-items-start">
+                            <div class="stat-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="currentColor" viewBox="0 0 16 16">
+                                    <path d="M3.654 1.328a.678.678 0 0 1 .737-.163l2.89 1.445a.678.678 0 0 1 .318.9L6.53 5.39a.678.678 0 0 1-.588.372c-.253.013-.525.02-.812.02.444.824 1.057 1.626 1.863 2.432.806.806 1.608 1.419 2.432 1.863.001-.287.007-.559.02-.812a.678.678 0 0 1 .372-.588l1.88-1.069a.678.678 0 0 1 .9.318l1.445 2.89a.678.678 0 0 1-.163.737l-1.272 1.272c-.5.5-1.2.703-1.89.541-1.637-.388-3.41-1.45-5.122-3.162C3.82 7.49 2.758 5.718 2.37 4.08c-.162-.69.041-1.39.541-1.89L3.654 1.328z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <p class="mb-1 fw-semibold">Phone</p>
+                                <p class="text-muted mb-0">Call your account manager or service desk.</p>
+                            </div>
+                        </div>
+                        <div class="d-flex gap-3 align-items-start">
+                            <div class="stat-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="currentColor" viewBox="0 0 16 16">
+                                    <path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4zm2-1a1 1 0 0 0-1 1v.217l7 4.2 7-4.2V4a1 1 0 0 0-1-1H2z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <p class="mb-1 fw-semibold">Email</p>
+                                <p class="text-muted mb-0">support@shopinventory.local</p>
+                            </div>
+                        </div>
+                        <div class="d-flex gap-3 align-items-start">
+                            <div class="stat-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="currentColor" viewBox="0 0 16 16">
+                                    <path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2zm2.5 2.5a.5.5 0 0 0-.5.5v6a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5V5a.5.5 0 0 0-.5-.5h-7z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <p class="mb-1 fw-semibold">Self-service</p>
+                                <p class="text-muted mb-0">Use Statements to download documents and reconcile balances.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card dashboard-panel">
+                <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
+                    <h5 class="mb-0 d-flex align-items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" class="panel-icon-amber">
+                            <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm0-1A7 7 0 1 1 8 15z" />
+                            <path d="M8 4.5a.5.5 0 0 0-1 0v5a.5.5 0 0 0 .5.5h2a.5.5 0 0 0 0-1H8.5V4.5z" />
+                        </svg>
+                        Quick Tips
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <ul class="list-unstyled mb-0">
+                        <li class="mb-2 text-muted">Check your dashboard for overdue invoices.</li>
+                        <li class="mb-2 text-muted">Use Statements to download PDF records.</li>
+                        <li class="text-muted">If data looks stale, select Refresh in the header.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,3 +1,5 @@
+using ShopInventory.Services;
+
 namespace ShopInventory.DTOs;
 
 /// <summary>
@@ -13,6 +15,8 @@ public class InvoiceDto
     public string? CardName { get; set; }
     public string? NumAtCard { get; set; }
     public string? Comments { get; set; }
+    public string? DocStatus { get; set; }
+    public string? Remarks { get; set; }
     public decimal DocTotal { get; set; }
     public decimal VatSum { get; set; }
     public string? DocCurrency { get; set; }
@@ -42,6 +46,11 @@ public class InvoiceCreatedResponseDto
 {
     public string Message { get; set; } = "Invoice created successfully";
     public InvoiceDto? Invoice { get; set; }
+
+    /// <summary>
+    /// Fiscalization result from REVMax. Null if fiscalization was not attempted.
+    /// </summary>
+    public FiscalizationResult? Fiscalization { get; set; }
 }
 
 /// <summary>
@@ -66,4 +75,35 @@ public class InvoiceDateResponseDto
     public string? ToDate { get; set; }
     public int Count { get; set; }
     public List<InvoiceDto>? Invoices { get; set; }
+}
+
+/// <summary>
+/// Request to create a credit note from an invoice
+/// </summary>
+public class CreateCreditNoteFromInvoiceRequest
+{
+    /// <summary>
+    /// The document entry of the invoice to create credit note from
+    /// </summary>
+    public int InvoiceDocEntry { get; set; }
+
+    /// <summary>
+    /// Reason for the credit note
+    /// </summary>
+    public string? Reason { get; set; }
+
+    /// <summary>
+    /// Optional: specific lines to include (if not provided, all lines are included)
+    /// </summary>
+    public List<CreditNoteLineRequest>? Lines { get; set; }
+}
+
+/// <summary>
+/// Credit note line request
+/// </summary>
+public class CreditNoteLineRequest
+{
+    public int LineNum { get; set; }
+    public decimal Quantity { get; set; }
+    public decimal? UnitPrice { get; set; }
 }

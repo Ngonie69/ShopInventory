@@ -7,6 +7,22 @@ using Microsoft.EntityFrameworkCore;
 namespace ShopInventory.Services;
 
 /// <summary>
+/// Interface for getting reserved quantities (to break circular dependency)
+/// </summary>
+public interface IReservedQuantityProvider
+{
+    /// <summary>
+    /// Gets the total reserved quantity for an item in a warehouse.
+    /// </summary>
+    Task<decimal> GetReservedQuantityAsync(string itemCode, string warehouseCode, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the reserved quantity for a specific batch.
+    /// </summary>
+    Task<decimal> GetReservedBatchQuantityAsync(string itemCode, string warehouseCode, string batchNumber, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// Service for batch-level inventory validation and auto-allocation for SAP B1 invoicing.
 /// Implements FIFO/FEFO strategies and prevents negative batch quantities.
 /// </summary>
@@ -78,6 +94,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
     private readonly ISAPServiceLayerClient _sapClient;
     private readonly IInventoryLockService _lockService;
     private readonly ILogger<BatchInventoryValidationService> _logger;
+    private IReservedQuantityProvider? _reservedQuantityProvider;
 
     // Cache for batch-managed status
     private static readonly Dictionary<string, bool> _batchManagedCache = new();
@@ -93,6 +110,38 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         _sapClient = sapClient;
         _lockService = lockService;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Sets the reserved quantity provider (called by DI after construction to avoid circular dependency)
+    /// </summary>
+    public void SetReservedQuantityProvider(IReservedQuantityProvider provider)
+    {
+        _reservedQuantityProvider = provider;
+    }
+
+    /// <summary>
+    /// Gets the reserved quantity for an item, using the provider if available
+    /// </summary>
+    private async Task<decimal> GetReservedQuantityInternalAsync(
+        string itemCode, string warehouseCode, CancellationToken cancellationToken)
+    {
+        if (_reservedQuantityProvider == null)
+            return 0;
+
+        return await _reservedQuantityProvider.GetReservedQuantityAsync(itemCode, warehouseCode, cancellationToken);
+    }
+
+    /// <summary>
+    /// Gets the reserved batch quantity for an item, using the provider if available
+    /// </summary>
+    private async Task<decimal> GetReservedBatchQuantityInternalAsync(
+        string itemCode, string warehouseCode, string batchNumber, CancellationToken cancellationToken)
+    {
+        if (_reservedQuantityProvider == null)
+            return 0;
+
+        return await _reservedQuantityProvider.GetReservedBatchQuantityAsync(itemCode, warehouseCode, batchNumber, cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -697,9 +746,28 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                 "Check stock or transfer inventory to this warehouse"), null);
         }
 
-        var totalAvailable = availableBatches.Sum(b => b.AvailableQuantity);
-        if (totalAvailable < inventoryQuantityNeeded)
+        // Adjust available quantities by subtracting reserved quantities
+        var effectiveAvailableBatches = new List<(AvailableBatchDto batch, decimal effectiveQty)>();
+        foreach (var batch in availableBatches)
         {
+            var reservedQty = await GetReservedBatchQuantityInternalAsync(
+                itemCode, warehouseCode, batch.BatchNumber ?? "", cancellationToken);
+            var effectiveQty = batch.AvailableQuantity - reservedQty;
+            if (effectiveQty > 0)
+            {
+                effectiveAvailableBatches.Add((batch, effectiveQty));
+            }
+        }
+
+        var totalEffectiveAvailable = effectiveAvailableBatches.Sum(b => b.effectiveQty);
+        if (totalEffectiveAvailable < inventoryQuantityNeeded)
+        {
+            var totalPhysical = availableBatches.Sum(b => b.AvailableQuantity);
+            var totalReserved = totalPhysical - totalEffectiveAvailable;
+            var message = totalReserved > 0
+                ? $"Insufficient stock. Need {inventoryQuantityNeeded:N4}, available {totalEffectiveAvailable:N4} (Physical: {totalPhysical:N4}, Reserved: {totalReserved:N4})"
+                : $"Insufficient total stock. Need {inventoryQuantityNeeded:N4}, available {totalEffectiveAvailable:N4}";
+
             return (CreateError(
                 BatchValidationErrorCode.InsufficientTotalStock,
                 lineNumber,
@@ -707,30 +775,30 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                 null,
                 warehouseCode,
                 inventoryQuantityNeeded,
-                totalAvailable,
-                $"Insufficient total stock. Need {inventoryQuantityNeeded:N4}, available {totalAvailable:N4}",
-                $"Reduce quantity to {totalAvailable:N4} or transfer more stock",
+                totalEffectiveAvailable,
+                message,
+                $"Reduce quantity to {totalEffectiveAvailable:N4} or transfer more stock",
                 availableBatches), null);
         }
 
-        // Allocate batches using FIFO/FEFO
+        // Allocate batches using FIFO/FEFO (using effective available quantities)
         var allocatedBatches = new List<AllocatedBatch>();
         var remainingQty = inventoryQuantityNeeded;
         var allocationOrder = 1;
 
-        foreach (var batch in availableBatches)
+        foreach (var (batch, effectiveQty) in effectiveAvailableBatches)
         {
             if (remainingQty <= 0)
                 break;
 
-            var allocateFromBatch = Math.Min(batch.AvailableQuantity, remainingQty);
+            var allocateFromBatch = Math.Min(effectiveQty, remainingQty);
 
             allocatedBatches.Add(new AllocatedBatch
             {
                 BatchNumber = batch.BatchNumber,
                 QuantityAllocated = allocateFromBatch,
-                AvailableBeforeAllocation = batch.AvailableQuantity,
-                RemainingAfterAllocation = batch.AvailableQuantity - allocateFromBatch,
+                AvailableBeforeAllocation = effectiveQty,
+                RemainingAfterAllocation = effectiveQty - allocateFromBatch,
                 ExpiryDate = batch.ExpiryDate,
                 AdmissionDate = batch.AdmissionDate,
                 AllocationOrder = allocationOrder++
@@ -930,8 +998,16 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                     "Check item code and warehouse"), 0, 1);
             }
 
-            if (inventoryQuantityNeeded > stock.Available)
+            // Account for reserved quantities from pending reservations
+            var reservedQty = await GetReservedQuantityInternalAsync(itemCode, warehouseCode, cancellationToken);
+            var effectiveAvailable = stock.Available - reservedQty;
+
+            if (inventoryQuantityNeeded > effectiveAvailable)
             {
+                var message = reservedQty > 0
+                    ? $"Insufficient stock. Requested: {inventoryQuantityNeeded:N4}, Available: {effectiveAvailable:N4} (Physical: {stock.Available:N4}, Reserved: {reservedQty:N4})"
+                    : $"Insufficient stock. Requested: {inventoryQuantityNeeded:N4}, Available: {stock.Available:N4}";
+
                 return (CreateError(
                     BatchValidationErrorCode.InsufficientTotalStock,
                     lineNumber,
@@ -939,9 +1015,9 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                     null,
                     warehouseCode,
                     inventoryQuantityNeeded,
-                    stock.Available,
-                    $"Insufficient stock. Requested: {inventoryQuantityNeeded:N4}, Available: {stock.Available:N4}",
-                    $"Reduce quantity to {stock.Available:N4}"), 0, 1);
+                    effectiveAvailable,
+                    message,
+                    $"Reduce quantity to {effectiveAvailable:N4}"), 0, 1);
             }
 
             return (null, inventoryQuantityNeeded, conversionFactor);

@@ -1,0 +1,461 @@
+@page "/exchange-rates"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject IExchangeRateService ExchangeRateService
+@rendermode InteractiveServer
+
+<PageTitle>Exchange Rates - Shop Inventory</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-currency-exchange me-2"></i>Exchange Rates</h2>
+        <div>
+            <button class="btn btn-outline-primary me-2" @onclick="FetchExternalRates" disabled="@isFetchingExternal">
+                @if (isFetchingExternal)
+                {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                }
+                <i class="bi bi-cloud-download me-1"></i>Fetch External Rates
+            </button>
+            <button class="btn btn-primary" @onclick="() => showAddModal = true">
+                <i class="bi bi-plus-circle me-2"></i>Add Rate
+            </button>
+        </div>
+    </div>
+
+    <!-- Quick Converter -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-calculator me-2"></i>Currency Converter</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label">Amount</label>
+                    <input type="number" class="form-control" @bind="convertAmount" step="0.01" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">From</label>
+                    <select class="form-select" @bind="convertFrom">
+                        <option value="USD">USD</option>
+                        <option value="ZIG">ZIG</option>
+                        <option value="EUR">EUR</option>
+                        <option value="GBP">GBP</option>
+                        <option value="ZAR">ZAR</option>
+                    </select>
+                </div>
+                <div class="col-md-1 text-center">
+                    <button class="btn btn-outline-secondary" @onclick="SwapCurrencies">
+                        <i class="bi bi-arrow-left-right"></i>
+                    </button>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">To</label>
+                    <select class="form-select" @bind="convertTo">
+                        <option value="ZIG">ZIG</option>
+                        <option value="USD">USD</option>
+                        <option value="EUR">EUR</option>
+                        <option value="GBP">GBP</option>
+                        <option value="ZAR">ZAR</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary w-100" @onclick="ConvertCurrency" disabled="@isConverting">
+                        Convert
+                    </button>
+                </div>
+                <div class="col-md-2">
+                    @if (convertedAmount.HasValue)
+                    {
+                        <div class="alert alert-success mb-0 py-2 text-center">
+                            <strong>@convertedAmount.Value.ToString("N2") @convertTo</strong>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading exchange rates...</p>
+        </div>
+    }
+    else if (errorMessage != null)
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+        </div>
+    }
+    else if (rates?.Any() == true)
+    {
+        <div class="row">
+            @foreach (var rate in rates.Where(r => r.IsActive))
+            {
+                <div class="col-md-4 mb-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span>
+                                <strong>@rate.FromCurrency</strong> → <strong>@rate.ToCurrency</strong>
+                            </span>
+                            @if (rate.IsActive)
+                            {
+                                <span class="badge bg-success">Active</span>
+                            }
+                        </div>
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <div>
+                                    <h3 class="mb-0">@rate.Rate.ToString("N4")</h3>
+                                    <small class="text-muted">1 @rate.FromCurrency = @rate.Rate.ToString("N4")
+                                        @rate.ToCurrency</small>
+                                </div>
+                                <div class="text-end">
+                                    <small class="text-muted d-block">Inverse</small>
+                                    <span>@rate.InverseRate.ToString("N6")</span>
+                                </div>
+                            </div>
+                            <hr />
+                            <div class="d-flex justify-content-between text-muted small">
+                                <span>
+                                    <i class="bi bi-calendar me-1"></i>
+                                    @rate.EffectiveDate.ToString("dd MMM yyyy")
+                                </span>
+                                <span>
+                                    <i class="bi bi-info-circle me-1"></i>
+                                    @(rate.Source ?? "Manual")
+                                </span>
+                            </div>
+                        </div>
+                        <div class="card-footer">
+                            <div class="btn-group btn-group-sm w-100">
+                                <button class="btn btn-outline-primary"
+                                    @onclick="() => ShowHistory(rate.FromCurrency, rate.ToCurrency)">
+                                    <i class="bi bi-graph-up me-1"></i>History
+                                </button>
+                                <button class="btn btn-outline-secondary" @onclick="() => EditRate(rate)">
+                                    <i class="bi bi-pencil me-1"></i>Edit
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Inactive Rates -->
+        @if (rates.Any(r => !r.IsActive))
+        {
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-archive me-2"></i>Inactive Rates</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Currency Pair</th>
+                                <th>Rate</th>
+                                <th>Effective Date</th>
+                                <th>Source</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var rate in rates.Where(r => !r.IsActive))
+                            {
+                                <tr class="text-muted">
+                                    <td>@rate.FromCurrency → @rate.ToCurrency</td>
+                                    <td>@rate.Rate.ToString("N4")</td>
+                                    <td>@rate.EffectiveDate.ToString("dd MMM yyyy")</td>
+                                    <td>@(rate.Source ?? "Manual")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>No exchange rates configured. Add a new rate to get started.
+        </div>
+    }
+</div>
+
+<!-- Add/Edit Rate Modal -->
+@if (showAddModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-currency-exchange me-2"></i>@(editingRate != null ? "Edit" : "Add") Exchange Rate
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="CloseAddModal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">From Currency *</label>
+                            <select class="form-select" @bind="newRate.FromCurrency">
+                                <option value="">Select...</option>
+                                <option value="USD">USD - US Dollar</option>
+                                <option value="ZIG">ZIG - Zimbabwe Gold</option>
+                                <option value="EUR">EUR - Euro</option>
+                                <option value="GBP">GBP - British Pound</option>
+                                <option value="ZAR">ZAR - South African Rand</option>
+                                <option value="BWP">BWP - Botswana Pula</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">To Currency *</label>
+                            <select class="form-select" @bind="newRate.ToCurrency">
+                                <option value="">Select...</option>
+                                <option value="USD">USD - US Dollar</option>
+                                <option value="ZIG">ZIG - Zimbabwe Gold</option>
+                                <option value="EUR">EUR - Euro</option>
+                                <option value="GBP">GBP - British Pound</option>
+                                <option value="ZAR">ZAR - South African Rand</option>
+                                <option value="BWP">BWP - Botswana Pula</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Rate *</label>
+                            <input type="number" class="form-control" @bind="newRate.Rate" step="0.000001"
+                                placeholder="e.g., 25.5" />
+                            <small class="text-muted">1 @(newRate.FromCurrency ?? "FROM") = ? @(newRate.ToCurrency ??
+                                                            "TO")</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Effective Date</label>
+                            <input type="date" class="form-control" @bind="newRate.EffectiveDate" />
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Source</label>
+                            <select class="form-select" @bind="newRate.Source">
+                                <option value="Manual">Manual Entry</option>
+                                <option value="RBZ">Reserve Bank of Zimbabwe</option>
+                                <option value="API">External API</option>
+                                <option value="Bank">Commercial Bank</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseAddModal">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveRate" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Save Rate
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- History Modal -->
+@if (showHistoryModal && historyData != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-graph-up me-2"></i>Rate History: @historyData.FromCurrency → @historyData.ToCurrency
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="() => showHistoryModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    @if (historyData.History?.Any() == true)
+                    {
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Effective Date</th>
+                                    <th class="text-end">Rate</th>
+                                    <th class="text-end">Inverse Rate</th>
+                                    <th>Source</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var record in historyData.History.OrderByDescending(h => h.EffectiveDate))
+                                {
+                                    <tr class="@(record.IsActive ? "" : "text-muted")">
+                                        <td>@record.EffectiveDate.ToString("dd MMM yyyy HH:mm")</td>
+                                        <td class="text-end">@record.Rate.ToString("N4")</td>
+                                        <td class="text-end">@record.InverseRate.ToString("N6")</td>
+                                        <td>@(record.Source ?? "Manual")</td>
+                                        <td>
+                                            @if (record.IsActive)
+                                            {
+                                                <span class="badge bg-success">Active</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary">Historical</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                    else
+                    {
+                        <p class="text-muted">No history available for this currency pair.</p>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showHistoryModal = false">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ExchangeRateDto>? rates;
+    private ExchangeRateDto? editingRate;
+    private ExchangeRateHistoryResponse? historyData;
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private bool isFetchingExternal = false;
+    private bool isConverting = false;
+    private bool showAddModal = false;
+    private bool showHistoryModal = false;
+    private string? errorMessage;
+
+    // New rate form
+    private UpsertExchangeRateRequest newRate = new() { EffectiveDate = DateTime.Today };
+
+    // Converter
+    private decimal convertAmount = 100;
+    private string convertFrom = "USD";
+    private string convertTo = "ZIG";
+    private decimal? convertedAmount;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRates();
+    }
+
+    private async Task LoadRates()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            rates = await ExchangeRateService.GetAllActiveRatesAsync();
+            if (rates == null)
+            {
+                errorMessage = "Failed to load exchange rates.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SaveRate()
+    {
+        if (string.IsNullOrEmpty(newRate.FromCurrency) || string.IsNullOrEmpty(newRate.ToCurrency) || newRate.Rate <= 0)
+        {
+            return;
+        }
+
+        isSaving = true;
+        try
+        {
+            var result = await ExchangeRateService.UpsertRateAsync(newRate);
+            if (result != null)
+            {
+                CloseAddModal();
+                await LoadRates();
+            }
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void EditRate(ExchangeRateDto rate)
+    {
+        editingRate = rate;
+        newRate = new UpsertExchangeRateRequest
+        {
+            FromCurrency = rate.FromCurrency,
+            ToCurrency = rate.ToCurrency,
+            Rate = rate.Rate,
+            EffectiveDate = DateTime.Today,
+            Source = rate.Source
+        };
+        showAddModal = true;
+    }
+
+    private void CloseAddModal()
+    {
+        showAddModal = false;
+        editingRate = null;
+        newRate = new UpsertExchangeRateRequest { EffectiveDate = DateTime.Today };
+    }
+
+    private async Task ShowHistory(string fromCurrency, string toCurrency)
+    {
+        historyData = await ExchangeRateService.GetRateHistoryAsync(fromCurrency, toCurrency, 90);
+        showHistoryModal = historyData != null;
+    }
+
+    private async Task ConvertCurrency()
+    {
+        isConverting = true;
+        try
+        {
+            convertedAmount = await ExchangeRateService.ConvertAsync(convertAmount, convertFrom, convertTo);
+        }
+        finally
+        {
+            isConverting = false;
+        }
+    }
+
+    private void SwapCurrencies()
+    {
+        (convertFrom, convertTo) = (convertTo, convertFrom);
+        convertedAmount = null;
+    }
+
+    private async Task FetchExternalRates()
+    {
+        isFetchingExternal = true;
+        try
+        {
+            var success = await ExchangeRateService.FetchExternalRatesAsync();
+            if (success)
+            {
+                await LoadRates();
+            }
+        }
+        finally
+        {
+            isFetchingExternal = false;
+        }
+    }
+}

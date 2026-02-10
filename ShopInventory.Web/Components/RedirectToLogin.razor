@@ -1,8 +1,24 @@
-@inject NavigationManager NavigationManager
+@inject NavigationManager Navigation
+
+<div class="d-flex justify-content-center align-items-center" style="height: 100vh;">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Redirecting to login...</span>
+    </div>
+</div>
 
 @code {
-    protected override void OnInitialized()
+    protected override void OnAfterRender(bool firstRender)
     {
-        NavigationManager.NavigateTo("/login");
+        if (firstRender)
+        {
+            var uri = new Uri(Navigation.Uri);
+            var loginPath = "/login";
+
+            // Only redirect if we're not already on the login page
+            if (!uri.AbsolutePath.Equals(loginPath, StringComparison.OrdinalIgnoreCase))
+            {
+                Navigation.NavigateTo($"{loginPath}?returnUrl={Uri.EscapeDataString(uri.PathAndQuery)}", forceLoad: true);
+            }
+        }
     }
 }

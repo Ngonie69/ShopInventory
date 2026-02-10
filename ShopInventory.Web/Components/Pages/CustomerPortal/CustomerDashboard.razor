@@ -1,0 +1,519 @@
+@page "/customer-portal/dashboard"
+@using ShopInventory.Web.Models
+@inject ICustomerStatementService StatementService
+@inject IJSRuntime JSRuntime
+@inject ILogger<CustomerDashboard> Logger
+@attribute [AllowAnonymous]
+@rendermode InteractiveServer
+@layout CustomerPortalLayout
+
+<PageTitle>Dashboard - Customer Portal</PageTitle>
+
+<div class="container-fluid fade-in staff-dashboard staff-shell customer-dashboard">
+    @if (isLoading)
+    {
+        <div class="card dashboard-panel">
+            <div class="card-body text-center py-5">
+                <div class="spinner-border" role="status" style="width: 2.5rem; height: 2.5rem;">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="text-muted mt-3 mb-0">Loading your account...</p>
+            </div>
+        </div>
+    }
+    else if (customerInfo == null)
+    {
+        <div class="card dashboard-panel">
+            <div class="card-body text-center py-5">
+                <svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" fill="currentColor" viewBox="0 0 16 16" class="mb-3">
+                    <path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+                </svg>
+                <h2 class="mb-2">Authentication Required</h2>
+                <p class="text-muted mb-4">Please login to access your account.</p>
+                <a href="/customer-portal/login" class="btn btn-primary">Login to Portal</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        var accountBalance = dashboard?.AccountBalance ?? 0;
+        var totalOutstanding = dashboard?.TotalOutstanding ?? 0;
+        var overdueAmount = dashboard?.OverdueAmount ?? 0;
+        var lastPaymentAmount = dashboard?.LastPaymentAmount ?? 0;
+
+        <div class="dashboard-hero">
+            <div class="page-header staff-dashboard-header">
+                <div class="dashboard-title">
+                    <h2>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M8 0a5.53 5.53 0 0 0-3.594 1.342c-.766.63-1.48 1.647-1.907 2.79-.465 1.239-.717 2.63-.717 4.037 0 2.858 1.343 5.446 3.421 6.833.42.28.963.001.963-.482v-1.603c.528.276 1.112.437 1.834.437s1.306-.161 1.834-.437v1.603c0 .483.544.762.964.482C12.657 13.615 14 11.027 14 8.169c0-1.407-.252-2.798-.717-4.037-.427-1.143-1.141-2.16-1.907-2.79A5.53 5.53 0 0 0 8 0zm0 1a4.53 4.53 0 0 1 2.996 1.143c.62.51 1.23 1.377 1.62 2.428.421 1.131.656 2.396.656 3.598 0 2.193-.995 4.268-2.5 5.532v-.77c0-.435-.306-.811-.735-.917A5.484 5.484 0 0 0 8 11.834a5.48 5.48 0 0 0-2.037.18.944.944 0 0 0-.735.917v.77c-1.505-1.264-2.5-3.339-2.5-5.532 0-1.202.235-2.467.656-3.598.39-1.051 1-1.918 1.62-2.428A4.53 4.53 0 0 1 8 1z" />
+                        </svg>
+                        Welcome, @customerInfo.CardName
+                    </h2>
+                    <span class="text-muted">Customer Code: @customerInfo.CardCode</span>
+                </div>
+                <div class="dashboard-meta">
+                    <span class="meta-pill">
+                        <span class="meta-dot"></span>
+                        Account Snapshot
+                    </span>
+                    <span class="meta-subtitle">
+                        @(lastUpdated.HasValue ? $"Updated {lastUpdated.Value:MMM dd, yyyy 'at' HH:mm} UTC" : "Updated on refresh")
+                    </span>
+                    <div class="d-flex flex-wrap gap-2 mt-2">
+                        <button class="btn btn-outline-primary btn-sm" @onclick="RefreshData">Refresh</button>
+                        <a href="/customer-portal/statements" class="btn btn-primary btn-sm">View Statement</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4 g-4 dashboard-stats">
+            <div class="col-md-6 col-xl-3">
+                <div class="card stat-card staff-stat-card bg-primary">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <p class="stat-label mb-2">Account Balance</p>
+                                <h2 class="stat-value @(accountBalance >= 0 ? "text-success" : "text-danger")">@FormatCurrency(accountBalance)</h2>
+                                <p class="text-muted mb-0 small">@(accountBalance >= 0 ? "In credit" : "Outstanding balance")</p>
+                            </div>
+                            <div class="stat-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" fill="currentColor" viewBox="0 0 16 16">
+                                    <path d="M1 3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1H1zm7 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
+                                    <path d="M0 5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V5zm3 0a2 2 0 0 1-2 2v4a2 2 0 0 1 2 2h10a2 2 0 0 1 2-2V7a2 2 0 0 1-2-2H3z" />
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-transparent border-0 pt-0">
+                        <a href="/customer-portal/statements" class="stat-link d-flex align-items-center">
+                            View statement
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" class="ms-2">
+                                <path fill-rule="evenodd" d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z" />
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 col-xl-3">
+                <div class="card stat-card staff-stat-card bg-success">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <p class="stat-label mb-2">Total Outstanding</p>
+                                <h2 class="stat-value @(totalOutstanding > 0 ? "text-danger" : "text-success")">@FormatCurrency(totalOutstanding)</h2>
+                                <p class="text-muted mb-0 small">@(dashboard?.OpenInvoicesCount ?? 0) open invoices</p>
+                            </div>
+                            <div class="stat-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" fill="currentColor" viewBox="0 0 16 16">
+                                    <path d="M1.92.506a.5.5 0 0 1 .434.14L3 1.293l.646-.647a.5.5 0 0 1 .708 0L5 1.293l.646-.647a.5.5 0 0 1 .708 0L7 1.293l.646-.647a.5.5 0 0 1 .708 0L9 1.293l.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .801.13l.5 1A.5.5 0 0 1 15 2v12a.5.5 0 0 1-.053.224l-.5 1a.5.5 0 0 1-.8.13L13 14.707l-.646.647a.5.5 0 0 1-.708 0L11 14.707l-.646.647a.5.5 0 0 1-.708 0L9 14.707l-.646.647a.5.5 0 0 1-.708 0L7 14.707l-.646.647a.5.5 0 0 1-.708 0L5 14.707l-.646.647a.5.5 0 0 1-.708 0L3 14.707l-.646.647a.5.5 0 0 1-.801-.13l-.5-1A.5.5 0 0 1 1 14V2a.5.5 0 0 1 .053-.224l.5-1a.5.5 0 0 1 .367-.27z" />
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-transparent border-0 pt-0">
+                        <a href="/customer-portal/invoices" class="stat-link d-flex align-items-center">
+                            Review invoices
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" class="ms-2">
+                                <path fill-rule="evenodd" d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z" />
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 col-xl-3">
+                <div class="card stat-card staff-stat-card bg-info">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <p class="stat-label mb-2">Overdue Amount</p>
+                                <h2 class="stat-value @(overdueAmount > 0 ? "text-danger" : "text-muted")">@FormatCurrency(overdueAmount)</h2>
+                                <p class="text-muted mb-0 small">@(dashboard?.OverdueInvoicesCount ?? 0) overdue invoices</p>
+                            </div>
+                            <div class="stat-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" fill="currentColor" viewBox="0 0 16 16">
+                                    <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z" />
+                                    <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z" />
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-transparent border-0 pt-0">
+                        <a href="/customer-portal/invoices" class="stat-link d-flex align-items-center">
+                            View overdue
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" class="ms-2">
+                                <path fill-rule="evenodd" d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z" />
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 col-xl-3">
+                <div class="card stat-card staff-stat-card bg-primary">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <p class="stat-label mb-2">Last Payment</p>
+                                <h2 class="stat-value @(lastPaymentAmount > 0 ? "text-success" : "text-muted")">@FormatCurrency(lastPaymentAmount)</h2>
+                                <p class="text-muted mb-0 small">@(dashboard?.LastPaymentDate?.ToString("MMM dd, yyyy") ?? "No payments")</p>
+                            </div>
+                            <div class="stat-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" fill="currentColor" viewBox="0 0 16 16">
+                                    <path d="M0 3a2 2 0 0 1 2-2h13.5a.5.5 0 0 1 0 1H15v2a1 1 0 0 1 1 1v8.5a1.5 1.5 0 0 1-1.5 1.5h-12A2.5 2.5 0 0 1 0 12.5V3zm1 1.732V12.5A1.5 1.5 0 0 0 2.5 14h12a.5.5 0 0 0 .5-.5V5H2a1.99 1.99 0 0 1-1-.268zM1 3a1 1 0 0 0 1 1h12V2H2a1 1 0 0 0-1 1z" />
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-transparent border-0 pt-0">
+                        <a href="/customer-portal/payments" class="stat-link d-flex align-items-center">
+                            View payments
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" class="ms-2">
+                                <path fill-rule="evenodd" d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z" />
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4 mb-4">
+            <div class="col-12">
+                <div class="card dashboard-panel">
+                    <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
+                        <h5 class="mb-0 d-flex align-items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" class="panel-icon-amber">
+                                <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z" />
+                                <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z" />
+                            </svg>
+                            Aging Summary
+                        </h5>
+                        <a href="/customer-portal/invoices" class="btn btn-sm btn-outline-primary">Review invoices</a>
+                    </div>
+                    <div class="card-body">
+                        <div class="aging-chart">
+                            <div class="aging-bar">
+                                @{
+                                    var total = dashboard?.Aging?.Total ?? 1;
+                                    var currentPct = total > 0 ? (dashboard?.Aging?.Current ?? 0) / total * 100 : 0;
+                                    var days30Pct = total > 0 ? (dashboard?.Aging?.Days1To30 ?? 0) / total * 100 : 0;
+                                    var days60Pct = total > 0 ? (dashboard?.Aging?.Days31To60 ?? 0) / total * 100 : 0;
+                                    var days90Pct = total > 0 ? (dashboard?.Aging?.Days61To90 ?? 0) / total * 100 : 0;
+                                    var over90Pct = total > 0 ? (dashboard?.Aging?.Over90Days ?? 0) / total * 100 : 0;
+                                }
+                                <div class="bar-segment current" style="width: @currentPct.ToString("F1")%"></div>
+                                <div class="bar-segment days-30" style="width: @days30Pct.ToString("F1")%"></div>
+                                <div class="bar-segment days-60" style="width: @days60Pct.ToString("F1")%"></div>
+                                <div class="bar-segment days-90" style="width: @days90Pct.ToString("F1")%"></div>
+                                <div class="bar-segment over-90" style="width: @over90Pct.ToString("F1")%"></div>
+                            </div>
+                            <div class="aging-legend">
+                                <div class="legend-item">
+                                    <span class="legend-color current"></span>
+                                    <span class="legend-label">Current</span>
+                                    <span class="legend-value">@FormatCurrency(dashboard?.Aging?.Current ?? 0)</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-color days-30"></span>
+                                    <span class="legend-label">1-30 Days</span>
+                                    <span class="legend-value">@FormatCurrency(dashboard?.Aging?.Days1To30 ?? 0)</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-color days-60"></span>
+                                    <span class="legend-label">31-60 Days</span>
+                                    <span class="legend-value">@FormatCurrency(dashboard?.Aging?.Days31To60 ?? 0)</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-color days-90"></span>
+                                    <span class="legend-label">61-90 Days</span>
+                                    <span class="legend-value">@FormatCurrency(dashboard?.Aging?.Days61To90 ?? 0)</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-color over-90"></span>
+                                    <span class="legend-label">90+ Days</span>
+                                    <span class="legend-value">@FormatCurrency(dashboard?.Aging?.Over90Days ?? 0)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-lg-6">
+                <div class="card h-100 dashboard-panel">
+                    <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
+                        <h5 class="mb-0 d-flex align-items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" class="panel-icon">
+                                <path d="M1.92.506a.5.5 0 0 1 .434.14L3 1.293l.646-.647a.5.5 0 0 1 .708 0L5 1.293l.646-.647a.5.5 0 0 1 .708 0L7 1.293l.646-.647a.5.5 0 0 1 .708 0L9 1.293l.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .801.13l.5 1A.5.5 0 0 1 15 2v12a.5.5 0 0 1-.053.224l-.5 1a.5.5 0 0 1-.8.13L13 14.707l-.646.647a.5.5 0 0 1-.708 0L11 14.707l-.646.647a.5.5 0 0 1-.708 0L9 14.707l-.646.647a.5.5 0 0 1-.708 0L7 14.707l-.646.647a.5.5 0 0 1-.708 0L5 14.707l-.646.647a.5.5 0 0 1-.708 0L3 14.707l-.646.647a.5.5 0 0 1-.801-.13l-.5-1A.5.5 0 0 1 1 14V2a.5.5 0 0 1 .053-.224l.5-1a.5.5 0 0 1 .367-.27z" />
+                            </svg>
+                            Recent Invoices
+                        </h5>
+                        <a href="/customer-portal/invoices" class="btn btn-sm btn-outline-primary">View All</a>
+                    </div>
+                    <div class="card-body p-0">
+                        @if (dashboard?.RecentInvoices?.Any() == true)
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0 align-middle dashboard-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Invoice #</th>
+                                            <th>Date</th>
+                                            <th>Due Date</th>
+                                            <th class="text-end">Amount</th>
+                                            <th class="text-end">Balance</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var invoice in dashboard.RecentInvoices)
+                                        {
+                                            <tr>
+                                                <td><span class="badge bg-primary">@invoice.DocNum</span></td>
+                                                <td>@invoice.DocDate.ToString("MMM dd, yyyy")</td>
+                                                <td>@(invoice.DueDate?.ToString("MMM dd, yyyy") ?? "-")</td>
+                                                <td class="text-end">@FormatCurrency(invoice.DocTotal)</td>
+                                                <td class="text-end fw-semibold">@FormatCurrency(invoice.Balance)</td>
+                                                <td>
+                                                    <span class="badge @GetStatusClass(invoice)">@(GetStatusText(invoice))</span>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-center py-5 dashboard-empty">
+                                <p class="text-muted mb-0">No invoices found</p>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="card h-100 dashboard-panel">
+                    <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
+                        <h5 class="mb-0 d-flex align-items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" class="panel-icon-emerald">
+                                <path d="M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
+                                <path d="M0 4a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V4zm3 0a2 2 0 0 1-2 2v4a2 2 0 0 1 2 2h10a2 2 0 0 1 2-2V6a2 2 0 0 1-2-2H3z" />
+                            </svg>
+                            Recent Payments
+                        </h5>
+                        <a href="/customer-portal/payments" class="btn btn-sm btn-outline-primary">View All</a>
+                    </div>
+                    <div class="card-body p-0">
+                        @if (dashboard?.RecentPayments?.Any() == true)
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0 align-middle dashboard-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Payment #</th>
+                                            <th>Date</th>
+                                            <th>Method</th>
+                                            <th>Reference</th>
+                                            <th class="text-end">Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var payment in dashboard.RecentPayments)
+                                        {
+                                            <tr>
+                                                <td><span class="badge bg-success">@payment.DocNum</span></td>
+                                                <td>@payment.DocDate.ToString("MMM dd, yyyy")</td>
+                                                <td>@payment.PaymentMethod</td>
+                                                <td>@(payment.Reference ?? "-")</td>
+                                                <td class="text-end fw-semibold text-success">@FormatCurrency(payment.DocTotal)</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-center py-5 dashboard-empty">
+                                <p class="text-muted mb-0">No payments found</p>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .customer-dashboard .aging-chart {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .customer-dashboard .aging-bar {
+        height: 22px;
+        display: flex;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(15, 23, 42, 0.08);
+    }
+
+    .customer-dashboard .bar-segment {
+        height: 100%;
+        transition: width 0.3s ease;
+    }
+
+    .customer-dashboard .bar-segment.current {
+        background: #10b981;
+    }
+
+    .customer-dashboard .bar-segment.days-30 {
+        background: #f59e0b;
+    }
+
+    .customer-dashboard .bar-segment.days-60 {
+        background: #f97316;
+    }
+
+    .customer-dashboard .bar-segment.days-90 {
+        background: #ef4444;
+    }
+
+    .customer-dashboard .bar-segment.over-90 {
+        background: #dc2626;
+    }
+
+    .customer-dashboard .aging-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.25rem;
+    }
+
+    .customer-dashboard .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .customer-dashboard .legend-color {
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+    }
+
+    .customer-dashboard .legend-color.current {
+        background: #10b981;
+    }
+
+    .customer-dashboard .legend-color.days-30 {
+        background: #f59e0b;
+    }
+
+    .customer-dashboard .legend-color.days-60 {
+        background: #f97316;
+    }
+
+    .customer-dashboard .legend-color.days-90 {
+        background: #ef4444;
+    }
+
+    .customer-dashboard .legend-color.over-90 {
+        background: #dc2626;
+    }
+
+    .customer-dashboard .legend-label {
+        font-size: 0.85rem;
+        color: var(--staff-muted);
+    }
+
+    .customer-dashboard .legend-value {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--staff-ink);
+    }
+
+    @@media (max-width: 768px) {
+        .customer-dashboard .aging-legend {
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+    }
+</style>
+
+@code {
+    private CustomerInfo? customerInfo;
+    private CustomerDashboardSummary? dashboard;
+    private bool isLoading = true;
+    private DateTime? lastUpdated;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCustomerData();
+    }
+
+    private async Task LoadCustomerData()
+    {
+        isLoading = true;
+
+        try
+        {
+            var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
+
+            if (string.IsNullOrEmpty(customerInfoJson))
+            {
+                customerInfo = null;
+                dashboard = null;
+                return;
+            }
+
+            customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
+
+            if (customerInfo != null)
+            {
+                dashboard = await StatementService.GetDashboardSummaryAsync(customerInfo.CardCode);
+                lastUpdated = DateTime.UtcNow;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading customer data");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        await LoadCustomerData();
+    }
+
+    private string FormatCurrency(decimal amount)
+    {
+        return $"${amount:N2}";
+    }
+
+    private string GetStatusClass(CustomerInvoiceSummary invoice)
+    {
+        if (invoice.Balance <= 0) return "text-bg-primary";
+        if (invoice.DaysOverdue > 0) return "text-bg-danger";
+        return "text-bg-success";
+    }
+
+    private string GetStatusText(CustomerInvoiceSummary invoice)
+    {
+        if (invoice.Balance <= 0) return "Paid";
+        if (invoice.DaysOverdue > 0) return $"Overdue ({invoice.DaysOverdue} days)";
+        return "Current";
+    }
+}
