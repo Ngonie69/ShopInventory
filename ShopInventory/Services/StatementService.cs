@@ -84,13 +84,13 @@ namespace ShopInventory.Services
                 AddCustomerAndStatementInfo(document, customer);
 
                 // Add account summary section
-                AddAccountSummary(document, customer, invoices, payments);
+                AddAccountSummary(document, customer, invoices, payments, fromDate, toDate);
 
                 // Add aging analysis (use all open invoices if provided, otherwise fall back to filtered invoices)
                 AddAgingAnalysis(document, allOpenInvoices ?? invoices);
 
-                // Add transactions section
-                AddTransactionsSection(document, invoices, payments);
+                // Add transaction ledger (chronological debit/credit with running balance)
+                AddTransactionLedger(document, customer, invoices, payments, fromDate);
 
                 // Add footer with page numbers
                 AddFooter(document, pdf);
@@ -331,7 +331,7 @@ namespace ShopInventory.Services
             document.Add(infoTable);
         }
 
-        private void AddAccountSummary(Document document, BusinessPartnerDto customer, IEnumerable<InvoiceDto> invoices, IEnumerable<IncomingPaymentDto> payments)
+        private void AddAccountSummary(Document document, BusinessPartnerDto customer, IEnumerable<InvoiceDto> invoices, IEnumerable<IncomingPaymentDto> payments, DateTime fromDate, DateTime toDate)
         {
             var sectionTitle = new Paragraph("ACCOUNT SUMMARY")
                 .SetFont(_boldFont)
@@ -340,21 +340,23 @@ namespace ShopInventory.Services
                 .SetMarginBottom(10);
             document.Add(sectionTitle);
 
+            var totalInvoiced = invoices?.Sum(i => i.DocTotal) ?? 0;
+            var totalPaid = payments?.Sum(p => p.DocTotal) ?? 0;
+
+            // Calculate opening balance: current SAP balance - period invoices + period payments
+            var currentBalance = customer.Balance ?? 0;
+            var openingBalance = currentBalance - totalInvoiced + totalPaid;
+            var closingBalance = currentBalance;
+
             var summaryTable = new Table(new float[] { 1, 1, 1, 1 })
                 .SetWidth(UnitValue.CreatePercentValue(100))
                 .SetMarginBottom(15);
 
-            var invoiceCount = invoices?.Count() ?? 0;
-            var paymentCount = payments?.Count() ?? 0;
-            var totalInvoiced = invoices?.Sum(i => i.DocTotal) ?? 0;
-            var totalPaid = payments?.Sum(p => p.DocTotal) ?? 0;
-            var openInvoices = invoices?.Count(i => i.DocStatus == "O") ?? 0;
-
             // Summary Cards
-            AddSummaryCard(summaryTable, "Total Invoices", invoiceCount.ToString(), $"{openInvoices} Open", SecondaryColor);
-            AddSummaryCard(summaryTable, "Total Payments", paymentCount.ToString(), "Received", SuccessColor);
-            AddSummaryCard(summaryTable, "Invoiced Amount", $"{totalInvoiced:N2}", customer.Currency ?? "USD", PrimaryColor);
-            AddSummaryCard(summaryTable, "Payments Received", $"{totalPaid:N2}", customer.Currency ?? "USD", SuccessColor);
+            AddSummaryCard(summaryTable, "Opening Balance", $"{openingBalance:N2}", $"As at {fromDate:dd MMM yyyy}", PrimaryColor);
+            AddSummaryCard(summaryTable, "Total Debits", $"{totalInvoiced:N2}", $"{invoices?.Count() ?? 0} Invoice(s)", DangerColor);
+            AddSummaryCard(summaryTable, "Total Credits", $"{totalPaid:N2}", $"{payments?.Count() ?? 0} Payment(s)", SuccessColor);
+            AddSummaryCard(summaryTable, "Closing Balance", $"{closingBalance:N2}", $"As at {toDate:dd MMM yyyy}", closingBalance > 0 ? DangerColor : SuccessColor);
 
             document.Add(summaryTable);
         }
@@ -487,92 +489,155 @@ namespace ShopInventory.Services
             table.AddCell(cell);
         }
 
-        private void AddTransactionsSection(Document document, IEnumerable<InvoiceDto> invoices, IEnumerable<IncomingPaymentDto> payments)
+        private void AddTransactionLedger(Document document, BusinessPartnerDto customer, IEnumerable<InvoiceDto> invoices, IEnumerable<IncomingPaymentDto> payments, DateTime fromDate)
         {
-            // Invoices Table
-            if (invoices != null && invoices.Any())
+            var sectionTitle = new Paragraph("TRANSACTION DETAILS")
+                .SetFont(_boldFont)
+                .SetFontSize(11)
+                .SetFontColor(PrimaryColor)
+                .SetMarginTop(10)
+                .SetMarginBottom(10);
+            document.Add(sectionTitle);
+
+            // Build a combined chronological list of transactions
+            var transactions = new List<(DateTime Date, string Type, string Reference, string Description, decimal Debit, decimal Credit)>();
+
+            if (invoices != null)
             {
-                var invoiceTitle = new Paragraph("INVOICES")
-                    .SetFont(_boldFont)
-                    .SetFontSize(11)
-                    .SetFontColor(PrimaryColor)
-                    .SetMarginTop(10)
-                    .SetMarginBottom(10);
-                document.Add(invoiceTitle);
-
-                var invoiceTable = new Table(new float[] { 1.2f, 1.2f, 1.2f, 2.5f, 1.5f, 1f })
-                    .SetWidth(UnitValue.CreatePercentValue(100))
-                    .SetMarginBottom(15);
-
-                // Headers
-                AddModernHeader(invoiceTable, "Invoice #");
-                AddModernHeader(invoiceTable, "Date");
-                AddModernHeader(invoiceTable, "Due Date");
-                AddModernHeader(invoiceTable, "Description");
-                AddModernHeader(invoiceTable, "Amount");
-                AddModernHeader(invoiceTable, "Status");
-
-                // Data rows
-                var rowIndex = 0;
-                foreach (var invoice in invoices.OrderByDescending(i => i.DocDate).Take(100))
+                foreach (var inv in invoices)
                 {
-                    var isAlternate = rowIndex % 2 == 1;
-                    var status = invoice.DocStatus == "O" ? "Open" : "Closed";
-                    var statusColor = invoice.DocStatus == "O" ? DangerColor : SuccessColor;
-
-                    AddDataCell(invoiceTable, invoice.DocNum.ToString(), isAlternate);
-                    AddDataCell(invoiceTable, FormatDate(invoice.DocDate), isAlternate);
-                    AddDataCell(invoiceTable, FormatDate(invoice.DocDueDate), isAlternate);
-                    AddDataCell(invoiceTable, TruncateText(invoice.Remarks ?? invoice.Comments ?? "-", 40), isAlternate);
-                    AddDataCell(invoiceTable, $"{invoice.DocTotal:N2}", isAlternate, TextAlignment.RIGHT);
-                    AddStatusCell(invoiceTable, status, statusColor, isAlternate);
-
-                    rowIndex++;
+                    var date = DateTime.TryParse(inv.DocDate, out var d) ? d : DateTime.MinValue;
+                    var description = !string.IsNullOrEmpty(inv.Remarks) ? inv.Remarks
+                        : !string.IsNullOrEmpty(inv.Comments) ? inv.Comments
+                        : "Invoice";
+                    transactions.Add((date, "Invoice", $"INV-{inv.DocNum}", TruncateText(description, 35), inv.DocTotal, 0));
                 }
-
-                document.Add(invoiceTable);
             }
 
-            // Payments Table
-            if (payments != null && payments.Any())
+            if (payments != null)
             {
-                var paymentTitle = new Paragraph("PAYMENTS RECEIVED")
-                    .SetFont(_boldFont)
-                    .SetFontSize(11)
-                    .SetFontColor(PrimaryColor)
-                    .SetMarginTop(10)
-                    .SetMarginBottom(10);
-                document.Add(paymentTitle);
-
-                var paymentTable = new Table(new float[] { 1.2f, 1.2f, 1.5f, 3f, 1.5f })
-                    .SetWidth(UnitValue.CreatePercentValue(100))
-                    .SetMarginBottom(15);
-
-                // Headers
-                AddModernHeader(paymentTable, "Receipt #");
-                AddModernHeader(paymentTable, "Date");
-                AddModernHeader(paymentTable, "Type");
-                AddModernHeader(paymentTable, "Reference");
-                AddModernHeader(paymentTable, "Amount");
-
-                // Data rows
-                var rowIndex = 0;
-                foreach (var payment in payments.OrderByDescending(p => p.DocDate).Take(100))
+                foreach (var pmt in payments)
                 {
-                    var isAlternate = rowIndex % 2 == 1;
-                    var type = DeterminePaymentType(payment);
-
-                    AddDataCell(paymentTable, payment.DocNum.ToString(), isAlternate);
-                    AddDataCell(paymentTable, FormatDate(payment.DocDate), isAlternate);
-                    AddDataCell(paymentTable, type, isAlternate);
-                    AddDataCell(paymentTable, TruncateText(payment.Remarks ?? "-", 50), isAlternate);
-                    AddDataCell(paymentTable, $"{payment.DocTotal:N2}", isAlternate, TextAlignment.RIGHT, SuccessColor);
-
-                    rowIndex++;
+                    var date = DateTime.TryParse(pmt.DocDate, out var d) ? d : DateTime.MinValue;
+                    var type = DeterminePaymentType(pmt);
+                    var reference = !string.IsNullOrEmpty(pmt.TransferReference) ? pmt.TransferReference : $"RCT-{pmt.DocNum}";
+                    var description = !string.IsNullOrEmpty(pmt.Remarks) ? pmt.Remarks : $"Payment - {type}";
+                    transactions.Add((date, "Payment", TruncateText(reference, 18), TruncateText(description, 35), 0, pmt.DocTotal));
                 }
-
-                document.Add(paymentTable);
             }
+
+            // Sort chronologically
+            transactions = transactions.OrderBy(t => t.Date).ThenBy(t => t.Type == "Invoice" ? 0 : 1).ToList();
+
+            // Create the ledger table
+            var ledgerTable = new Table(new float[] { 1.1f, 1.2f, 1.4f, 2.2f, 1.2f, 1.2f, 1.2f })
+                .SetWidth(UnitValue.CreatePercentValue(100))
+                .SetMarginBottom(15);
+
+            // Headers
+            AddModernHeader(ledgerTable, "Date");
+            AddModernHeader(ledgerTable, "Type");
+            AddModernHeader(ledgerTable, "Reference");
+            AddModernHeader(ledgerTable, "Description");
+            AddModernHeader(ledgerTable, "Debit");
+            AddModernHeader(ledgerTable, "Credit");
+            AddModernHeader(ledgerTable, "Balance");
+
+            // Calculate opening balance
+            var totalInvoiced = invoices?.Sum(i => i.DocTotal) ?? 0;
+            var totalPaid = payments?.Sum(p => p.DocTotal) ?? 0;
+            var currentBalance = customer.Balance ?? 0;
+            var openingBalance = currentBalance - totalInvoiced + totalPaid;
+            var runningBalance = openingBalance;
+
+            // Opening balance row
+            AddLedgerCell(ledgerTable, fromDate.ToString("dd MMM yyyy"), false, TextAlignment.LEFT, null, true);
+            AddLedgerCell(ledgerTable, "", false, TextAlignment.LEFT, null, true);
+            AddLedgerCell(ledgerTable, "", false, TextAlignment.LEFT, null, true);
+            AddLedgerCell(ledgerTable, "Opening Balance", false, TextAlignment.LEFT, null, true);
+            AddLedgerCell(ledgerTable, "", false, TextAlignment.RIGHT, null, true);
+            AddLedgerCell(ledgerTable, "", false, TextAlignment.RIGHT, null, true);
+            AddLedgerCell(ledgerTable, $"{openingBalance:N2}", false, TextAlignment.RIGHT, openingBalance > 0 ? DangerColor : SuccessColor, true);
+
+            // Transaction rows
+            var rowIndex = 0;
+            foreach (var txn in transactions)
+            {
+                var isAlternate = rowIndex % 2 == 1;
+
+                // Update running balance: debits increase, credits decrease
+                runningBalance += txn.Debit - txn.Credit;
+
+                AddLedgerCell(ledgerTable, txn.Date.ToString("dd MMM yyyy"), isAlternate);
+                AddLedgerCell(ledgerTable, txn.Type, isAlternate, TextAlignment.LEFT, txn.Type == "Invoice" ? DangerColor : SuccessColor);
+                AddLedgerCell(ledgerTable, txn.Reference, isAlternate);
+                AddLedgerCell(ledgerTable, txn.Description, isAlternate);
+                AddLedgerCell(ledgerTable, txn.Debit > 0 ? $"{txn.Debit:N2}" : "-", isAlternate, TextAlignment.RIGHT, txn.Debit > 0 ? DangerColor : TextMuted);
+                AddLedgerCell(ledgerTable, txn.Credit > 0 ? $"{txn.Credit:N2}" : "-", isAlternate, TextAlignment.RIGHT, txn.Credit > 0 ? SuccessColor : TextMuted);
+                AddLedgerCell(ledgerTable, $"{runningBalance:N2}", isAlternate, TextAlignment.RIGHT, runningBalance > 0 ? DangerColor : SuccessColor);
+
+                rowIndex++;
+            }
+
+            // Totals row
+            var totalDebit = transactions.Sum(t => t.Debit);
+            var totalCredit = transactions.Sum(t => t.Credit);
+
+            AddLedgerTotalCell(ledgerTable, "");
+            AddLedgerTotalCell(ledgerTable, "");
+            AddLedgerTotalCell(ledgerTable, "");
+            AddLedgerTotalCell(ledgerTable, "TOTALS");
+            AddLedgerTotalCell(ledgerTable, $"{totalDebit:N2}", DangerColor);
+            AddLedgerTotalCell(ledgerTable, $"{totalCredit:N2}", SuccessColor);
+            AddLedgerTotalCell(ledgerTable, $"{runningBalance:N2}", runningBalance > 0 ? DangerColor : SuccessColor);
+
+            document.Add(ledgerTable);
+
+            // Closing balance note
+            var closingNote = new Paragraph($"Closing Balance: {customer.Currency ?? "USD"} {runningBalance:N2}")
+                .SetFont(_boldFont)
+                .SetFontSize(10)
+                .SetFontColor(runningBalance > 0 ? DangerColor : SuccessColor)
+                .SetTextAlignment(TextAlignment.RIGHT)
+                .SetMarginBottom(10);
+            document.Add(closingNote);
+        }
+
+        private void AddLedgerCell(Table table, string text, bool isAlternate, TextAlignment alignment = TextAlignment.LEFT, Color? textColor = null, bool isBold = false)
+        {
+            var cell = new Cell()
+                .SetBorder(new SolidBorder(new DeviceRgb(222, 226, 230), 0.5f))
+                .SetPadding(5);
+
+            if (isAlternate)
+                cell.SetBackgroundColor(AlternateRowColor);
+
+            var para = new Paragraph(text)
+                .SetFont(isBold ? _boldFont : _regularFont)
+                .SetFontSize(8)
+                .SetFontColor(textColor ?? TextDark)
+                .SetTextAlignment(alignment);
+
+            cell.Add(para);
+            table.AddCell(cell);
+        }
+
+        private void AddLedgerTotalCell(Table table, string text, Color? textColor = null)
+        {
+            var cell = new Cell()
+                .SetBorder(new SolidBorder(new DeviceRgb(222, 226, 230), 0.5f))
+                .SetBorderTop(new SolidBorder(PrimaryColor, 1.5f))
+                .SetPadding(6)
+                .SetBackgroundColor(HeaderBgColor);
+
+            var para = new Paragraph(text)
+                .SetFont(_boldFont)
+                .SetFontSize(9)
+                .SetFontColor(textColor ?? PrimaryColor)
+                .SetTextAlignment(string.IsNullOrEmpty(text) ? TextAlignment.LEFT : TextAlignment.RIGHT);
+
+            cell.Add(para);
+            table.AddCell(cell);
         }
 
         private void AddModernHeader(Table table, string text)
