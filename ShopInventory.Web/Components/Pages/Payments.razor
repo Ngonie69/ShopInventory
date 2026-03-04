@@ -9,152 +9,123 @@
 
 <div class="page-shell">
     <div class="container-fluid">
-        <div class="page-hero">
-            <div>
-                <h2 class="page-title mb-1"><i class="bi bi-cash-stack me-2 text-primary"></i>Incoming Payments</h2>
-                <p class="page-subtitle">Review incoming receipts and applied invoices</p>
-            </div>
-        </div>
-
-        <div class="card page-card mb-4">
-            <div class="card-header">
-                <h5><i class="bi bi-funnel me-2"></i>Filter</h5>
-            </div>
-            <div class="card-body p-4">
-                <div class="row g-3 align-items-end">
-                    <div class="col-md-2">
-                        <label class="form-label">Doc Number</label>
-                        <input type="number" class="form-control" @bind="docNum" placeholder="e.g., 123" />
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label">Customer Code</label>
-                        <input type="text" class="form-control" @bind="customerCode" placeholder="e.g., C001" />
-                    </div>
-                    <div class="col-md-3">
-                        <FlexibleDatePicker Label="From Date" @bind-Date="fromDate" Class="w-100" />
-                    </div>
-                    <div class="col-md-3">
-                        <FlexibleDatePicker Label="To Date" @bind-Date="toDate" Class="w-100" />
-                    </div>
-                    <div class="col-md-2 d-flex align-items-end">
-                        <div class="d-flex gap-2">
-                            <button class="btn btn-page-primary" @onclick="ApplyFilter">
-                                <i class="bi bi-search me-1"></i>Search
-                            </button>
-                            <button class="btn btn-outline-secondary" @onclick="ClearFilter">
-                                <i class="bi bi-x-circle me-1"></i>Clear
-                            </button>
-                        </div>
-                    </div>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div class="d-flex align-items-center gap-3">
+                <div class="page-header-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.Payments" />
                 </div>
-                <div class="row g-3 mt-3">
-                    <div class="col-md-2">
-                        <label class="form-label">Records per page</label>
-                        <select class="form-select" @bind="pageSize" @bind:after="OnPageSizeChanged">
-                            <option value="10">10</option>
-                            <option value="20">20</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                        </select>
-                    </div>
+                <div>
+                    <MudText Typo="Typo.h4" Class="fw-bold" Style="letter-spacing: -0.5px;">Incoming Payments</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Review incoming receipts and applied invoices</MudText>
                 </div>
             </div>
         </div>
 
-    @if (isLoading)
-    {
-        <div class="text-center py-5">
-            <div class="spinner-border text-success" role="status">
-                <span class="visually-hidden">Loading...</span>
+        <div class="filter-panel">
+            <div class="filter-panel-header">
+                <MudIcon Icon="@Icons.Material.Filled.Tune" />
+                <MudText Typo="Typo.subtitle2" Style="color: white; font-weight: 600;">Search & Filter</MudText>
             </div>
-            <p class="mt-2">Loading payments...</p>
+            <div class="filter-panel-body">
+                <MudGrid Spacing="3">
+                    <MudItem xs="12" md="3">
+                        <MudNumericField T="int?" @bind-Value="docNum" Label="Doc Number" Variant="Variant.Filled"
+                            Margin="Margin.Dense" Placeholder="e.g., 123" Clearable="true"
+                            Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Tag" />
+                    </MudItem>
+                    <MudItem xs="12" md="3">
+                        <MudTextField T="string" @bind-Value="customerCode" Label="Customer Code" Variant="Variant.Filled"
+                            Margin="Margin.Dense" Placeholder="e.g., C001" Clearable="true"
+                            Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Person" />
+                    </MudItem>
+                    <MudItem xs="12" md="2">
+                        <FlexibleDatePicker Label="From Date" @bind-Date="fromDate" Variant="Variant.Filled" Class="w-100" />
+                    </MudItem>
+                    <MudItem xs="12" md="2">
+                        <FlexibleDatePicker Label="To Date" @bind-Date="toDate" Variant="Variant.Filled" Class="w-100" />
+                    </MudItem>
+                    <MudItem xs="12" md="2" Class="d-flex align-items-end gap-2 filter-actions">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Search"
+                            OnClick="ApplyFilter">Search</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Clear"
+                            OnClick="ClearFilter">Clear</MudButton>
+                    </MudItem>
+                </MudGrid>
+            </div>
         </div>
-    }
-    else if (errorMessage != null)
-    {
-        <div class="alert @(isTimeoutError ? "alert-warning" : "alert-danger")">
-            <i class="bi @(isTimeoutError ? "bi-clock-history" : "bi-exclamation-triangle") me-2"></i>@errorMessage
-            @if (isTimeoutError)
-            {
-                <button class="btn btn-sm btn-warning ms-3" @onclick="RetryLoad">
-                    <i class="bi bi-arrow-clockwise me-1"></i>Try Again
-                </button>
-            }
-        </div>
-    }
-    else if (payments?.Any() == true)
-    {
-        <div class="card page-card">
-            <div class="card-body p-4">
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle page-table">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Doc Entry</th>
-                                <th>Doc #</th>
-                                <th>Customer</th>
-                                <th>Date</th>
-                                <th>Currency</th>
-                                <th class="text-end">Cash</th>
-                                <th class="text-end">Check</th>
-                                <th class="text-end">Transfer</th>
-                                <th class="text-end">Credit</th>
-                                <th class="text-end">Total</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var payment in payments)
-                            {
-                                <tr>
-                                    <td>@payment.DocEntry</td>
-                                    <td><strong>@payment.DocNum</strong></td>
-                                    <td>
-                                        <span class="badge bg-secondary">@payment.CardCode</span>
-                                        @payment.CardName
-                                    </td>
-                                    <td>@FormatDate(payment.DocDate)</td>
-                                    <td>@payment.DocCurrency</td>
-                                    <td class="text-end">@FormatAmount(payment.CashSum)</td>
-                                    <td class="text-end">@FormatAmount(payment.CheckSum)</td>
-                                    <td class="text-end">@FormatAmount(payment.TransferSum)</td>
-                                    <td class="text-end">@FormatAmount(payment.CreditSum)</td>
-                                    <td class="text-end"><strong class="text-success">@payment.DocTotal.ToString("N2")</strong>
-                                    </td>
-                                    <td>
-                                        <button class="btn btn-sm btn-outline-success" @onclick="() => ViewPayment(payment)">
-                                            <i class="bi bi-eye"></i>
-                                        </button>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
 
-                <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
-                    <div>
-                        Showing @payments.Count payments (Page @currentPage)
-                    </div>
-                    <div>
-                        <button class="btn btn-outline-success btn-sm me-2" @onclick="PreviousPage"
-                                disabled="@(currentPage <= 1)">
-                            <i class="bi bi-chevron-left"></i> Previous
-                        </button>
-                        <button class="btn btn-outline-success btn-sm" @onclick="NextPage" disabled="@(!hasMore)">
-                            Next <i class="bi bi-chevron-right"></i>
-                        </button>
-                    </div>
+        @if (isLoading)
+        {
+            <div class="d-flex flex-column align-items-center py-5">
+                <MudProgressCircular Color="Color.Success" Indeterminate="true" />
+                <MudText Typo="Typo.body2" Class="mt-2">Loading payments...</MudText>
+            </div>
+        }
+        else if (errorMessage != null)
+        {
+            <MudAlert Severity="@(isTimeoutError ? Severity.Warning : Severity.Error)" Class="mb-4">
+                @errorMessage
+                @if (isTimeoutError)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Warning" Size="Size.Small" Class="ms-3"
+                        StartIcon="@Icons.Material.Filled.Refresh" OnClick="RetryLoad">Try Again</MudButton>
+                }
+            </MudAlert>
+        }
+        else if (payments?.Any() == true)
+        {
+            <div class="card page-card">
+                <div class="card-body p-4">
+                    <MudTable Items="@payments" Dense="true" Hover="true" Striped="true" T="IncomingPaymentDto">
+                        <ToolBarContent>
+                            <MudText Typo="Typo.h6">Incoming Payments</MudText>
+                            <MudSpacer />
+                        </ToolBarContent>
+                        <HeaderContent>
+                            <MudTh>Doc Entry</MudTh>
+                            <MudTh>Doc #</MudTh>
+                            <MudTh>Customer</MudTh>
+                            <MudTh>Date</MudTh>
+                            <MudTh>Currency</MudTh>
+                            <MudTh Style="text-align:right">Cash</MudTh>
+                            <MudTh Style="text-align:right">Check</MudTh>
+                            <MudTh Style="text-align:right">Transfer</MudTh>
+                            <MudTh Style="text-align:right">Credit</MudTh>
+                            <MudTh Style="text-align:right">Total</MudTh>
+                            <MudTh>Actions</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Doc Entry">@context.DocEntry</MudTd>
+                            <MudTd DataLabel="Doc #"><strong>@context.DocNum</strong></MudTd>
+                            <MudTd DataLabel="Customer">
+                                <MudChip T="string" Color="Color.Default" Size="Size.Small">@context.CardCode</MudChip>
+                                @context.CardName
+                            </MudTd>
+                            <MudTd DataLabel="Date">@FormatDate(context.DocDate)</MudTd>
+                            <MudTd DataLabel="Currency">@context.DocCurrency</MudTd>
+                            <MudTd DataLabel="Cash" Style="text-align:right">@FormatAmount(context.CashSum)</MudTd>
+                            <MudTd DataLabel="Check" Style="text-align:right">@FormatAmount(context.CheckSum)</MudTd>
+                            <MudTd DataLabel="Transfer" Style="text-align:right">@FormatAmount(context.TransferSum)</MudTd>
+                            <MudTd DataLabel="Credit" Style="text-align:right">@FormatAmount(context.CreditSum)</MudTd>
+                            <MudTd DataLabel="Total" Style="text-align:right">
+                                <strong class="text-success">@context.DocTotal.ToString("N2")</strong>
+                            </MudTd>
+                            <MudTd DataLabel="Actions">
+                                <MudIconButton Icon="@Icons.Material.Filled.Visibility" Color="Color.Success" Size="Size.Small"
+                                    OnClick="@(() => ViewPayment(context))" Title="View payment details" />
+                            </MudTd>
+                        </RowTemplate>
+                        <PagerContent>
+                            <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+                        </PagerContent>
+                    </MudTable>
                 </div>
             </div>
-        </div>
-    }
-    else
-    {
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle me-2"></i>No payments found.
-        </div>
-    }
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Info" Class="mb-4">No payments found.</MudAlert>
+        }
     </div>
 </div>
 
@@ -329,7 +300,7 @@
             else
             {
                 Logger.LogWarning("Payments page: GetPaymentsAsync returned null");
-                errorMessage = "Failed to load payments";
+                errorMessage = "Failed to load payments. Check if the API is running.";
             }
         }
         catch (TimeoutException ex)
@@ -337,6 +308,23 @@
             Logger.LogWarning(ex, "Payments page: Timeout loading payments");
             errorMessage = "The request timed out while loading payments. SAP may be responding slowly.";
             isTimeoutError = true;
+        }
+        catch (HttpRequestException ex)
+        {
+            Logger.LogError(ex, "Payments page: HTTP error loading payments");
+            if (ex.Message.Contains("502") || ex.Message.Contains("503") || ex.Message.Contains("504") || ex.Message.Contains("Gateway"))
+            {
+                errorMessage = "Gateway error - the API or SAP server is not responding. Please try again in a moment.";
+                isTimeoutError = true;
+            }
+            else if (ex.Message.Contains("Connection refused") || ex.Message.Contains("No connection"))
+            {
+                errorMessage = "Cannot connect to the API server. Please check if the service is running.";
+            }
+            else
+            {
+                errorMessage = $"Network error: {ex.Message}";
+            }
         }
         catch (Exception ex)
         {

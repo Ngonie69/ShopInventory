@@ -60,6 +60,7 @@ public interface ISAPServiceLayerClient
     Task<Item?> GetItemByCodeAsync(string itemCode, CancellationToken cancellationToken = default);
     Task<List<BatchNumber>> GetBatchNumbersForItemInWarehouseAsync(string itemCode, string warehouseCode, CancellationToken cancellationToken = default);
     Task<List<BatchNumber>> GetAllBatchNumbersInWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
+    Task<List<SerialNumber>> GetSerialNumbersForItemInWarehouseAsync(string itemCode, string warehouseCode, CancellationToken cancellationToken = default);
 
     // Price Operations (Legacy - deprecated)
     [Obsolete("Use GetPricesByPriceListAsync with specific price list number instead")]
@@ -146,7 +147,9 @@ public interface ISAPServiceLayerClient
     Task<SAPSalesOrder?> GetSalesOrderByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetSalesOrdersByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetSalesOrdersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<List<SAPSalesOrder>> GetSalesOrderHeadersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<int> GetSalesOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+    Task<List<Dictionary<string, object?>>> ExecuteRawSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken = default);
 
     // Credit Note/Credit Memo Operations (from SAP)
     Task<List<SAPCreditNote>> GetCreditNotesAsync(CancellationToken cancellationToken = default);

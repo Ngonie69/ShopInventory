@@ -10,328 +10,296 @@
 
 <div class="page-shell">
     <div class="container-fluid">
-        <div class="page-hero">
-            <div>
-                <h2 class="page-title mb-1"><i class="bi bi-cart-check me-2 text-primary"></i>Sales Orders</h2>
-                <p class="page-subtitle">Track order status and fulfillment</p>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div class="d-flex align-items-center gap-3">
+                <div class="page-header-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.ShoppingCart" />
+                </div>
+                <div>
+                    <MudText Typo="Typo.h4" Class="fw-bold" Style="letter-spacing: -0.5px;">Sales Orders</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Track order status and fulfillment</MudText>
+                </div>
             </div>
-            <button class="btn btn-page-primary" @onclick="() => showCreateModal = true">
-                <i class="bi bi-plus-circle me-2"></i>New Sales Order
-            </button>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="@(() => showCreateModal = true)" Style="border-radius: 12px; text-transform: none; font-weight: 600; padding: 8px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                New Sales Order
+            </MudButton>
         </div>
 
         <!-- Filters -->
-        <div class="card page-card mb-4">
-            <div class="card-header">
-                <h5><i class="bi bi-funnel me-2"></i>Filter</h5>
+        <div class="filter-panel">
+            <div class="filter-panel-header">
+                <MudIcon Icon="@Icons.Material.Filled.Tune" />
+                <MudText Typo="Typo.subtitle2" Style="color: white; font-weight: 600;">Search & Filter</MudText>
             </div>
-            <div class="card-body p-4">
-                <div class="row g-3 align-items-end">
-                    <div class="col-md-2">
-                        <label class="form-label">Order Number</label>
-                        <input type="text" class="form-control" @bind="orderNumberFilter" placeholder="e.g., SO-001" />
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label">Customer</label>
-                        <input type="text" class="form-control" @bind="customerFilter" placeholder="Customer code" />
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label">Status</label>
-                        <select class="form-select" @bind="statusFilter">
-                            <option value="">All Statuses</option>
+            <div class="filter-panel-body">
+                <MudGrid Spacing="3">
+                    <MudItem xs="12" md="2">
+                        <MudTextField T="string" @bind-Value="orderNumberFilter" Label="Order Number" Variant="Variant.Filled"
+                            Margin="Margin.Dense" Placeholder="e.g., SO-001" Clearable="true"
+                            Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Tag" />
+                    </MudItem>
+                    <MudItem xs="12" md="2">
+                        <MudTextField T="string" @bind-Value="customerFilter" Label="Customer" Variant="Variant.Filled"
+                            Margin="Margin.Dense" Placeholder="Customer code" Clearable="true"
+                            Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Person" />
+                    </MudItem>
+                    <MudItem xs="12" md="2">
+                        <MudSelect T="string" @bind-Value="statusFilter" Label="Status" Variant="Variant.Filled"
+                            Margin="Margin.Dense" AnchorOrigin="Origin.BottomCenter"
+                            AdornmentIcon="@Icons.Material.Filled.Flag">
+                            <MudSelectItem T="string" Value="@("")">All Statuses</MudSelectItem>
                             @foreach (SalesOrderStatus status in Enum.GetValues(typeof(SalesOrderStatus)))
                             {
-                                <option value="@((int)status)">@status</option>
+                                <MudSelectItem T="string" Value="@(((int)status).ToString())">@status</MudSelectItem>
                             }
-                        </select>
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label">From Date</label>
-                        <input type="date" class="form-control" @bind="fromDate" />
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label">To Date</label>
-                        <input type="date" class="form-control" @bind="toDate" />
-                    </div>
-                    <div class="col-md-2 d-flex align-items-end">
-                        <div class="d-flex gap-2">
-                            <button class="btn btn-page-primary" @onclick="ApplyFilter">
-                                <i class="bi bi-search me-1"></i>Search
-                            </button>
-                            <button class="btn btn-outline-secondary" @onclick="ClearFilter">
-                                <i class="bi bi-x-circle me-1"></i>Clear
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                <div class="row g-3 mt-3">
-                    <div class="col-md-2">
-                        <label class="form-label">Records per page</label>
-                        <select class="form-select" @bind="pageSize" @bind:after="OnPageSizeChanged">
-                            <option value="10">10</option>
-                            <option value="20">20</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                        </select>
-                    </div>
-                </div>
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" md="2">
+                        <FlexibleDatePicker Label="From Date" @bind-Date="fromDate" Variant="Variant.Filled" />
+                    </MudItem>
+                    <MudItem xs="12" md="2">
+                        <FlexibleDatePicker Label="To Date" @bind-Date="toDate" Variant="Variant.Filled" />
+                    </MudItem>
+                    <MudItem xs="12" md="2" Class="d-flex align-items-end gap-2 filter-actions">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Search"
+                            OnClick="ApplyFilter">Search</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Clear"
+                            OnClick="ClearFilter">Clear</MudButton>
+                    </MudItem>
+                </MudGrid>
             </div>
         </div>
 
-    @if (isLoading)
-    {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
+        @if (isLoading)
+        {
+            <div class="d-flex flex-column align-items-center py-5">
+                <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                <MudText Typo="Typo.body2" Class="mt-2">Loading sales orders...</MudText>
             </div>
-            <p class="mt-2">Loading sales orders...</p>
-        </div>
-    }
-    else if (errorMessage != null)
-    {
-        <div class="alert alert-danger">
-            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
-        </div>
-    }
-    else if (orders?.Any() == true)
-    {
-        <div class="card page-card">
-            <div class="card-body p-4">
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle page-table">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Doc Entry</th>
-                                <th>Doc #</th>
-                                <th>Customer</th>
-                                <th>Order Date</th>
-                                <th>Delivery Date</th>
-                                <th>Status</th>
-                                <th>Currency</th>
-                                <th class="text-end">Total</th>
-                                <th>Synced</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var order in orders)
-                            {
-                                <tr>
-                                    <td>@order.SAPDocEntry</td>
-                                    <td><strong>@order.SAPDocNum</strong></td>
-                                    <td>
-                                        <span class="badge bg-secondary">@order.CardCode</span>
-                                        <small class="d-block text-muted">@order.CardName</small>
-                                    </td>
-                                    <td>@order.OrderDate.ToString("dd MMM yyyy")</td>
-                                    <td>@(order.DeliveryDate?.ToString("dd MMM yyyy") ?? "-")</td>
-                                    <td>
-                                        <span class="badge @GetStatusBadgeClass(order.Status)">@order.StatusName</span>
-                                    </td>
-                                    <td>@order.Currency</td>
-                                    <td class="text-end"><strong>@order.DocTotal.ToString("N2")</strong></td>
-                                    <td>
-                                        @if (order.IsSynced)
+        }
+        else if (errorMessage != null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-4">@errorMessage</MudAlert>
+        }
+        else if (orders?.Any() == true)
+        {
+            <div class="card page-card">
+                <div class="card-body p-4">
+                    <MudTable Items="@orders" Dense="true" Hover="true" Striped="true" T="SalesOrderDto">
+                        <ToolBarContent>
+                            <MudText Typo="Typo.h6">Sales Orders</MudText>
+                            <MudSpacer />
+                            <MudText Typo="Typo.body2" Class="text-muted">@totalCount total records</MudText>
+                        </ToolBarContent>
+                        <HeaderContent>
+                            <MudTh>Doc Entry</MudTh>
+                            <MudTh>Doc #</MudTh>
+                            <MudTh>Customer</MudTh>
+                            <MudTh>Order Date</MudTh>
+                            <MudTh>Delivery Date</MudTh>
+                            <MudTh>Status</MudTh>
+                            <MudTh>Currency</MudTh>
+                            <MudTh Style="text-align:right">Total</MudTh>
+                            <MudTh>Synced</MudTh>
+                            <MudTh>Actions</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Doc Entry">@context.SAPDocEntry</MudTd>
+                            <MudTd DataLabel="Doc #"><strong>@context.SAPDocNum</strong></MudTd>
+                            <MudTd DataLabel="Customer">
+                                <MudChip T="string" Color="Color.Default" Size="Size.Small">@context.CardCode</MudChip>
+                                <small class="d-block text-muted">@context.CardName</small>
+                            </MudTd>
+                            <MudTd DataLabel="Order Date">@context.OrderDate.ToString("dd MMM yyyy")</MudTd>
+                            <MudTd DataLabel="Delivery Date">@(context.DeliveryDate?.ToString("dd MMM yyyy") ?? "-")</MudTd>
+                            <MudTd DataLabel="Status">
+                                <span class="badge @GetStatusBadgeClass(context.Status)">@context.StatusName</span>
+                            </MudTd>
+                            <MudTd DataLabel="Currency">@context.Currency</MudTd>
+                            <MudTd DataLabel="Total" Style="text-align:right">
+                                <strong>@context.DocTotal.ToString("N2")</strong></MudTd>
+                                <MudTd DataLabel="Synced">
+                                    @if (context.IsSynced)
+                                    {
+                                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success"
+                                                 Size="Size.Small" />
+                                    }
+                                    else
+                                    {
+                                        <MudIcon Icon="@Icons.Material.Filled.Schedule" Color="Color.Warning" Size="Size.Small" />
+                                    }
+                                </MudTd>
+                                <MudTd DataLabel="Actions">
+                                    <div class="d-flex gap-1">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Visibility" Color="Color.Primary"
+                                                       Size="Size.Small" OnClick="@(() => ViewOrder(context))" Title="View Details" />
+                                        @if (!context.IsSynced)
                                         {
-                                            <i class="bi bi-check-circle text-success" title="Synced to SAP"></i>
-                                        }
-                                        else
-                                        {
-                                            <i class="bi bi-clock text-warning" title="Pending sync"></i>
-                                        }
-                                    </td>
-                                    <td>
-                                        <div class="btn-group btn-group-sm">
-                                            <button class="btn btn-outline-primary" @onclick="() => ViewOrder(order)"
-                                                title="View Details">
-                                                <i class="bi bi-eye"></i>
-                                            </button>
-                                            @* Only show action buttons for local orders (not synced from SAP) *@
-                                                    @if (!order.IsSynced)
+                                            @if (context.Status == SalesOrderStatus.Pending)
                                             {
-                                                @if (order.Status == SalesOrderStatus.Pending)
-                                                {
-                                                    <button class="btn btn-outline-success" @onclick="() => ApproveOrder(order.Id)"
-                                                        title="Approve">
-                                                        <i class="bi bi-check-lg"></i>
-                                                    </button>
-                                                }
-                                                @if (order.Status == SalesOrderStatus.Approved)
-                                                {
-                                                    <button class="btn btn-outline-info" @onclick="() => ConvertToInvoice(order.Id)"
-                                                        title="Convert to Invoice">
-                                                        <i class="bi bi-receipt"></i>
-                                                    </button>
-                                                }
-                                                @if (order.Status == SalesOrderStatus.Draft || order.Status ==
-                                                                                    SalesOrderStatus.Cancelled)
-                                                {
-                                                    <button class="btn btn-outline-danger" @onclick="() => DeleteOrder(order.Id)"
-                                                        title="Delete">
-                                                        <i class="bi bi-trash"></i>
-                                                    </button>
-                                                }
+                                                <MudIconButton Icon="@Icons.Material.Filled.Check" Color="Color.Success"
+                                                               Size="Size.Small" OnClick="@(() => ApproveOrder(context.Id))" Title="Approve" />
                                             }
-                                        </div>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Pagination -->
-                @if (totalPages > 1)
-                {
-                    <div class="d-flex flex-column align-items-center mt-4">
-                        <MudPagination Color="Color.Primary" Count="totalPages" Selected="currentPage"
-                            SelectedChanged="OnPageChanged" ShowFirstButton="true" ShowLastButton="true" />
-                        <div class="text-muted small mt-2">
-                            Page @currentPage of @totalPages (@totalCount total records)
-                        </div>
+                                            @if (context.Status == SalesOrderStatus.Approved)
+                                            {
+                                                <MudIconButton Icon="@Icons.Material.Filled.Receipt" Color="Color.Info"
+                                                               Size="Size.Small" OnClick="@(() => ConvertToInvoice(context.Id))"
+                                                               Title="Convert to Invoice" />
+                                            }
+                                            @if (context.Status == SalesOrderStatus.Draft || context.Status ==
+                                                                            SalesOrderStatus.Cancelled)
+                                            {
+                                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                                                               Size="Size.Small" OnClick="@(() => DeleteOrder(context.Id))" Title="Delete" />
+                                            }
+                                        }
+                                    </div>
+                                </MudTd>
+                            </RowTemplate>
+                            <PagerContent>
+                                <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+                            </PagerContent>
+                        </MudTable>
                     </div>
-                }
-            </div>
+                </div>
+            }
+        else
+            {
+                <MudAlert Severity="Severity.Info" Class="mb-4">No sales orders found.</MudAlert>
+            }
         </div>
-    }
-    else
+    </div>
+
+    <!-- View Order Modal -->
+    @if (selectedOrder != null)
     {
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle me-2"></i>No sales orders found.
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i class="bi bi-cart-check me-2"></i>Sales Order: @selectedOrder.OrderNumber
+                        </h5>
+                        <button type="button" class="btn-close" @onclick="() => selectedOrder = null"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <p><strong>Customer:</strong> @selectedOrder.CardCode - @selectedOrder.CardName</p>
+                                <p><strong>Order Date:</strong> @selectedOrder.OrderDate.ToString("dd MMM yyyy")</p>
+                                <p><strong>Delivery Date:</strong> @(selectedOrder.DeliveryDate?.ToString("dd MMM yyyy") ?? "Not                          set")</p>
+                            </div>
+                            <div class="col-md-6">
+                                <p><strong>Status:</strong> <span
+                                    class="badge @GetStatusBadgeClass(selectedOrder.Status)">@selectedOrder.StatusName</span>
+                                </p>
+                                <p><strong>Currency:</strong> @selectedOrder.Currency</p>
+                                <p><strong>Created By:</strong> @selectedOrder.CreatedByUserName</p>
+                            </div>
+                        </div>
+
+                        @if (selectedOrder.Lines?.Any() == true)
+                        {
+                            <h6>Order Lines</h6>
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Item</th>
+                                        <th>Description</th>
+                                        <th class="text-end">Qty</th>
+                                        <th class="text-end">Unit Price</th>
+                                        <th class="text-end">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var line in selectedOrder.Lines)
+                                    {
+                                        <tr>
+                                            <td>@line.ItemCode</td>
+                                            <td>@line.ItemDescription</td>
+                                            <td class="text-end">@line.Quantity</td>
+                                            <td class="text-end">@line.UnitPrice.ToString("N2")</td>
+                                            <td class="text-end">@line.LineTotal.ToString("N2")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                <tfoot>
+                                    <tr>
+                                        <td colspan="4" class="text-end"><strong>Subtotal:</strong></td>
+                                        <td class="text-end">@selectedOrder.SubTotal.ToString("N2")</td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="4" class="text-end"><strong>Tax:</strong></td>
+                                        <td class="text-end">@selectedOrder.TaxAmount.ToString("N2")</td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="4" class="text-end"><strong>Total:</strong></td>
+                                        <td class="text-end"><strong>@selectedOrder.DocTotal.ToString("N2")</strong></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="() => selectedOrder = null">Close</button>
+                    </div>
+                </div>
+            </div>
         </div>
     }
-    </div>
-</div>
 
-<!-- View Order Modal -->
-@if (selectedOrder != null)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">
-                        <i class="bi bi-cart-check me-2"></i>Sales Order: @selectedOrder.OrderNumber
-                    </h5>
-                    <button type="button" class="btn-close" @onclick="() => selectedOrder = null"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <p><strong>Customer:</strong> @selectedOrder.CardCode - @selectedOrder.CardName</p>
-                            <p><strong>Order Date:</strong> @selectedOrder.OrderDate.ToString("dd MMM yyyy")</p>
-                            <p><strong>Delivery Date:</strong> @(selectedOrder.DeliveryDate?.ToString("dd MMM yyyy") ?? "Not                          set")</p>
-                        </div>
-                        <div class="col-md-6">
-                            <p><strong>Status:</strong> <span
-                                    class="badge @GetStatusBadgeClass(selectedOrder.Status)">@selectedOrder.StatusName</span>
-                            </p>
-                            <p><strong>Currency:</strong> @selectedOrder.Currency</p>
-                            <p><strong>Created By:</strong> @selectedOrder.CreatedByUserName</p>
+    <!-- Create Order Modal -->
+    @if (showCreateModal)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>New Sales Order</h5>
+                        <button type="button" class="btn-close" @onclick="() => showCreateModal = false"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Customer Code *</label>
+                                <input type="text" class="form-control" @bind="newOrder.CardCode" placeholder="e.g., C001" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Customer Name</label>
+                                <input type="text" class="form-control" @bind="newOrder.CardName" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Delivery Date</label>
+                                <input type="date" class="form-control" @bind="newOrder.DeliveryDate" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Currency</label>
+                                <select class="form-select" @bind="newOrder.Currency">
+                                    <option value="USD">USD</option>
+                                    <option value="ZIG">ZIG</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Comments</label>
+                                <textarea class="form-control" @bind="newOrder.Comments" rows="2"></textarea>
+                            </div>
                         </div>
                     </div>
-
-                    @if (selectedOrder.Lines?.Any() == true)
-                    {
-                        <h6>Order Lines</h6>
-                        <table class="table table-sm">
-                            <thead>
-                                <tr>
-                                    <th>Item</th>
-                                    <th>Description</th>
-                                    <th class="text-end">Qty</th>
-                                    <th class="text-end">Unit Price</th>
-                                    <th class="text-end">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var line in selectedOrder.Lines)
-                                {
-                                    <tr>
-                                        <td>@line.ItemCode</td>
-                                        <td>@line.ItemDescription</td>
-                                        <td class="text-end">@line.Quantity</td>
-                                        <td class="text-end">@line.UnitPrice.ToString("N2")</td>
-                                        <td class="text-end">@line.LineTotal.ToString("N2")</td>
-                                    </tr>
-                                }
-                            </tbody>
-                            <tfoot>
-                                <tr>
-                                    <td colspan="4" class="text-end"><strong>Subtotal:</strong></td>
-                                    <td class="text-end">@selectedOrder.SubTotal.ToString("N2")</td>
-                                </tr>
-                                <tr>
-                                    <td colspan="4" class="text-end"><strong>Tax:</strong></td>
-                                    <td class="text-end">@selectedOrder.TaxAmount.ToString("N2")</td>
-                                </tr>
-                                <tr>
-                                    <td colspan="4" class="text-end"><strong>Total:</strong></td>
-                                    <td class="text-end"><strong>@selectedOrder.DocTotal.ToString("N2")</strong></td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    }
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="() => selectedOrder = null">Close</button>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="() => showCreateModal = false">Cancel</button>
+                        <button type="button" class="btn btn-primary" @onclick="CreateOrder" disabled="@isCreating">
+                            @if (isCreating)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            Create Order
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
-}
-
-<!-- Create Order Modal -->
-@if (showCreateModal)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>New Sales Order</h5>
-                    <button type="button" class="btn-close" @onclick="() => showCreateModal = false"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Customer Code *</label>
-                            <input type="text" class="form-control" @bind="newOrder.CardCode" placeholder="e.g., C001" />
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Customer Name</label>
-                            <input type="text" class="form-control" @bind="newOrder.CardName" />
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Delivery Date</label>
-                            <input type="date" class="form-control" @bind="newOrder.DeliveryDate" />
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Currency</label>
-                            <select class="form-select" @bind="newOrder.Currency">
-                                <option value="USD">USD</option>
-                                <option value="ZIG">ZIG</option>
-                            </select>
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label">Comments</label>
-                            <textarea class="form-control" @bind="newOrder.Comments" rows="2"></textarea>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="() => showCreateModal = false">Cancel</button>
-                    <button type="button" class="btn btn-primary" @onclick="CreateOrder" disabled="@isCreating">
-                        @if (isCreating)
-                        {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
-                        }
-                        Create Order
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
+    }
 
 @code {
     private List<SalesOrderDto>? orders;

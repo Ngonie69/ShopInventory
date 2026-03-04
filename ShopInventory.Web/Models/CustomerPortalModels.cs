@@ -59,6 +59,17 @@ public class CustomerInfo
     public decimal Balance { get; set; }
     public string? Currency { get; set; }
     public DateTime? LastLoginAt { get; set; }
+
+    /// <summary>
+    /// Account structure: "Single" = one account for all transactions,
+    /// "Multi" = separate main (invoicing/payments) and sub (sales orders) accounts
+    /// </summary>
+    public string AccountStructure { get; set; } = "Single";
+
+    /// <summary>
+    /// All linked accounts for multi-account customers
+    /// </summary>
+    public List<LinkedAccountInfo> LinkedAccounts { get; set; } = new();
 }
 
 /// <summary>
@@ -190,6 +201,18 @@ public class CustomerInvoiceSummary
     [JsonPropertyName("docNum")]
     public int DocNum { get; set; }
 
+    /// <summary>
+    /// The CardCode of the account this invoice belongs to (useful for multi-account customers)
+    /// </summary>
+    [JsonPropertyName("cardCode")]
+    public string? CardCode { get; set; }
+
+    /// <summary>
+    /// The CardName of the account this invoice belongs to
+    /// </summary>
+    [JsonPropertyName("cardName")]
+    public string? CardName { get; set; }
+
     [JsonPropertyName("docDate")]
     public DateTime DocDate { get; set; }
 
@@ -294,7 +317,7 @@ public class CustomerRateLimitInfo
 #region Customer Portal Dashboard Models
 
 /// <summary>
-/// Customer portal dashboard summary
+/// Customer portal dashboard summary - supports both single and multi-account structures
 /// </summary>
 public class CustomerDashboardSummary
 {
@@ -309,6 +332,127 @@ public class CustomerDashboardSummary
     public List<CustomerInvoiceSummary> RecentInvoices { get; set; } = new();
     public List<CustomerPaymentSummary> RecentPayments { get; set; } = new();
     public AgingSummary Aging { get; set; } = new();
+
+    /// <summary>
+    /// Per-account breakdown for multi-account customers.
+    /// Shows balances and data for each main/sub account separately.
+    /// </summary>
+    public List<AccountSummary> AccountBreakdown { get; set; } = new();
+}
+
+/// <summary>
+/// Summary for an individual linked account within a multi-account customer
+/// </summary>
+public class AccountSummary
+{
+    public string CardCode { get; set; } = string.Empty;
+    public string CardName { get; set; } = string.Empty;
+    public string AccountType { get; set; } = string.Empty;
+    public string? Currency { get; set; }
+    public string? Description { get; set; }
+    public decimal Balance { get; set; }
+    public int OpenInvoicesCount { get; set; }
+    public decimal TotalOutstanding { get; set; }
+    public int OpenSalesOrdersCount { get; set; }
+    public List<string> AllowedTransactions { get; set; } = new();
+}
+
+#endregion
+
+#region Linked Account Models
+
+/// <summary>
+/// Information about a linked account for display in the portal
+/// </summary>
+public class LinkedAccountInfo
+{
+    public int Id { get; set; }
+    public string CardCode { get; set; } = string.Empty;
+    public string CardName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// "Main" = invoicing and incoming payments, "Sub" = sales orders only
+    /// </summary>
+    public string AccountType { get; set; } = "Main";
+
+    /// <summary>
+    /// Currency for this account (e.g. "ZiG", "USD")
+    /// </summary>
+    public string? Currency { get; set; }
+
+    /// <summary>
+    /// For sub accounts, which main account they derive from
+    /// </summary>
+    public string? ParentCardCode { get; set; }
+
+    /// <summary>
+    /// User-friendly description
+    /// </summary>
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// What transactions can be done on this account
+    /// </summary>
+    public List<string> AllowedTransactions { get; set; } = new();
+
+    public bool IsDefault { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+/// <summary>
+/// Request to create/update a linked account (admin use)
+/// </summary>
+public class LinkedAccountRequest
+{
+    [Required]
+    [StringLength(50)]
+    public string CardCode { get; set; } = string.Empty;
+
+    [Required]
+    [StringLength(200)]
+    public string CardName { get; set; } = string.Empty;
+
+    [Required]
+    [RegularExpression("^(Main|Sub)$", ErrorMessage = "AccountType must be 'Main' or 'Sub'")]
+    public string AccountType { get; set; } = "Main";
+
+    [StringLength(10)]
+    public string? Currency { get; set; }
+
+    /// <summary>
+    /// Required for Sub accounts - the parent main account CardCode
+    /// </summary>
+    [StringLength(50)]
+    public string? ParentCardCode { get; set; }
+
+    [StringLength(200)]
+    public string? Description { get; set; }
+
+    public bool IsDefault { get; set; } = false;
+}
+
+/// <summary>
+/// Request to set up a multi-account structure for a customer
+/// </summary>
+public class SetupMultiAccountRequest
+{
+    [Required]
+    public string PortalCardCode { get; set; } = string.Empty;
+
+    [Required]
+    [MinLength(1, ErrorMessage = "At least one account must be provided")]
+    public List<LinkedAccountRequest> Accounts { get; set; } = new();
+}
+
+/// <summary>
+/// Response for linked account operations
+/// </summary>
+public class LinkedAccountResponse
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string AccountStructure { get; set; } = "Single";
+    public List<LinkedAccountInfo> LinkedAccounts { get; set; } = new();
 }
 
 #endregion

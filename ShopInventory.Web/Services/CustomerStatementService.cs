@@ -19,29 +19,37 @@ public interface ICustomerStatementService
 }
 
 /// <summary>
-/// Customer statement service for portal functionality
+/// Customer statement service for portal functionality.
+/// Supports both single-account and multi-account (main + sub) customer structures.
 /// </summary>
 public class CustomerStatementService : ICustomerStatementService
 {
     private readonly HttpClient _httpClient;
     private readonly IBusinessPartnerService _businessPartnerService;
     private readonly IInvoiceService _invoiceService;
+    private readonly ICustomerLinkedAccountService _linkedAccountService;
+    private readonly ISalesOrderService _salesOrderService;
     private readonly ILogger<CustomerStatementService> _logger;
 
     public CustomerStatementService(
         HttpClient httpClient,
         IBusinessPartnerService businessPartnerService,
         IInvoiceService invoiceService,
+        ICustomerLinkedAccountService linkedAccountService,
+        ISalesOrderService salesOrderService,
         ILogger<CustomerStatementService> logger)
     {
         _httpClient = httpClient;
         _businessPartnerService = businessPartnerService;
         _invoiceService = invoiceService;
+        _linkedAccountService = linkedAccountService;
+        _salesOrderService = salesOrderService;
         _logger = logger;
     }
 
     /// <summary>
-    /// Get customer statement with transaction details
+    /// Get customer statement with transaction details.
+    /// For multi-account customers, aggregates invoices from all main accounts and payments from all main accounts.
     /// </summary>
     public async Task<CustomerStatementResponse> GetStatementAsync(string cardCode, CustomerStatementRequest request)
     {
@@ -54,6 +62,8 @@ public class CustomerStatementService : ICustomerStatementService
                 throw new InvalidOperationException("Customer not found");
             }
 
+            var accountStructure = await _linkedAccountService.GetAccountStructureAsync(cardCode);
+
             var response = new CustomerStatementResponse
             {
                 Customer = new CustomerInfo
@@ -63,7 +73,8 @@ public class CustomerStatementService : ICustomerStatementService
                     Email = customer.Email,
                     Phone = customer.Phone1,
                     Balance = customer.Balance ?? 0,
-                    Currency = customer.Currency
+                    Currency = customer.Currency,
+                    AccountStructure = accountStructure
                 },
                 FromDate = request.FromDate,
                 ToDate = request.ToDate,
@@ -71,16 +82,25 @@ public class CustomerStatementService : ICustomerStatementService
                 Lines = new List<StatementLine>()
             };
 
-            // Get invoices
-            var invoices = await GetInvoicesForPeriodAsync(cardCode, request.FromDate, request.ToDate, request.IncludeClosedInvoices);
+            // For multi-account: get invoices/payments from all main accounts
+            // For single-account: just use the one cardCode
+            var invoiceCardCodes = await _linkedAccountService.GetMainAccountCardCodesAsync(cardCode);
+            var allInvoices = new List<CustomerInvoiceSummary>();
+            var allPayments = new List<CustomerPaymentSummary>();
 
-            // Get payments
-            var payments = await GetPaymentsForPeriodAsync(cardCode, request.FromDate, request.ToDate);
+            foreach (var invoiceCardCode in invoiceCardCodes)
+            {
+                var invoices = await GetInvoicesForPeriodAsync(invoiceCardCode, request.FromDate, request.ToDate, request.IncludeClosedInvoices);
+                allInvoices.AddRange(invoices);
+
+                var payments = await GetPaymentsForPeriodAsync(invoiceCardCode, request.FromDate, request.ToDate);
+                allPayments.AddRange(payments);
+            }
 
             // Combine and sort transactions
             var allTransactions = new List<(DateTime Date, string Type, StatementLine Line)>();
 
-            foreach (var invoice in invoices)
+            foreach (var invoice in allInvoices)
             {
                 allTransactions.Add((invoice.DocDate, "Invoice", new StatementLine
                 {
@@ -96,7 +116,7 @@ public class CustomerStatementService : ICustomerStatementService
                 }));
             }
 
-            foreach (var payment in payments)
+            foreach (var payment in allPayments)
             {
                 allTransactions.Add((payment.DocDate, "Payment", new StatementLine
                 {
@@ -129,7 +149,7 @@ public class CustomerStatementService : ICustomerStatementService
             response.TotalCreditNotes = response.Lines.Where(l => l.DocumentType == "Credit Note").Sum(l => l.Credit);
             response.ClosingBalance = runningBalance;
 
-            // Get aging summary
+            // Get aging summary (aggregated across all main accounts)
             response.Aging = await GetAgingSummaryAsync(cardCode);
 
             return response;
@@ -176,7 +196,9 @@ public class CustomerStatementService : ICustomerStatementService
     }
 
     /// <summary>
-    /// Get customer dashboard summary
+    /// Get customer dashboard summary.
+    /// For multi-account customers, aggregates data across all main accounts (invoices/payments)
+    /// and includes per-account breakdown with sub-account sales order counts.
     /// </summary>
     public async Task<CustomerDashboardSummary> GetDashboardSummaryAsync(string cardCode)
     {
@@ -188,6 +210,11 @@ public class CustomerStatementService : ICustomerStatementService
                 throw new InvalidOperationException("Customer not found");
             }
 
+            var accountStructure = await _linkedAccountService.GetAccountStructureAsync(cardCode);
+            var linkedAccounts = accountStructure == "Multi"
+                ? await _linkedAccountService.GetLinkedAccountsAsync(cardCode)
+                : new List<LinkedAccountInfo>();
+
             var summary = new CustomerDashboardSummary
             {
                 Customer = new CustomerInfo
@@ -197,12 +224,14 @@ public class CustomerStatementService : ICustomerStatementService
                     Email = customer.Email,
                     Phone = customer.Phone1,
                     Balance = customer.Balance ?? 0,
-                    Currency = customer.Currency
+                    Currency = customer.Currency,
+                    AccountStructure = accountStructure,
+                    LinkedAccounts = linkedAccounts
                 },
                 AccountBalance = customer.Balance ?? 0
             };
 
-            // Get open invoices
+            // Get open invoices (aggregated from all main accounts for multi-account)
             var openInvoices = await GetOpenInvoicesAsync(cardCode);
             summary.OpenInvoicesCount = openInvoices.Count;
             summary.TotalOutstanding = openInvoices.Sum(i => i.Balance);
@@ -210,7 +239,7 @@ public class CustomerStatementService : ICustomerStatementService
             summary.OverdueAmount = openInvoices.Where(i => i.DaysOverdue > 0).Sum(i => i.Balance);
             summary.RecentInvoices = openInvoices.Take(5).ToList();
 
-            // Get recent payments
+            // Get recent payments (aggregated from all main accounts for multi-account)
             var payments = await GetPaymentHistoryAsync(cardCode, DateTime.Now.AddMonths(-3), DateTime.Now);
             if (payments.Any())
             {
@@ -220,8 +249,23 @@ public class CustomerStatementService : ICustomerStatementService
             }
             summary.RecentPayments = payments.Take(5).ToList();
 
-            // Get aging summary
+            // Get aging summary (aggregated)
             summary.Aging = await GetAgingSummaryAsync(cardCode);
+
+            // Build per-account breakdown for multi-account customers
+            if (accountStructure == "Multi" && linkedAccounts.Any())
+            {
+                summary.AccountBreakdown = await BuildAccountBreakdownAsync(linkedAccounts);
+
+                // Sum balances across all main accounts for the total
+                var mainAccountBalances = summary.AccountBreakdown
+                    .Where(a => a.AccountType == "Main")
+                    .Sum(a => a.Balance);
+                if (mainAccountBalances != 0)
+                {
+                    summary.AccountBalance = mainAccountBalances;
+                }
+            }
 
             return summary;
         }
@@ -233,21 +277,109 @@ public class CustomerStatementService : ICustomerStatementService
     }
 
     /// <summary>
-    /// Get open (unpaid) invoices for customer
+    /// Build per-account breakdown showing individual balances and transaction counts
+    /// </summary>
+    private async Task<List<AccountSummary>> BuildAccountBreakdownAsync(List<LinkedAccountInfo> linkedAccounts)
+    {
+        var breakdown = new List<AccountSummary>();
+
+        foreach (var account in linkedAccounts)
+        {
+            var acctSummary = new AccountSummary
+            {
+                CardCode = account.CardCode,
+                CardName = account.CardName,
+                AccountType = account.AccountType,
+                Currency = account.Currency,
+                Description = account.Description,
+                AllowedTransactions = account.AllowedTransactions
+            };
+
+            try
+            {
+                var partner = await _businessPartnerService.GetBusinessPartnerByCodeAsync(account.CardCode);
+                acctSummary.Balance = partner?.Balance ?? 0;
+
+                if (account.AccountType == "Main")
+                {
+                    // Main accounts: show invoices
+                    var invoices = await GetOpenInvoicesForSingleAccountAsync(account.CardCode);
+                    acctSummary.OpenInvoicesCount = invoices.Count;
+                    acctSummary.TotalOutstanding = invoices.Sum(i => i.Balance);
+                }
+                else if (account.AccountType == "Sub")
+                {
+                    // Sub accounts: show sales orders
+                    try
+                    {
+                        var orders = await _salesOrderService.GetSalesOrdersAsync(
+                            cardCode: account.CardCode, status: SalesOrderStatus.Pending);
+                        acctSummary.OpenSalesOrdersCount = orders?.TotalCount ?? 0;
+                    }
+                    catch
+                    {
+                        acctSummary.OpenSalesOrdersCount = 0;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error fetching data for linked account {CardCode}", account.CardCode);
+            }
+
+            breakdown.Add(acctSummary);
+        }
+
+        return breakdown;
+    }
+
+    /// <summary>
+    /// Get open (unpaid) invoices for customer.
+    /// For multi-account customers, aggregates invoices from all main accounts.
     /// </summary>
     public async Task<List<CustomerInvoiceSummary>> GetOpenInvoicesAsync(string cardCode)
     {
         try
         {
-            var invoiceResponse = await _invoiceService.GetInvoicesByCustomerAsync(cardCode);
+            // Get all main account CardCodes (for single account, this returns just the one cardCode)
+            var mainCardCodes = await _linkedAccountService.GetMainAccountCardCodesAsync(cardCode);
+            var allInvoices = new List<CustomerInvoiceSummary>();
+
+            foreach (var mainCardCode in mainCardCodes)
+            {
+                var invoices = await GetOpenInvoicesForSingleAccountAsync(mainCardCode);
+                allInvoices.AddRange(invoices);
+            }
+
+            return allInvoices
+                .OrderBy(i => i.DueDate)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting open invoices for {CardCode}", cardCode);
+            return new List<CustomerInvoiceSummary>();
+        }
+    }
+
+    /// <summary>
+    /// Get open invoices for a single specific account CardCode (not aggregated)
+    /// </summary>
+    private async Task<List<CustomerInvoiceSummary>> GetOpenInvoicesForSingleAccountAsync(string singleCardCode)
+    {
+        try
+        {
+            var invoiceResponse = await _invoiceService.GetInvoicesByCustomerAsync(singleCardCode);
             var invoices = invoiceResponse?.Invoices ?? new List<InvoiceDto>();
 
             return invoices
-                .Where(i => i.DocStatus != "C" && i.DocStatus != "X") // Not closed or cancelled
+                .Where(i => i.DocStatus != "C" && i.DocStatus != "X")
                 .Select(i => new CustomerInvoiceSummary
                 {
                     DocEntry = i.DocEntry,
                     DocNum = i.DocNum,
+                    CardCode = singleCardCode,
+                    CardName = i.CardName,
                     DocDate = ParseDate(i.DocDate),
                     DueDate = ParseNullableDate(i.DocDueDate),
                     DocTotal = i.DocTotal,
@@ -263,33 +395,44 @@ public class CustomerStatementService : ICustomerStatementService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting open invoices for {CardCode}", cardCode);
+            _logger.LogError(ex, "Error getting open invoices for single account {CardCode}", singleCardCode);
             return new List<CustomerInvoiceSummary>();
         }
     }
 
     /// <summary>
-    /// Get payment history for customer
+    /// Get payment history for customer.
+    /// For multi-account customers, aggregates payments from all main accounts.
     /// </summary>
     public async Task<List<CustomerPaymentSummary>> GetPaymentHistoryAsync(string cardCode, DateTime? fromDate, DateTime? toDate)
     {
         try
         {
-            // Get payments from API
-            var response = await _httpClient.GetFromJsonAsync<IncomingPaymentDateResponse>($"api/incomingpayment/customer/{cardCode}");
-            var payments = response?.Payments ?? new List<IncomingPaymentDto>();
+            var mainCardCodes = await _linkedAccountService.GetMainAccountCardCodesAsync(cardCode);
+            var allPayments = new List<CustomerPaymentSummary>();
 
-            var result = payments
-                .Select(p => new CustomerPaymentSummary
-                {
-                    DocEntry = p.DocEntry,
-                    DocNum = p.DocNum,
-                    DocDate = ParseDate(p.DocDate),
-                    DocTotal = p.DocTotal,
-                    PaymentMethod = DeterminePaymentMethod(p),
-                    Reference = p.TransferReference ?? p.Remarks,
-                    Currency = p.DocCurrency
-                });
+            foreach (var mainCardCode in mainCardCodes)
+            {
+                var response = await _httpClient.GetFromJsonAsync<IncomingPaymentDateResponse>(
+                    $"api/incomingpayment/customer/{mainCardCode}");
+                var payments = response?.Payments ?? new List<IncomingPaymentDto>();
+
+                var mapped = payments
+                    .Select(p => new CustomerPaymentSummary
+                    {
+                        DocEntry = p.DocEntry,
+                        DocNum = p.DocNum,
+                        DocDate = ParseDate(p.DocDate),
+                        DocTotal = p.DocTotal,
+                        PaymentMethod = DeterminePaymentMethod(p),
+                        Reference = p.TransferReference ?? p.Remarks,
+                        Currency = p.DocCurrency
+                    });
+
+                allPayments.AddRange(mapped);
+            }
+
+            IEnumerable<CustomerPaymentSummary> result = allPayments;
 
             if (fromDate.HasValue)
                 result = result.Where(p => p.DocDate >= fromDate.Value);
@@ -364,6 +507,8 @@ public class CustomerStatementService : ICustomerStatementService
                 {
                     DocEntry = i.DocEntry,
                     DocNum = i.DocNum,
+                    CardCode = cardCode,
+                    CardName = i.CardName,
                     DocDate = ParseDate(i.DocDate),
                     DueDate = ParseNullableDate(i.DocDueDate),
                     DocTotal = i.DocTotal,

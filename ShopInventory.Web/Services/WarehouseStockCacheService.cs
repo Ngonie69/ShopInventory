@@ -15,6 +15,13 @@ public interface IWarehouseStockCacheService
     Task<WarehouseProductsPagedResponse?> GetCachedStockAsync(string warehouseCode, int page = 1, int pageSize = 20);
 
     /// <summary>
+    /// Gets ALL cached stock for a warehouse without pagination.
+    /// Returns cached data immediately if available, and triggers background sync if stale.
+    /// Falls back to fetching all pages from the API if no cache exists.
+    /// </summary>
+    Task<WarehouseProductsResponse?> GetAllCachedStockAsync(string warehouseCode);
+
+    /// <summary>
     /// Forces a full sync of stock data for a warehouse
     /// </summary>
     Task<bool> SyncWarehouseStockAsync(string warehouseCode);
@@ -93,7 +100,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                     WarehouseCode = warehouseCode,
                     Page = page,
                     PageSize = pageSize,
-                    Count = cachedItems.Count,
+                    Count = cachedCount,
                     HasMore = skip + cachedItems.Count < cachedCount,
                     Products = cachedItems.Select(MapCachedToProduct).ToList()
                 };
@@ -143,6 +150,83 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                     Count = apiResponse.Count,
                     HasMore = apiResponse.HasMore,
                     Products = apiResponse.Items.Select(MapStockToProduct).ToList()
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching stock from API for warehouse {WarehouseCode}", warehouseCode);
+        }
+
+        return null;
+    }
+
+    public async Task<WarehouseProductsResponse?> GetAllCachedStockAsync(string warehouseCode)
+    {
+        _logger.LogInformation("GetAllCachedStockAsync called for warehouse {WarehouseCode}", warehouseCode);
+
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+        var cacheKey = $"WarehouseStock_{warehouseCode}";
+
+        try
+        {
+            var syncInfo = await dbContext.CacheSyncInfo.FindAsync(cacheKey);
+            var isCacheStale = syncInfo == null ||
+                          (DateTime.UtcNow - syncInfo.LastSyncedAt) > _cacheExpiration ||
+                          !syncInfo.SyncSuccessful;
+
+            // Get ALL cached data (no pagination)
+            var cachedItems = await dbContext.CachedWarehouseStocks
+                .Where(s => s.WarehouseCode == warehouseCode)
+                .OrderBy(s => s.ItemCode)
+                .ToListAsync();
+
+            if (cachedItems.Count > 0)
+            {
+                _logger.LogInformation("Returning {Count} cached products for warehouse {WarehouseCode}", cachedItems.Count, warehouseCode);
+
+                // Trigger background sync if cache is stale
+                if (isCacheStale)
+                {
+                    _ = Task.Run(async () => await SyncWarehouseStockInBackgroundAsync(warehouseCode));
+                }
+
+                return new WarehouseProductsResponse
+                {
+                    WarehouseCode = warehouseCode,
+                    TotalProducts = cachedItems.Count,
+                    ProductsWithBatches = 0,
+                    Products = cachedItems.Select(MapCachedToProduct).ToList()
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error querying all cached stock for warehouse {WarehouseCode}", warehouseCode);
+            throw;
+        }
+
+        // No cached data - do a full sync from API
+        _logger.LogInformation("No cached stock for warehouse {WarehouseCode}, triggering full sync", warehouseCode);
+
+        try
+        {
+            // Fetch first page to return immediately
+            var firstPage = await FetchStockFromApiAsync(warehouseCode, 1, 100);
+            if (firstPage?.Items?.Any() == true)
+            {
+                await SaveStockToCacheAsync(warehouseCode, firstPage.Items);
+
+                // Start background sync for remaining items
+                _ = Task.Run(async () => await SyncRemainingStockInBackgroundAsync(warehouseCode, firstPage.HasMore));
+
+                var products = firstPage.Items.Select(MapStockToProduct).ToList();
+                return new WarehouseProductsResponse
+                {
+                    WarehouseCode = warehouseCode,
+                    TotalProducts = firstPage.Count,
+                    ProductsWithBatches = 0,
+                    Products = products
                 };
             }
         }
@@ -299,8 +383,15 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
     {
         try
         {
+            // Use a 60-second timeout for individual stock fetch requests
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
             return await _httpClient.GetFromJsonAsync<StockPagedApiResponse>(
-                $"api/stock/warehouse/{warehouseCode}/paged?page={page}&pageSize={pageSize}", _jsonOptions);
+                $"api/stock/warehouse/{warehouseCode}/paged?page={page}&pageSize={pageSize}", _jsonOptions, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Stock fetch timed out for warehouse {WarehouseCode}, page {Page}", warehouseCode, page);
+            return null;
         }
         catch (Exception ex)
         {

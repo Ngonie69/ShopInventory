@@ -98,15 +98,23 @@
 
     .btn-remove-line {
         color: #dc3545;
-        border: none;
+        border: 1px solid #dc3545;
         background: transparent;
-        padding: 0.25rem 0.5rem;
-        transition: transform 0.2s;
+        padding: 0.25rem 0.6rem;
+        border-radius: 6px;
+        transition: all 0.2s;
+        font-size: 0.85rem;
     }
 
     .btn-remove-line:hover {
-        transform: scale(1.1);
-        color: #c82333;
+        background: #dc3545;
+        color: white;
+        transform: scale(1.05);
+    }
+
+    .btn-remove-line:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
     }
 
     .btn-add-line {
@@ -175,11 +183,11 @@
                                 else
                                 {
                                     <MudAutocomplete T="WarehouseDto" @bind-Value="selectedFromWarehouse"
-                                        Label="Select source warehouse..." SearchFunc="SearchWarehousesAsync"
-                                        ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
-                                        Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                        ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
-                                        DebounceInterval="150" Class="mt-0">
+                                                     Label="Select source warehouse..." SearchFunc="SearchWarehousesAsync"
+                                                     ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
+                                                     Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                     ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
+                                                     DebounceInterval="150" Class="mt-0">
                                         <ItemTemplate>
                                             <div class="d-flex flex-column">
                                                 <span class="fw-semibold">@context.WarehouseCode</span>
@@ -201,11 +209,11 @@
                                 else
                                 {
                                     <MudAutocomplete T="WarehouseDto" @bind-Value="selectedToWarehouse"
-                                        Label="Select destination warehouse..." SearchFunc="SearchWarehousesAsync"
-                                        ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
-                                        Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                        ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
-                                        DebounceInterval="150" Class="mt-0">
+                                                     Label="Select destination warehouse..." SearchFunc="SearchWarehousesAsync"
+                                                     ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
+                                                     Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                     ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
+                                                     DebounceInterval="150" Class="mt-0">
                                         <ItemTemplate>
                                             <div class="d-flex flex-column">
                                                 <span class="fw-semibold">@context.WarehouseCode</span>
@@ -226,17 +234,17 @@
                             <div class="col-md-6">
                                 <label class="form-label">Requester Name</label>
                                 <input type="text" class="form-control" @bind="requesterName"
-                                    placeholder="Enter your name" />
+                                       placeholder="Enter your name" />
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Requester Email</label>
                                 <input type="email" class="form-control" @bind="requesterEmail"
-                                    placeholder="Enter your email" />
+                                       placeholder="Enter your email" />
                             </div>
                             <div class="col-12">
                                 <label class="form-label">Comments</label>
                                 <textarea class="form-control" rows="2" @bind="comments"
-                                    placeholder="Add any notes or comments..."></textarea>
+                                          placeholder="Add any notes or comments..."></textarea>
                             </div>
                         </div>
                     </div>
@@ -268,20 +276,20 @@
                                             <span class="text-muted small">Line Item</span>
                                         </div>
                                         <button class="btn-remove-line" @onclick="() => RemoveLine(line)"
-                                            disabled="@(lines.Count <= 1)">
-                                            <i class="bi bi-trash"></i>
+                                                title="Remove line item">
+                                            <i class="bi bi-trash me-1"></i>Remove
                                         </button>
                                     </div>
                                     <div class="row g-3">
                                         <div class="col-md-8">
                                             <label class="form-label small">Product *</label>
                                             <MudAutocomplete T="ProductDto" Value="line.SelectedProduct"
-                                                ValueChanged="(p) => OnProductSelected(line, p)" Label="Search product..."
-                                                SearchFunc="SearchProductsAsync"
-                                                ToStringFunc="@(p => p == null ? string.Empty : $"{p.ItemCode} - {p.ItemName}")"
-                                                Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
-                                                DebounceInterval="150">
+                                                             ValueChanged="(p) => OnProductSelected(line, p)" Label="Search product..."
+                                                             SearchFunc="SearchProductsAsync"
+                                                             ToStringFunc="@(p => p == null ? string.Empty : $"{p.ItemCode} - {p.ItemName}")"
+                                                             Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                             ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
+                                                             DebounceInterval="150">
                                                 <ItemTemplate>
                                                     <div class="d-flex flex-column">
                                                         <span class="fw-semibold">@context.ItemCode</span>
@@ -290,95 +298,95 @@
                                                         {
                                                             <small class="text-success">Stock:
                                                                 @context.QuantityInStock.ToString("N0")</small>
-                                                        }
-                                                    </div>
-                                                </ItemTemplate>
-                                            </MudAutocomplete>
-                                        </div>
-                                        <div class="col-md-4">
-                                            <label class="form-label small">Quantity *</label>
-                                            <input type="number" class="form-control" @bind="line.Quantity" min="0.01"
-                                                step="0.01" placeholder="0.00" />
+                                                            }
+                                                        </div>
+                                                    </ItemTemplate>
+                                                </MudAutocomplete>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label small">Quantity *</label>
+                                                <input type="number" class="form-control" @bind="line.Quantity" min="0.01"
+                                                       step="0.01" placeholder="0.00" />
+                                            </div>
                                         </div>
                                     </div>
+                                }
+
+                                <div class="text-center mt-3">
+                                    <button class="btn-add-line" @onclick="AddLine">
+                                        <i class="bi bi-plus-lg me-1"></i>Add Item
+                                    </button>
                                 </div>
                             }
+                        </div>
+                    </div>
+                </div>
 
-                            <div class="text-center mt-3">
-                                <button class="btn-add-line" @onclick="AddLine">
-                                    <i class="bi bi-plus-lg me-1"></i>Add Item
-                                </button>
+                <!-- Summary Sidebar -->
+                <div class="col-lg-4">
+                    <!-- Summary Card -->
+                    <div class="card summary-card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="bi bi-calculator me-2"></i>Summary</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span>From Warehouse:</span>
+                                <strong>@(selectedFromWarehouse?.WarehouseCode ?? "-")</strong>
                             </div>
-                        }
+                            <div class="d-flex justify-content-between mb-2">
+                                <span>To Warehouse:</span>
+                                <strong>@(selectedToWarehouse?.WarehouseCode ?? "-")</strong>
+                            </div>
+                            <hr class="my-2 opacity-50" />
+                            <div class="d-flex justify-content-between mb-2">
+                                <span>Total Items:</span>
+                                <strong>@lines.Count</strong>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span>Total Quantity:</span>
+                                <strong>@lines.Sum(l => l.Quantity).ToString("N2")</strong>
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
 
-            <!-- Summary Sidebar -->
-            <div class="col-lg-4">
-                <!-- Summary Card -->
-                <div class="card summary-card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0"><i class="bi bi-calculator me-2"></i>Summary</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between mb-2">
-                            <span>From Warehouse:</span>
-                            <strong>@(selectedFromWarehouse?.WarehouseCode ?? "-")</strong>
-                        </div>
-                        <div class="d-flex justify-content-between mb-2">
-                            <span>To Warehouse:</span>
-                            <strong>@(selectedToWarehouse?.WarehouseCode ?? "-")</strong>
-                        </div>
-                        <hr class="my-2 opacity-50" />
-                        <div class="d-flex justify-content-between mb-2">
-                            <span>Total Items:</span>
-                            <strong>@lines.Count</strong>
-                        </div>
-                        <div class="d-flex justify-content-between">
-                            <span>Total Quantity:</span>
-                            <strong>@lines.Sum(l => l.Quantity).ToString("N2")</strong>
+                    <!-- Actions Card -->
+                    <div class="card action-card">
+                        <div class="card-body">
+                            <button class="btn btn-create-transfer w-100 text-white mb-3" @onclick="SubmitTransferRequest"
+                                    disabled="@(isSubmitting || !IsFormValid())">
+                                @if (isSubmitting)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                    <span>Creating...</span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-send me-2"></i>
+                                    <span>Create Transfer Request</span>
+                                }
+                            </button>
+                            <button class="btn btn-outline-secondary w-100" @onclick="ClearForm" disabled="@isSubmitting">
+                                <i class="bi bi-x-circle me-1"></i>Clear Form
+                            </button>
                         </div>
                     </div>
-                </div>
 
-                <!-- Actions Card -->
-                <div class="card action-card">
-                    <div class="card-body">
-                        <button class="btn btn-create-transfer w-100 text-white mb-3" @onclick="SubmitTransferRequest"
-                            disabled="@(isSubmitting || !IsFormValid())">
-                            @if (isSubmitting)
-                            {
-                                <span class="spinner-border spinner-border-sm me-2"></span>
-                                <span>Creating...</span>
-                            }
-                            else
-                            {
-                                <i class="bi bi-send me-2"></i>
-                                <span>Create Transfer Request</span>
-                            }
-                        </button>
-                        <button class="btn btn-outline-secondary w-100" @onclick="ClearForm" disabled="@isSubmitting">
-                            <i class="bi bi-x-circle me-1"></i>Clear Form
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Info Card -->
-                <div class="card mt-4">
-                    <div class="card-body">
-                        <h6><i class="bi bi-info-circle text-primary me-2"></i>About Transfer Requests</h6>
-                        <p class="text-muted small mb-0">
-                            Transfer requests are draft documents that require approval before stock is actually
-                            transferred.
-                            Once approved, the request will be converted to an inventory transfer.
-                        </p>
+                    <!-- Info Card -->
+                    <div class="card mt-4">
+                        <div class="card-body">
+                            <h6><i class="bi bi-info-circle text-primary me-2"></i>About Transfer Requests</h6>
+                            <p class="text-muted small mb-0">
+                                Transfer requests are draft documents that require approval before stock is actually
+                                transferred.
+                                Once approved, the request will be converted to an inventory transfer.
+                            </p>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
-</div>
 
 @code {
     // State
@@ -525,10 +533,7 @@
 
     private void RemoveLine(TransferLineItem line)
     {
-        if (lines.Count > 1)
-        {
-            lines.Remove(line);
-        }
+        lines.Remove(line);
     }
 
     private bool IsFormValid()

@@ -548,12 +548,6 @@ public class PriceController : ControllerBase
 
             stopwatch.Stop();
 
-            if (cachedPrices.Count == 0)
-            {
-                return NotFound(new { message = $"No prices found for price list {priceListNum}" });
-            }
-
-            var firstItem = cachedPrices.First();
             var prices = cachedPrices.Select(p => new ItemPriceByListDto
             {
                 ItemCode = p.ItemCode,
@@ -565,12 +559,16 @@ public class PriceController : ControllerBase
                 Currency = p.Currency
             }).ToList();
 
+            // Look up price list metadata for the response
+            var priceListEntity = await _context.PriceLists
+                .FirstOrDefaultAsync(pl => pl.ListNum == priceListNum, cancellationToken);
+
             var response = new ItemPricesByListResponseDto
             {
                 TotalCount = prices.Count,
                 PriceListNum = priceListNum,
-                PriceListName = firstItem.PriceListName,
-                Currency = firstItem.Currency,
+                PriceListName = priceListEntity?.ListName ?? cachedPrices.FirstOrDefault()?.PriceListName ?? $"Price List {priceListNum}",
+                Currency = priceListEntity?.Currency ?? cachedPrices.FirstOrDefault()?.Currency,
                 Prices = prices
             };
 

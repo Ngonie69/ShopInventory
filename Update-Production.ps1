@@ -28,10 +28,13 @@ Write-Host ""
 
 # Get credentials for production server if not provided
 if (-not $Credential) {
-    # Use stored credentials for production server
-    $securePassword = ConvertTo-SecureString "C@llofduty69?!" -AsPlainText -Force
-    $Credential = New-Object System.Management.Automation.PSCredential("KEFALOS\Ngoni.Mutambirwa", $securePassword)
-    Write-Host "Using stored credentials for KEFALOS\Ngoni.Mutambirwa" -ForegroundColor Green
+    # Prompt for credentials interactively - never store passwords in scripts
+    $Credential = Get-Credential -Message "Enter credentials for production server ($ProductionServer)" -UserName "KEFALOS\Ngoni.Mutambirwa"
+    if (-not $Credential) {
+        Write-Host "Credentials are required to deploy. Exiting." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "Using credentials for $($Credential.UserName)" -ForegroundColor Green
     Write-Host ""
 }
 

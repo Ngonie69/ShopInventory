@@ -256,3 +256,14 @@ window.downloadFile = function (fileName, contentTypeOrBase64, base64Content) {
     link.parentNode.removeChild(link);
     window.URL.revokeObjectURL(url);
 };
+
+// Print HTML content in a new window (for PDF export via browser print)
+window.printReportHtml = function (htmlContent) {
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    printWindow.onload = function () {
+        printWindow.focus();
+        printWindow.print();
+    };
+};

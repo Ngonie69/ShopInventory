@@ -37,24 +37,18 @@ public class ProductService : IProductService
         _logger.LogInformation("GetProductsInWarehouseAsync called for warehouse {WarehouseCode}", warehouseCode);
         try
         {
-            // Use cached stock service - gets all items (paginated internally)
-            var pagedResponse = await _stockCacheService.GetCachedStockAsync(warehouseCode, 1, 1000);
-            if (pagedResponse == null)
+            // Use cached stock service - gets ALL items (no pagination limit)
+            var response = await _stockCacheService.GetAllCachedStockAsync(warehouseCode);
+            if (response == null)
             {
-                _logger.LogWarning("GetCachedStockAsync returned null for warehouse {WarehouseCode}", warehouseCode);
+                _logger.LogWarning("GetAllCachedStockAsync returned null for warehouse {WarehouseCode}", warehouseCode);
                 return null;
             }
 
-            _logger.LogInformation("GetCachedStockAsync returned {Count} products for warehouse {WarehouseCode}",
-                pagedResponse.Products?.Count ?? 0, warehouseCode);
+            _logger.LogInformation("GetAllCachedStockAsync returned {Count} products for warehouse {WarehouseCode}",
+                response.Products?.Count ?? 0, warehouseCode);
 
-            return new WarehouseProductsResponse
-            {
-                WarehouseCode = pagedResponse.WarehouseCode,
-                TotalProducts = pagedResponse.Products?.Count ?? 0,
-                ProductsWithBatches = 0,
-                Products = pagedResponse.Products
-            };
+            return response;
         }
         catch (Exception ex)
         {

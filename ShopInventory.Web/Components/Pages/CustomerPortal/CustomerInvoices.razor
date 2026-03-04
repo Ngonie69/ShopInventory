@@ -48,6 +48,12 @@
                         Invoices
                     </h2>
                     <span class="text-muted">Open invoices for @customerInfo.CardName</span>
+                    @if (customerInfo.AccountStructure == "Multi")
+                    {
+                        <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
+                            Multi-Account &mdash; showing invoices across all main accounts
+                        </span>
+                    }
                 </div>
                 <div class="dashboard-meta">
                     <span class="meta-pill">
@@ -83,6 +89,10 @@
                             <thead>
                                 <tr>
                                     <th>Invoice #</th>
+                                    @if (isMultiAccount)
+                                    {
+                                        <th>Account</th>
+                                    }
                                     <th>Date</th>
                                     <th>Due Date</th>
                                     <th class="text-end">Amount</th>
@@ -97,6 +107,16 @@
                                 {
                                     <tr>
                                         <td><span class="badge bg-primary">@invoice.DocNum</span></td>
+                                        @if (isMultiAccount)
+                                        {
+                                            <td>
+                                                <small class="d-block fw-semibold">@(invoice.CardCode ?? "-")</small>
+                                                @if (!string.IsNullOrEmpty(invoice.Currency))
+                                                {
+                                                    <span class="badge bg-outline-dark border" style="font-size: 0.65rem;">@invoice.Currency</span>
+                                                }
+                                            </td>
+                                        }
                                         <td>@invoice.DocDate.ToString("MMM dd, yyyy")</td>
                                         <td>@(invoice.DueDate?.ToString("MMM dd, yyyy") ?? "-")</td>
                                         <td class="text-end">@FormatCurrency(invoice.DocTotal)</td>
@@ -249,6 +269,7 @@
     private bool isLoading = true;
     private DateTime? lastUpdated;
     private decimal totalOutstanding;
+    private bool isMultiAccount;
     private CustomerInvoiceSummary? selectedInvoiceSummary;
     private InvoiceDto? selectedInvoice;
     private List<DocumentAttachmentDto> podAttachments = new();
@@ -281,6 +302,7 @@
 
             if (customerInfo != null)
             {
+                isMultiAccount = customerInfo.AccountStructure == "Multi";
                 invoices = await StatementService.GetOpenInvoicesAsync(customerInfo.CardCode);
                 totalOutstanding = invoices.Sum(i => i.Balance);
                 lastUpdated = DateTime.UtcNow;

@@ -271,6 +271,106 @@ public class TopCustomerDto
 
 #endregion
 
+#region Order Fulfillment Reports
+
+/// <summary>
+/// Comprehensive order fulfillment report
+/// </summary>
+public class OrderFulfillmentReportDto
+{
+    public DateTime FromDate { get; set; }
+    public DateTime ToDate { get; set; }
+    public int TotalOrders { get; set; }
+    public int OpenOrders { get; set; }
+    public int ClosedOrders { get; set; }
+    public int CancelledOrders { get; set; }
+    public decimal FulfillmentRatePercent { get; set; }
+    public decimal TotalOrderValueUSD { get; set; }
+    public decimal TotalOrderValueZIG { get; set; }
+    public decimal TotalDeliveredValueUSD { get; set; }
+    public decimal TotalDeliveredValueZIG { get; set; }
+    public decimal TotalPendingValueUSD { get; set; }
+    public decimal TotalPendingValueZIG { get; set; }
+    public decimal AverageOrderValueUSD { get; set; }
+    public int TotalLineItems { get; set; }
+    public int FullyDeliveredLines { get; set; }
+    public int PartiallyDeliveredLines { get; set; }
+    public int UndeliveredLines { get; set; }
+    public List<OrderFulfillmentItemDto> Orders { get; set; } = new();
+    public List<FulfillmentByCustomerDto> FulfillmentByCustomer { get; set; } = new();
+    public List<DailyFulfillmentDto> DailyFulfillment { get; set; } = new();
+}
+
+/// <summary>
+/// Individual order fulfillment detail
+/// </summary>
+public class OrderFulfillmentItemDto
+{
+    public int DocNum { get; set; }
+    public int DocEntry { get; set; }
+    public DateTime OrderDate { get; set; }
+    public DateTime DueDate { get; set; }
+    public string CardCode { get; set; } = string.Empty;
+    public string CardName { get; set; } = string.Empty;
+    public string DocCurrency { get; set; } = string.Empty;
+    public decimal OrderTotal { get; set; }
+    public string Status { get; set; } = string.Empty; // Open, Closed, Cancelled
+    public int TotalLines { get; set; }
+    public int DeliveredLines { get; set; }
+    public decimal TotalQuantityOrdered { get; set; }
+    public decimal TotalQuantityDelivered { get; set; }
+    public decimal TotalQuantityPending { get; set; }
+    public decimal FulfillmentPercent { get; set; }
+    public bool IsOverdue { get; set; }
+    public int DaysOverdue { get; set; }
+    public List<OrderLineDetailDto> Lines { get; set; } = new();
+}
+
+/// <summary>
+/// Order line fulfillment detail
+/// </summary>
+public class OrderLineDetailDto
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public string ItemDescription { get; set; } = string.Empty;
+    public string WarehouseCode { get; set; } = string.Empty;
+    public decimal QuantityOrdered { get; set; }
+    public decimal QuantityDelivered { get; set; }
+    public decimal QuantityPending { get; set; }
+    public decimal LineTotal { get; set; }
+    public string LineStatus { get; set; } = string.Empty; // Fulfilled, Partial, Pending
+}
+
+/// <summary>
+/// Fulfillment grouped by customer
+/// </summary>
+public class FulfillmentByCustomerDto
+{
+    public string CardCode { get; set; } = string.Empty;
+    public string CardName { get; set; } = string.Empty;
+    public int TotalOrders { get; set; }
+    public int OpenOrders { get; set; }
+    public int ClosedOrders { get; set; }
+    public decimal TotalOrderValue { get; set; }
+    public decimal FulfillmentRatePercent { get; set; }
+    public decimal TotalPendingValue { get; set; }
+}
+
+/// <summary>
+/// Daily fulfillment metrics
+/// </summary>
+public class DailyFulfillmentDto
+{
+    public DateTime Date { get; set; }
+    public int OrdersPlaced { get; set; }
+    public int OrdersClosed { get; set; }
+    public decimal OrderValueUSD { get; set; }
+    public decimal QuantityOrdered { get; set; }
+    public decimal QuantityDelivered { get; set; }
+}
+
+#endregion
+
 #region Report Request DTOs
 
 /// <summary>

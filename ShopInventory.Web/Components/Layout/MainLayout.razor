@@ -14,29 +14,29 @@
 <MudLayout Class="staff-shell">
     <MudAppBar Elevation="1" Dense="true" Class="staff-appbar">
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
-            OnClick="@ToggleDrawer" />
+                       OnClick="@ToggleDrawer" />
         <div class="staff-brand">
-            <img src="images/kefalos-logo.jpg" alt="Kefalos" class="brand-logo" onerror="this.style.display='none'" />
-            <MudText Typo="Typo.h6" Class="brand-title">Kefalos</MudText>
+            <MudIcon Icon="@Icons.Material.Filled.Inventory" Class="brand-icon" />
+            <MudText Typo="Typo.h6" Class="brand-title">Staff Portal</MudText>
         </div>
         <MudSpacer />
 
         <LanguageSelector />
         <MudIconButton Icon="@(_isDarkMode? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
-            Color="Color.Inherit" OnClick="@ToggleTheme" aria-label="@(_isDarkMode ? "Light Mode" : "Dark Mode")" />
+                       Color="Color.Inherit" OnClick="@ToggleTheme" aria-label="@(_isDarkMode ? "Light Mode" : "Dark Mode")" />
 
         <AuthorizeView>
             <Authorized>
                 <MudText Class="mx-3" Style="color: white;">@L.Translate("common.welcome"), @context.User.Identity?.Name
                 </MudText>
                 <MudButton Variant="Variant.Outlined" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Logout"
-                    OnClick="@Logout" Size="Size.Small">
+                           OnClick="@Logout" Size="Size.Small">
                     @L.Translate("common.logout")
                 </MudButton>
             </Authorized>
             <NotAuthorized>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Login"
-                    Href="/login" Size="Size.Small">
+                           Href="/login" Size="Size.Small">
                     @L.Translate("common.login")
                 </MudButton>
             </NotAuthorized>
@@ -44,13 +44,12 @@
     </MudAppBar>
 
     <MudDrawer @bind-Open="@_drawerOpen" Elevation="2" Variant="@DrawerVariant.Mini" OpenMiniOnHover="true"
-        ClipMode="DrawerClipMode.Always" Breakpoint="Breakpoint.Lg" Class="staff-drawer">
+               ClipMode="DrawerClipMode.Always" Breakpoint="Breakpoint.Lg" Class="staff-drawer">
         <MudDrawerHeader Dense="true" Class="staff-drawer-header">
             <div class="drawer-brand">
                 @if (_drawerOpen)
                 {
-                    <img src="images/kefalos-logo.jpg" alt="Kefalos" class="drawer-logo"
-                        onerror="this.outerHTML='<span>Kefalos</span>'" />
+                    <MudText Typo="Typo.h6" Class="drawer-title">Staff Portal</MudText>
                 }
                 else
                 {

@@ -47,6 +47,14 @@ public class InventoryTransferService : IInventoryTransferService
             // Use cache service for faster loading
             return await _cacheService.GetCachedTransfersAsync(warehouseCode);
         }
+        catch (TimeoutException)
+        {
+            throw;
+        }
+        catch (HttpRequestException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting transfers from cache, falling back to API");
@@ -54,9 +62,10 @@ public class InventoryTransferService : IInventoryTransferService
             {
                 return await _httpClient.GetFromJsonAsync<InventoryTransferListResponse>($"api/inventorytransfer/{warehouseCode}");
             }
-            catch
+            catch (Exception fallbackEx)
             {
-                return null;
+                _logger.LogError(fallbackEx, "Fallback API call also failed for warehouse {WarehouseCode}", warehouseCode);
+                throw new Exception($"Unable to load transfers for warehouse {warehouseCode}. Please check if the API server is running.", fallbackEx);
             }
         }
     }
@@ -68,6 +77,14 @@ public class InventoryTransferService : IInventoryTransferService
             // Use cache service for faster loading
             return await _cacheService.GetCachedTransfersAsync(warehouseCode, page, pageSize);
         }
+        catch (TimeoutException)
+        {
+            throw; // Propagate timeout for UI handling
+        }
+        catch (HttpRequestException)
+        {
+            throw; // Propagate HTTP errors for UI handling
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting paged transfers from cache, falling back to API");
@@ -75,9 +92,10 @@ public class InventoryTransferService : IInventoryTransferService
             {
                 return await _httpClient.GetFromJsonAsync<InventoryTransferListResponse>($"api/inventorytransfer/{warehouseCode}/paged?page={page}&pageSize={pageSize}");
             }
-            catch
+            catch (Exception fallbackEx)
             {
-                return null;
+                _logger.LogError(fallbackEx, "Fallback API call also failed for warehouse {WarehouseCode}", warehouseCode);
+                throw new Exception($"Unable to load transfers for warehouse {warehouseCode}. Please check if the API server is running.", fallbackEx);
             }
         }
     }
@@ -139,7 +157,7 @@ public class InventoryTransferService : IInventoryTransferService
             {
                 var from = fromDate.ToString("yyyy-MM-dd");
                 var to = toDate.ToString("yyyy-MM-dd");
-                return await _httpClient.GetFromJsonAsync<InventoryTransferDateResponse>($"api/inventorytransfer/{warehouseCode}/date/{from}/{to}");
+                return await _httpClient.GetFromJsonAsync<InventoryTransferDateResponse>($"api/inventorytransfer/{warehouseCode}/daterange?fromDate={from}&toDate={to}");
             }
             catch
             {

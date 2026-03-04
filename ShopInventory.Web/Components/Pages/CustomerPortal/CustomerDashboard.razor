@@ -51,6 +51,12 @@
                         Welcome, @customerInfo.CardName
                     </h2>
                     <span class="text-muted">Customer Code: @customerInfo.CardCode</span>
+                    @if (customerInfo.AccountStructure == "Multi")
+                    {
+                        <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
+                            <i class="bi bi-diagram-3 me-1"></i> Multi-Account &mdash; @(customerInfo.LinkedAccounts?.Count ?? 0) linked accounts
+                        </span>
+                    }
                 </div>
                 <div class="dashboard-meta">
                     <span class="meta-pill">
@@ -76,7 +82,16 @@
                             <div>
                                 <p class="stat-label mb-2">Account Balance</p>
                                 <h2 class="stat-value @(accountBalance >= 0 ? "text-success" : "text-danger")">@FormatCurrency(accountBalance)</h2>
-                                <p class="text-muted mb-0 small">@(accountBalance >= 0 ? "In credit" : "Outstanding balance")</p>
+                                <p class="text-muted mb-0 small">
+                                    @if (customerInfo.AccountStructure == "Multi")
+                                    {
+                                        <span>Combined across @(dashboard?.AccountBreakdown?.Count(a => a.AccountType == "Main") ?? 0) main accounts</span>
+                                    }
+                                    else
+                                    {
+                                        @(accountBalance >= 0 ? "In credit" : "Outstanding balance")
+                                    }
+                                </p>
                             </div>
                             <div class="stat-icon">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" fill="currentColor" viewBox="0 0 16 16">
@@ -179,6 +194,90 @@
                 </div>
             </div>
         </div>
+
+        @* ===== Account Breakdown for Multi-Account Customers ===== *@
+        @if (dashboard?.AccountBreakdown?.Any() == true)
+        {
+            <div class="row g-4 mb-4">
+                <div class="col-12">
+                    <div class="card dashboard-panel">
+                        <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
+                            <h5 class="mb-0 d-flex align-items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" class="panel-icon">
+                                    <path d="M6 3.5A1.5 1.5 0 0 1 7.5 2h1A1.5 1.5 0 0 1 10 3.5v1A1.5 1.5 0 0 1 8.5 6v1H14a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-1 0V8h-5v.5a.5.5 0 0 1-1 0V8h-5v.5a.5.5 0 0 1-1 0v-1A.5.5 0 0 1 2 7h5.5V6A1.5 1.5 0 0 1 6 4.5v-1z" />
+                                    <path d="M1 11.5A1.5 1.5 0 0 1 2.5 10h1A1.5 1.5 0 0 1 5 11.5v1A1.5 1.5 0 0 1 3.5 14h-1A1.5 1.5 0 0 1 1 12.5v-1zm5 0A1.5 1.5 0 0 1 7.5 10h1A1.5 1.5 0 0 1 10 11.5v1A1.5 1.5 0 0 1 8.5 14h-1A1.5 1.5 0 0 1 6 12.5v-1zm5 0a1.5 1.5 0 0 1 1.5-1.5h1a1.5 1.5 0 0 1 1.5 1.5v1a1.5 1.5 0 0 1-1.5 1.5h-1a1.5 1.5 0 0 1-1.5-1.5v-1z" />
+                                </svg>
+                                Account Breakdown
+                            </h5>
+                            <span class="badge bg-info">@dashboard.AccountBreakdown.Count accounts</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="row g-3">
+                                @foreach (var account in dashboard.AccountBreakdown)
+                                {
+                                    <div class="col-md-6 col-xl-4">
+                                        <div class="card border @(account.AccountType == "Main" ? "border-primary" : "border-secondary") h-100">
+                                            <div class="card-header bg-transparent d-flex align-items-center justify-content-between py-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <span class="badge @(account.AccountType == "Main" ? "bg-primary" : "bg-secondary")">
+                                                        @account.AccountType
+                                                    </span>
+                                                    @if (!string.IsNullOrEmpty(account.Currency))
+                                                    {
+                                                        <span class="badge bg-outline-dark border">@account.Currency</span>
+                                                    }
+                                                </div>
+                                                <small class="text-muted">@account.CardCode</small>
+                                            </div>
+                                            <div class="card-body py-2">
+                                                <h6 class="mb-1 text-truncate" title="@account.CardName">@account.CardName</h6>
+                                                @if (!string.IsNullOrEmpty(account.Description))
+                                                {
+                                                    <small class="text-muted d-block mb-2">@account.Description</small>
+                                                }
+
+                                                @if (account.AccountType == "Main")
+                                                {
+                                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                                        <small class="text-muted">Balance</small>
+                                                        <span class="fw-semibold @(account.Balance >= 0 ? "text-success" : "text-danger")">
+                                                            @FormatCurrencyWithCode(account.Balance, account.Currency)
+                                                        </span>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                                        <small class="text-muted">Outstanding</small>
+                                                        <span class="fw-semibold">@FormatCurrencyWithCode(account.TotalOutstanding, account.Currency)</span>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <small class="text-muted">Open Invoices</small>
+                                                        <span class="badge bg-warning text-dark">@account.OpenInvoicesCount</span>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <small class="text-muted">Open Sales Orders</small>
+                                                        <span class="badge bg-info">@account.OpenSalesOrdersCount</span>
+                                                    </div>
+                                                }
+                                            </div>
+                                            <div class="card-footer bg-transparent py-1">
+                                                <small class="text-muted">
+                                                    @string.Join(", ", account.AllowedTransactions.Select(t =>
+                                                        t == "Invoice" ? "Invoicing" :
+                                                        t == "Payment" ? "Payments" :
+                                                        t == "SalesOrder" ? "Sales Orders" : t))
+                                                </small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
 
         <div class="row g-4 mb-4">
             <div class="col-12">
@@ -501,6 +600,19 @@
     private string FormatCurrency(decimal amount)
     {
         return $"${amount:N2}";
+    }
+
+    private string FormatCurrencyWithCode(decimal amount, string? currency)
+    {
+        if (string.IsNullOrEmpty(currency))
+            return FormatCurrency(amount);
+
+        return currency.ToUpperInvariant() switch
+        {
+            "USD" => $"${amount:N2}",
+            "ZIG" => $"ZiG {amount:N2}",
+            _ => $"{currency} {amount:N2}"
+        };
     }
 
     private string GetStatusClass(CustomerInvoiceSummary invoice)

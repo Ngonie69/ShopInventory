@@ -7,6 +7,7 @@
 @using MudBlazor
 @attribute [Authorize(Roles = "Admin")]
 @inject IBusinessPartnerService BusinessPartnerService
+@inject ICustomerLinkedAccountService LinkedAccountService
 @inject IDbContextFactory<WebAppDbContext> DbContextFactory
 @inject IJSRuntime JS
 @inject ILogger<CustomerPortalManagement> Logger
@@ -193,6 +194,7 @@
                                 <th>Card Code</th>
                                 <th>Customer Name</th>
                                 <th>Email</th>
+                                <th>Account Type</th>
                                 <th>Statements</th>
                                 <th>Status</th>
                                 <th>2FA</th>
@@ -208,6 +210,17 @@
                                     <td><code>@customer.CardCode</code></td>
                                     <td>@customer.CardName</td>
                                 <td>@(customer.Email ?? "-")</td>
+                                <td>
+                                    @if (customer.AccountStructure == "Multi")
+                                    {
+                                        <span class="badge bg-info" title="Multiple linked accounts (main + sub)">Multi-Account</span>
+                                        <small class="d-block text-muted">@(customer.LinkedAccounts?.Count ?? 0) linked</small>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary">Single</span>
+                                    }
+                                </td>
                                 <td>
                                     @if (customer.ReceiveStatements)
                                     {
@@ -257,6 +270,10 @@
                                     <button class="btn btn-outline-info" title="Toggle statement emails"
                                         @onclick="@(() => ToggleStatementPreference(customer))">
                                         <i class="@((customer.ReceiveStatements) ? "bi-bell-fill" : "bi-bell-slash")"></i>
+                                    </button>
+                                    <button class="btn btn-outline-primary" title="Manage Linked Accounts"
+                                        @onclick="@(() => ShowLinkedAccountsModal(customer))">
+                                        <i class="bi bi-diagram-3"></i>
                                     </button>
                                     @if (customer.LockedUntil.HasValue && customer.LockedUntil > DateTime.UtcNow)
                                     {
@@ -503,6 +520,163 @@
     </div>
 }
 
+<!-- Linked Accounts Management Modal -->
+@if (showLinkedAccountsModal && selectedCustomer != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header" style="background: linear-gradient(135deg, #6366f1, #4f46e5); color: white;">
+                    <h5 class="modal-title">
+                        <i class="bi bi-diagram-3 me-2"></i>Linked Accounts - @selectedCustomer.CardCode (@selectedCustomer.CardName)
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseLinkedAccountsModal"></button>
+                </div>
+                <div class="modal-body">
+                    @if (!string.IsNullOrEmpty(linkedAccountMessage))
+                    {
+                        <div class="alert @(linkedAccountMessageIsError ? "alert-danger" : "alert-success") alert-dismissible fade show">
+                            @linkedAccountMessage
+                            <button type="button" class="btn-close" @onclick="@(() => linkedAccountMessage = null)"></button>
+                        </div>
+                    }
+
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <span class="badge @(selectedCustomer.AccountStructure == "Multi" ? "bg-info" : "bg-secondary") fs-6">
+                                    @(selectedCustomer.AccountStructure == "Multi" ? "Multi-Account Structure" : "Single Account")
+                                </span>
+                            </div>
+                            <div>
+                                @if (selectedCustomer.AccountStructure == "Multi")
+                                {
+                                    <button class="btn btn-outline-danger btn-sm" @onclick="ConvertToSingleAccount">
+                                        <i class="bi bi-arrow-counterclockwise me-1"></i>Convert to Single Account
+                                    </button>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="alert alert-info">
+                            <strong>Account Structure Guide:</strong>
+                            <ul class="mb-0 mt-1">
+                                <li><strong>Main Accounts</strong> - Used for <strong>invoicing</strong> and <strong>incoming payments</strong>. Typically one per currency (e.g. ZiG, USD).</li>
+                                <li><strong>Sub Accounts</strong> - Used for <strong>sales orders only</strong>. Derive from a main account.</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Current Linked Accounts -->
+                    @if (linkedAccounts != null && linkedAccounts.Any())
+                    {
+                        <h6 class="mb-3">Current Linked Accounts</h6>
+                        <div class="table-responsive mb-4">
+                            <table class="table table-sm table-bordered">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Card Code</th>
+                                        <th>Name</th>
+                                        <th>Type</th>
+                                        <th>Currency</th>
+                                        <th>Parent</th>
+                                        <th>Allowed Transactions</th>
+                                        <th>Description</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var acct in linkedAccounts)
+                                    {
+                                        <tr>
+                                            <td><code>@acct.CardCode</code></td>
+                                            <td>@acct.CardName</td>
+                                            <td>
+                                                <span class="badge @(acct.AccountType == "Main" ? "bg-primary" : "bg-warning text-dark")">
+                                                    @acct.AccountType
+                                                </span>
+                                            </td>
+                                            <td>@(acct.Currency ?? "-")</td>
+                                            <td>@(acct.ParentCardCode ?? "-")</td>
+                                            <td>
+                                                @foreach (var tx in acct.AllowedTransactions)
+                                                {
+                                                    <span class="badge bg-outline-secondary me-1" style="border: 1px solid #ccc; color: #555;">@tx</span>
+                                                }
+                                            </td>
+                                            <td>@(acct.Description ?? "-")</td>
+                                            <td>
+                                                <button class="btn btn-outline-danger btn-sm" title="Remove"
+                                                    @onclick="@(() => RemoveLinkedAccount(acct.CardCode))">
+                                                    <i class="bi bi-x-lg"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+
+                    <!-- Add New Linked Account -->
+                    <h6 class="mb-3">Add Linked Account</h6>
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label">Select BP</label>
+                            <MudAutocomplete T="CachedBusinessPartner" Label="Search BP"
+                                @bind-Value="linkedAccountBP" SearchFunc="@SearchCustomersFromDbAsync"
+                                ToStringFunc="@(bp => bp == null ? string.Empty : $"{bp.CardCode} - {bp.CardName}")"
+                                ShowProgressIndicator="true" MinCharacters="1" Dense="true"
+                                Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" />
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Account Type</label>
+                            <select class="form-select form-select-sm" @bind="newLinkedAccountType">
+                                <option value="Main">Main</option>
+                                <option value="Sub">Sub</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Currency</label>
+                            <select class="form-select form-select-sm" @bind="newLinkedAccountCurrency">
+                                <option value="">-- Select --</option>
+                                <option value="USD">USD</option>
+                                <option value="ZiG">ZiG</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Parent (for Sub)</label>
+                            <select class="form-select form-select-sm" @bind="newLinkedAccountParent">
+                                <option value="">-- None --</option>
+                                @if (linkedAccounts != null)
+                                {
+                                    @foreach (var main in linkedAccounts.Where(a => a.AccountType == "Main"))
+                                    {
+                                        <option value="@main.CardCode">@main.CardCode (@main.Currency)</option>
+                                    }
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Description</label>
+                            <input type="text" class="form-control form-control-sm" @bind="newLinkedAccountDesc" placeholder="e.g. ZiG Main" />
+                        </div>
+                        <div class="col-md-1">
+                            <button class="btn btn-primary btn-sm w-100" @onclick="AddLinkedAccount" disabled="@isSaving"
+                                style="background: #6366f1; border-color: #6366f1;">
+                                <i class="bi bi-plus"></i> Add
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseLinkedAccountsModal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private List<CustomerPortalUser>? customers;
     private bool isLoading = true;
@@ -556,6 +730,17 @@
     private bool showDeleteModal;
     private CustomerPortalUser? selectedCustomer;
 
+    // Linked Accounts modal state
+    private bool showLinkedAccountsModal;
+    private List<LinkedAccountInfo>? linkedAccounts;
+    private CachedBusinessPartner? linkedAccountBP;
+    private string newLinkedAccountType = "Main";
+    private string? newLinkedAccountCurrency;
+    private string? newLinkedAccountParent;
+    private string? newLinkedAccountDesc;
+    private string? linkedAccountMessage;
+    private bool linkedAccountMessageIsError;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadCustomers();
@@ -597,7 +782,7 @@
                 }
             }
 
-            customers = await query.OrderBy(c => c.CardCode).ToListAsync();
+            customers = await query.Include(c => c.LinkedAccounts).OrderBy(c => c.CardCode).ToListAsync();
 
             // Calculate stats
             var allCustomers = await dbContext.Set<CustomerPortalUser>().ToListAsync();
@@ -1018,4 +1203,181 @@
         public bool TwoFactorEnabled { get; set; }
         public bool ReceiveStatements { get; set; } = true;
     }
+
+    #region Linked Account Management
+
+    private async Task ShowLinkedAccountsModal(CustomerPortalUser customer)
+    {
+        selectedCustomer = customer;
+        linkedAccountMessage = null;
+        linkedAccountBP = null;
+        newLinkedAccountType = "Main";
+        newLinkedAccountCurrency = null;
+        newLinkedAccountParent = null;
+        newLinkedAccountDesc = null;
+        showLinkedAccountsModal = true;
+
+        await LoadLinkedAccounts();
+    }
+
+    private void CloseLinkedAccountsModal()
+    {
+        showLinkedAccountsModal = false;
+        selectedCustomer = null;
+        linkedAccounts = null;
+    }
+
+    private async Task LoadLinkedAccounts()
+    {
+        if (selectedCustomer == null) return;
+
+        try
+        {
+            linkedAccounts = await LinkedAccountService.GetLinkedAccountsAsync(selectedCustomer.CardCode);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading linked accounts");
+            linkedAccountMessage = "Failed to load linked accounts.";
+            linkedAccountMessageIsError = true;
+        }
+    }
+
+    private async Task AddLinkedAccount()
+    {
+        if (selectedCustomer == null || linkedAccountBP == null)
+        {
+            linkedAccountMessage = "Please select a business partner.";
+            linkedAccountMessageIsError = true;
+            return;
+        }
+
+        if (newLinkedAccountType == "Sub" && string.IsNullOrEmpty(newLinkedAccountParent))
+        {
+            linkedAccountMessage = "Sub accounts must have a parent Main account selected.";
+            linkedAccountMessageIsError = true;
+            return;
+        }
+
+        isSaving = true;
+
+        try
+        {
+            var request = new LinkedAccountRequest
+            {
+                CardCode = linkedAccountBP.CardCode,
+                CardName = linkedAccountBP.CardName ?? "",
+                AccountType = newLinkedAccountType,
+                Currency = newLinkedAccountCurrency,
+                ParentCardCode = newLinkedAccountType == "Sub" ? newLinkedAccountParent : null,
+                Description = newLinkedAccountDesc
+            };
+
+            var result = await LinkedAccountService.AddLinkedAccountAsync(selectedCustomer.CardCode, request);
+
+            if (result.Success)
+            {
+                linkedAccountMessage = result.Message;
+                linkedAccountMessageIsError = false;
+                linkedAccounts = result.LinkedAccounts;
+
+                // Update the customer in the list
+                selectedCustomer.AccountStructure = result.AccountStructure;
+
+                // Reset form
+                linkedAccountBP = null;
+                newLinkedAccountType = "Main";
+                newLinkedAccountCurrency = null;
+                newLinkedAccountParent = null;
+                newLinkedAccountDesc = null;
+            }
+            else
+            {
+                linkedAccountMessage = result.Message;
+                linkedAccountMessageIsError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error adding linked account");
+            linkedAccountMessage = "Failed to add linked account.";
+            linkedAccountMessageIsError = true;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task RemoveLinkedAccount(string linkedCardCode)
+    {
+        if (selectedCustomer == null) return;
+
+        isSaving = true;
+
+        try
+        {
+            var result = await LinkedAccountService.RemoveLinkedAccountAsync(selectedCustomer.CardCode, linkedCardCode);
+
+            if (result.Success)
+            {
+                linkedAccountMessage = result.Message;
+                linkedAccountMessageIsError = false;
+                linkedAccounts = result.LinkedAccounts;
+                selectedCustomer.AccountStructure = result.AccountStructure;
+            }
+            else
+            {
+                linkedAccountMessage = result.Message;
+                linkedAccountMessageIsError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error removing linked account");
+            linkedAccountMessage = "Failed to remove linked account.";
+            linkedAccountMessageIsError = true;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task ConvertToSingleAccount()
+    {
+        if (selectedCustomer == null) return;
+
+        isSaving = true;
+
+        try
+        {
+            var result = await LinkedAccountService.ConvertToSingleAccountAsync(selectedCustomer.CardCode);
+
+            if (result.Success)
+            {
+                linkedAccountMessage = result.Message;
+                linkedAccountMessageIsError = false;
+                linkedAccounts = result.LinkedAccounts;
+                selectedCustomer.AccountStructure = "Single";
+            }
+            else
+            {
+                linkedAccountMessage = result.Message;
+                linkedAccountMessageIsError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error converting to single account");
+            linkedAccountMessage = "Failed to convert to single account.";
+            linkedAccountMessageIsError = true;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    #endregion
 }

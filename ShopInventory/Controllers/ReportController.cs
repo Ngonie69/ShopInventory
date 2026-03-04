@@ -257,4 +257,32 @@ public class ReportController : ControllerBase
             return StatusCode(500, new ErrorResponseDto { Message = $"Error generating report: {ex.Message}" });
         }
     }
+
+    /// <summary>
+    /// Gets comprehensive order fulfillment report
+    /// </summary>
+    /// <param name="fromDate">Start date</param>
+    /// <param name="toDate">End date</param>
+    [HttpGet("order-fulfillment")]
+    [ProducesResponseType(typeof(OrderFulfillmentReportDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetOrderFulfillment(
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
+            var to = ToUtc(toDate ?? DateTime.UtcNow);
+
+            var report = await _reportService.GetOrderFulfillmentAsync(from, to, cancellationToken);
+            return Ok(report);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating order fulfillment report");
+            return StatusCode(500, new ErrorResponseDto { Message = $"Error generating report: {ex.Message}" });
+        }
+    }
 }

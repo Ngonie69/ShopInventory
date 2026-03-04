@@ -5,6 +5,7 @@ using MudBlazor.Services;
 using Serilog;
 using ShopInventory.Web.Components;
 using ShopInventory.Web.Data;
+using ShopInventory.Web.Middleware;
 using ShopInventory.Web.Services;
 
 // Configure Serilog
@@ -101,6 +102,7 @@ try
 
     // Add new feature services
     builder.Services.AddScoped<IReportService, ReportService>();
+    builder.Services.AddScoped<IReportExportService, ReportExportService>();
     builder.Services.AddScoped<IUserManagementService, UserManagementService>();
     builder.Services.AddScoped<INotificationClientService, NotificationClientService>();
     builder.Services.AddScoped<ISyncStatusClientService, SyncStatusClientService>();
@@ -118,6 +120,7 @@ try
     builder.Services.AddScoped<ITwoFactorWebService, TwoFactorWebService>();
 
     // Add Customer Portal services
+    builder.Services.AddScoped<ICustomerLinkedAccountService, CustomerLinkedAccountService>();
     builder.Services.AddScoped<ICustomerAuthService, CustomerAuthService>();
     builder.Services.AddScoped<ICustomerStatementService, CustomerStatementService>();
 
@@ -156,6 +159,11 @@ try
         // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
         app.UseHsts();
     }
+
+    // Security middleware - order matters!
+    app.UseSimpleRateLimit();         // Rate limiting first (DDoS protection)
+    app.UseWebRequestValidation();    // Block malicious requests
+    app.UseWebSecurityHeaders();      // Add security headers to all responses
 
     // Add Serilog request logging
     app.UseSerilogRequestLogging();

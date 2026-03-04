@@ -12,13 +12,8 @@
     }
 
     @@keyframes spin {
-        from {
-            transform: rotate(0deg);
-        }
-
-        to {
-            transform: rotate(360deg);
-        }
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
     }
 
     .loading-overlay {
@@ -62,348 +57,316 @@
 
 <PageTitle>Inventory Transfers - Shop Inventory</PageTitle>
 
+<div class="page-shell">
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="mb-0"><i class="bi bi-arrow-left-right me-2"></i>Inventory Transfers</h2>
-        <div class="btn-group">
-            <a href="/inventory-transfer/create" class="btn btn-primary">
-                <i class="bi bi-arrow-left-right me-1"></i>Create Transfer
-            </a>
-            <a href="/transfer-request/create" class="btn btn-outline-primary">
-                <i class="bi bi-file-earmark-plus me-1"></i>Create Request
-            </a>
+        <div class="d-flex align-items-center gap-3">
+            <div class="page-header-icon">
+                <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" />
+            </div>
+            <div>
+                <MudText Typo="Typo.h4" Class="fw-bold" Style="letter-spacing: -0.5px;">Inventory Transfers</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Manage stock movements between warehouses</MudText>
+            </div>
+        </div>
+        <div class="d-flex gap-2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       Href="/inventory-transfer/create" Style="border-radius: 12px; text-transform: none; font-weight: 600; padding: 8px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                Create Transfer
+            </MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.NoteAdd"
+                       Href="/transfer-request/create" Style="border-radius: 12px; text-transform: none; font-weight: 600; padding: 8px 24px;">
+                Create Request
+            </MudButton>
         </div>
     </div>
 
     @if (!string.IsNullOrEmpty(successMessage))
     {
-        <div class="alert alert-success alert-dismissible fade show" role="alert">
-            <i class="bi bi-check-circle me-2"></i>@successMessage
-            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
-        </div>
+        <MudAlert Severity="Severity.Success" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="() => successMessage = null">
+            @successMessage
+        </MudAlert>
     }
 
     @if (!string.IsNullOrEmpty(errorMessage))
     {
-        <div class="alert alert-danger alert-dismissible fade show" role="alert">
-            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
-            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
-        </div>
+        <MudAlert Severity="Severity.Error" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="() => errorMessage = null">
+            @errorMessage
+        </MudAlert>
     }
 
-    <!-- Tabs -->
-    <ul class="nav nav-tabs mb-4" role="tablist">
-        <li class="nav-item" role="presentation">
-            <button class="nav-link @(activeTab == "transfers" ? "active" : "")"
-                @onclick="@(() => SwitchTab("transfers"))">
-                <i class="bi bi-arrow-left-right me-1"></i>Completed Transfers
-            </button>
-        </li>
-        <li class="nav-item" role="presentation">
-            <button class="nav-link @(activeTab == "requests" ? "active" : "")"
-                @onclick="@(() => SwitchTab("requests"))">
-                <i class="bi bi-file-earmark-text me-1"></i>Transfer Requests
-                @if (transferRequestCount > 0)
-                {
-                    <span class="badge bg-primary ms-1">@transferRequestCount</span>
-                }
-            </button>
-        </li>
-    </ul>
-
-    @if (activeTab == "transfers")
-    {
-        <!-- Completed Transfers Tab -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-funnel me-2"></i>Filter</h5>
-            </div>
-            <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-md-3">
-                        <label class="form-label">Warehouse *</label>
-                        @if (isLoadingWarehouses)
-                        {
-                            <div class="d-flex align-items-center">
-                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                                <span class="text-muted">Loading warehouses...</span>
-                            </div>
-                        }
-                        else
-                        {
-                            <MudAutocomplete T="WarehouseDto" @bind-Value="selectedWarehouse" Label="Search warehouse..."
-                                SearchFunc="SearchWarehousesAsync"
-                                ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
-                                Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense" ResetValueOnEmptyText="true"
-                                ShowProgressIndicator="true" MaxItems="20" DebounceInterval="150" Class="mt-0">
-                                <ItemTemplate>
-                                    <div class="d-flex flex-column">
-                                        <span class="fw-semibold">@context.WarehouseCode</span>
-                                        <small class="text-muted">@context.WarehouseName</small>
-                                    </div>
-                                </ItemTemplate>
-                                <NoItemsTemplate>
-                                    <div class="p-2 text-muted">
-                                        <i class="bi bi-info-circle me-1"></i>No warehouses found
-                                    </div>
-                                </NoItemsTemplate>
-                            </MudAutocomplete>
-                        }
-                    </div>
-                    <div class="col-md-3">
-                        <FlexibleDatePicker Label="From Date" @bind-Date="fromDate" />
-                    </div>
-                    <div class="col-md-3">
-                        <FlexibleDatePicker Label="To Date" @bind-Date="toDate" />
-                    </div>
-                    <div class="col-md-3 d-flex align-items-end">
-                        <button class="btn btn-primary me-2" @onclick="LoadTransfers"
-                            disabled="@(selectedWarehouse == null)">
-                            <i class="bi bi-search me-1"></i>Search
-                        </button>
-                        <button class="btn btn-outline-secondary" @onclick="ClearFilter">
-                            <i class="bi bi-x-circle me-1"></i>Clear
-                        </button>
-                    </div>
+    <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pt-4"
+             ActivePanelIndex="activeTabIndex" ActivePanelIndexChanged="OnTabIndexChanged">
+        <MudTabPanel Text="Completed Transfers" Icon="@Icons.Material.Filled.SwapHoriz" BadgeColor="Color.Primary">
+            <!-- Filter Card -->
+            <div class="filter-panel">
+                <div class="filter-panel-header">
+                    <MudIcon Icon="@Icons.Material.Filled.Tune" />
+                    <MudText Typo="Typo.subtitle2" Style="color: white; font-weight: 600;">Search & Filter</MudText>
                 </div>
-                <div class="row mt-3">
-                    <div class="col-md-2">
-                        <label class="form-label">Records per page</label>
-                        <select class="form-select" @bind="pageSize" @bind:after="OnPageSizeChanged">
-                            <option value="10">10</option>
-                            <option value="20">20</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        @if (isLoading)
-        {
-            <div class="text-center py-5">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-                <p class="mt-2">Loading transfers...</p>
-            </div>
-        }
-        else if (errorMessage != null)
-        {
-            <div class="alert alert-danger">
-                <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
-            </div>
-        }
-        else if (transfers?.Any() == true)
-        {
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">Transfers to Warehouse: @selectedWarehouse?.WarehouseCode</h5>
-                </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Doc Entry</th>
-                                    <th>Doc #</th>
-                                    <th>From Warehouse</th>
-                                    <th>To Warehouse</th>
-                                    <th>Date</th>
-                                    <th>Due Date</th>
-                                    <th>Items</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var transfer in transfers)
+                <div class="filter-panel-body">
+                    <MudGrid Spacing="3">
+                        <MudItem xs="12" md="3">
+                            <MudText Typo="Typo.body2" Class="fw-semibold mb-1">Warehouse <span class="text-danger">*</span></MudText>
+                            @if (isLoadingWarehouses)
+                            {
+                                <div class="d-flex align-items-center">
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                                    <MudText Typo="Typo.body2" Color="Color.Secondary">Loading warehouses...</MudText>
+                                </div>
+                            }
+                            else
+                            {
+                                <MudAutocomplete T="WarehouseDto" @bind-Value="selectedWarehouse" Label="Search warehouse..."
+                                    SearchFunc="SearchWarehousesAsync"
+                                    ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
+                                    Dense="true" Variant="Variant.Filled" Margin="Margin.Dense" ResetValueOnEmptyText="true"
+                                    ShowProgressIndicator="true" MaxItems="20" DebounceInterval="150" Class="mt-0">
+                                    <ItemTemplate>
+                                        <div class="d-flex flex-column">
+                                            <span class="fw-semibold">@context.WarehouseCode</span>
+                                            <small class="text-muted">@context.WarehouseName</small>
+                                        </div>
+                                    </ItemTemplate>
+                                    <NoItemsTemplate>
+                                        <div class="p-2 text-muted">
+                                            <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Class="me-1" />No warehouses found
+                                        </div>
+                                    </NoItemsTemplate>
+                                </MudAutocomplete>
+                            }
+                        </MudItem>
+                        <MudItem xs="12" md="2">
+                            <FlexibleDatePicker Label="From Date" @bind-Date="fromDate" Variant="Variant.Filled" />
+                        </MudItem>
+                        <MudItem xs="12" md="2">
+                            <FlexibleDatePicker Label="To Date" @bind-Date="toDate" Variant="Variant.Filled" />
+                        </MudItem>
+                        <MudItem xs="12" md="5" Class="d-flex align-items-end gap-2 filter-actions">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Search"
+                                OnClick="LoadTransfers" Disabled="@(selectedWarehouse == null || isLoading)">
+                                @if (isLoading)
                                 {
-                                    <tr>
-                                        <td>@transfer.DocEntry</td>
-                                        <td><strong>@transfer.DocNum</strong></td>
-                                        <td><span class="badge bg-warning text-dark">@transfer.FromWarehouse</span></td>
-                                        <td><span class="badge bg-success">@transfer.ToWarehouse</span></td>
-                                        <td>@FormatDate(transfer.DocDate)</td>
-                                        <td>@FormatDate(transfer.DueDate)</td>
-                                        <td>@(transfer.Lines?.Count ?? 0) items</td>
-                                        <td>
-                                            <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewTransfer(transfer)">
-                                                <i class="bi bi-eye"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
                                 }
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="d-flex justify-content-between align-items-center mt-3">
-                        <div>
-                            Showing @transfers.Count transfers (Page @currentPage)
-                        </div>
-                        <div>
-                            <button class="btn btn-outline-primary btn-sm me-2" @onclick="PreviousPage"
-                                disabled="@(currentPage <= 1)">
-                                <i class="bi bi-chevron-left"></i> Previous
-                            </button>
-                            <button class="btn btn-outline-primary btn-sm" @onclick="NextPage" disabled="@(!hasMore)">
-                                Next <i class="bi bi-chevron-right"></i>
-                            </button>
-                        </div>
-                    </div>
+                                Search
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Clear"
+                                OnClick="ClearFilter">Clear</MudButton>
+                        </MudItem>
+                    </MudGrid>
                 </div>
             </div>
-        }
-        else if (selectedWarehouse != null)
-        {
-            <div class="alert alert-info">
-                <i class="bi bi-info-circle me-2"></i>No inventory transfers found for warehouse
-                @selectedWarehouse.WarehouseCode.
+
+            @if (isLoading)
+            {
+                <div class="d-flex flex-column align-items-center py-5">
+                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                    <MudText Typo="Typo.body2" Class="mt-2" Color="Color.Secondary">Loading transfers...</MudText>
+                </div>
+            }
+            else if (transfers?.Any() == true)
+            {
+                <MudTable Items="@transfers" Dense="true" Hover="true" Striped="true" Filter="new Func<InventoryTransferDto, bool>(_transferQuickFilter)" T="InventoryTransferDto">
+                    <ToolBarContent>
+                        <MudText Typo="Typo.h6">Transfers for @selectedWarehouse?.WarehouseCode</MudText>
+                        <MudSpacer />
+                        <MudTextField @bind-Value="_transferSearchString" Placeholder="Search transfers..."
+                            Adornment="Adornment.Start" Immediate="true"
+                            AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0" />
+                    </ToolBarContent>
+                    <HeaderContent>
+                        <MudTh>Doc Entry</MudTh>
+                        <MudTh>Doc #</MudTh>
+                        <MudTh>From Warehouse</MudTh>
+                        <MudTh>To Warehouse</MudTh>
+                        <MudTh>Date</MudTh>
+                        <MudTh>Due Date</MudTh>
+                        <MudTh>Items</MudTh>
+                        <MudTh>Actions</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Doc Entry">@context.DocEntry</MudTd>
+                        <MudTd DataLabel="Doc #"><strong>@context.DocNum</strong></MudTd>
+                        <MudTd DataLabel="From Warehouse">
+                            <MudChip T="string" Color="Color.Warning" Size="Size.Small">@context.FromWarehouse</MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="To Warehouse">
+                            <MudChip T="string" Color="Color.Success" Size="Size.Small">@context.ToWarehouse</MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="Date">@FormatDate(context.DocDate)</MudTd>
+                        <MudTd DataLabel="Due Date">@FormatDate(context.DueDate)</MudTd>
+                        <MudTd DataLabel="Items">
+                            <MudChip T="string" Color="Color.Info" Size="Size.Small">@(context.Lines?.Count ?? 0) items</MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="Actions">
+                            <MudIconButton Icon="@Icons.Material.Filled.Visibility" Color="Color.Primary"
+                                Size="Size.Small" OnClick="@(() => ViewTransfer(context))" />
+                        </MudTd>
+                    </RowTemplate>
+                    <PagerContent>
+                        <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+                    </PagerContent>
+                </MudTable>
+            }
+            else if (selectedWarehouse != null && !isLoading)
+            {
+                <div class="text-center py-5">
+                    <i class="bi bi-inbox text-muted" style="font-size: 3rem;"></i>
+                    <p class="mt-3 text-muted">No inventory transfers found for warehouse <strong>@selectedWarehouse.WarehouseCode</strong>.</p>
+                    <p class="text-muted small">Try adjusting your date range or selecting a different warehouse.</p>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh"
+                        OnClick="LoadTransfers" Class="mt-2">Retry</MudButton>
+                </div>
+            }
+            else
+            {
+                <div class="text-center py-5">
+                    <i class="bi bi-search text-muted" style="font-size: 3rem;"></i>
+                    <p class="mt-3 text-muted">Select a warehouse and click <strong>Search</strong> to view inventory transfers.</p>
+                </div>
+            }
+        </MudTabPanel>
+
+        <MudTabPanel Text="Transfer Requests" Icon="@Icons.Material.Filled.Description"
+                     BadgeData="@(transferRequestCount > 0 ? transferRequestCount.ToString() : null)"
+                     BadgeColor="Color.Primary">
+            <div class="d-flex justify-content-between align-items-center mb-3 mt-2">
+                <MudText Typo="Typo.h6">
+                    <MudIcon Icon="@Icons.Material.Filled.Description" Class="me-2" />Transfer Requests
+                </MudText>
+                <div class="d-flex gap-2">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                        StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshTransferRequests"
+                        Disabled="@isLoadingRequests">Refresh</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                        StartIcon="@Icons.Material.Filled.Add" Href="/transfer-request/create">New Request</MudButton>
+                </div>
             </div>
-        }
-        else
-        {
-            <div class="alert alert-info">
-                <i class="bi bi-info-circle me-2"></i>Select a warehouse and click Search to view inventory transfers.
-            </div>
-        }
-    }
-    else
-    {
-        <!-- Transfer Requests Tab -->
-        <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-file-earmark-text me-2"></i>Transfer Requests</h5>
-                <div>
-                    <button class="btn btn-sm btn-outline-secondary me-2" @onclick="RefreshTransferRequests"
-                        disabled="@isLoadingRequests">
-                        <i class="bi bi-arrow-clockwise @(isLoadingRequests ? "spin" : "")"></i>
-                    </button>
-                    <a href="/transfer-request/create" class="btn btn-sm btn-primary">
-                        <i class="bi bi-plus me-1"></i>New Request
+
+            @if (isLoadingRequests)
+            {
+                <div class="d-flex flex-column align-items-center py-5">
+                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                    <MudText Typo="Typo.body2" Class="mt-2" Color="Color.Secondary">Loading transfer requests...</MudText>
+                </div>
+            }
+            else if (transferRequests?.Any() == true)
+            {
+                <MudTable Items="@transferRequests" Dense="true" Hover="true" Striped="true" Filter="new Func<InventoryTransferRequestDto, bool>(_requestQuickFilter)" T="InventoryTransferRequestDto">
+                    <ToolBarContent>
+                        <MudText Typo="Typo.h6">Requests</MudText>
+                        <MudSpacer />
+                        <MudTextField @bind-Value="_requestSearchString" Placeholder="Search requests..."
+                            Adornment="Adornment.Start" Immediate="true"
+                            AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0" />
+                    </ToolBarContent>
+                    <HeaderContent>
+                        <MudTh>Doc #</MudTh>
+                        <MudTh>From</MudTh>
+                        <MudTh>To</MudTh>
+                        <MudTh>Date</MudTh>
+                        <MudTh>Requester</MudTh>
+                        <MudTh>Status</MudTh>
+                        <MudTh>Items</MudTh>
+                        <MudTh>Actions</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Doc #"><strong>@context.DocNum</strong></MudTd>
+                        <MudTd DataLabel="From">
+                            <MudChip T="string" Color="Color.Warning" Size="Size.Small">@context.FromWarehouse</MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="To">
+                            <MudChip T="string" Color="Color.Success" Size="Size.Small">@context.ToWarehouse</MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="Date">@FormatDate(context.DocDate)</MudTd>
+                        <MudTd DataLabel="Requester">@(context.RequesterName ?? "-")</MudTd>
+                        <MudTd DataLabel="Status">
+                            <MudChip T="string" Color="@GetStatusColor(context.DocumentStatus)" Size="Size.Small">
+                                @(context.DocumentStatus ?? "Open")
+                            </MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="Items">
+                            <MudChip T="string" Color="Color.Info" Size="Size.Small">@(context.Lines?.Count ?? 0)</MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="Actions">
+                            <div class="d-flex gap-1">
+                                <MudIconButton Icon="@Icons.Material.Filled.Visibility" Color="Color.Primary"
+                                    Size="Size.Small" OnClick="@(() => ViewTransferRequest(context))" />
+                                @if (IsRequestConvertible(context))
+                                {
+                                    <MudIconButton Icon="@Icons.Material.Filled.SwapHoriz" Color="Color.Success"
+                                        Size="Size.Small" OnClick="@(() => ConvertRequest(context))"
+                                        Disabled="@isConverting" />
+                                }
+                            </div>
+                        </MudTd>
+                    </RowTemplate>
+                    <PagerContent>
+                        <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+                    </PagerContent>
+                </MudTable>
+            }
+            else
+            {
+                <div class="text-center py-5">
+                    <i class="bi bi-inbox text-muted" style="font-size: 3rem;"></i>
+                    <p class="mt-3 text-muted">No transfer requests found</p>
+                    <a href="/transfer-request/create" class="btn btn-primary">
+                        <i class="bi bi-plus-circle me-1"></i>Create First Request
                     </a>
                 </div>
-            </div>
-            <div class="card-body">
-                @if (isLoadingRequests)
-                {
-                    <div class="text-center py-4">
-                        <div class="spinner-border text-primary" role="status"></div>
-                        <p class="mt-2 text-muted">Loading transfer requests...</p>
-                    </div>
-                }
-                else if (transferRequests?.Any() == true)
-                {
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Doc #</th>
-                                    <th>From</th>
-                                    <th>To</th>
-                                    <th>Date</th>
-                                    <th>Requester</th>
-                                    <th>Status</th>
-                                    <th>Items</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var request in transferRequests)
-                                {
-                                    <tr>
-                                        <td><strong>@request.DocNum</strong></td>
-                                        <td><span class="badge bg-warning text-dark">@request.FromWarehouse</span></td>
-                                        <td><span class="badge bg-success">@request.ToWarehouse</span></td>
-                                        <td>@FormatDate(request.DocDate)</td>
-                                        <td>@(request.RequesterName ?? "-")</td>
-                                        <td>
-                                            <span class="badge @GetStatusBadgeClass(request.DocumentStatus)">
-                                                @(request.DocumentStatus ?? "Open")
-                                            </span>
-                                        </td>
-                                        <td>@(request.Lines?.Count ?? 0)</td>
-                                        <td>
-                                            <div class="btn-group btn-group-sm">
-                                                <button class="btn btn-outline-primary"
-                                                    @onclick="() => ViewTransferRequest(request)" title="View Details">
-                                                    <i class="bi bi-eye"></i>
-                                                </button>
-                                                @if (IsRequestConvertible(request))
-                                                {
-                                                    <button class="btn btn-outline-success" @onclick="() => ConvertRequest(request)"
-                                                        disabled="@isConverting" title="Convert to Transfer">
-                                                        <i class="bi bi-arrow-left-right"></i>
-                                                    </button>
-                                                }
-                                            </div>
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="d-flex justify-content-between align-items-center mt-3">
-                        <div>Showing @transferRequests.Count requests (Page @requestPage)</div>
-                        <div>
-                            <button class="btn btn-outline-primary btn-sm me-2" @onclick="PreviousRequestPage"
-                                disabled="@(requestPage <= 1)">
-                                <i class="bi bi-chevron-left"></i> Previous
-                            </button>
-                            <button class="btn btn-outline-primary btn-sm" @onclick="NextRequestPage"
-                                disabled="@(!hasMoreRequests)">
-                                Next <i class="bi bi-chevron-right"></i>
-                            </button>
-                        </div>
-                    </div>
-                }
-                else
-                {
-                    <div class="text-center py-4">
-                        <i class="bi bi-inbox text-muted" style="font-size: 3rem;"></i>
-                        <p class="mt-2 text-muted">No transfer requests found</p>
-                        <a href="/transfer-request/create" class="btn btn-primary">
-                            <i class="bi bi-plus-circle me-1"></i>Create First Request
-                        </a>
-                    </div>
-                }
-            </div>
-        </div>
-    }
+            }
+        </MudTabPanel>
+    </MudTabs>
 </div>
 
 <!-- Transfer Detail Modal -->
 @if (selectedTransfer != null)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Inventory Transfer #@selectedTransfer.DocNum</h5>
-                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="bi bi-arrow-left-right me-2"></i>Inventory Transfer #@selectedTransfer.DocNum</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
                 </div>
                 <div class="modal-body">
-                    <div class="row mb-3">
+                    <div class="row mb-4">
                         <div class="col-md-6">
-                            <p><strong>From Warehouse:</strong> <span
-                                    class="badge bg-warning text-dark">@selectedTransfer.FromWarehouse</span></p>
-                            <p><strong>To Warehouse:</strong> <span
-                                    class="badge bg-success">@selectedTransfer.ToWarehouse</span></p>
+                            <div class="mb-2">
+                                <small class="text-muted">From Warehouse</small><br />
+                                <MudChip T="string" Color="Color.Warning" Size="Size.Small">@selectedTransfer.FromWarehouse</MudChip>
+                            </div>
+                            <div class="mb-2">
+                                <small class="text-muted">To Warehouse</small><br />
+                                <MudChip T="string" Color="Color.Success" Size="Size.Small">@selectedTransfer.ToWarehouse</MudChip>
+                            </div>
                         </div>
                         <div class="col-md-6">
-                            <p><strong>Date:</strong> @FormatDate(selectedTransfer.DocDate)</p>
-                            <p><strong>Due Date:</strong> @FormatDate(selectedTransfer.DueDate)</p>
-                            <p><strong>Comments:</strong> @selectedTransfer.Comments</p>
+                            <div class="mb-2">
+                                <small class="text-muted">Date</small><br />
+                                <strong>@FormatDate(selectedTransfer.DocDate)</strong>
+                            </div>
+                            <div class="mb-2">
+                                <small class="text-muted">Due Date</small><br />
+                                <strong>@FormatDate(selectedTransfer.DueDate)</strong>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(selectedTransfer.Comments))
+                            {
+                                <div class="mb-2">
+                                    <small class="text-muted">Comments</small><br />
+                                    @selectedTransfer.Comments
+                                </div>
+                            }
                         </div>
                     </div>
 
                     @if (selectedTransfer.Lines?.Any() == true)
                     {
-                        <h6>Transfer Lines</h6>
+                        <h6 class="mb-3"><i class="bi bi-list-ul me-1"></i>Transfer Lines</h6>
                         <div class="table-responsive">
-                            <table class="table table-sm">
+                            <table class="table table-sm table-bordered">
                                 <thead class="table-light">
                                     <tr>
                                         <th>#</th>
@@ -420,7 +383,7 @@
                                     {
                                         <tr>
                                             <td>@line.LineNum</td>
-                                            <td>@line.ItemCode</td>
+                                            <td><code>@line.ItemCode</code></td>
                                             <td>@line.ItemDescription</td>
                                             <td>@line.FromWarehouseCode</td>
                                             <td>@line.ToWarehouseCode</td>
@@ -452,37 +415,62 @@
 @if (selectedTransferRequest != null)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Transfer Request #@selectedTransferRequest.DocNum</h5>
-                    <button type="button" class="btn-close" @onclick="CloseRequestModal"></button>
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="bi bi-file-earmark-text me-2"></i>Transfer Request #@selectedTransferRequest.DocNum</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseRequestModal"></button>
                 </div>
                 <div class="modal-body">
-                    <div class="row mb-3">
+                    <div class="row mb-4">
                         <div class="col-md-6">
-                            <p><strong>From Warehouse:</strong> <span
-                                    class="badge bg-warning text-dark">@selectedTransferRequest.FromWarehouse</span></p>
-                            <p><strong>To Warehouse:</strong> <span
-                                    class="badge bg-success">@selectedTransferRequest.ToWarehouse</span></p>
-                            <p><strong>Status:</strong> <span
-                                    class="badge @GetStatusBadgeClass(selectedTransferRequest.DocumentStatus)">@(selectedTransferRequest.DocumentStatus
-                                                                    ?? "Open")</span></p>
+                            <div class="mb-2">
+                                <small class="text-muted">From Warehouse</small><br />
+                                <MudChip T="string" Color="Color.Warning" Size="Size.Small">@selectedTransferRequest.FromWarehouse</MudChip>
+                            </div>
+                            <div class="mb-2">
+                                <small class="text-muted">To Warehouse</small><br />
+                                <MudChip T="string" Color="Color.Success" Size="Size.Small">@selectedTransferRequest.ToWarehouse</MudChip>
+                            </div>
+                            <div class="mb-2">
+                                <small class="text-muted">Status</small><br />
+                                <MudChip T="string" Color="@GetStatusColor(selectedTransferRequest.DocumentStatus)" Size="Size.Small">
+                                    @(selectedTransferRequest.DocumentStatus ?? "Open")
+                                </MudChip>
+                            </div>
                         </div>
                         <div class="col-md-6">
-                            <p><strong>Date:</strong> @FormatDate(selectedTransferRequest.DocDate)</p>
-                            <p><strong>Due Date:</strong> @FormatDate(selectedTransferRequest.DueDate)</p>
-                            <p><strong>Requester:</strong> @(selectedTransferRequest.RequesterName ?? "-")</p>
-                            <p><strong>Email:</strong> @(selectedTransferRequest.RequesterEmail ?? "-")</p>
-                            <p><strong>Comments:</strong> @(selectedTransferRequest.Comments ?? "-")</p>
+                            <div class="mb-2">
+                                <small class="text-muted">Date</small><br />
+                                <strong>@FormatDate(selectedTransferRequest.DocDate)</strong>
+                            </div>
+                            <div class="mb-2">
+                                <small class="text-muted">Due Date</small><br />
+                                <strong>@FormatDate(selectedTransferRequest.DueDate)</strong>
+                            </div>
+                            <div class="mb-2">
+                                <small class="text-muted">Requester</small><br />
+                                @(selectedTransferRequest.RequesterName ?? "-")
+                            </div>
+                            <div class="mb-2">
+                                <small class="text-muted">Email</small><br />
+                                @(selectedTransferRequest.RequesterEmail ?? "-")
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(selectedTransferRequest.Comments))
+                            {
+                                <div class="mb-2">
+                                    <small class="text-muted">Comments</small><br />
+                                    @selectedTransferRequest.Comments
+                                </div>
+                            }
                         </div>
                     </div>
 
                     @if (selectedTransferRequest.Lines?.Any() == true)
                     {
-                        <h6>Request Lines</h6>
+                        <h6 class="mb-3"><i class="bi bi-list-ul me-1"></i>Request Lines</h6>
                         <div class="table-responsive">
-                            <table class="table table-sm">
+                            <table class="table table-sm table-bordered">
                                 <thead class="table-light">
                                     <tr>
                                         <th>#</th>
@@ -499,7 +487,7 @@
                                     {
                                         <tr>
                                             <td>@line.LineNum</td>
-                                            <td>@line.ItemCode</td>
+                                            <td><code>@line.ItemCode</code></td>
                                             <td>@line.ItemDescription</td>
                                             <td>@line.FromWarehouseCode</td>
                                             <td>@line.ToWarehouseCode</td>
@@ -511,14 +499,13 @@
                                 <tfoot>
                                     <tr class="table-primary">
                                         <td colspan="5" class="text-end"><strong>Total Quantity:</strong></td>
-                                        <td class="text-end"><strong>@selectedTransferRequest.Lines.Sum(l =>
-                                                                                        l.Quantity)</strong></td>
-                                <td></td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
-                                }
+                                        <td class="text-end"><strong>@selectedTransferRequest.Lines.Sum(l => l.Quantity)</strong></td>
+                                        <td></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    }
                 </div>
                 <div class="modal-footer">
                     @if (IsRequestConvertible(selectedTransferRequest))
@@ -543,10 +530,11 @@
         </div>
     </div>
 }
+</div>
 
 @code {
     // Tab state
-    private string activeTab = "transfers";
+    private int activeTabIndex = 0;
 
     // Completed transfers
     private List<InventoryTransferDto>? transfers;
@@ -557,6 +545,8 @@
     private int currentPage = 1;
     private int pageSize = 20;
     private bool hasMore = false;
+    private int totalCount = 0;
+    private int totalPages = 0;
 
     // Transfer requests
     private List<InventoryTransferRequestDto>? transferRequests;
@@ -575,7 +565,47 @@
     private DateTime? fromDate;
     private DateTime? toDate;
 
+    // Quick filter search strings
+    private string? _transferSearchString;
+    private string? _requestSearchString;
+
     private bool _hasLoadedData = false;
+
+    // Quick filter for completed transfers
+    private Func<InventoryTransferDto, bool> _transferQuickFilter => x =>
+    {
+        if (string.IsNullOrWhiteSpace(_transferSearchString))
+            return true;
+        if (x.DocNum.ToString().Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (x.DocEntry.ToString().Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (x.FromWarehouse?.Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        if (x.ToWarehouse?.Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        if (x.Comments?.Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        return false;
+    };
+
+    // Quick filter for transfer requests
+    private Func<InventoryTransferRequestDto, bool> _requestQuickFilter => x =>
+    {
+        if (string.IsNullOrWhiteSpace(_requestSearchString))
+            return true;
+        if (x.DocNum.ToString().Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (x.FromWarehouse?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        if (x.ToWarehouse?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        if (x.RequesterName?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        if (x.DocumentStatus?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        return false;
+    };
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -667,13 +697,17 @@
             {
                 var response = await TransferService.GetTransfersByDateRangeAsync(warehouseCode, fromDate.Value, toDate.Value);
                 transfers = response?.Transfers;
+                totalCount = response?.Count ?? transfers?.Count ?? 0;
                 hasMore = false;
+                totalPages = 1;
             }
             else if (fromDate.HasValue)
             {
                 var response = await TransferService.GetTransfersByDateAsync(warehouseCode, fromDate.Value);
                 transfers = response?.Transfers;
+                totalCount = response?.Count ?? transfers?.Count ?? 0;
                 hasMore = false;
+                totalPages = 1;
             }
             else
             {
@@ -682,11 +716,29 @@
                 {
                     transfers = response.Transfers;
                     hasMore = response.HasMore;
+                    totalCount = response.Count;
+                    totalPages = pageSize > 0 ? (int)Math.Ceiling((double)totalCount / pageSize) : 1;
+                }
+                else
+                {
+                    transfers = null;
+                    errorMessage = "Failed to load transfers - no response from server. Check if the API is running.";
                 }
             }
         }
+        catch (TimeoutException ex)
+        {
+            Logger.LogWarning(ex, "Timeout loading transfers");
+            errorMessage = "The request timed out while loading transfers. SAP may be responding slowly. Please try again.";
+        }
+        catch (HttpRequestException ex)
+        {
+            Logger.LogError(ex, "HTTP error loading transfers");
+            errorMessage = $"Connection error while loading transfers: {ex.Message}";
+        }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "Error loading transfers");
             errorMessage = $"Error: {ex.Message}";
         }
         finally
@@ -702,6 +754,8 @@
         toDate = null;
         currentPage = 1;
         transfers = null;
+        totalCount = 0;
+        totalPages = 0;
 
         // Re-select default warehouse
         var defaultWarehouse = cachedWarehouses?.FirstOrDefault(w => w.WarehouseCode == "01");
@@ -747,10 +801,10 @@
 
     #region Transfer Request Methods
 
-    private async Task SwitchTab(string tab)
+    private async Task OnTabIndexChanged(int index)
     {
-        activeTab = tab;
-        if (tab == "requests" && transferRequests == null)
+        activeTabIndex = index;
+        if (index == 1 && transferRequests == null)
         {
             await LoadTransferRequestsAsync();
         }
@@ -813,16 +867,16 @@
         await LoadTransferRequestsAsync();
     }
 
-    private string GetStatusBadgeClass(string? status)
+    private Color GetStatusColor(string? status)
     {
         return status?.ToLower() switch
         {
-            "open" or "bost_open" => "bg-info",
-            "closed" or "bost_close" => "bg-secondary",
-            "approved" => "bg-success",
-            "rejected" => "bg-danger",
-            "pending" => "bg-warning text-dark",
-            _ => "bg-info"
+            "open" or "bost_open" => Color.Info,
+            "closed" or "bost_close" => Color.Default,
+            "approved" => Color.Success,
+            "rejected" => Color.Error,
+            "pending" => Color.Warning,
+            _ => Color.Info
         };
     }
 

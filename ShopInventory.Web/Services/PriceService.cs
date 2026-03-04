@@ -20,6 +20,7 @@ public interface IPriceService
     Task<ItemPriceGroupedDto?> GetPriceByItemCodeAsync(string itemCode);
     Task<PriceListsResponse?> GetPriceListsAsync();
     Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum);
+    Task<ItemPricesByListResponse?> GetPricesByPriceListForceRefreshAsync(int priceListNum);
     Task<ItemPriceByListDto?> GetItemPriceFromListAsync(int priceListNum, string itemCode);
 }
 
@@ -168,6 +169,18 @@ public class PriceService : IPriceService
             var response = await _httpClient.GetAsync($"api/price/pricelists/{priceListNum}/items");
             _logger.LogDebug("GetPricesByPriceListAsync response: {StatusCode}", response.StatusCode);
 
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                // Price list exists but has no items — return empty response
+                _logger.LogWarning("No items found for price list {PriceListNum}", priceListNum);
+                return new ItemPricesByListResponse
+                {
+                    TotalCount = 0,
+                    PriceListNum = priceListNum,
+                    Prices = new List<ItemPriceByListDto>()
+                };
+            }
+
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync();
@@ -180,6 +193,41 @@ public class PriceService : IPriceService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception fetching prices for price list {PriceListNum}", priceListNum);
+            return null;
+        }
+    }
+
+    public async Task<ItemPricesByListResponse?> GetPricesByPriceListForceRefreshAsync(int priceListNum)
+    {
+        try
+        {
+            _logger.LogInformation("Force-refreshing prices for price list {PriceListNum} from SAP", priceListNum);
+
+            var response = await _httpClient.GetAsync($"api/price/pricelists/{priceListNum}/items?forceRefresh=true");
+            _logger.LogDebug("GetPricesByPriceListForceRefreshAsync response: {StatusCode}", response.StatusCode);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return new ItemPricesByListResponse
+                {
+                    TotalCount = 0,
+                    PriceListNum = priceListNum,
+                    Prices = new List<ItemPriceByListDto>()
+                };
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Failed to force-refresh prices for list {PriceListNum}: {StatusCode} - {Error}", priceListNum, response.StatusCode, errorContent);
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<ItemPricesByListResponse>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception force-refreshing prices for price list {PriceListNum}", priceListNum);
             return null;
         }
     }

@@ -126,12 +126,26 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
             // Re-throw timeout exceptions so the UI can show a user-friendly message
             throw;
         }
+        catch (HttpRequestException)
+        {
+            // Propagate HTTP errors so the UI can show a meaningful message
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching payments from API");
+            throw;
         }
 
-        return null;
+        // API returned no payments - return empty response (not null)
+        return new IncomingPaymentListResponse
+        {
+            Page = page,
+            PageSize = pageSize,
+            Count = 0,
+            HasMore = false,
+            Payments = new List<IncomingPaymentDto>()
+        };
     }
 
     public async Task<IncomingPaymentDateResponse?> GetCachedPaymentsByDateRangeAsync(DateTime fromDate, DateTime toDate)
@@ -323,9 +337,9 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
     {
         try
         {
-            // Use a 45-second timeout to stay under nginx's 60-second gateway timeout
+            // Use a 90-second timeout to allow for backend retries against SAP
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(TimeSpan.FromSeconds(45));
+            cts.CancelAfter(TimeSpan.FromSeconds(90));
 
             return await _httpClient.GetFromJsonAsync<IncomingPaymentListResponse>(
                 $"api/incomingpayment?page={page}&pageSize={pageSize}", _jsonOptions, cts.Token);
@@ -335,10 +349,15 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
             _logger.LogWarning("Timeout fetching payments from API, page {Page} - SAP may be slow", page);
             throw new TimeoutException($"The request timed out while fetching payments. SAP may be responding slowly. Please try again.", ex);
         }
-        catch (HttpRequestException ex) when (ex.Message.Contains("504") || ex.Message.Contains("Gateway"))
+        catch (HttpRequestException ex) when (ex.Message.Contains("504") || ex.Message.Contains("Gateway") || ex.Message.Contains("502"))
         {
-            _logger.LogWarning(ex, "Gateway timeout fetching payments from API, page {Page}", page);
-            throw new TimeoutException($"Gateway timeout while fetching payments. The server may be busy. Please try again.", ex);
+            _logger.LogWarning(ex, "Gateway error fetching payments from API, page {Page}", page);
+            throw new TimeoutException($"Gateway error while fetching payments. The server may be busy. Please try again.", ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP error fetching payments from API, page {Page}", page);
+            throw; // Propagate so the caller can show a meaningful error
         }
         catch (Exception ex)
         {

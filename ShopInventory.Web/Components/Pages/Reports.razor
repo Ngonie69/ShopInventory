@@ -1,597 +1,914 @@
+@* @formatter:off *@
 @page "/reports"
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.JSInterop
 @attribute [Authorize]
 @inject IReportService ReportService
+@inject IReportExportService ExportService
 @inject IAuditService AuditService
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
 @rendermode InteractiveServer
 
 <PageTitle>Reports - Shop Inventory</PageTitle>
 
 <div class="container-fluid fade-in">
-    <div class="page-header">
-        <h2>
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16"
-                style="color: var(--primary-color);">
-                <path
-                    d="M4 11H2v3h2v-3zm5-4H7v7h2V7zm5-5v12h-2V2h2zm-2-1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1h-2zM6 7a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V7zm-5 4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1v-3z" />
-            </svg>
-            Reports & Analytics
-        </h2>
-        <span class="text-muted">Business insights and performance metrics</span>
-    </div>
-
-    <!-- Date Range Filter -->
-    <div class="card mb-4">
-        <div class="card-body">
-            <div class="row g-3 align-items-end">
-                <div class="col-md-3">
-                    <label class="form-label">From Date</label>
-                    <input type="date" class="form-control" @bind="fromDate" />
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">To Date</label>
-                    <input type="date" class="form-control" @bind="toDate" />
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Quick Select</label>
-                    <select class="form-select" @onchange="OnQuickSelectChanged">
-                        <option value="7">Last 7 Days</option>
-                        <option value="30" selected>Last 30 Days</option>
-                        <option value="90">Last 90 Days</option>
-                        <option value="365">Last Year</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <button class="btn btn-primary w-100" @onclick="LoadReports" disabled="@isLoading">
-                        @if (isLoading)
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="mb-1 fw-bold" style="color: #1a237e;">
+                <i class="bi bi-bar-chart-line me-2"></i>Reports &amp; Analytics
+            </h2>
+            <p class="text-muted mb-0">Real-time business insights from SAP Business One</p>
+        </div>
+        <div class="d-flex gap-2">
+            @if (HasActiveData())
+            {
+                <div class="dropdown">
+                    <button class="btn btn-outline-success dropdown-toggle" data-bs-toggle="dropdown"
+                            disabled="@isExporting">
+                        @if (isExporting)
                         {
-                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            <span class="spinner-border spinner-border-sm me-1"></span>
                         }
-                        Generate Reports
+                        else
+                        {
+                            <i class="bi bi-file-earmark-excel me-1"></i>
+                        }
+                        Excel
                     </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Report Tabs -->
-    <ul class="nav nav-tabs mb-4" role="tablist">
-        <li class="nav-item">
-            <button class="nav-link @(activeTab == "sales" ? "active" : "")" @onclick='() => activeTab = "sales"'>
-                <i class="bi bi-graph-up me-2"></i>Sales
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link @(activeTab == "products" ? "active" : "")" @onclick='() => activeTab = "products"'>
-                <i class="bi bi-box-seam me-2"></i>Top Products
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link @(activeTab == "stock" ? "active" : "")" @onclick='() => activeTab = "stock"'>
-                <i class="bi bi-boxes me-2"></i>Stock
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link @(activeTab == "payments" ? "active" : "")" @onclick='() => activeTab = "payments"'>
-                <i class="bi bi-cash-stack me-2"></i>Payments
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link @(activeTab == "customers" ? "active" : "")"
-                @onclick='() => activeTab = "customers"'>
-                <i class="bi bi-people me-2"></i>Top Customers
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link @(activeTab == "alerts" ? "active" : "")" @onclick='() => activeTab = "alerts"'>
-                <i class="bi bi-exclamation-triangle me-2"></i>Low Stock Alerts
-                @if (lowStockReport?.TotalAlerts > 0)
-                {
-                    <span class="badge bg-danger ms-2">@lowStockReport.TotalAlerts</span>
-                }
-            </button>
-        </li>
-    </ul>
-
-    <!-- Sales Report Tab -->
-    @if (activeTab == "sales")
-    {
-        <div class="row">
-            @if (salesReport != null)
-            {
-                <!-- Summary Cards -->
-                <div class="col-md-3 mb-4">
-                    <div class="card h-100 border-primary">
-                        <div class="card-body text-center">
-                            <h6 class="text-muted">Total Invoices</h6>
-                            <h2 class="text-primary">@salesReport.TotalInvoices</h2>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3 mb-4">
-                    <div class="card h-100 border-success">
-                        <div class="card-body text-center">
-                            <h6 class="text-muted">Sales (USD)</h6>
-                            <h2 class="text-success">$@salesReport.TotalSalesUSD.ToString("N2")</h2>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3 mb-4">
-                    <div class="card h-100 border-info">
-                        <div class="card-body text-center">
-                            <h6 class="text-muted">Sales (ZIG)</h6>
-                            <h2 class="text-info">ZIG @salesReport.TotalSalesZIG.ToString("N2")</h2>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3 mb-4">
-                    <div class="card h-100 border-warning">
-                        <div class="card-body text-center">
-                            <h6 class="text-muted">Unique Customers</h6>
-                            <h2 class="text-warning">@salesReport.UniqueCustomers</h2>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Daily Sales Table -->
-                <div class="col-12">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5 class="mb-0">Daily Sales Breakdown</h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="table-responsive">
-                                <table class="table table-hover">
-                                    <thead>
-                                        <tr>
-                                            <th>Date</th>
-                                            <th class="text-end">Invoices</th>
-                                            <th class="text-end">USD Sales</th>
-                                            <th class="text-end">ZIG Sales</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var day in salesReport.DailySales.OrderByDescending(d => d.Date))
-                                        {
-                                            <tr>
-                                                <td>@day.Date.ToString("ddd, dd MMM yyyy")</td>
-                                                <td class="text-end">@day.InvoiceCount</td>
-                                                <td class="text-end text-success">$@day.TotalSalesUSD.ToString("N2")</td>
-                                                <td class="text-end text-info">ZIG @day.TotalSalesZIG.ToString("N2")</td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            }
-            else if (!isLoading)
-            {
-                <div class="col-12">
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle me-2"></i>Click "Generate Reports" to load sales data.
-                    </div>
-                </div>
-            }
-        </div>
-    }
-
-    <!-- Top Products Tab -->
-    @if (activeTab == "products")
-    {
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Top Selling Products</h5>
-                <div>
-                    <label class="me-2">Show Top:</label>
-                    <select class="form-select form-select-sm d-inline-block w-auto" @bind="topProductsCount"
-                        @bind:after="LoadTopProducts">
-                        <option value="10">10</option>
-                        <option value="20">20</option>
-                        <option value="50">50</option>
-                    </select>
-                </div>
-            </div>
-            <div class="card-body">
-                @if (topProductsReport != null && topProductsReport.TopProducts.Any())
-                {
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>Rank</th>
-                                    <th>Item Code</th>
-                                    <th>Item Name</th>
-                                    <th class="text-end">Qty Sold</th>
-                                    <th class="text-end">Times Ordered</th>
-                                    <th class="text-end">Revenue (USD)</th>
-                                    <th class="text-end">Revenue (ZIG)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var product in topProductsReport.TopProducts)
-                                {
-                                    <tr>
-                                        <td><span class="badge bg-secondary">@product.Rank</span></td>
-                                        <td><code>@product.ItemCode</code></td>
-                                        <td>@product.ItemName</td>
-                                        <td class="text-end">@product.TotalQuantitySold.ToString("N0")</td>
-                                        <td class="text-end">@product.TimesOrdered</td>
-                                        <td class="text-end text-success">$@product.TotalRevenueUSD.ToString("N2")</td>
-                                        <td class="text-end text-info">ZIG @product.TotalRevenueZIG.ToString("N2")</td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-                else if (!isLoading)
-                {
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle me-2"></i>No product data available for the selected period.
-                    </div>
-                }
-            </div>
-        </div>
-    }
-
-    <!-- Stock Summary Tab -->
-    @if (activeTab == "stock")
-    {
-        @if (stockReport != null)
-        {
-            <div class="row mb-4">
-                <div class="col-md-3">
-                    <div class="card text-center border-primary">
-                        <div class="card-body">
-                            <h6 class="text-muted">Total Products</h6>
-                            <h2 class="text-primary">@stockReport.TotalProducts</h2>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card text-center border-success">
-                        <div class="card-body">
-                            <h6 class="text-muted">In Stock</h6>
-                            <h2 class="text-success">@stockReport.ProductsInStock</h2>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card text-center border-danger">
-                        <div class="card-body">
-                            <h6 class="text-muted">Out of Stock</h6>
-                            <h2 class="text-danger">@stockReport.ProductsOutOfStock</h2>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card text-center border-warning">
-                        <div class="card-body">
-                            <h6 class="text-muted">Below Reorder</h6>
-                            <h2 class="text-warning">@stockReport.ProductsBelowReorderLevel</h2>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">Stock by Warehouse</h5>
-                </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>Warehouse</th>
-                                    <th class="text-end">Products</th>
-                                    <th class="text-end">Total Qty</th>
-                                    <th class="text-end">Value (USD)</th>
-                                    <th class="text-end">Value (ZIG)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var wh in stockReport.StockByWarehouse)
-                                {
-                                    <tr>
-                                        <td><strong>@wh.WarehouseCode</strong> - @wh.WarehouseName</td>
-                                        <td class="text-end">@wh.ProductCount</td>
-                                        <td class="text-end">@wh.TotalQuantity.ToString("N0")</td>
-                                        <td class="text-end text-success">$@wh.TotalValueUSD.ToString("N2")</td>
-                                        <td class="text-end text-info">ZIG @wh.TotalValueZIG.ToString("N2")</td>
-                                    </tr>
-                                }
-                            </tbody>
-                            <tfoot>
-                                <tr class="table-secondary fw-bold">
-                                    <td>Total</td>
-                                    <td class="text-end">@stockReport.TotalProducts</td>
-                                    <td class="text-end">@stockReport.StockByWarehouse.Sum(w => w.TotalQuantity).ToString("N0")
-                                    </td>
-                                    <td class="text-end text-success">$@stockReport.TotalStockValueUSD.ToString("N2")</td>
-                                    <td class="text-end text-info">ZIG @stockReport.TotalStockValueZIG.ToString("N2")</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        }
-        else if (!isLoading)
-        {
-            <div class="alert alert-info">
-                <i class="bi bi-info-circle me-2"></i>Click "Generate Reports" to load stock data.
-            </div>
-        }
-    }
-
-    <!-- Payments Tab -->
-    @if (activeTab == "payments")
-    {
-        @if (paymentReport != null)
-        {
-            <div class="row mb-4">
-                <div class="col-md-4">
-                    <div class="card text-center border-primary">
-                        <div class="card-body">
-                            <h6 class="text-muted">Total Payments</h6>
-                            <h2 class="text-primary">@paymentReport.TotalPayments</h2>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card text-center border-success">
-                        <div class="card-body">
-                            <h6 class="text-muted">Total (USD)</h6>
-                            <h2 class="text-success">$@paymentReport.TotalAmountUSD.ToString("N2")</h2>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card text-center border-info">
-                        <div class="card-body">
-                            <h6 class="text-muted">Total (ZIG)</h6>
-                            <h2 class="text-info">ZIG @paymentReport.TotalAmountZIG.ToString("N2")</h2>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5 class="mb-0">Payments by Method</h5>
-                        </div>
-                        <div class="card-body">
-                            @foreach (var method in paymentReport.PaymentsByMethod)
-                            {
-                                <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <div>
-                                        <strong>@method.PaymentMethod</strong>
-                                        <span class="text-muted ms-2">(@method.PaymentCount payments)</span>
-                                    </div>
-                                    <span class="badge bg-primary">@method.PercentageOfTotal.ToString("N1")%</span>
-                                </div>
-                                <div class="progress mb-3" style="height: 20px;">
-                                    <div class="progress-bar" role="progressbar" style="width: @method.PercentageOfTotal%">
-                                        $@method.TotalAmountUSD.ToString("N0")
-                                    </div>
-                                </div>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li>
+                            <button class="dropdown-item" @onclick="() => ExportToExcel(activeTab)">
+                                <i class="bi bi-download me-2"></i>Export Current Tab
+                            </button>
+                        </li>
+                        <li>
+                            <hr class="dropdown-divider" />
+                        </li>
+                        @if (salesReport != null)
+                        {
+                            <li><button class="dropdown-item" @onclick='() => ExportToExcel("sales")'><i
+                                class="bi bi-graph-up me-2"></i>Sales Summary</button></li>
                             }
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5 class="mb-0">Daily Payments</h5>
-                        </div>
-                        <div class="card-body" style="max-height: 400px; overflow-y: auto;">
-                            <table class="table table-sm">
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th class="text-end">#</th>
-                                        <th class="text-end">USD</th>
-                                        <th class="text-end">ZIG</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var day in paymentReport.DailyPayments.OrderByDescending(d => d.Date))
-                                    {
-                                        <tr>
-                                            <td>@day.Date.ToString("dd MMM yyyy")</td>
-                                            <td class="text-end">@day.PaymentCount</td>
-                                            <td class="text-end text-success">$@day.TotalAmountUSD.ToString("N0")</td>
-                                            <td class="text-end text-info">@day.TotalAmountZIG.ToString("N0")</td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        }
-        else if (!isLoading)
-        {
-            <div class="alert alert-info">
-                <i class="bi bi-info-circle me-2"></i>Click "Generate Reports" to load payment data.
-            </div>
-        }
-    }
-
-    <!-- Top Customers Tab -->
-    @if (activeTab == "customers")
-    {
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">Top Customers by Purchase Value</h5>
-            </div>
-            <div class="card-body">
-                @if (topCustomersReport != null && topCustomersReport.TopCustomers.Any())
-                {
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>Rank</th>
-                                    <th>Customer</th>
-                                    <th class="text-end">Invoices</th>
-                                    <th class="text-end">Purchases (USD)</th>
-                                    <th class="text-end">Payments (USD)</th>
-                                    <th class="text-end">Balance (USD)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var customer in topCustomersReport.TopCustomers)
-                                {
-                                    <tr>
-                                        <td><span class="badge bg-secondary">@customer.Rank</span></td>
-                                        <td>
-                                            <strong>@customer.CardName</strong>
-                                            <br><small class="text-muted">@customer.CardCode</small>
-                                        </td>
-                                        <td class="text-end">@customer.InvoiceCount</td>
-                                        <td class="text-end text-success">$@customer.TotalPurchasesUSD.ToString("N2")</td>
-                                        <td class="text-end text-primary">$@customer.TotalPaymentsUSD.ToString("N2")</td>
-                                        <td class="text-end @(customer.OutstandingBalanceUSD > 0 ? "text-danger" : "text-success")">
-                                            $@customer.OutstandingBalanceUSD.ToString("N2")
-                                        </td>
-                                    </tr>
+                            @if (topProductsReport != null)
+                            {
+                                <li><button class="dropdown-item" @onclick='() => ExportToExcel("products")'><i
+                                    class="bi bi-box-seam me-2"></i>Top Products</button></li>
                                 }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-                else if (!isLoading)
-                {
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle me-2"></i>No customer data available for the selected period.
-                    </div>
-                }
-            </div>
-        </div>
-    }
-
-    <!-- Low Stock Alerts Tab -->
-    @if (activeTab == "alerts")
-    {
-        @if (lowStockReport != null)
-        {
-            <div class="row mb-4">
-                <div class="col-md-4">
-                    <div class="card text-center border-danger">
-                        <div class="card-body">
-                            <h6 class="text-muted">Total Alerts</h6>
-                            <h2 class="text-danger">@lowStockReport.TotalAlerts</h2>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card text-center border-danger">
-                        <div class="card-body">
-                            <h6 class="text-muted">Critical</h6>
-                            <h2 class="text-danger">@lowStockReport.CriticalCount</h2>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card text-center border-warning">
-                        <div class="card-body">
-                            <h6 class="text-muted">Warning</h6>
-                            <h2 class="text-warning">@lowStockReport.WarningCount</h2>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">Items Below Reorder Level</h5>
-                </div>
-                <div class="card-body">
-                    @if (lowStockReport.Items.Any())
-                    {
-                        <div class="table-responsive">
-                            <table class="table table-hover">
-                                <thead>
-                                    <tr>
-                                        <th>Alert</th>
-                                        <th>Item Code</th>
-                                        <th>Item Name</th>
-                                        <th>Warehouse</th>
-                                        <th class="text-end">Current</th>
-                                        <th class="text-end">Reorder Level</th>
-                                        <th class="text-end">Suggested Order</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var item in lowStockReport.Items.OrderBy(i => i.AlertLevel == "Critical" ? 0 :
-                                                            1).ThenBy(i => i.CurrentStock))
-                                    {
-                                        <tr class="@(item.AlertLevel == "Critical" ? "table-danger" : "table-warning")">
-                                            <td>
-                                                <span class="badge @(item.AlertLevel == "Critical" ? "bg-danger" : "bg-warning")">
-                                                    @item.AlertLevel
-                                                </span>
-                                            </td>
-                                            <td><code>@item.ItemCode</code></td>
-                                            <td>@item.ItemName</td>
-                                            <td>@item.WarehouseCode</td>
-                                            <td class="text-end fw-bold">@item.CurrentStock.ToString("N0")</td>
-                                            <td class="text-end">@item.ReorderLevel.ToString("N0")</td>
-                                            <td class="text-end text-primary">@item.SuggestedReorderQty.ToString("N0")</td>
-                                        </tr>
+                                @if (stockReport != null)
+                                {
+                                    <li><button class="dropdown-item" @onclick='() => ExportToExcel("stock")'><i
+                                        class="bi bi-boxes me-2"></i>Stock Summary</button></li>
                                     }
-                                </tbody>
-                            </table>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="alert alert-success">
-                            <i class="bi bi-check-circle me-2"></i>All items are above reorder level!
-                        </div>
-                    }
-                </div>
-            </div>
-        }
-        else if (!isLoading)
-        {
-            <div class="alert alert-info">
-                <i class="bi bi-info-circle me-2"></i>Click "Generate Reports" to check low stock alerts.
-            </div>
-        }
-    }
+                                    @if (paymentReport != null)
+                                    {
+                                        <li><button class="dropdown-item" @onclick='() => ExportToExcel("payments")'><i
+                                            class="bi bi-cash-stack me-2"></i>Payments</button></li>
+                                        }
+                                        @if (topCustomersReport != null)
+                                        {
+                                            <li><button class="dropdown-item" @onclick='() => ExportToExcel("customers")'><i
+                                                class="bi bi-people me-2"></i>Top Customers</button></li>
+                                            }
+                                            @if (lowStockReport != null)
+                                            {
+                                                <li><button class="dropdown-item" @onclick='() => ExportToExcel("alerts")'><i
+                                                    class="bi bi-exclamation-triangle me-2"></i>Low Stock Alerts</button></li>
+                                                }
+                                                @if (fulfillmentReport != null)
+                                                {
+                                                    <li><button class="dropdown-item" @onclick='() => ExportToExcel("fulfillment")'><i
+                                                        class="bi bi-truck me-2"></i>Order Fulfillment</button></li>
+                                                    }
+                                                </ul>
+                                            </div>
+                                            <button class="btn btn-outline-danger" @onclick="() => ExportToPdf(activeTab)" disabled="@isExporting">
+                                                <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
 
-    @if (isLoading)
-    {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <p class="mt-2 text-muted">Loading reports...</p>
-        </div>
-    }
-</div>
+                                <div class="card border-0 shadow-sm mb-4" style="border-radius: 12px;">
+                                    <div class="card-body py-3">
+                                        <div class="row g-3 align-items-end">
+                                            <div class="col-md-3">
+                                                <label class="form-label small fw-semibold text-uppercase text-muted">From Date</label>
+                                                <input type="date" class="form-control" @bind="fromDate" style="border-radius: 8px;" />
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label small fw-semibold text-uppercase text-muted">To Date</label>
+                                                <input type="date" class="form-control" @bind="toDate" style="border-radius: 8px;" />
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label small fw-semibold text-uppercase text-muted">Quick Select</label>
+                                                <select class="form-select" @onchange="OnQuickSelectChanged" style="border-radius: 8px;">
+                                                    <option value="7">Last 7 Days</option>
+                                                    <option value="30" selected>Last 30 Days</option>
+                                                    <option value="90">Last 90 Days</option>
+                                                    <option value="180">Last 6 Months</option>
+                                                    <option value="365">Last Year</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <button class="btn btn-primary w-100 fw-semibold" @onclick="LoadReports" disabled="@isLoading"
+                                                        style="border-radius: 8px; background: linear-gradient(135deg, #1a237e, #3949ab); border: none; padding: 0.5rem;">
+                                                    @if (isLoading)
+                                                    {
+                                                        <span class="spinner-border spinner-border-sm me-2"></span>
+                                                        <span>Loading...</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i class="bi bi-lightning-charge me-2"></i>
+                                                        <span>Generate Reports</span>
+                                                    }
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                @if (!string.IsNullOrEmpty(errorMessage))
+                                {
+                                    <div class="alert alert-warning alert-dismissible fade show" role="alert" style="border-radius: 10px;">
+                                        <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+                                        <button type="button" class="btn-close" @onclick='() => errorMessage = ""'></button>
+                                    </div>
+                                }
+
+                                <div class="card border-0 shadow-sm mb-4" style="border-radius: 12px; overflow: hidden;">
+                                    <div class="card-header bg-white border-bottom-0 pt-3 pb-0 px-4">
+                                        <ul class="nav nav-pills gap-1" role="tablist">
+                                            @foreach (var tab in tabs)
+                                            {
+                                                <li class="nav-item">
+                                                    <button class="nav-link px-3 py-2 @(activeTab == tab.Key ? "active" : "")"
+                                                            style="border-radius: 8px 8px 0 0; @(activeTab == tab.Key ? "background: linear-gradient(135deg, #1a237e, #3949ab); color: white;" : "color: #555;")"
+                                                            @onclick="() => SetActiveTab(tab.Key)">
+                                                        <i class="bi @tab.Icon me-1"></i>@tab.Label
+                                                        @if (tab.Key == "alerts" && lowStockReport?.TotalAlerts > 0)
+                                                        {
+                                                            <span class="badge bg-danger ms-1 rounded-pill">@lowStockReport.TotalAlerts</span>
+                                                        }
+                                                    </button>
+                                                </li>
+                                            }
+                                        </ul>
+                                    </div>
+
+                                    <div class="card-body p-4">
+                                        @if (IsTabLoading(activeTab))
+                                        {
+                                            <div class="text-center py-5">
+                                                <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
+                                                    <span class="visually-hidden">Loading...</span>
+                                                </div>
+                                                <p class="text-muted">Fetching @GetTabLabel(activeTab) data from SAP...</p>
+                                            </div>
+                                        }
+                                        else if (activeTab == "sales")
+                                        {
+                                            @if (salesReport != null)
+                                            {
+                                                <div class="row g-3 mb-4">
+                                                    <div class="col-md-3">
+                                                        <div class="p-3 rounded-3"
+                                                             style="background: linear-gradient(135deg, #e3f2fd, #bbdefb); border-left: 4px solid #1565c0;">
+                                                            <p class="text-muted small mb-1 fw-semibold">TOTAL INVOICES</p>
+                                                            <h3 class="fw-bold mb-0" style="color: #1565c0;">@salesReport.TotalInvoices</h3>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <div class="p-3 rounded-3"
+                                                             style="background: linear-gradient(135deg, #e8f5e9, #c8e6c9); border-left: 4px solid #2e7d32;">
+                                                            <p class="text-muted small mb-1 fw-semibold">SALES (USD)</p>
+                                                            <h3 class="fw-bold mb-0" style="color: #2e7d32;">$@salesReport.TotalSalesUSD.ToString("N2")</h3>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <div class="p-3 rounded-3"
+                                                             style="background: linear-gradient(135deg, #e0f7fa, #b2ebf2); border-left: 4px solid #00838f;">
+                                                            <p class="text-muted small mb-1 fw-semibold">SALES (ZIG)</p>
+                                                            <h3 class="fw-bold mb-0" style="color: #00838f;">ZIG @salesReport.TotalSalesZIG.ToString("N2")
+                                                            </h3>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <div class="p-3 rounded-3"
+                                                             style="background: linear-gradient(135deg, #fff3e0, #ffe0b2); border-left: 4px solid #e65100;">
+                                                            <p class="text-muted small mb-1 fw-semibold">UNIQUE CUSTOMERS</p>
+                                                            <h3 class="fw-bold mb-0" style="color: #e65100;">@salesReport.UniqueCustomers</h3>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="row g-3 mb-4">
+                                                    @foreach (var currency in salesReport.SalesByCurrency.Where(c => c.InvoiceCount > 0))
+                                                    {
+                                                        <div class="col-md-6">
+                                                            <div class="card border-0 bg-light" style="border-radius: 10px;">
+                                                                <div class="card-body">
+                                                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                                                        <span
+                                                                        class="badge rounded-pill @(currency.Currency == "USD" ? "bg-success" : "bg-info") px-3">@currency.Currency</span>
+                                                                        <span class="fw-semibold">@currency.InvoiceCount invoices</span>
+                                                                    </div>
+                                                                    <div class="d-flex justify-content-between">
+                                                                        <span class="text-muted">Sales</span>
+                                                                        <span class="fw-bold">@(currency.Currency == "USD" ? "$" : "ZIG ")@currency.TotalSales.ToString("N2")</span>
+                                                                    </div>
+                                                                    <div class="d-flex justify-content-between">
+                                                                        <span class="text-muted">VAT</span>
+                                                                        <span>@(currency.Currency == "USD" ? "$" : "ZIG ")@currency.TotalVat.ToString("N2")</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                </div>
+                                                <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-calendar3 me-2"></i>Daily Breakdown</h6>
+                                                <div class="table-responsive">
+                                                    <table class="table table-hover align-middle mb-0">
+                                                        <thead>
+                                                            <tr style="background: #f8f9fa;">
+                                                                <th class="border-0 fw-semibold">Date</th>
+                                                                <th class="border-0 fw-semibold text-end">Invoices</th>
+                                                                <th class="border-0 fw-semibold text-end">USD Sales</th>
+                                                                <th class="border-0 fw-semibold text-end">ZIG Sales</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            @foreach (var day in salesReport.DailySales.OrderByDescending(d => d.Date))
+                                                            {
+                                                                <tr>
+                                                                    <td class="fw-medium">@day.Date.ToString("ddd, dd MMM yyyy")</td>
+                                                                    <td class="text-end"><span class="badge bg-secondary rounded-pill">@day.InvoiceCount</span>
+                                                                    </td>
+                                                                    <td class="text-end fw-semibold" style="color: #2e7d32;">$@day.TotalSalesUSD.ToString("N2")
+                                                                    </td>
+                                                                    <td class="text-end fw-semibold" style="color: #00838f;">ZIG
+                                                                        @day.TotalSalesZIG.ToString("N2")</td>
+                                                                    </tr>
+                                                                }
+                                                            </tbody>
+                                                            <tfoot>
+                                                                <tr style="background: #e8eaf6; font-weight: 700;">
+                                                                    <td>Total</td>
+                                                                    <td class="text-end">@salesReport.TotalInvoices</td>
+                                                                    <td class="text-end" style="color: #2e7d32;">$@salesReport.TotalSalesUSD.ToString("N2")</td>
+                                                                    <td class="text-end" style="color: #00838f;">ZIG @salesReport.TotalSalesZIG.ToString("N2")
+                                                                    </td>
+                                                                </tr>
+                                                            </tfoot>
+                                                        </table>
+                                                    </div>
+                                                }
+            else
+                                                {
+                                                    <div class="text-center py-5">
+                                                        <i class="bi bi-graph-up" style="font-size: 3rem; color: #bdbdbd;"></i>
+                                                        <p class="mt-3 text-muted">No sales data available. Click "Generate Reports" to load.</p>
+                                                    </div>
+                                                }
+                                            }
+                                            else if (activeTab == "products")
+                                            {
+                                                @if (topProductsReport != null && topProductsReport.TopProducts.Any())
+                                                {
+                                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                                        <h6 class="fw-bold text-uppercase text-muted mb-0"><i class="bi bi-trophy me-2"></i>Top Selling Products
+                                                        </h6>
+                                                        <div class="d-flex align-items-center gap-2">
+                                                            <label class="text-muted small">Show:</label>
+                                                            <select class="form-select form-select-sm" style="width: 80px; border-radius: 8px;"
+                                                                    @bind="topProductsCount" @bind:after="LoadTopProducts">
+                                                                <option value="10">10</option>
+                                                                <option value="20">20</option>
+                                                                <option value="50">50</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                    <div class="table-responsive">
+                                                        <table class="table table-hover align-middle mb-0">
+                                                            <thead>
+                                                                <tr style="background: #f8f9fa;">
+                                                                    <th class="border-0 fw-semibold" style="width: 60px;">Rank</th>
+                                                                    <th class="border-0 fw-semibold">Product</th>
+                                                                    <th class="border-0 fw-semibold text-end">Qty Sold</th>
+                                                                    <th class="border-0 fw-semibold text-end">Orders</th>
+                                                                    <th class="border-0 fw-semibold text-end">Revenue (USD)</th>
+                                                                    <th class="border-0 fw-semibold text-end">Revenue (ZIG)</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                @foreach (var p in topProductsReport.TopProducts)
+                                                                {
+                                                                    <tr>
+                                                                        <td>
+                                                                            @if (p.Rank <= 3)
+                                                                            {
+                                                                                <span
+                                                                                class="badge rounded-pill @(p.Rank == 1 ? "bg-warning text-dark" : p.Rank == 2 ? "bg-secondary" : "bg-dark")"
+                                                                                style="width: 30px;">@p.Rank</span>
+                                                                            }
+                                                                            else
+                                                                            {
+                                                                                <span class="text-muted fw-medium ms-2">@p.Rank</span>
+                                                                            }
+                                                                        </td>
+                                                                        <td>
+                                                                            <div class="fw-semibold">@p.ItemName</div>
+                                                                            <small class="text-muted font-monospace">@p.ItemCode</small>
+                                                                        </td>
+                                                                        <td class="text-end fw-bold">@p.TotalQuantitySold.ToString("N0")</td>
+                                                                        <td class="text-end">@p.TimesOrdered</td>
+                                                                        <td class="text-end fw-semibold" style="color: #2e7d32;">$@p.TotalRevenueUSD.ToString("N2")
+                                                                        </td>
+                                                                        <td class="text-end fw-semibold" style="color: #00838f;">ZIG
+                                                                            @p.TotalRevenueZIG.ToString("N2")</td>
+                                                                        </tr>
+                                                                    }
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    }
+            else
+                                                    {
+                                                        <div class="text-center py-5">
+                                                            <i class="bi bi-box-seam" style="font-size: 3rem; color: #bdbdbd;"></i>
+                                                            <p class="mt-3 text-muted">No product data available. Click "Generate Reports" to load.</p>
+                                                        </div>
+                                                    }
+                                                }
+                                                else if (activeTab == "stock")
+                                                {
+                                                    @if (stockReport != null)
+                                                    {
+                                                        <div class="row g-3 mb-4">
+                                                            <div class="col-md-3">
+                                                                <div class="p-3 rounded-3"
+                                                                     style="background: linear-gradient(135deg, #e3f2fd, #bbdefb); border-left: 4px solid #1565c0;">
+                                                                    <p class="text-muted small mb-1 fw-semibold">TOTAL PRODUCTS</p>
+                                                                    <h3 class="fw-bold mb-0" style="color: #1565c0;">@stockReport.TotalProducts.ToString("N0")</h3>
+                                                                </div>
+                                                            </div>
+                                                            <div class="col-md-3">
+                                                                <div class="p-3 rounded-3"
+                                                                     style="background: linear-gradient(135deg, #e8f5e9, #c8e6c9); border-left: 4px solid #2e7d32;">
+                                                                    <p class="text-muted small mb-1 fw-semibold">IN STOCK</p>
+                                                                    <h3 class="fw-bold mb-0" style="color: #2e7d32;">@stockReport.ProductsInStock.ToString("N0")
+                                                                    </h3>
+                                                                </div>
+                                                            </div>
+                                                            <div class="col-md-3">
+                                                                <div class="p-3 rounded-3"
+                                                                     style="background: linear-gradient(135deg, #fbe9e7, #ffccbc); border-left: 4px solid #c62828;">
+                                                                    <p class="text-muted small mb-1 fw-semibold">OUT OF STOCK</p>
+                                                                    <h3 class="fw-bold mb-0" style="color: #c62828;">@stockReport.ProductsOutOfStock.ToString("N0")
+                                                                    </h3>
+                                                                </div>
+                                                            </div>
+                                                            <div class="col-md-3">
+                                                                <div class="p-3 rounded-3"
+                                                                     style="background: linear-gradient(135deg, #fff3e0, #ffe0b2); border-left: 4px solid #e65100;">
+                                                                    <p class="text-muted small mb-1 fw-semibold">BELOW REORDER</p>
+                                                                    <h3 class="fw-bold mb-0" style="color: #e65100;">
+                                                                        @stockReport.ProductsBelowReorderLevel.ToString("N0")</h3>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-building me-2"></i>Stock by Warehouse
+                                                            </h6>
+                                                            <div class="table-responsive">
+                                                                <table class="table table-hover align-middle mb-0">
+                                                                    <thead>
+                                                                        <tr style="background: #f8f9fa;">
+                                                                            <th class="border-0 fw-semibold">Warehouse</th>
+                                                                            <th class="border-0 fw-semibold text-end">Products</th>
+                                                                            <th class="border-0 fw-semibold text-end">Total Quantity</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        @foreach (var wh in stockReport.StockByWarehouse.OrderByDescending(w => w.TotalQuantity))
+                                                                        {
+                                                                            <tr>
+                                                                                <td>
+                                                                                    <div class="fw-semibold">@wh.WarehouseCode</div>
+                                                                                    <small class="text-muted">@wh.WarehouseName</small>
+                                                                                </td>
+                                                                                <td class="text-end">@wh.ProductCount</td>
+                                                                                <td class="text-end fw-bold">@wh.TotalQuantity.ToString("N0")</td>
+                                                                            </tr>
+                                                                        }
+                                                                    </tbody>
+                                                                    <tfoot>
+                                                                        <tr style="background: #e8eaf6; font-weight: 700;">
+                                                                            <td>Total</td>
+                                                                            <td class="text-end">@stockReport.TotalProducts</td>
+                                                                            <td class="text-end">@stockReport.StockByWarehouse.Sum(w => w.TotalQuantity).ToString("N0")
+                                                                            </td>
+                                                                        </tr>
+                                                                    </tfoot>
+                                                                </table>
+                                                            </div>
+                                                        }
+            else
+                                                        {
+                                                            <div class="text-center py-5">
+                                                                <i class="bi bi-boxes" style="font-size: 3rem; color: #bdbdbd;"></i>
+                                                                <p class="mt-3 text-muted">No stock data available. Click "Generate Reports" to load.</p>
+                                                            </div>
+                                                        }
+                                                    }
+                                                    else if (activeTab == "payments")
+                                                    {
+                                                        @if (paymentReport != null)
+                                                        {
+                                                            <div class="row g-3 mb-4">
+                                                                <div class="col-md-4">
+                                                                    <div class="p-3 rounded-3"
+                                                                         style="background: linear-gradient(135deg, #e3f2fd, #bbdefb); border-left: 4px solid #1565c0;">
+                                                                        <p class="text-muted small mb-1 fw-semibold">TOTAL PAYMENTS</p>
+                                                                        <h3 class="fw-bold mb-0" style="color: #1565c0;">@paymentReport.TotalPayments</h3>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="col-md-4">
+                                                                    <div class="p-3 rounded-3"
+                                                                         style="background: linear-gradient(135deg, #e8f5e9, #c8e6c9); border-left: 4px solid #2e7d32;">
+                                                                        <p class="text-muted small mb-1 fw-semibold">TOTAL (USD)</p>
+                                                                        <h3 class="fw-bold mb-0" style="color: #2e7d32;">$@paymentReport.TotalAmountUSD.ToString("N2")
+                                                                        </h3>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="col-md-4">
+                                                                    <div class="p-3 rounded-3"
+                                                                         style="background: linear-gradient(135deg, #e0f7fa, #b2ebf2); border-left: 4px solid #00838f;">
+                                                                        <p class="text-muted small mb-1 fw-semibold">TOTAL (ZIG)</p>
+                                                                        <h3 class="fw-bold mb-0" style="color: #00838f;">ZIG
+                                                                            @paymentReport.TotalAmountZIG.ToString("N2")</h3>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="row g-4">
+                                                                    <div class="col-md-5">
+                                                                        <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-pie-chart me-2"></i>By Payment
+                                                                            Method</h6>
+                                                                            @foreach (var method in paymentReport.PaymentsByMethod)
+                                                                            {
+                                                                                var barColor = method.PaymentMethod switch
+                                                                                {
+                                                                                    "Cash" => "#4caf50",
+                                                                                    "Bank Transfer" => "#2196f3",
+                                                                                    "Check" => "#ff9800",
+                                                                                    "Credit Card" => "#9c27b0",
+                                                                                    _ => "#607d8b"
+                                                                                };
+                                                                                <div class="mb-3">
+                                                                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                                                                        <div class="d-flex align-items-center gap-2">
+                                                                                            <span class="rounded-circle d-inline-block"
+                                                                                                  style="width: 10px; height: 10px; background: @barColor;"></span>
+                                                                                            <span class="fw-medium">@method.PaymentMethod</span>
+                                                                                            <span class="text-muted small">(@method.PaymentCount)</span>
+                                                                                        </div>
+                                                                                        <span class="fw-bold small">@method.PercentageOfTotal.ToString("N1")%</span>
+                                                                                    </div>
+                                                                                    <div class="progress" style="height: 8px; border-radius: 4px;">
+                                                                                        <div class="progress-bar" role="progressbar"
+                                                                                             style="width: @(method.PercentageOfTotal)%; background: @barColor; border-radius: 4px;">
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div class="d-flex justify-content-between mt-1">
+                                                                                        <small class="text-muted">$@method.TotalAmountUSD.ToString("N2")</small>
+                                                                                        @if (method.TotalAmountZIG > 0)
+                                                                                        {
+                                                                                            <small class="text-muted">ZIG @method.TotalAmountZIG.ToString("N2")</small>
+                                                                                        }
+                                                                                    </div>
+                                                                                </div>
+                                                                            }
+                                                                        </div>
+                                                                        <div class="col-md-7">
+                                                                            <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-calendar3 me-2"></i>Daily
+                                                                                Payments</h6>
+                                                                                <div style="max-height: 400px; overflow-y: auto;">
+                                                                                    <table class="table table-sm table-hover align-middle mb-0">
+                                                                                        <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                                                                                            <tr>
+                                                                                                <th class="border-0 fw-semibold">Date</th>
+                                                                                                <th class="border-0 fw-semibold text-end">#</th>
+                                                                                                <th class="border-0 fw-semibold text-end">USD</th>
+                                                                                                <th class="border-0 fw-semibold text-end">ZIG</th>
+                                                                                            </tr>
+                                                                                        </thead>
+                                                                                        <tbody>
+                                                                                            @foreach (var day in paymentReport.DailyPayments.OrderByDescending(d => d.Date))
+                                                                                            {
+                                                                                                <tr>
+                                                                                                    <td class="fw-medium">@day.Date.ToString("dd MMM yyyy")</td>
+                                                                                                    <td class="text-end"><span
+                                                                                                        class="badge bg-secondary rounded-pill">@day.PaymentCount</span></td>
+                                                                                                        <td class="text-end fw-semibold" style="color: #2e7d32;">
+                                                                                                            $@day.TotalAmountUSD.ToString("N2")</td>
+                                                                                                            <td class="text-end" style="color: #00838f;">@(day.TotalAmountZIG > 0 ? $"ZIG  {day.TotalAmountZIG:N2}" : "-")</td>
+                                                                                                        </tr>
+                                                                                                    }
+                                                                                                </tbody>
+                                                                                            </table>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            }
+            else
+                                                                            {
+                                                                                <div class="text-center py-5">
+                                                                                    <i class="bi bi-cash-stack" style="font-size: 3rem; color: #bdbdbd;"></i>
+                                                                                    <p class="mt-3 text-muted">No payment data available. Click "Generate Reports" to load.</p>
+                                                                                </div>
+                                                                            }
+                                                                        }
+            else if (activeTab == "customers")
+                                                                        {
+                                                                            @if (topCustomersReport != null && topCustomersReport.TopCustomers.Any())
+                                                                            {
+                                                                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                                                                    <h6 class="fw-bold text-uppercase text-muted mb-0"><i class="bi bi-people me-2"></i>Top Customers by
+                                                                                        Revenue</h6>
+                                                                                        <span class="text-muted small">@topCustomersReport.TotalCustomers total customers</span>
+                                                                                    </div>
+                                                                                    <div class="table-responsive">
+                                                                                        <table class="table table-hover align-middle mb-0">
+                                                                                            <thead>
+                                                                                                <tr style="background: #f8f9fa;">
+                                                                                                    <th class="border-0 fw-semibold" style="width: 60px;">Rank</th>
+                                                                                                    <th class="border-0 fw-semibold">Customer</th>
+                                                                                                    <th class="border-0 fw-semibold text-end">Invoices</th>
+                                                                                                    <th class="border-0 fw-semibold text-end">Purchases (USD)</th>
+                                                                                                    <th class="border-0 fw-semibold text-end">Purchases (ZIG)</th>
+                                                                                                    <th class="border-0 fw-semibold text-end">Payments (USD)</th>
+                                                                                                    <th class="border-0 fw-semibold text-end">Balance (USD)</th>
+                                                                                                </tr>
+                                                                                            </thead>
+                                                                                            <tbody>
+                                                                                                @foreach (var c in topCustomersReport.TopCustomers)
+                                                                                                {
+                                                                                                    <tr>
+                                                                                                        <td>
+                                                                                                            @if (c.Rank <= 3)
+                                                                                                            {
+                                                                                                                <span
+                                                                                                                class="badge rounded-pill @(c.Rank == 1 ? "bg-warning text-dark" : c.Rank == 2 ? "bg-secondary" : "bg-dark")"
+                                                                                                                style="width: 30px;">@c.Rank</span>
+                                                                                                            }
+                                                                                                            else
+                                                                                                            {
+                                                                                                                <span class="text-muted fw-medium ms-2">@c.Rank</span>
+                                                                                                            }
+                                                                                                        </td>
+                                                                                                        <td>
+                                                                                                            <div class="fw-semibold">@c.CardName</div>
+                                                                                                            <small class="text-muted font-monospace">@c.CardCode</small>
+                                                                                                        </td>
+                                                                                                        <td class="text-end"><span class="badge bg-secondary rounded-pill">@c.InvoiceCount</span>
+                                                                                                        </td>
+                                                                                                        <td class="text-end fw-semibold" style="color: #2e7d32;">
+                                                                                                            $@c.TotalPurchasesUSD.ToString("N2")</td>
+                                                                                                            <td class="text-end" style="color: #00838f;">@(c.TotalPurchasesZIG > 0 ? $"ZIG {c.TotalPurchasesZIG:N2}" : "-")</td>
+                                                                                                            <td class="text-end">$@c.TotalPaymentsUSD.ToString("N2")</td>
+                                                                                                            <td class="text-end fw-bold"
+                                                                                                                style="color: @(c.OutstandingBalanceUSD > 0 ? "#c62828" : "#2e7d32");">
+                                                                                                                $@c.OutstandingBalanceUSD.ToString("N2")</td>
+                                                                                                            </tr>
+                                                                                                        }
+                                                                                                    </tbody>
+                                                                                                </table>
+                                                                                            </div>
+                                                                                        }
+            else
+                                                                                        {
+                                                                                            <div class="text-center py-5">
+                                                                                                <i class="bi bi-people" style="font-size: 3rem; color: #bdbdbd;"></i>
+                                                                                                <p class="mt-3 text-muted">No customer data available. Click "Generate Reports" to load.</p>
+                                                                                            </div>
+                                                                                        }
+                                                                                    }
+            else if (activeTab == "alerts")
+                                                                                    {
+                                                                                        @if (lowStockReport != null)
+                                                                                        {
+                                                                                            <div class="row g-3 mb-4">
+                                                                                                <div class="col-md-4">
+                                                                                                    <div class="p-3 rounded-3"
+                                                                                                         style="background: linear-gradient(135deg, #fbe9e7, #ffccbc); border-left: 4px solid #c62828;">
+                                                                                                        <p class="text-muted small mb-1 fw-semibold">TOTAL ALERTS</p>
+                                                                                                        <h3 class="fw-bold mb-0" style="color: #c62828;">@lowStockReport.TotalAlerts</h3>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                                <div class="col-md-4">
+                                                                                                    <div class="p-3 rounded-3"
+                                                                                                         style="background: linear-gradient(135deg, #fce4ec, #f8bbd0); border-left: 4px solid #ad1457;">
+                                                                                                        <p class="text-muted small mb-1 fw-semibold">CRITICAL</p>
+                                                                                                        <h3 class="fw-bold mb-0" style="color: #ad1457;">@lowStockReport.CriticalCount</h3>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                                <div class="col-md-4">
+                                                                                                    <div class="p-3 rounded-3"
+                                                                                                         style="background: linear-gradient(135deg, #fff3e0, #ffe0b2); border-left: 4px solid #e65100;">
+                                                                                                        <p class="text-muted small mb-1 fw-semibold">WARNING</p>
+                                                                                                        <h3 class="fw-bold mb-0" style="color: #e65100;">@lowStockReport.WarningCount</h3>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                            @if (lowStockReport.Items.Any())
+                                                                                            {
+                                                                                                <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-exclamation-octagon me-2"></i>Items Below
+                                                                                                    Reorder Level</h6>
+                                                                                                    <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                                                                                                        <table class="table table-hover align-middle mb-0">
+                                                                                                            <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                                                                                                                <tr style="background: #f8f9fa;">
+                                                                                                                    <th class="border-0 fw-semibold" style="width: 80px;">Status</th>
+                                                                                                                    <th class="border-0 fw-semibold">Product</th>
+                                                                                                                    <th class="border-0 fw-semibold">Warehouse</th>
+                                                                                                                    <th class="border-0 fw-semibold text-end">Current</th>
+                                                                                                                    <th class="border-0 fw-semibold text-end">Reorder At</th>
+                                                                                                                    <th class="border-0 fw-semibold text-end">Suggested Order</th>
+                                                                                                                </tr>
+                                                                                                            </thead>
+                                                                                                            <tbody>
+                                                                                                                @foreach (var item in lowStockReport.Items.OrderBy(i => i.AlertLevel == "Critical" ? 0 :
+                                                                                                                                        1).ThenBy(i => i.CurrentStock))
+                                                                                                                {
+                                                                                                                    <tr>
+                                                                                                                        <td>
+                                                                                                                            @if (item.AlertLevel == "Critical")
+                                                                                                                            {
+                                                                                                                                <span class="badge bg-danger rounded-pill px-2"><i
+                                                                                                                                    class="bi bi-exclamation-circle me-1"></i>Critical</span>
+                                                                                                                                }
+                                else
+                                                                                                                                {
+                                                                                                                                    <span class="badge bg-warning text-dark rounded-pill px-2"><i
+                                                                                                                                        class="bi bi-exclamation-triangle me-1"></i>Warning</span>
+                                                                                                                                    }
+                                                                                                                                </td>
+                                                                                                                                <td>
+                                                                                                                                    <div class="fw-semibold">@item.ItemName</div>
+                                                                                                                                    <small class="text-muted font-monospace">@item.ItemCode</small>
+                                                                                                                                </td>
+                                                                                                                                <td>@item.WarehouseCode</td>
+                                                                                                                                <td class="text-end fw-bold"
+                                                                                                                                    style="color: @(item.CurrentStock <= 0 ? "#c62828" : "#e65100");">
+                                                                                                                                    @item.CurrentStock.ToString("N0")</td>
+                                                                                                                                    <td class="text-end">@item.ReorderLevel.ToString("N0")</td>
+                                                                                                                                    <td class="text-end fw-semibold" style="color: #1565c0;">
+                                                                                                                                        @item.SuggestedReorderQty.ToString("N0")</td>
+                                                                                                                                    </tr>
+                                                                                                                                }
+                                                                                                                            </tbody>
+                                                                                                                        </table>
+                                                                                                                    </div>
+                                                                                                                }
+            else
+                                                                                                                {
+                                                                                                                    <div class="text-center py-4">
+                                                                                                                        <i class="bi bi-check-circle" style="font-size: 3rem; color: #4caf50;"></i>
+                                                                                                                        <p class="mt-2 fw-semibold" style="color: #4caf50;">All items are above reorder levels</p>
+                                                                                                                    </div>
+                                                                                                                }
+                                                                                                            }
+            else
+                                                                                                            {
+                                                                                                                <div class="text-center py-5">
+                                                                                                                    <i class="bi bi-exclamation-triangle" style="font-size: 3rem; color: #bdbdbd;"></i>
+                                                                                                                    <p class="mt-3 text-muted">No low stock data available. Click "Generate Reports" to load.</p>
+                                                                                                                </div>
+                                                                                                            }
+                                                                                                        }
+            else if (activeTab == "fulfillment")
+                                                                                                        {
+                                                                                                            @if (fulfillmentReport != null)
+                                                                                                            {
+                                                                                                                <div class="row g-3 mb-4">
+                                                                                                                    <div class="col-md-3">
+                                                                                                                        <div class="p-3 rounded-3"
+                                                                                                                             style="background: linear-gradient(135deg, #e3f2fd, #bbdefb); border-left: 4px solid #1565c0;">
+                                                                                                                            <p class="text-muted small mb-1 fw-semibold">TOTAL ORDERS</p>
+                                                                                                                            <h3 class="fw-bold mb-0" style="color: #1565c0;">@fulfillmentReport.TotalOrders</h3>
+                                                                                                                        </div>
+                                                                                                                    </div>
+                                                                                                                    <div class="col-md-3">
+                                                                                                                        <div class="p-3 rounded-3"
+                                                                                                                             style="background: linear-gradient(135deg, #e8f5e9, #c8e6c9); border-left: 4px solid #2e7d32;">
+                                                                                                                            <p class="text-muted small mb-1 fw-semibold">FULFILLMENT RATE</p>
+                                                                                                                            <h3 class="fw-bold mb-0" style="color: #2e7d32;">
+                                                                                                                                @fulfillmentReport.FulfillmentRatePercent.ToString("N1")%</h3>
+                                                                                                                            </div>
+                                                                                                                        </div>
+                                                                                                                        <div class="col-md-3">
+                                                                                                                            <div class="p-3 rounded-3"
+                                                                                                                                 style="background: linear-gradient(135deg, #fff3e0, #ffe0b2); border-left: 4px solid #e65100;">
+                                                                                                                                <p class="text-muted small mb-1 fw-semibold">OPEN ORDERS</p>
+                                                                                                                                <h3 class="fw-bold mb-0" style="color: #e65100;">@fulfillmentReport.OpenOrders</h3>
+                                                                                                                            </div>
+                                                                                                                        </div>
+                                                                                                                        <div class="col-md-3">
+                                                                                                                            <div class="p-3 rounded-3"
+                                                                                                                                 style="background: linear-gradient(135deg, #fbe9e7, #ffccbc); border-left: 4px solid #c62828;">
+                                                                                                                                <p class="text-muted small mb-1 fw-semibold">PENDING VALUE (USD)</p>
+                                                                                                                                <h3 class="fw-bold mb-0" style="color: #c62828;">
+                                                                                                                                    $@fulfillmentReport.TotalPendingValueUSD.ToString("N2")</h3>
+                                                                                                                                </div>
+                                                                                                                            </div>
+                                                                                                                        </div>
+                                                                                                                        <div class="row g-3 mb-4">
+                                                                                                                            <div class="col-md-2">
+                                                                                                                                <div class="text-center p-2 bg-light rounded-3">
+                                                                                                                                    <div class="fw-bold" style="color: #2e7d32;">@fulfillmentReport.ClosedOrders</div>
+                                                                                                                                    <small class="text-muted">Closed</small>
+                                                                                                                                </div>
+                                                                                                                            </div>
+                                                                                                                            <div class="col-md-2">
+                                                                                                                                <div class="text-center p-2 bg-light rounded-3">
+                                                                                                                                    <div class="fw-bold" style="color: #9e9e9e;">@fulfillmentReport.CancelledOrders</div>
+                                                                                                                                    <small class="text-muted">Cancelled</small>
+                                                                                                                                </div>
+                                                                                                                            </div>
+                                                                                                                            <div class="col-md-2">
+                                                                                                                                <div class="text-center p-2 bg-light rounded-3">
+                                                                                                                                    <div class="fw-bold" style="color: #1565c0;">@fulfillmentReport.TotalLineItems</div>
+                                                                                                                                    <small class="text-muted">Total Lines</small>
+                                                                                                                                </div>
+                                                                                                                            </div>
+                                                                                                                            <div class="col-md-2">
+                                                                                                                                <div class="text-center p-2 bg-light rounded-3">
+                                                                                                                                    <div class="fw-bold" style="color: #2e7d32;">@fulfillmentReport.FullyDeliveredLines</div>
+                                                                                                                                    <small class="text-muted">Delivered</small>
+                                                                                                                                </div>
+                                                                                                                            </div>
+                                                                                                                            <div class="col-md-2">
+                                                                                                                                <div class="text-center p-2 bg-light rounded-3">
+                                                                                                                                    <div class="fw-bold" style="color: #e65100;">@fulfillmentReport.PartiallyDeliveredLines</div>
+                                                                                                                                    <small class="text-muted">Partial</small>
+                                                                                                                                </div>
+                                                                                                                            </div>
+                                                                                                                            <div class="col-md-2">
+                                                                                                                                <div class="text-center p-2 bg-light rounded-3">
+                                                                                                                                    <div class="fw-bold" style="color: #c62828;">@fulfillmentReport.UndeliveredLines</div>
+                                                                                                                                    <small class="text-muted">Pending</small>
+                                                                                                                                </div>
+                                                                                                                            </div>
+                                                                                                                        </div>
+                                                                                                                        @if (fulfillmentReport.FulfillmentByCustomer.Any())
+                                                                                                                        {
+                                                                                                                            <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-people me-2"></i>Fulfillment by Customer
+                                                                                                                            </h6>
+                                                                                                                            <div class="table-responsive mb-4" style="max-height: 300px; overflow-y: auto;">
+                                                                                                                                <table class="table table-sm table-hover align-middle mb-0">
+                                                                                                                                    <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                                                                                                                                        <tr style="background: #f8f9fa;">
+                                                                                                                                            <th class="border-0 fw-semibold">Customer</th>
+                                                                                                                                            <th class="border-0 fw-semibold text-end">Orders</th>
+                                                                                                                                            <th class="border-0 fw-semibold text-end">Open</th>
+                                                                                                                                            <th class="border-0 fw-semibold text-end">Closed</th>
+                                                                                                                                            <th class="border-0 fw-semibold text-end">Order Value</th>
+                                                                                                                                            <th class="border-0 fw-semibold text-end">Fulfillment</th>
+                                                                                                                                            <th class="border-0 fw-semibold text-end">Pending Value</th>
+                                                                                                                                        </tr>
+                                                                                                                                    </thead>
+                                                                                                                                    <tbody>
+                                                                                                                                        @foreach (var c in fulfillmentReport.FulfillmentByCustomer.Take(20))
+                                                                                                                                        {
+                                                                                                                                            <tr>
+                                                                                                                                                <td>
+                                                                                                                                                    <div class="fw-semibold">@c.CardName</div>
+                                                                                                                                                    <small class="text-muted font-monospace">@c.CardCode</small>
+                                                                                                                                                </td>
+                                                                                                                                                <td class="text-end"><span class="badge bg-secondary rounded-pill">@c.TotalOrders</span>
+                                                                                                                                                </td>
+                                                                                                                                                <td class="text-end">@c.OpenOrders</td>
+                                                                                                                                                <td class="text-end">@c.ClosedOrders</td>
+                                                                                                                                                <td class="text-end fw-semibold">$@c.TotalOrderValue.ToString("N2")</td>
+                                                                                                                                                <td class="text-end">
+                                                                                                                                                    <div class="d-flex align-items-center justify-content-end gap-2">
+                                                                                                                                                        <div class="progress" style="width: 60px; height: 6px; border-radius: 3px;">
+                                                                                                                                                            <div class="progress-bar"
+                                                                                                                                                                 style="width: @(c.FulfillmentRatePercent)%; background: @(c.FulfillmentRatePercent >= 80 ? "#2e7d32" : c.FulfillmentRatePercent >= 50 ? "#e65100" : "#c62828");">
+                                                                                                                                                            </div>
+                                                                                                                                                        </div>
+                                                                                                                                                        <span class="small fw-medium">@c.FulfillmentRatePercent.ToString("N1")%</span>
+                                                                                                                                                    </div>
+                                                                                                                                                </td>
+                                                                                                                                                <td class="text-end" style="color: #c62828;">$@c.TotalPendingValue.ToString("N2")</td>
+                                                                                                                                            </tr>
+                                                                                                                                        }
+                                                                                                                                    </tbody>
+                                                                                                                                </table>
+                                                                                                                            </div>
+                                                                                                                        }
+                                                                                                                        <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-list-check me-2"></i>Order Details</h6>
+                                                                                                                        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                                                                                                                            <table class="table table-hover align-middle mb-0">
+                                                                                                                                <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                                                                                                                                    <tr style="background: #f8f9fa;">
+                                                                                                                                        <th class="border-0 fw-semibold">Order#</th>
+                                                                                                                                        <th class="border-0 fw-semibold">Date</th>
+                                                                                                                                        <th class="border-0 fw-semibold">Customer</th>
+                                                                                                                                        <th class="border-0 fw-semibold text-end">Total</th>
+                                                                                                                                        <th class="border-0 fw-semibold text-center">Status</th>
+                                                                                                                                        <th class="border-0 fw-semibold text-end">Ordered</th>
+                                                                                                                                        <th class="border-0 fw-semibold text-end">Delivered</th>
+                                                                                                                                        <th class="border-0 fw-semibold text-end">Fulfillment</th>
+                                                                                                                                        <th class="border-0 fw-semibold text-center">Overdue</th>
+                                                                                                                                    </tr>
+                                                                                                                                </thead>
+                                                                                                                                <tbody>
+                                                                                                                                    @foreach (var o in fulfillmentReport.Orders)
+                                                                                                                                    {
+                                                                                                                                        var statusBadge = o.Status switch
+                                                                                                                                        {
+                                                                                                                                            "Open" => "bg-warning text-dark",
+                                                                                                                                            "Closed" => "bg-success",
+                                                                                                                                            _ => "bg-secondary"
+                                                                                                                                        };
+                                                                                                                                        var fulfillColor = o.FulfillmentPercent >= 100 ? "#2e7d32" : o.FulfillmentPercent >= 50 ?
+                                                                                                                                        "#e65100" : "#c62828";
+                                                                                                                                        <tr>
+                                                                                                                                            <td class="fw-medium">@o.DocNum</td>
+                                                                                                                                            <td>@o.OrderDate.ToString("dd MMM yyyy")</td>
+                                                                                                                                            <td>
+                                                                                                                                                <div class="fw-semibold">@o.CardName</div>
+                                                                                                                                                <small class="text-muted font-monospace">@o.CardCode</small>
+                                                                                                                                            </td>
+                                                                                                                                            <td class="text-end fw-semibold">@(o.DocCurrency == "ZIG" || o.DocCurrency == "ZiG" ? "ZIG " : "$")@o.OrderTotal.ToString("N2")</td>
+                                                                                                                                            <td class="text-center"><span class="badge rounded-pill @statusBadge">@o.Status</span></td>
+                                                                                                                                            <td class="text-end">@o.TotalQuantityOrdered.ToString("N0")</td>
+                                                                                                                                            <td class="text-end">@o.TotalQuantityDelivered.ToString("N0")</td>
+                                                                                                                                            <td class="text-end">
+                                                                                                                                                <div class="d-flex align-items-center justify-content-end gap-2">
+                                                                                                                                                    <div class="progress" style="width: 50px; height: 6px; border-radius: 3px;">
+                                                                                                                                                        <div class="progress-bar"
+                                                                                                                                                             style="width: @(o.FulfillmentPercent)%; background: @fulfillColor;"></div>
+                                                                                                                                                    </div>
+                                                                                                                                                    <span class="small fw-bold"
+                                                                                                                                                          style="color: @fulfillColor;">@o.FulfillmentPercent.ToString("N0")%</span>
+                                                                                                                                                </div>
+                                                                                                                                            </td>
+                                                                                                                                            <td class="text-center">
+                                                                                                                                                @if (o.IsOverdue)
+                                                                                                                                                {
+                                                                                                                                                    <span class="badge bg-danger rounded-pill"><i
+                                                                                                                                                        class="bi bi-clock me-1"></i>@o.DaysOverdue d</span>
+                                                                                                                                                    }
+                                else
+                                                                                                                                                    {
+                                                                                                                                                        <span class="text-muted">-</span>
+                                                                                                                                                    }
+                                                                                                                                                </td>
+                                                                                                                                            </tr>
+                                                                                                                                        }
+                                                                                                                                    </tbody>
+                                                                                                                                </table>
+                                                                                                                            </div>
+                                                                                                                        }
+            else
+                                                                                                                        {
+                                                                                                                            <div class="text-center py-5">
+                                                                                                                                <i class="bi bi-truck" style="font-size: 3rem; color: #bdbdbd;"></i>
+                                                                                                                                <p class="mt-3 text-muted">No fulfillment data available. Click "Generate Reports" to load.</p>
+                                                                                                                            </div>
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                </div>
+                                                                                                            </div>
+                                                                                                        </div>
 
 @code {
+    private record TabInfo(string Key, string Label, string Icon);
+    private readonly TabInfo[] tabs =
+    [
+    new("sales", "Sales", "bi-graph-up"),
+new("products", "Top Products", "bi-box-seam"),
+new("stock", "Stock", "bi-boxes"),
+new("payments", "Payments", "bi-cash-stack"),
+new("customers", "Top Customers", "bi-people"),
+new("alerts", "Low Stock", "bi-exclamation-triangle"),
+new("fulfillment", "Fulfillment", "bi-truck")
+    ];
+
     private string activeTab = "sales";
-    private bool isLoading = false;
+    private bool isLoading;
+    private bool isExporting;
+    private string errorMessage = "";
     private DateTime fromDate = DateTime.UtcNow.AddDays(-30);
     private DateTime toDate = DateTime.UtcNow;
     private int topProductsCount = 10;
     private string currentUsername = "Unknown";
     private string currentUserRole = "User";
+    private HashSet<string> loadingTabs = new();
 
     private SalesSummaryReport? salesReport;
     private TopProductsReport? topProductsReport;
@@ -599,75 +916,102 @@
     private PaymentSummaryReport? paymentReport;
     private TopCustomersReport? topCustomersReport;
     private LowStockAlertReport? lowStockReport;
+    private OrderFulfillmentReport? fulfillmentReport;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadCurrentUser();
-        await AuditService.LogAsync("ViewReports", currentUsername, currentUserRole, "Report", null, "Accessed reports page",
-        "/reports");
+        try { await AuditService.LogAsync("ViewReports", currentUsername, currentUserRole, "Report", null, "Accessed reports page", "/reports"); } catch { }
+        await LoadReports();
     }
 
     private async Task LoadCurrentUser()
     {
-        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        currentUsername = authState.User.Identity?.Name ?? "Unknown";
-        currentUserRole = authState.User.Claims.FirstOrDefault(c => c.Type == System.Security.Claims.ClaimTypes.Role)?.Value ??
-        "User";
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            currentUsername = authState.User.Identity?.Name ?? "Unknown";
+            currentUserRole = authState.User.Claims.FirstOrDefault(c => c.Type == System.Security.Claims.ClaimTypes.Role)?.Value ??
+            "User";
+        }
+        catch { }
     }
+
+    private void SetActiveTab(string tab) { activeTab = tab; }
+    private bool IsTabLoading(string tab) => loadingTabs.Contains(tab);
+    private string GetTabLabel(string tab) => tabs.FirstOrDefault(t => t.Key == tab)?.Label ?? tab;
+    private bool HasActiveData() => salesReport != null || topProductsReport != null || stockReport != null || paymentReport
+    != null || topCustomersReport != null || lowStockReport != null || fulfillmentReport != null;
 
     private async Task LoadReports()
     {
+        if (isLoading) return;
         isLoading = true;
+        errorMessage = "";
+        loadingTabs = new HashSet<string> { "sales", "products", "stock", "payments", "customers", "alerts", "fulfillment" };
+        await InvokeAsync(StateHasChanged);
+
+        var errors = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var _loadingTabs = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(
+            loadingTabs.Select(t => new KeyValuePair<string, byte>(t, 0)));
+
+        // Batch 1: Sales, Stock, Payments (most commonly viewed, limited parallelism)
+        var batch1 = new (string Tab, Func<Task> Action)[]
+        {
+            ("sales", async () => { salesReport = await ReportService.GetSalesSummaryAsync(fromDate, toDate); }),
+            ("stock", async () => { stockReport = await ReportService.GetStockSummaryAsync(); }),
+            ("payments", async () => { paymentReport = await ReportService.GetPaymentSummaryAsync(fromDate, toDate); })
+        };
+
+        // Batch 2: Products, Customers, Alerts, Fulfillment
+        var batch2 = new (string Tab, Func<Task> Action)[]
+        {
+            ("products", async () => { topProductsReport = await ReportService.GetTopProductsAsync(fromDate, toDate, topProductsCount); }),
+            ("customers", async () => { topCustomersReport = await ReportService.GetTopCustomersAsync(fromDate, toDate, 10); }),
+            ("alerts", async () => { lowStockReport = await ReportService.GetLowStockAlertsAsync(); }),
+            ("fulfillment", async () => { fulfillmentReport = await ReportService.GetOrderFulfillmentAsync(fromDate, toDate); })
+        };
+
         try
         {
-            // Load all reports in parallel
-            var tasks = new List<Task>
-{
-LoadSalesReport(),
-LoadTopProducts(),
-LoadStockReport(),
-LoadPaymentReport(),
-LoadTopCustomers(),
-LoadLowStockAlerts()
-};
+            foreach (var batch in new[] { batch1, batch2 })
+            {
+                var loadTasks = batch.Select(async t =>
+                {
+                    try { await t.Action(); }
+                    catch (Exception ex) { errors.Add($"{t.Tab}: {ex.Message}"); }
+                    finally
+                    {
+                        _loadingTabs.TryRemove(t.Tab, out _);
+                        loadingTabs = new HashSet<string>(_loadingTabs.Keys);
+                        await InvokeAsync(StateHasChanged);
+                    }
+                });
 
-            await Task.WhenAll(tasks);
-            await AuditService.LogAsync("GenerateReports", currentUsername, currentUserRole, "Report", null, $"Generated reports from {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}", "/reports");
+                await Task.WhenAll(loadTasks);
+            }
+
+            if (!errors.IsEmpty) errorMessage = $"Some reports had issues: {string.Join("; ", errors)}";
+            try { await AuditService.LogAsync("GenerateReports", currentUsername, currentUserRole, "Report", null, $"Generated reports from {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}", "/reports"); } catch { }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load reports: {ex.Message}";
         }
         finally
         {
             isLoading = false;
+            loadingTabs.Clear();
+            await InvokeAsync(StateHasChanged);
         }
-    }
-
-    private async Task LoadSalesReport()
-    {
-        salesReport = await ReportService.GetSalesSummaryAsync(fromDate, toDate);
     }
 
     private async Task LoadTopProducts()
     {
-        topProductsReport = await ReportService.GetTopProductsAsync(fromDate, toDate, topProductsCount);
-    }
-
-    private async Task LoadStockReport()
-    {
-        stockReport = await ReportService.GetStockSummaryAsync();
-    }
-
-    private async Task LoadPaymentReport()
-    {
-        paymentReport = await ReportService.GetPaymentSummaryAsync(fromDate, toDate);
-    }
-
-    private async Task LoadTopCustomers()
-    {
-        topCustomersReport = await ReportService.GetTopCustomersAsync(fromDate, toDate, 10);
-    }
-
-    private async Task LoadLowStockAlerts()
-    {
-        lowStockReport = await ReportService.GetLowStockAlertsAsync();
+        loadingTabs.Add("products");
+        StateHasChanged();
+        try { topProductsReport = await ReportService.GetTopProductsAsync(fromDate, toDate, topProductsCount); }
+        finally { loadingTabs.Remove("products"); StateHasChanged(); }
     }
 
     private void OnQuickSelectChanged(ChangeEventArgs e)
@@ -677,5 +1021,173 @@ LoadLowStockAlerts()
             fromDate = DateTime.UtcNow.AddDays(-days);
             toDate = DateTime.UtcNow;
         }
+    }
+
+    private async Task ExportToExcel(string tab)
+    {
+        isExporting = true;
+        StateHasChanged();
+        try
+        {
+            byte[]? bytes = tab switch
+            {
+                "sales" when salesReport != null => ExportService.ExportSalesSummaryToExcel(salesReport),
+                "products" when topProductsReport != null => ExportService.ExportTopProductsToExcel(topProductsReport),
+                "stock" when stockReport != null => ExportService.ExportStockSummaryToExcel(stockReport),
+                "payments" when paymentReport != null => ExportService.ExportPaymentSummaryToExcel(paymentReport),
+                "customers" when topCustomersReport != null => ExportService.ExportTopCustomersToExcel(topCustomersReport),
+                "alerts" when lowStockReport != null => ExportService.ExportLowStockAlertsToExcel(lowStockReport),
+                "fulfillment" when fulfillmentReport != null => ExportService.ExportOrderFulfillmentToExcel(fulfillmentReport),
+                _ => null
+            };
+            if (bytes != null)
+            {
+                var base64 = Convert.ToBase64String(bytes);
+                await JS.InvokeVoidAsync("downloadFile", $"Report_{tab}_{DateTime.Now:yyyyMMdd_HHmm}.xlsx", base64);
+            }
+        }
+        catch (Exception ex) { errorMessage = $"Export failed: {ex.Message}"; }
+        finally { isExporting = false; StateHasChanged(); }
+    }
+
+    private async Task ExportToPdf(string tab)
+    {
+        isExporting = true;
+        StateHasChanged();
+        try
+        {
+            string? html = tab switch
+            {
+                "sales" when salesReport != null => BuildSalesPdfHtml(),
+                "products" when topProductsReport != null => BuildProductsPdfHtml(),
+                "stock" when stockReport != null => BuildStockPdfHtml(),
+                "payments" when paymentReport != null => BuildPaymentsPdfHtml(),
+                "customers" when topCustomersReport != null => BuildCustomersPdfHtml(),
+                "alerts" when lowStockReport != null => BuildAlertsPdfHtml(),
+                "fulfillment" when fulfillmentReport != null => BuildFulfillmentPdfHtml(),
+                _ => null
+            };
+            if (html != null) await JS.InvokeVoidAsync("printReportHtml", html);
+        }
+        catch (Exception ex) { errorMessage = $"PDF export failed: {ex.Message}"; }
+        finally { isExporting = false; StateHasChanged(); }
+    }
+
+    private string BuildSalesPdfHtml()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<div class='kpi-row'>");
+        sb.Append($"<div class='kpi'><h3>{salesReport!.TotalInvoices}</h3><p>Total Invoices</p></div>");
+        sb.Append($"<div class='kpi'><h3>${salesReport.TotalSalesUSD:N2}</h3><p>Sales (USD)</p></div>");
+        sb.Append($"<div class='kpi'><h3>ZIG {salesReport.TotalSalesZIG:N2}</h3><p>Sales (ZIG)</p></div>");
+        sb.Append($"<div class='kpi'><h3>{salesReport.UniqueCustomers}</h3><p>Unique Customers</p></div>");
+        sb.Append("</div>");
+        sb.Append("<table><thead><tr><th>Date</th><th>Invoices</th><th>USD Sales</th><th>ZIG Sales</th></tr></thead><tbody>");
+        foreach (var d in salesReport.DailySales.OrderByDescending(d => d.Date))
+            sb.Append($"<tr><td>{d.Date:ddd, dd MMM yyyy}</td><td class='text-end'>{d.InvoiceCount}</td><td class='text-end'>${d.TotalSalesUSD:N2}</td><td class='text-end'>ZIG {d.TotalSalesZIG:N2}</td></tr>");
+        sb.Append($"</tbody><tfoot><tr style='font-weight:bold;background:#e8eaf6'><td>Total</td><td class='text-end'>{salesReport.TotalInvoices}</td><td class='text-end'>${salesReport.TotalSalesUSD:N2}</td><td class='text-end'>ZIG {salesReport.TotalSalesZIG:N2}</td></tr></tfoot></table>");
+        return ExportService.GeneratePrintableHtml("Sales Summary Report", sb.ToString(), fromDate, toDate);
+    }
+
+    private string BuildProductsPdfHtml()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<table><thead><tr><th>Rank</th><th>Code</th><th>Product</th><th>Qty Sold</th><th>Orders</th><th>Revenue (USD)</th><th>Revenue (ZIG)</th></tr></thead><tbody>");
+        foreach (var p in topProductsReport!.TopProducts)
+            sb.Append($"<tr><td>{p.Rank}</td><td>{p.ItemCode}</td><td>{p.ItemName}</td><td class='text-end'>{p.TotalQuantitySold:N0}</td><td class='text-end'>{p.TimesOrdered}</td><td class='text-end'>${p.TotalRevenueUSD:N2}</td><td class='text-end'>ZIG {p.TotalRevenueZIG:N2}</td></tr>");
+        sb.Append("</tbody></table>");
+        return ExportService.GeneratePrintableHtml("Top Products Report", sb.ToString(), fromDate, toDate);
+    }
+
+    private string BuildStockPdfHtml()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<div class='kpi-row'>");
+        sb.Append($"<div class='kpi'><h3>{stockReport!.TotalProducts:N0}</h3><p>Total Products</p></div>");
+        sb.Append($"<div class='kpi'><h3>{stockReport.ProductsInStock:N0}</h3><p>In Stock</p></div>");
+        sb.Append($"<div class='kpi'><h3>{stockReport.ProductsOutOfStock:N0}</h3><p>Out of Stock</p></div>");
+        sb.Append($"<div class='kpi'><h3>{stockReport.ProductsBelowReorderLevel:N0}</h3><p>Below Reorder</p></div>");
+        sb.Append("</div>");
+        sb.Append("<table><thead><tr><th>Warehouse</th><th>Products</th><th>Total Qty</th></tr></thead><tbody>");
+        foreach (var w in stockReport.StockByWarehouse.OrderByDescending(w => w.TotalQuantity))
+            sb.Append($"<tr><td><strong>{w.WarehouseCode}</strong> - {w.WarehouseName}</td><td class='text-end'>{w.ProductCount}</td><td class='text-end'>{w.TotalQuantity:N0}</td></tr>");
+        sb.Append("</tbody></table>");
+        return ExportService.GeneratePrintableHtml("Stock Summary Report", sb.ToString());
+    }
+
+    private string BuildPaymentsPdfHtml()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<div class='kpi-row'>");
+        sb.Append($"<div class='kpi'><h3>{paymentReport!.TotalPayments}</h3><p>Total Payments</p></div>");
+        sb.Append($"<div class='kpi'><h3>${paymentReport.TotalAmountUSD:N2}</h3><p>Total (USD)</p></div>");
+        sb.Append($"<div class='kpi'><h3>ZIG {paymentReport.TotalAmountZIG:N2}</h3><p>Total (ZIG)</p></div>");
+        sb.Append("</div>");
+        sb.Append("<h3 style='font-size:14px;margin-top:20px;'>Payment Methods</h3>");
+        sb.Append("<table><thead><tr><th>Method</th><th>Count</th><th>USD</th><th>ZIG</th><th>%</th></tr></thead><tbody>");
+        foreach (var m in paymentReport.PaymentsByMethod)
+            sb.Append($"<tr><td>{m.PaymentMethod}</td><td class='text-end'>{m.PaymentCount}</td><td class='text-end'>${m.TotalAmountUSD:N2}</td><td class='text-end'>ZIG {m.TotalAmountZIG:N2}</td><td class='text-end'>{m.PercentageOfTotal:N1}%</td></tr>");
+        sb.Append("</tbody></table>");
+        sb.Append("<h3 style='font-size:14px;margin-top:20px;'>Daily Breakdown</h3>");
+        sb.Append("<table><thead><tr><th>Date</th><th>Count</th><th>USD</th><th>ZIG</th></tr></thead><tbody>");
+        foreach (var d in paymentReport.DailyPayments.OrderByDescending(d => d.Date))
+            sb.Append($"<tr><td>{d.Date:dd MMM yyyy}</td><td class='text-end'>{d.PaymentCount}</td><td class='text-end'>${d.TotalAmountUSD:N2}</td><td class='text-end'>ZIG {d.TotalAmountZIG:N2}</td></tr>");
+        sb.Append("</tbody></table>");
+        return ExportService.GeneratePrintableHtml("Payment Summary Report", sb.ToString(), fromDate, toDate);
+    }
+
+    private string BuildCustomersPdfHtml()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<table><thead><tr><th>Rank</th><th>Customer</th><th>Invoices</th><th>Purchases (USD)</th><th>Purchases (ZIG)</th><th>Payments (USD)</th><th>Balance (USD)</th></tr></thead><tbody>");
+        foreach (var c in topCustomersReport!.TopCustomers)
+        {
+            var balStyle = c.OutstandingBalanceUSD > 0 ? "color:#c62828;font-weight:bold" : "color:#2e7d32";
+            sb.Append($"<tr><td>{c.Rank}</td><td><strong>{c.CardName}</strong><br/><small>{c.CardCode}</small></td><td class='text-end'>{c.InvoiceCount}</td><td class='text-end'>${c.TotalPurchasesUSD:N2}</td><td class='text-end'>ZIG {c.TotalPurchasesZIG:N2}</td><td class='text-end'>${c.TotalPaymentsUSD:N2}</td><td class='text-end' style='{balStyle}'>${c.OutstandingBalanceUSD:N2}</td></tr>");
+        }
+        sb.Append("</tbody></table>");
+        return ExportService.GeneratePrintableHtml("Top Customers Report", sb.ToString(), fromDate, toDate);
+    }
+
+    private string BuildAlertsPdfHtml()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<div class='kpi-row'>");
+        sb.Append($"<div class='kpi'><h3>{lowStockReport!.TotalAlerts}</h3><p>Total Alerts</p></div>");
+        sb.Append($"<div class='kpi' style='border-color:#c62828'><h3 style='color:#c62828'>{lowStockReport.CriticalCount}</h3><p>Critical</p></div>");
+        sb.Append($"<div class='kpi' style='border-color:#e65100'><h3 style='color:#e65100'>{lowStockReport.WarningCount}</h3><p>Warning</p></div>");
+        sb.Append("</div>");
+        sb.Append("<table><thead><tr><th>Status</th><th>Code</th><th>Name</th><th>Warehouse</th><th>Current</th><th>Reorder Level</th><th>Suggested Order</th></tr></thead><tbody>");
+        foreach (var i in lowStockReport.Items.OrderBy(i => i.AlertLevel == "Critical" ? 0 : 1).ThenBy(i => i.CurrentStock))
+            sb.Append($"<tr><td>{(i.AlertLevel == "Critical" ? "CRITICAL" :
+            "WARNING")}</td><td>{i.ItemCode}</td><td>{i.ItemName}</td><td>{i.WarehouseCode}</td><td class='text-end' style='font-weight:bold;color:{(i.CurrentStock <= 0 ? "#c62828" : "#e65100")}'>{i.CurrentStock:N0}</td><td class='text-end'>{i.ReorderLevel:N0}</td><td class='text-end' style='color:#1565c0;font-weight:bold'>{i.SuggestedReorderQty:N0}</td></tr>");
+        sb.Append("</tbody></table>");
+        return ExportService.GeneratePrintableHtml("Low Stock Alerts Report", sb.ToString());
+    }
+
+    private string BuildFulfillmentPdfHtml()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<div class='kpi-row'>");
+        sb.Append($"<div class='kpi'><h3>{fulfillmentReport!.TotalOrders}</h3><p>Total Orders</p></div>");
+        sb.Append($"<div class='kpi'><h3>{fulfillmentReport.FulfillmentRatePercent:N1}%</h3><p>Fulfillment Rate</p></div>");
+        sb.Append($"<div class='kpi'><h3>{fulfillmentReport.OpenOrders}</h3><p>Open Orders</p></div>");
+        sb.Append($"<div class='kpi' style='border-color:#c62828'><h3 style='color:#c62828'>${fulfillmentReport.TotalPendingValueUSD:N2}</h3><p>Pending Value</p></div>");
+        sb.Append("</div>");
+        sb.Append("<h3 style='font-size:14px;margin-top:20px;'>Order Details</h3>");
+        sb.Append("<table><thead><tr><th>Order#</th><th>Date</th><th>Customer</th><th>Total</th><th>Status</th><th>Ordered</th><th>Delivered</th><th>Fulfillment</th><th>Overdue</th></tr></thead><tbody>");
+        foreach (var o in fulfillmentReport.Orders)
+            sb.Append($"<tr><td>{o.DocNum}</td><td>{o.OrderDate:dd MMM yyyy}</td><td>{o.CardName}</td><td class='text-end'>${o.OrderTotal:N2}</td><td>{o.Status}</td><td class='text-end'>{o.TotalQuantityOrdered:N0}</td><td class='text-end'>{o.TotalQuantityDelivered:N0}</td><td class='text-end'>{o.FulfillmentPercent:N1}%</td><td>{(o.IsOverdue
+            ? $"{o.DaysOverdue}d overdue" : "-")}</td></tr>");
+        sb.Append("</tbody></table>");
+        if (fulfillmentReport.FulfillmentByCustomer.Any())
+        {
+            sb.Append("<h3 style='font-size:14px;margin-top:20px;'>By Customer</h3>");
+            sb.Append("<table><thead><tr><th>Customer</th><th>Orders</th><th>Open</th><th>Closed</th><th>Value</th><th>Fulfillment</th></tr></thead><tbody>");
+            foreach (var c in fulfillmentReport.FulfillmentByCustomer)
+                sb.Append($"<tr><td>{c.CardName}</td><td class='text-end'>{c.TotalOrders}</td><td class='text-end'>{c.OpenOrders}</td><td class='text-end'>{c.ClosedOrders}</td><td class='text-end'>${c.TotalOrderValue:N2}</td><td class='text-end'>{c.FulfillmentRatePercent:N1}%</td></tr>");
+            sb.Append("</tbody></table>");
+        }
+        return ExportService.GeneratePrintableHtml("Order Fulfillment Report", sb.ToString(), fromDate, toDate);
     }
 }

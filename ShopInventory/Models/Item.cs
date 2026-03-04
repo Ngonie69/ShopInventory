@@ -130,3 +130,33 @@ public class BatchNumberDetails
     [JsonPropertyName("BatchNumbers")]
     public List<BatchNumber>? BatchNumbers { get; set; }
 }
+
+/// <summary>
+/// Represents serial number information for an item in a warehouse
+/// </summary>
+public class SerialNumber
+{
+    [JsonPropertyName("ItemCode")]
+    public string? ItemCode { get; set; }
+
+    [JsonPropertyName("DistNumber")]
+    public string? DistNumber { get; set; }
+
+    [JsonPropertyName("Quantity")]
+    public decimal Quantity { get; set; }
+
+    [JsonPropertyName("WhsCode")]
+    public string? WhsCode { get; set; }
+
+    [JsonPropertyName("SystemNumber")]
+    public int SystemNumber { get; set; }
+
+    [JsonPropertyName("Status")]
+    public string? Status { get; set; }
+
+    [JsonPropertyName("InternalSerialNumber")]
+    public string? InternalSerialNumber { get; set; }
+
+    [JsonPropertyName("ManufacturerSerialNumber")]
+    public string? ManufacturerSerialNumber { get; set; }
+}

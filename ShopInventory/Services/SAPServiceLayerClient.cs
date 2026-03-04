@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
@@ -9,13 +10,50 @@ using ShopInventory.Models;
 
 namespace ShopInventory.Services;
 
-public class SAPServiceLayerClient : ISAPServiceLayerClient
+public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 {
     private readonly HttpClient _httpClient;
     private readonly SAPSettings _settings;
     private readonly ILogger<SAPServiceLayerClient> _logger;
     private string? _sessionId;
     private DateTime _sessionExpiry = DateTime.MinValue;
+
+    // Regex for validating SAP identifiers (item codes, warehouse codes, card codes, etc.)
+    // Allows alphanumeric, dashes, underscores, dots, spaces, forward slashes
+    [GeneratedRegex(@"^[a-zA-Z0-9\-_\./\s]+$")]
+    private static partial Regex SafeSapIdentifierRegex();
+
+    /// <summary>
+    /// Sanitizes a value for safe use in SAP SQL queries by escaping single quotes
+    /// and validating against allowed characters.
+    /// </summary>
+    private static string SanitizeSqlValue(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException("Value cannot be null or empty.", nameof(value));
+
+        // Reject values with suspicious SQL characters
+        if (value.Contains(";") || value.Contains("--") || value.Contains("/*") || value.Contains("*/"))
+            throw new ArgumentException($"Value contains disallowed characters: {value}", nameof(value));
+
+        // Escape single quotes for SQL
+        return value.Replace("'", "''");
+    }
+
+    /// <summary>
+    /// Sanitizes a value for safe use in OData filter expressions.
+    /// </summary>
+    private static string SanitizeODataValue(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException("Value cannot be null or empty.", nameof(value));
+
+        // Reject values with OData injection characters
+        if (value.Contains("'") || value.Contains(";") || value.Contains("--") || value.Contains("/*"))
+            throw new ArgumentException($"Value contains disallowed characters: {value}", nameof(value));
+
+        return value;
+    }
 
     public SAPServiceLayerClient(
         HttpClient httpClient,
@@ -81,39 +119,60 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
     {
         await EnsureAuthenticatedAsync(cancellationToken);
 
-        // Filter inventory transfers where ToWarehouse equals the specified warehouse
-        var filter = $"$filter=ToWarehouse eq '{warehouseCode}'&$orderby=DocEntry desc";
-        var url = $"StockTransfers?{filter}";
+        var safeWarehouse = SanitizeODataValue(warehouseCode);
+        var allTransfers = new List<InventoryTransfer>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
 
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        while (hasMore)
         {
-            // Session expired, re-login and retry
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            var url = $"StockTransfers?$filter=(ToWarehouse eq '{safeWarehouse}' or FromWarehouse eq '{safeWarehouse}')&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(request, cancellationToken);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                _sessionId = null;
+                await EnsureAuthenticatedAsync(cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get inventory transfers: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get inventory transfers: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<InventoryTransfer>>(valueArray.GetRawText()) ?? new List<InventoryTransfer>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allTransfers.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
         }
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to get inventory transfers: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get inventory transfers: {response.StatusCode} - {errorContent}");
-        }
-
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<SAPResponse<InventoryTransfer>>(content);
-
-        return result?.Value ?? new List<InventoryTransfer>();
+        return allTransfers;
     }
 
     public async Task<List<InventoryTransfer>> GetPagedInventoryTransfersToWarehouseAsync(
@@ -125,7 +184,8 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         await EnsureAuthenticatedAsync(cancellationToken);
 
         var skip = (page - 1) * pageSize;
-        var filter = $"$filter=ToWarehouse eq '{warehouseCode}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+        var safeWarehouse = SanitizeODataValue(warehouseCode);
+        var filter = $"$filter=(ToWarehouse eq '{safeWarehouse}' or FromWarehouse eq '{safeWarehouse}')&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
         var url = $"StockTransfers?{filter}";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -166,37 +226,60 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         await EnsureAuthenticatedAsync(cancellationToken);
 
         var dateStr = date.ToString("yyyy-MM-dd");
-        var filter = $"$filter=ToWarehouse eq '{warehouseCode}' and DocDate eq '{dateStr}'&$orderby=DocEntry desc";
-        var url = $"StockTransfers?{filter}";
+        var safeWarehouse = SanitizeODataValue(warehouseCode);
+        var allTransfers = new List<InventoryTransfer>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
 
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        while (hasMore)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            var url = $"StockTransfers?$filter=(ToWarehouse eq '{safeWarehouse}' or FromWarehouse eq '{safeWarehouse}') and DocDate eq '{dateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(request, cancellationToken);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                _sessionId = null;
+                await EnsureAuthenticatedAsync(cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get inventory transfers by date: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get inventory transfers: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<InventoryTransfer>>(valueArray.GetRawText()) ?? new List<InventoryTransfer>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allTransfers.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
         }
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to get inventory transfers by date: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get inventory transfers: {response.StatusCode} - {errorContent}");
-        }
-
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<SAPResponse<InventoryTransfer>>(content);
-
-        return result?.Value ?? new List<InventoryTransfer>();
+        return allTransfers;
     }
 
     public async Task<List<InventoryTransfer>> GetInventoryTransfersByDateRangeAsync(
@@ -209,37 +292,60 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
-        var filter = $"$filter=ToWarehouse eq '{warehouseCode}' and DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc";
-        var url = $"StockTransfers?{filter}";
+        var safeWarehouse = SanitizeODataValue(warehouseCode);
+        var allTransfers = new List<InventoryTransfer>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
 
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        while (hasMore)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            var url = $"StockTransfers?$filter=(ToWarehouse eq '{safeWarehouse}' or FromWarehouse eq '{safeWarehouse}') and DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(request, cancellationToken);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                _sessionId = null;
+                await EnsureAuthenticatedAsync(cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get inventory transfers by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get inventory transfers: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<InventoryTransfer>>(valueArray.GetRawText()) ?? new List<InventoryTransfer>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allTransfers.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
         }
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to get inventory transfers by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get inventory transfers: {response.StatusCode} - {errorContent}");
-        }
-
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<SAPResponse<InventoryTransfer>>(content);
-
-        return result?.Value ?? new List<InventoryTransfer>();
+        return allTransfers;
     }
 
     public async Task<InventoryTransfer?> GetInventoryTransferByDocEntryAsync(
@@ -464,37 +570,61 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
     {
         await EnsureAuthenticatedAsync(cancellationToken);
 
-        var filter = $"$filter=CardCode eq '{cardCode}'&$orderby=DocEntry desc";
-        var url = $"Invoices?{filter}";
+        var safeCardCode = SanitizeODataValue(cardCode);
+        var allInvoices = new List<Invoice>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
 
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        while (hasMore)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            var url = $"Invoices?$filter=CardCode eq '{safeCardCode}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(request, cancellationToken);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                _sessionId = null;
+                await EnsureAuthenticatedAsync(cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get invoices for customer {CardCode}: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
+                throw new Exception($"Failed to get invoices: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<Invoice>>(valueArray.GetRawText()) ?? new List<Invoice>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allInvoices.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
         }
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to get invoices for customer {CardCode}: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get invoices: {response.StatusCode} - {errorContent}");
-        }
-
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<SAPResponse<Invoice>>(content);
-
-        return result?.Value ?? new List<Invoice>();
+        _logger.LogInformation("Retrieved {Count} invoices for customer {CardCode}", allInvoices.Count, cardCode);
+        return allInvoices;
     }
 
     public async Task<List<Invoice>> GetInvoicesByDateRangeAsync(
@@ -506,37 +636,60 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
-        var filter = $"$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc";
-        var url = $"Invoices?{filter}";
+        var allInvoices = new List<Invoice>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
 
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        while (hasMore)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            var url = $"Invoices?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(request, cancellationToken);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                _sessionId = null;
+                await EnsureAuthenticatedAsync(cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get invoices by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get invoices: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<Invoice>>(valueArray.GetRawText()) ?? new List<Invoice>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allInvoices.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
         }
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to get invoices by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get invoices: {response.StatusCode} - {errorContent}");
-        }
-
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<SAPResponse<Invoice>>(content);
-
-        return result?.Value ?? new List<Invoice>();
+        _logger.LogInformation("Retrieved {Count} invoices from SAP for date range {From} to {To}", allInvoices.Count, fromDateStr, toDateStr);
+        return allInvoices;
     }
 
     public async Task<List<Invoice>> GetPagedInvoicesAsync(
@@ -590,7 +743,7 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var items = new List<Item>();
         int skip = 0;
-        const int pageSize = 100;
+        const int pageSize = 500;
         bool hasMore = true;
 
         while (hasMore)
@@ -696,7 +849,8 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
     {
         await EnsureAuthenticatedAsync(cancellationToken);
 
-        var url = $"Items('{itemCode}')";
+        var safeItemCode = SanitizeODataValue(itemCode);
+        var url = $"Items('{safeItemCode}')";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -744,10 +898,12 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         // SQL query to get batch numbers for a specific item in a warehouse
+        var safeItem = SanitizeSqlValue(itemCode);
+        var safeWarehouse = SanitizeSqlValue(warehouseCode);
         var sqlText = $"SELECT T0.\"ItemCode\", T0.\"DistNumber\" as \"BatchNum\", T1.\"Quantity\", T1.\"WhsCode\", " +
                       $"T0.\"ExpDate\", T0.\"MnfDate\", T0.\"InDate\", T0.\"Notes\" " +
                       $"FROM OBTN T0 INNER JOIN OBTQ T1 ON T0.\"AbsEntry\" = T1.\"MdAbsEntry\" " +
-                      $"WHERE T0.\"ItemCode\" = '{itemCode}' AND T1.\"WhsCode\" = '{warehouseCode}' AND T1.\"Quantity\" > 0 " +
+                      $"WHERE T0.\"ItemCode\" = '{safeItem}' AND T1.\"WhsCode\" = '{safeWarehouse}' AND T1.\"Quantity\" > 0 " +
                       $"ORDER BY T0.\"DistNumber\"";
 
         try
@@ -807,7 +963,8 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
     {
         // Fallback: Query all batch numbers for the item and filter client-side
         // Note: BatchNumberDetails uses 'Batch' property, not 'BatchNum'
-        var filter = Uri.EscapeDataString($"ItemCode eq '{itemCode}'");
+        var safeItemCode = SanitizeODataValue(itemCode);
+        var filter = Uri.EscapeDataString($"ItemCode eq '{safeItemCode}'");
         var url = $"BatchNumberDetails?$filter={filter}";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -876,10 +1033,11 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         // SQL query to get all batch numbers in a warehouse
+        var safeWarehouse = SanitizeSqlValue(warehouseCode);
         var sqlText = $"SELECT T0.\"ItemCode\", T0.\"DistNumber\" as \"BatchNum\", T1.\"Quantity\", T1.\"WhsCode\", " +
                       $"T0.\"ExpDate\", T0.\"MnfDate\", T0.\"InDate\", T0.\"Notes\" " +
                       $"FROM OBTN T0 INNER JOIN OBTQ T1 ON T0.\"AbsEntry\" = T1.\"MdAbsEntry\" " +
-                      $"WHERE T1.\"WhsCode\" = '{warehouseCode}' AND T1.\"Quantity\" > 0 " +
+                      $"WHERE T1.\"WhsCode\" = '{safeWarehouse}' AND T1.\"Quantity\" > 0 " +
                       $"ORDER BY T0.\"ItemCode\", T0.\"DistNumber\"";
 
         // Create the SQL query
@@ -958,6 +1116,112 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         return batches;
     }
 
+    /// <summary>
+    /// Gets available serial numbers for an item in a specific warehouse.
+    /// Uses SQL query via SAP Service Layer to query OSRN/OSRQ tables.
+    /// </summary>
+    public async Task<List<SerialNumber>> GetSerialNumbersForItemInWarehouseAsync(
+        string itemCode,
+        string warehouseCode,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var queryCode = $"ITEM_SERIALS_{itemCode.Replace("-", "_").ToUpperInvariant()}_{warehouseCode.Replace("-", "_").ToUpperInvariant()}";
+
+        // Try to delete existing query first
+        await TryDeleteQueryAsync(queryCode, cancellationToken);
+
+        // SQL query to get serial numbers for a specific item in a warehouse
+        var safeItem = SanitizeSqlValue(itemCode);
+        var safeWarehouse = SanitizeSqlValue(warehouseCode);
+        var sqlText = $"SELECT T0.\"ItemCode\", T0.\"DistNumber\", T1.\"Quantity\", T1.\"WhsCode\", " +
+                      $"T0.\"AbsEntry\" as \"SystemNumber\", T0.\"IntrSerial\" as \"InternalSerialNumber\", " +
+                      $"T0.\"MnfSerial\" as \"ManufacturerSerialNumber\" " +
+                      $"FROM OSRN T0 INNER JOIN OSRQ T1 ON T0.\"AbsEntry\" = T1.\"MdAbsEntry\" " +
+                      $"WHERE T0.\"ItemCode\" = '{safeItem}' AND T1.\"WhsCode\" = '{safeWarehouse}' AND T1.\"Quantity\" > 0 " +
+                      $"ORDER BY T0.\"DistNumber\"";
+
+        try
+        {
+            // Create the SQL query
+            await CreateSqlQueryAsync(queryCode, $"Serials for {itemCode} in {warehouseCode}", sqlText, cancellationToken);
+
+            // Execute the query
+            var url = $"SQLQueries('{queryCode}')/List";
+
+            var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                _sessionId = null;
+                await EnsureAuthenticatedAsync(cancellationToken);
+
+                httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            }
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                _logger.LogInformation("No serial numbers found for item {ItemCode} in warehouse {Warehouse}", itemCode, warehouseCode);
+                return new List<SerialNumber>();
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("SQL query for serial numbers failed: {StatusCode} - {Error}",
+                    response.StatusCode, errorContent);
+                return new List<SerialNumber>();
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            return ParseSerialNumbersFromSqlResult(content, warehouseCode);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get serial numbers for item {ItemCode} in warehouse {Warehouse}", itemCode, warehouseCode);
+            return new List<SerialNumber>();
+        }
+    }
+
+    private List<SerialNumber> ParseSerialNumbersFromSqlResult(string jsonContent, string warehouseCode)
+    {
+        var serials = new List<SerialNumber>();
+        try
+        {
+            using var doc = JsonDocument.Parse(jsonContent);
+            if (doc.RootElement.TryGetProperty("value", out var valueArray))
+            {
+                foreach (var item in valueArray.EnumerateArray())
+                {
+                    var serial = new SerialNumber
+                    {
+                        ItemCode = item.TryGetProperty("ItemCode", out var ic) ? ic.GetString() : null,
+                        DistNumber = item.TryGetProperty("DistNumber", out var dn) ? dn.GetString() : null,
+                        Quantity = item.TryGetProperty("Quantity", out var qty) ? qty.GetDecimal() : 0,
+                        WhsCode = warehouseCode,
+                        SystemNumber = item.TryGetProperty("SystemNumber", out var sn) ? sn.GetInt32() : 0,
+                        InternalSerialNumber = item.TryGetProperty("InternalSerialNumber", out var isn) ? isn.GetString() : null,
+                        ManufacturerSerialNumber = item.TryGetProperty("ManufacturerSerialNumber", out var msn) ? msn.GetString() : null
+                    };
+                    serials.Add(serial);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse SQL result for serial numbers");
+        }
+        return serials;
+    }
+
     #endregion
 
     #region Price Operations
@@ -1000,7 +1264,8 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         // Create item-specific query
-        var sqlText = $@"SELECT T1.""ItemCode"", T1.""ItemName"", T0.""Price"", 'USD' AS ""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = 13 AND T0.""Price"" > 0 AND T1.""ItemCode"" = '{itemCode}' UNION ALL SELECT T1.""ItemCode"", T1.""ItemName"", T0.""Price"", 'ZIG' AS ""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = 12 AND T0.""Price"" > 0 AND T1.""ItemCode"" = '{itemCode}'";
+        var safeItem = SanitizeSqlValue(itemCode);
+        var sqlText = $@"SELECT T1.""ItemCode"", T1.""ItemName"", T0.""Price"", 'USD' AS ""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = 13 AND T0.""Price"" > 0 AND T1.""ItemCode"" = '{safeItem}' UNION ALL SELECT T1.""ItemCode"", T1.""ItemName"", T0.""Price"", 'ZIG' AS ""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = 12 AND T0.""Price"" > 0 AND T1.""ItemCode"" = '{safeItem}'";
 
         await CreateSqlQueryAsync(queryCode, $"Price for {itemCode}", sqlText, cancellationToken);
 
@@ -1061,9 +1326,51 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
         _logger.LogDebug("Create SQL Query response: {StatusCode}", response.StatusCode);
 
-        if (!response.IsSuccessStatusCode && response.StatusCode != HttpStatusCode.Conflict)
+        if (response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.Conflict)
         {
-            throw new Exception($"Failed to create SQL query: {response.StatusCode} - {responseContent}");
+            return;
+        }
+
+        // SAP returns BadRequest with error code -2035 when the query already exists (race condition between concurrent requests).
+        // Fall back to PATCH to update the existing query instead of failing.
+        if (response.StatusCode == HttpStatusCode.BadRequest && responseContent.Contains("-2035"))
+        {
+            _logger.LogDebug("SQL query '{QueryCode}' already exists, updating via PATCH", queryCode);
+            await PatchSqlQueryAsync(queryCode, sqlText, cancellationToken);
+            return;
+        }
+
+        throw new Exception($"Failed to create SQL query: {response.StatusCode} - {responseContent}");
+    }
+
+    private async Task PatchSqlQueryAsync(string queryCode, string sqlText, CancellationToken cancellationToken)
+    {
+        var patchPayload = new { SqlText = sqlText };
+        var patchJson = JsonSerializer.Serialize(patchPayload);
+
+        var httpRequest = new HttpRequestMessage(HttpMethod.Patch, $"SQLQueries('{queryCode}')");
+        httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        httpRequest.Content = new StringContent(patchJson, Encoding.UTF8, "application/json");
+
+        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            _sessionId = null;
+            await EnsureAuthenticatedAsync(cancellationToken);
+
+            httpRequest = new HttpRequestMessage(HttpMethod.Patch, $"SQLQueries('{queryCode}')");
+            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            httpRequest.Content = new StringContent(patchJson, Encoding.UTF8, "application/json");
+            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        }
+
+        // If PATCH also fails, the query exists with the same SQL - safe to proceed and execute it
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("PATCH for SQL query '{QueryCode}' returned {StatusCode}, proceeding with existing query", queryCode, response.StatusCode);
         }
     }
 
@@ -1198,7 +1505,7 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
             await CreateSqlQueryAsync(queryCode, "Get Price Lists", sqlText, cancellationToken);
 
             var skip = 0;
-            const int pageSize = 100;
+            const int pageSize = 500;
             bool hasMore = true;
 
             while (hasMore)
@@ -1346,7 +1653,9 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         // SQL query for specific price list - includes FrgnName for fiscalisation
-        var sqlText = $@"SELECT T0.""ItemCode"", T1.""ItemName"", T1.""FrgnName"", T0.""PriceList"", T0.""Price"", T0.""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = {priceListNum} AND T0.""Price"" > 0 ORDER BY T0.""ItemCode""";
+        // Note: Don't filter by Price > 0 — derived price lists may store 0 in ITM1
+        // while SAP computes the actual price on-the-fly from the base list + factor
+        var sqlText = $@"SELECT T0.""ItemCode"", T1.""ItemName"", T1.""FrgnName"", T0.""PriceList"", T0.""Price"", T0.""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = {priceListNum} ORDER BY T0.""ItemCode""";
 
         await CreateSqlQueryAsync(queryCode, $"Prices for List {priceListNum}", sqlText, cancellationToken);
 
@@ -1477,7 +1786,8 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         // SQL query for specific item and price list - includes FrgnName for fiscalisation
-        var sqlText = $@"SELECT T0.""ItemCode"", T1.""ItemName"", T1.""FrgnName"", T0.""PriceList"", T0.""Price"", T0.""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = {priceListNum} AND T0.""ItemCode"" = '{itemCode}'";
+        var safeItem = SanitizeSqlValue(itemCode);
+        var sqlText = $@"SELECT T0.""ItemCode"", T1.""ItemName"", T1.""FrgnName"", T0.""PriceList"", T0.""Price"", T0.""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = {priceListNum} AND T0.""ItemCode"" = '{safeItem}'";
 
         await CreateSqlQueryAsync(queryCode, $"Price for {itemCode} in List {priceListNum}", sqlText, cancellationToken);
 
@@ -1592,40 +1902,72 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         int pageSize,
         CancellationToken cancellationToken = default)
     {
-        await EnsureAuthenticatedAsync(cancellationToken);
+        const int maxRetries = 3;
 
-        var skip = (page - 1) * pageSize;
-        var filter = $"$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
-        var url = $"IncomingPayments?{filter}";
-
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            try
+            {
+                await EnsureAuthenticatedAsync(cancellationToken);
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(request, cancellationToken);
+                var skip = (page - 1) * pageSize;
+                var filter = $"$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+                var url = $"IncomingPayments?{filter}";
+
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+                var response = await _httpClient.SendAsync(request, cancellationToken);
+
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    _sessionId = null;
+                    await EnsureAuthenticatedAsync(cancellationToken);
+
+                    request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                    response = await _httpClient.SendAsync(request, cancellationToken);
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                    _logger.LogError("Failed to get paged incoming payments: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                    throw new Exception($"Failed to get incoming payments: {response.StatusCode} - {errorContent}");
+                }
+
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                var result = JsonSerializer.Deserialize<SAPResponse<IncomingPayment>>(content);
+
+                return result?.Value ?? new List<IncomingPayment>();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw; // Client canceled — don't retry
+            }
+            catch (Exception ex) when (attempt < maxRetries && IsTransientError(ex))
+            {
+                _logger.LogWarning(ex, "Transient error on attempt {Attempt}/{MaxRetries} retrieving incoming payments, retrying...", attempt, maxRetries);
+                _sessionId = null; // Force re-authentication on retry
+                await Task.Delay(TimeSpan.FromSeconds(attempt * 2), cancellationToken);
+            }
         }
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to get paged incoming payments: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get incoming payments: {response.StatusCode} - {errorContent}");
-        }
+        // Should not be reached, but satisfy compiler
+        throw new Exception("Failed to get incoming payments after all retry attempts");
+    }
 
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<SAPResponse<IncomingPayment>>(content);
-
-        return result?.Value ?? new List<IncomingPayment>();
+    /// <summary>
+    /// Determines whether an exception is a transient network/connection error worth retrying.
+    /// </summary>
+    private static bool IsTransientError(Exception ex)
+    {
+        return ex is HttpRequestException
+            || ex is TaskCanceledException
+            || ex is IOException
+            || (ex.InnerException != null && IsTransientError(ex.InnerException));
     }
 
     public async Task<IncomingPayment?> GetIncomingPaymentByDocEntryAsync(
@@ -1714,7 +2056,8 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
     {
         await EnsureAuthenticatedAsync(cancellationToken);
 
-        var filter = $"$filter=CardCode eq '{cardCode}'&$orderby=DocEntry desc";
+        var safeCardCode = SanitizeODataValue(cardCode);
+        var filter = $"$filter=CardCode eq '{safeCardCode}'&$orderby=DocEntry desc";
         var url = $"IncomingPayments?{filter}";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -1756,37 +2099,60 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
-        var filter = $"$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc";
-        var url = $"IncomingPayments?{filter}";
+        var allPayments = new List<IncomingPayment>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
 
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        while (hasMore)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            var url = $"IncomingPayments?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(request, cancellationToken);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                _sessionId = null;
+                await EnsureAuthenticatedAsync(cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get incoming payments by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get incoming payments: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<IncomingPayment>>(valueArray.GetRawText()) ?? new List<IncomingPayment>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allPayments.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
         }
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to get incoming payments by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get incoming payments: {response.StatusCode} - {errorContent}");
-        }
-
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<SAPResponse<IncomingPayment>>(content);
-
-        return result?.Value ?? new List<IncomingPayment>();
+        _logger.LogInformation("Retrieved {Count} incoming payments for date range {From} to {To}", allPayments.Count, fromDateStr, toDateStr);
+        return allPayments;
     }
 
     #endregion
@@ -1825,7 +2191,7 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
             T0.""InvntryUom"" as ""UoM""{customFieldsSql}
         FROM OITM T0 
         INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
-        WHERE T1.""WhsCode"" = '{warehouseCode}' 
+        WHERE T1.""WhsCode"" = '{SanitizeSqlValue(warehouseCode)}' 
         AND (T1.""OnHand"" > 0 OR T1.""IsCommited"" > 0 OR T1.""OnOrder"" > 0)
         ORDER BY T0.""ItemCode""";
 
@@ -1877,7 +2243,7 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
             T0.""InvntryUom"" as ""UoM""
         FROM OITM T0 
         INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
-        WHERE T1.""WhsCode"" = '{warehouseCode}' 
+        WHERE T1.""WhsCode"" = '{SanitizeSqlValue(warehouseCode)}' 
         AND (T1.""OnHand"" <> 0 OR T1.""IsCommited"" <> 0 OR T1.""OnOrder"" <> 0)
         ORDER BY T0.""ItemCode""";
 
@@ -1886,33 +2252,65 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         // Execute and apply OData pagination on results (this is the key!)
         var url = $"SQLQueries('{queryCode}')/List?$skip={skip}&$top={pageSize}";
 
-        var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-        httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        // Retry up to 2 times for transient I/O failures (stale pooled connections)
+        const int maxRetries = 2;
+        for (int attempt = 0; attempt <= maxRetries; attempt++)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            try
+            {
+                var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
 
-            httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    _sessionId = null;
+                    await EnsureAuthenticatedAsync(cancellationToken);
+
+                    httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+                    httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                    httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                    httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+                    response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                }
+
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogError("Failed to get stock via simple query: {StatusCode} - {Error}",
+                        response.StatusCode, content);
+                    throw new Exception($"Failed to get stock quantities: {response.StatusCode} - {content}");
+                }
+
+                return ParseStockQuantitiesFromSqlResult(content);
+            }
+            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested && attempt < maxRetries)
+            {
+                // Connection was aborted (stale TCP connection from pool), retry
+                _logger.LogWarning(ex, "Stock query attempt {Attempt} failed due to connection abort for warehouse {WarehouseCode}, retrying...",
+                    attempt + 1, warehouseCode);
+                await Task.Delay(500 * (attempt + 1), cancellationToken); // Brief backoff
+            }
+            catch (IOException ex) when (attempt < maxRetries)
+            {
+                _logger.LogWarning(ex, "Stock query attempt {Attempt} failed due to I/O error for warehouse {WarehouseCode}, retrying...",
+                    attempt + 1, warehouseCode);
+                await Task.Delay(500 * (attempt + 1), cancellationToken);
+            }
+            catch (HttpRequestException ex) when (attempt < maxRetries)
+            {
+                _logger.LogWarning(ex, "Stock query attempt {Attempt} failed due to HTTP error for warehouse {WarehouseCode}, retrying...",
+                    attempt + 1, warehouseCode);
+                await Task.Delay(500 * (attempt + 1), cancellationToken);
+            }
         }
 
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogError("Failed to get stock via simple query: {StatusCode} - {Error}",
-                response.StatusCode, content);
-            throw new Exception($"Failed to get stock quantities: {response.StatusCode} - {content}");
-        }
-
-        return ParseStockQuantitiesFromSqlResult(content);
+        // Should not reach here, but just in case
+        throw new Exception($"Failed to get stock quantities for warehouse {warehouseCode} after {maxRetries + 1} attempts");
     }
 
     private async Task TryCreateSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken)
@@ -1940,6 +2338,111 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         }
     }
 
+    /// <summary>
+    /// Execute a raw SQL query via SAP Service Layer and return results as dictionaries.
+    /// Creates the query if it doesn't exist, executes it, then deletes it.
+    /// </summary>
+    public async Task<List<Dictionary<string, object?>>> ExecuteRawSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        // Try to delete any existing query with this code first
+        try
+        {
+            var delReq = new HttpRequestMessage(HttpMethod.Delete, $"SQLQueries('{queryCode}')");
+            delReq.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            await _httpClient.SendAsync(delReq, cancellationToken);
+        }
+        catch { /* ignore */ }
+
+        // Create the query
+        await CreateSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
+
+        try
+        {
+            // Execute and collect all pages
+            var allRows = new List<Dictionary<string, object?>>();
+            int skip = 0;
+            bool hasMore = true;
+
+            while (hasMore)
+            {
+                var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", "odata.maxpagesize=500");
+
+                var response = await _httpClient.SendAsync(request, cancellationToken);
+
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    _sessionId = null;
+                    await EnsureAuthenticatedAsync(cancellationToken);
+                    request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                    request.Headers.Add("Prefer", "odata.maxpagesize=500");
+                    response = await _httpClient.SendAsync(request, cancellationToken);
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                    _logger.LogError("Failed to execute SQL query {Code}: {Status} - {Error}", queryCode, response.StatusCode, errContent);
+                    throw new Exception($"Failed to execute SQL query: {response.StatusCode} - {errContent}");
+                }
+
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                using var doc = JsonDocument.Parse(content);
+
+                if (!doc.RootElement.TryGetProperty("value", out var valueArray))
+                {
+                    hasMore = false;
+                    continue;
+                }
+
+                int pageCount = 0;
+                foreach (var row in valueArray.EnumerateArray())
+                {
+                    var dict = new Dictionary<string, object?>();
+                    foreach (var prop in row.EnumerateObject())
+                    {
+                        dict[prop.Name] = prop.Value.ValueKind switch
+                        {
+                            JsonValueKind.String => prop.Value.GetString(),
+                            JsonValueKind.Number => prop.Value.TryGetInt64(out var l) ? l : prop.Value.GetDecimal(),
+                            JsonValueKind.True => true,
+                            JsonValueKind.False => false,
+                            JsonValueKind.Null => null,
+                            _ => prop.Value.GetRawText()
+                        };
+                    }
+                    allRows.Add(dict);
+                    pageCount++;
+                }
+
+                hasMore = (doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                           doc.RootElement.TryGetProperty("@odata.nextLink", out _)) && pageCount > 0;
+                skip += pageCount;
+            }
+
+            _logger.LogInformation("SQL query {Code} returned {Count} rows", queryCode, allRows.Count);
+            return allRows;
+        }
+        finally
+        {
+            // Clean up - delete the query
+            try
+            {
+                var delReq = new HttpRequestMessage(HttpMethod.Delete, $"SQLQueries('{queryCode}')");
+                delReq.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                await _httpClient.SendAsync(delReq, cancellationToken);
+            }
+            catch { /* ignore cleanup errors */ }
+        }
+    }
+
     private async Task<List<StockQuantityDto>> ExecuteStockQueryWithParameterAsync(
         string queryCode,
         string warehouseCode,
@@ -1948,7 +2451,8 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken)
     {
         // Execute query with parameter - SAP Service Layer format
-        var url = $"SQLQueries('{queryCode}')/List?WhsCode='{warehouseCode}'&$skip={skip}&$top={pageSize}";
+        var safeWarehouse = SanitizeODataValue(warehouseCode);
+        var url = $"SQLQueries('{queryCode}')/List?WhsCode='{safeWarehouse}'&$skip={skip}&$top={pageSize}";
 
         var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
         httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -2154,8 +2658,8 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         // Try to delete existing query first
         await TryDeleteQueryAsync(queryCode, cancellationToken);
 
-        // Build IN clause for item codes
-        var inClause = string.Join(",", codes.Select(c => $"'{c}'"));
+        // Build IN clause for item codes - sanitize each code
+        var inClause = string.Join(",", codes.Select(c => $"'{SanitizeSqlValue(c)}'"));
 
         // SQL query to get total packaging material stock across ALL warehouses
         // This is important because packaging materials are often stored in different warehouses than finished goods
@@ -2464,41 +2968,61 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
+        var allInvoices = new List<Invoice>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
 
-        // Filter invoices that have at least one line in the specified warehouse
-        var filter = $"$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc";
-        var url = $"Invoices?{filter}";
-
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        while (hasMore)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            // Filter invoices that have at least one line in the specified warehouse
+            var url = $"Invoices?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(request, cancellationToken);
-        }
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to get invoices by warehouse and date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get invoices: {response.StatusCode} - {errorContent}");
-        }
+            var response = await _httpClient.SendAsync(request, cancellationToken);
 
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<SAPResponse<Invoice>>(content);
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                _sessionId = null;
+                await EnsureAuthenticatedAsync(cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get invoices by warehouse and date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get invoices: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<Invoice>>(valueArray.GetRawText()) ?? new List<Invoice>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allInvoices.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
+        }
 
         // Filter client-side to only include invoices with lines in the specified warehouse
-        var invoices = result?.Value ?? new List<Invoice>();
-        return invoices.Where(inv => inv.DocumentLines?.Any(line => line.WarehouseCode == warehouseCode) == true).ToList();
+        return allInvoices.Where(inv => inv.DocumentLines?.Any(line => line.WarehouseCode == warehouseCode) == true).ToList();
     }
 
     #endregion
@@ -2511,7 +3035,7 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var allWarehouses = new List<WarehouseDto>();
         var skip = 0;
-        const int pageSize = 100;
+        const int pageSize = 500;
         bool hasMore = true;
 
         while (hasMore)
@@ -2638,7 +3162,7 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var allPartners = new List<BusinessPartnerDto>();
         var skip = 0;
-        const int pageSize = 100;
+        const int pageSize = 500;
         bool hasMore = true;
 
         while (hasMore)
@@ -2706,7 +3230,7 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var allPartners = new List<BusinessPartnerDto>();
         var skip = 0;
-        const int pageSize = 100;
+        const int pageSize = 500;
         bool hasMore = true;
 
         while (hasMore)
@@ -3084,11 +3608,13 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
                 throw new ArgumentException($"Line {i + 1}: Quantity must be greater than zero. Current value: {line.Quantity}");
             }
 
+            var fromWarehouse = line.FromWarehouseCode ?? request.FromWarehouse ?? "01";
+
             var linePayload = new Dictionary<string, object>
             {
                 ["ItemCode"] = line.ItemCode!,
                 ["Quantity"] = line.Quantity,
-                ["FromWarehouseCode"] = line.FromWarehouseCode ?? request.FromWarehouse ?? "01",
+                ["FromWarehouseCode"] = fromWarehouse,
                 ["WarehouseCode"] = line.ToWarehouseCode ?? request.ToWarehouse!
             };
 
@@ -3109,6 +3635,155 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
                     };
                 }).ToList();
                 linePayload["BatchNumbers"] = batchNumbers;
+            }
+            // Add serial numbers if specified
+            else if (line.SerialNumbers != null && line.SerialNumbers.Count > 0)
+            {
+                var serialNumbers = line.SerialNumbers.Select(s =>
+                {
+                    if (string.IsNullOrWhiteSpace(s.InternalSerialNumber))
+                    {
+                        throw new ArgumentException($"Line {i + 1}: Serial number is required");
+                    }
+                    var serialEntry = new Dictionary<string, object>
+                    {
+                        ["InternalSerialNumber"] = s.InternalSerialNumber!,
+                        ["Quantity"] = 1
+                    };
+                    if (s.SystemSerialNumber.HasValue)
+                    {
+                        serialEntry["SystemSerialNumber"] = s.SystemSerialNumber.Value;
+                    }
+                    return serialEntry;
+                }).ToList();
+                linePayload["SerialNumbers"] = serialNumbers;
+            }
+            else
+            {
+                // Auto-allocate batch/serial numbers if not explicitly provided
+                // Check if item is batch or serial managed
+                try
+                {
+                    var item = await GetItemByCodeAsync(line.ItemCode!, cancellationToken);
+                    if (item != null)
+                    {
+                        if (item.ManageBatchNumbers == "tYES")
+                        {
+                            // Auto-allocate batches using FIFO
+                            _logger.LogInformation("Auto-allocating batch numbers for batch-managed item {ItemCode} in warehouse {Warehouse}",
+                                line.ItemCode, fromWarehouse);
+
+                            var batches = await GetBatchNumbersForItemInWarehouseAsync(line.ItemCode!, fromWarehouse, cancellationToken);
+                            if (batches.Any())
+                            {
+                                var batchAllocations = new List<object>();
+                                var remainingQuantity = line.Quantity;
+
+                                foreach (var batch in batches.OrderBy(b => b.BatchNum))
+                                {
+                                    if (remainingQuantity <= 0) break;
+
+                                    if (batch.Quantity > 0)
+                                    {
+                                        var allocateQty = Math.Min(remainingQuantity, batch.Quantity);
+                                        batchAllocations.Add(new
+                                        {
+                                            BatchNumber = batch.BatchNum,
+                                            Quantity = allocateQty
+                                        });
+                                        remainingQuantity -= allocateQty;
+                                        _logger.LogDebug("Auto-allocated {Qty} from batch {BatchNum} for item {ItemCode}",
+                                            allocateQty, batch.BatchNum, line.ItemCode);
+                                    }
+                                }
+
+                                if (batchAllocations.Any())
+                                {
+                                    linePayload["BatchNumbers"] = batchAllocations;
+                                    _logger.LogInformation("Auto-allocated {Count} batches for item {ItemCode}, total: {Total}",
+                                        batchAllocations.Count, line.ItemCode, line.Quantity - remainingQuantity);
+                                }
+
+                                if (remainingQuantity > 0)
+                                {
+                                    var allocated = line.Quantity - remainingQuantity;
+                                    throw new ArgumentException(
+                                        $"Insufficient batch quantity for item {line.ItemCode} in warehouse {fromWarehouse}. " +
+                                        $"Requested: {line.Quantity}, Available in batches: {allocated}. " +
+                                        $"Please reduce the transfer quantity or replenish stock.");
+                                }
+                            }
+                            else
+                            {
+                                throw new ArgumentException(
+                                    $"No batches found for batch-managed item {line.ItemCode} in warehouse {fromWarehouse}. " +
+                                    $"Batch-managed items require batch allocation for transfers.");
+                            }
+                        }
+                        else if (item.ManageSerialNumbers == "tYES")
+                        {
+                            // Auto-allocate serial numbers using FIFO
+                            _logger.LogInformation("Auto-allocating serial numbers for serial-managed item {ItemCode} in warehouse {Warehouse}",
+                                line.ItemCode, fromWarehouse);
+
+                            var serials = await GetSerialNumbersForItemInWarehouseAsync(line.ItemCode!, fromWarehouse, cancellationToken);
+                            if (serials.Any())
+                            {
+                                var serialAllocations = new List<object>();
+                                var remainingQuantity = (int)line.Quantity;
+
+                                foreach (var serial in serials.OrderBy(s => s.DistNumber))
+                                {
+                                    if (remainingQuantity <= 0) break;
+
+                                    if (serial.Quantity > 0)
+                                    {
+                                        var serialEntry = new Dictionary<string, object>
+                                        {
+                                            ["InternalSerialNumber"] = serial.InternalSerialNumber ?? serial.DistNumber ?? "",
+                                            ["Quantity"] = 1
+                                        };
+                                        if (serial.SystemNumber > 0)
+                                        {
+                                            serialEntry["SystemSerialNumber"] = serial.SystemNumber;
+                                        }
+                                        serialAllocations.Add(serialEntry);
+                                        remainingQuantity--;
+                                        _logger.LogDebug("Auto-allocated serial {SerialNum} for item {ItemCode}",
+                                            serial.DistNumber, line.ItemCode);
+                                    }
+                                }
+
+                                if (serialAllocations.Any())
+                                {
+                                    linePayload["SerialNumbers"] = serialAllocations;
+                                    _logger.LogInformation("Auto-allocated {Count} serial numbers for item {ItemCode}",
+                                        serialAllocations.Count, line.ItemCode);
+                                }
+
+                                if (remainingQuantity > 0)
+                                {
+                                    var allocated = (int)line.Quantity - remainingQuantity;
+                                    throw new ArgumentException(
+                                        $"Insufficient serial numbers for item {line.ItemCode} in warehouse {fromWarehouse}. " +
+                                        $"Requested: {(int)line.Quantity}, Available: {allocated}. " +
+                                        $"Serial-managed items require complete serial number selection.");
+                                }
+                            }
+                            else
+                            {
+                                throw new ArgumentException(
+                                    $"No serial numbers found for serial-managed item {line.ItemCode} in warehouse {fromWarehouse}. " +
+                                    $"Serial-managed items require serial number allocation for transfers.");
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to auto-allocate batch/serial for item {ItemCode}, proceeding without allocation", line.ItemCode);
+                    // Continue without allocation - SAP will return a clear error if required
+                }
             }
 
             lines.Add(linePayload);
@@ -3133,7 +3808,8 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
         }
 
         var jsonPayload = JsonSerializer.Serialize(payload);
-        _logger.LogDebug("Creating inventory transfer with payload: {Payload}", jsonPayload);
+        _logger.LogInformation("Creating inventory transfer with payload (truncated): {Payload}",
+            jsonPayload.Length > 2000 ? jsonPayload[..2000] + "..." : jsonPayload);
 
         var httpRequest = new HttpRequestMessage(HttpMethod.Post, "StockTransfers")
         {
@@ -3476,57 +4152,111 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
                     ToWarehouseCode = toWarehouse
                 };
 
-                // Auto-allocate batches for batch-managed items
+                // Auto-allocate batches/serials for batch/serial-managed items
                 if (!string.IsNullOrEmpty(requestLine.ItemCode))
                 {
                     try
                     {
-                        var batches = await GetBatchNumbersForItemInWarehouseAsync(requestLine.ItemCode, fromWarehouse, cancellationToken);
-                        if (batches.Any())
+                        // Check item management type
+                        var item = await GetItemByCodeAsync(requestLine.ItemCode, cancellationToken);
+
+                        if (item != null && item.ManageBatchNumbers == "tYES")
                         {
-                            _logger.LogInformation("Found {BatchCount} batches for item {ItemCode} in warehouse {Warehouse}",
-                                batches.Count, requestLine.ItemCode, fromWarehouse);
-
-                            // Allocate batches using FIFO (sorted by batch number/date)
-                            var batchAllocations = new List<TransferBatchRequest>();
-                            var remainingQuantity = requestLine.Quantity;
-
-                            foreach (var batch in batches.OrderBy(b => b.BatchNum))
+                            var batches = await GetBatchNumbersForItemInWarehouseAsync(requestLine.ItemCode, fromWarehouse, cancellationToken);
+                            if (batches.Any())
                             {
-                                if (remainingQuantity <= 0) break;
+                                _logger.LogInformation("Found {BatchCount} batches for item {ItemCode} in warehouse {Warehouse}",
+                                    batches.Count, requestLine.ItemCode, fromWarehouse);
 
-                                var availableQty = batch.Quantity;
-                                if (availableQty > 0)
+                                // Allocate batches using FIFO (sorted by batch number/date)
+                                var batchAllocations = new List<TransferBatchRequest>();
+                                var remainingQuantity = requestLine.Quantity;
+
+                                foreach (var batch in batches.OrderBy(b => b.BatchNum))
                                 {
-                                    var allocateQty = Math.Min(remainingQuantity, availableQty);
-                                    batchAllocations.Add(new TransferBatchRequest
+                                    if (remainingQuantity <= 0) break;
+
+                                    var availableQty = batch.Quantity;
+                                    if (availableQty > 0)
                                     {
-                                        BatchNumber = batch.BatchNum,
-                                        Quantity = allocateQty
-                                    });
-                                    remainingQuantity -= allocateQty;
-                                    _logger.LogDebug("Allocated {Qty} from batch {BatchNum}", allocateQty, batch.BatchNum);
+                                        var allocateQty = Math.Min(remainingQuantity, availableQty);
+                                        batchAllocations.Add(new TransferBatchRequest
+                                        {
+                                            BatchNumber = batch.BatchNum,
+                                            Quantity = allocateQty
+                                        });
+                                        remainingQuantity -= allocateQty;
+                                        _logger.LogDebug("Allocated {Qty} from batch {BatchNum}", allocateQty, batch.BatchNum);
+                                    }
+                                }
+
+                                if (batchAllocations.Any())
+                                {
+                                    transferLine.BatchNumbers = batchAllocations;
+                                    _logger.LogInformation("Auto-allocated {AllocCount} batches for item {ItemCode}, total quantity: {TotalQty}",
+                                        batchAllocations.Count, requestLine.ItemCode, batchAllocations.Sum(b => b.Quantity));
+                                }
+
+                                if (remainingQuantity > 0)
+                                {
+                                    var allocated = requestLine.Quantity - remainingQuantity;
+                                    throw new ArgumentException(
+                                        $"Insufficient batch quantity for item {requestLine.ItemCode} in warehouse {fromWarehouse}. " +
+                                        $"Requested: {requestLine.Quantity}, Available in batches: {allocated}. " +
+                                        $"Please reduce the transfer quantity or replenish stock.");
                                 }
                             }
-
-                            if (batchAllocations.Any())
+                        }
+                        else if (item != null && item.ManageSerialNumbers == "tYES")
+                        {
+                            var serials = await GetSerialNumbersForItemInWarehouseAsync(requestLine.ItemCode, fromWarehouse, cancellationToken);
+                            if (serials.Any())
                             {
-                                transferLine.BatchNumbers = batchAllocations;
-                                _logger.LogInformation("Auto-allocated {AllocCount} batches for item {ItemCode}, total quantity: {TotalQty}",
-                                    batchAllocations.Count, requestLine.ItemCode, batchAllocations.Sum(b => b.Quantity));
-                            }
+                                _logger.LogInformation("Found {SerialCount} serial numbers for item {ItemCode} in warehouse {Warehouse}",
+                                    serials.Count, requestLine.ItemCode, fromWarehouse);
 
-                            if (remainingQuantity > 0)
-                            {
-                                _logger.LogWarning("Insufficient batch quantity for item {ItemCode}. Requested: {Requested}, Allocated: {Allocated}",
-                                    requestLine.ItemCode, requestLine.Quantity, requestLine.Quantity - remainingQuantity);
+                                var serialAllocations = new List<TransferSerialRequest>();
+                                var remainingQty = (int)requestLine.Quantity;
+
+                                foreach (var serial in serials.OrderBy(s => s.DistNumber))
+                                {
+                                    if (remainingQty <= 0) break;
+
+                                    if (serial.Quantity > 0)
+                                    {
+                                        serialAllocations.Add(new TransferSerialRequest
+                                        {
+                                            InternalSerialNumber = serial.InternalSerialNumber ?? serial.DistNumber,
+                                            SystemSerialNumber = serial.SystemNumber > 0 ? serial.SystemNumber : null,
+                                            Quantity = 1
+                                        });
+                                        remainingQty--;
+                                        _logger.LogDebug("Allocated serial {SerialNum} for item {ItemCode}", serial.DistNumber, requestLine.ItemCode);
+                                    }
+                                }
+
+                                if (serialAllocations.Any())
+                                {
+                                    transferLine.SerialNumbers = serialAllocations;
+                                    _logger.LogInformation("Auto-allocated {AllocCount} serial numbers for item {ItemCode}",
+                                        serialAllocations.Count, requestLine.ItemCode);
+                                }
+
+                                if (remainingQty > 0)
+                                {
+                                    var allocated = (int)requestLine.Quantity - remainingQty;
+                                    throw new ArgumentException(
+                                        $"Insufficient serial numbers for item {requestLine.ItemCode} in warehouse {fromWarehouse}. " +
+                                        $"Requested: {(int)requestLine.Quantity}, Available: {allocated}. " +
+                                        $"Serial-managed items require complete serial number selection.");
+                                }
                             }
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Failed to get batches for item {ItemCode}, will try without batch allocation", requestLine.ItemCode);
-                        // Continue without batch allocation - SAP might handle it or item might not be batch-managed
+                        _logger.LogWarning(ex, "Failed to get batches/serials for item {ItemCode}, will try without allocation", requestLine.ItemCode);
+                        // Continue without allocation - SAP might handle it or item might not be batch/serial-managed
                     }
                 }
 
@@ -3818,7 +4548,7 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var allAccounts = new List<GLAccountDto>();
         var skip = 0;
-        const int pageSize = 100;
+        const int pageSize = 500;
         bool hasMore = true;
 
         while (hasMore)
@@ -3885,7 +4615,7 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var allAccounts = new List<GLAccountDto>();
         var skip = 0;
-        const int pageSize = 100;
+        const int pageSize = 500;
         bool hasMore = true;
 
         while (hasMore)
@@ -4054,7 +4784,7 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var allCostCentres = new List<CostCentreDto>();
         var skip = 0;
-        const int pageSize = 100;
+        const int pageSize = 500;
         bool hasMore = true;
 
         while (hasMore)
@@ -4122,7 +4852,7 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var allCostCentres = new List<CostCentreDto>();
         var skip = 0;
-        const int pageSize = 100;
+        const int pageSize = 500;
         bool hasMore = true;
 
         while (hasMore)
@@ -4448,36 +5178,126 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
-        var url = $"Orders?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc";
+        var allOrders = new List<SAPSalesOrder>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
 
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        while (hasMore)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            var url = $"Orders?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(request, cancellationToken);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                _sessionId = null;
+                await EnsureAuthenticatedAsync(cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get sales orders by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get sales orders by date range: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<SAPSalesOrder>>(valueArray.GetRawText()) ?? new List<SAPSalesOrder>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allOrders.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
         }
 
-        if (!response.IsSuccessStatusCode)
+        _logger.LogInformation("Retrieved {Count} sales orders for date range {From} to {To}", allOrders.Count, fromDateStr, toDateStr);
+        return allOrders;
+    }
+
+    /// <summary>
+    /// Get sales order headers only (no DocumentLines) for faster fulfillment reports.
+    /// Uses $select to exclude DocumentLines, dramatically reducing response size.
+    /// </summary>
+    public async Task<List<SAPSalesOrder>> GetSalesOrderHeadersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var fromDateStr = fromDate.ToString("yyyy-MM-dd");
+        var toDateStr = toDate.ToString("yyyy-MM-dd");
+        var allOrders = new List<SAPSalesOrder>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
+
+        while (hasMore)
         {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to get sales orders by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get sales orders by date range: {response.StatusCode} - {errorContent}");
+            var url = $"Orders?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,DocTotal,DocCurrency,DocumentStatus,Cancelled&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                _sessionId = null;
+                await EnsureAuthenticatedAsync(cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get sales order headers: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get sales order headers: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<SAPSalesOrder>>(valueArray.GetRawText()) ?? new List<SAPSalesOrder>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allOrders.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
         }
 
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<SAPResponse<SAPSalesOrder>>(content);
-
-        return result?.Value ?? new List<SAPSalesOrder>();
+        _logger.LogInformation("Retrieved {Count} sales order headers for date range {From} to {To}", allOrders.Count, fromDateStr, toDateStr);
+        return allOrders;
     }
 
     public async Task<int> GetSalesOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
@@ -4684,36 +5504,60 @@ public class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
-        var url = $"CreditNotes?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc";
+        var allCreditNotes = new List<SAPCreditNote>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
 
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        while (hasMore)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            var url = $"CreditNotes?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(request, cancellationToken);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                _sessionId = null;
+                await EnsureAuthenticatedAsync(cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get credit notes by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get credit notes by date range: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<SAPCreditNote>>(valueArray.GetRawText()) ?? new List<SAPCreditNote>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allCreditNotes.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
         }
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to get credit notes by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to get credit notes by date range: {response.StatusCode} - {errorContent}");
-        }
-
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<SAPResponse<SAPCreditNote>>(content);
-
-        return result?.Value ?? new List<SAPCreditNote>();
+        _logger.LogInformation("Retrieved {Count} credit notes for date range {From} to {To}", allCreditNotes.Count, fromDateStr, toDateStr);
+        return allCreditNotes;
     }
 
     public async Task<List<SAPCreditNote>> GetCreditNotesByInvoiceAsync(int invoiceDocEntry, CancellationToken cancellationToken = default)

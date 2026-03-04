@@ -41,17 +41,16 @@ public class PaymentService : IPaymentService
             // Re-throw timeout exceptions so the UI can handle them
             throw;
         }
+        catch (HttpRequestException)
+        {
+            // Re-throw HTTP errors so the UI can show a meaningful message
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting payments from cache, falling back to API");
-            try
-            {
-                return await _httpClient.GetFromJsonAsync<IncomingPaymentListResponse>($"api/incomingpayment?page={page}&pageSize={pageSize}");
-            }
-            catch
-            {
-                return null;
-            }
+            // Try direct API as last resort
+            return await _httpClient.GetFromJsonAsync<IncomingPaymentListResponse>($"api/incomingpayment?page={page}&pageSize={pageSize}");
         }
     }
 

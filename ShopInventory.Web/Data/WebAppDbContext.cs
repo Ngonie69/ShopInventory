@@ -26,6 +26,7 @@ public class WebAppDbContext : DbContext
     public DbSet<CustomerSecurityLog> CustomerSecurityLogs { get; set; }
     public DbSet<CustomerRefreshToken> CustomerRefreshTokens { get; set; }
     public DbSet<CustomerRateLimit> CustomerRateLimits { get; set; }
+    public DbSet<CustomerLinkedAccount> CustomerLinkedAccounts { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -425,10 +426,59 @@ public class WebAppDbContext : DbContext
                 .HasMaxLength(20)
                 .HasDefaultValue("Active");
 
+            entity.Property(e => e.AccountStructure)
+                .HasMaxLength(20)
+                .HasDefaultValue("Single");
+
             // Unique index on CardCode
             entity.HasIndex(e => e.CardCode).IsUnique();
             entity.HasIndex(e => e.Email);
             entity.HasIndex(e => e.Status);
+
+            // Relationship to linked accounts
+            entity.HasMany(e => e.LinkedAccounts)
+                .WithOne(e => e.CustomerPortalUser)
+                .HasForeignKey(e => e.CustomerPortalUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // CustomerLinkedAccount configuration
+        modelBuilder.Entity<CustomerLinkedAccount>(entity =>
+        {
+            entity.ToTable("CustomerLinkedAccounts");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.CardCode)
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(e => e.CardName)
+                .HasMaxLength(200);
+
+            entity.Property(e => e.AccountType)
+                .HasMaxLength(20)
+                .HasDefaultValue("Main")
+                .IsRequired();
+
+            entity.Property(e => e.Currency)
+                .HasMaxLength(10);
+
+            entity.Property(e => e.ParentCardCode)
+                .HasMaxLength(50);
+
+            entity.Property(e => e.Description)
+                .HasMaxLength(200);
+
+            entity.Property(e => e.AllowedTransactions)
+                .HasMaxLength(200)
+                .HasDefaultValue("");
+
+            // Indexes
+            entity.HasIndex(e => e.CardCode);
+            entity.HasIndex(e => e.CustomerPortalUserId);
+            entity.HasIndex(e => new { e.CustomerPortalUserId, e.CardCode }).IsUnique();
+            entity.HasIndex(e => e.AccountType);
+            entity.HasIndex(e => e.ParentCardCode);
         });
 
         // CustomerSecurityLog configuration

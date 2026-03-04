@@ -131,10 +131,14 @@ public class InventoryTransferController : ControllerBase
                 Errors = new List<string> { ex.Message }
             });
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out. Please check network connectivity to the SAP server." });
+            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout or connection abort creating inventory transfer");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
         }
         catch (HttpRequestException ex)
         {
@@ -234,10 +238,14 @@ public class InventoryTransferController : ControllerBase
                 Transfers = transfers.ToDto()
             });
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out. Please check network connectivity to the SAP server." });
+            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout or connection abort retrieving inventory transfers");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
         }
         catch (HttpRequestException ex)
         {
@@ -304,10 +312,14 @@ public class InventoryTransferController : ControllerBase
                 Transfers = transfers.ToDto()
             });
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out. Please check network connectivity to the SAP server." });
+            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout or connection abort retrieving paged inventory transfers");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
         }
         catch (HttpRequestException ex)
         {
@@ -369,10 +381,14 @@ public class InventoryTransferController : ControllerBase
                 Transfers = transfers.ToDto()
             });
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out. Please check network connectivity to the SAP server." });
+            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout or connection abort retrieving transfers by date");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
         }
         catch (HttpRequestException ex)
         {
@@ -448,10 +464,14 @@ public class InventoryTransferController : ControllerBase
                 Transfers = transfers.ToDto()
             });
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out. Please check network connectivity to the SAP server." });
+            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout or connection abort retrieving transfers by date range");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
         }
         catch (HttpRequestException ex)
         {
@@ -571,10 +591,14 @@ public class InventoryTransferController : ControllerBase
             _logger.LogWarning(ex, "Validation error creating transfer request");
             return BadRequest(new ErrorResponseDto { Message = "Validation error", Errors = ex.Message.Split("; ").ToList() });
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out. Please check network connectivity to the SAP server." });
+            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout or connection abort creating transfer request");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
         }
         catch (HttpRequestException ex)
         {
@@ -636,10 +660,14 @@ public class InventoryTransferController : ControllerBase
             _logger.LogWarning(ex, "Cannot convert transfer request {DocEntry}", docEntry);
             return BadRequest(new ErrorResponseDto { Message = ex.Message });
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out." });
+            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout or connection abort converting transfer request");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
         }
         catch (HttpRequestException ex)
         {
@@ -728,10 +756,14 @@ public class InventoryTransferController : ControllerBase
                 TransferRequests = transferRequests.ToDto()
             });
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out. Please check network connectivity to the SAP server." });
+            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout or connection abort retrieving transfer requests by warehouse");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
         }
         catch (HttpRequestException ex)
         {
@@ -788,10 +820,14 @@ public class InventoryTransferController : ControllerBase
                 TransferRequests = transferRequests.ToDto()
             });
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out. Please check network connectivity to the SAP server." });
+            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout or connection abort retrieving paged transfer requests");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
         }
         catch (HttpRequestException ex)
         {

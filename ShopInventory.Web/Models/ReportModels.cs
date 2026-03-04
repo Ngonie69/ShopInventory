@@ -164,6 +164,77 @@ public class TopCustomer
     public decimal OutstandingBalanceZIG { get; set; }
 }
 
+/// <summary>
+/// Order fulfillment report
+/// </summary>
+public class OrderFulfillmentReport
+{
+    public DateTime FromDate { get; set; }
+    public DateTime ToDate { get; set; }
+    public int TotalOrders { get; set; }
+    public int OpenOrders { get; set; }
+    public int ClosedOrders { get; set; }
+    public int CancelledOrders { get; set; }
+    public decimal FulfillmentRatePercent { get; set; }
+    public decimal TotalOrderValueUSD { get; set; }
+    public decimal TotalOrderValueZIG { get; set; }
+    public decimal TotalDeliveredValueUSD { get; set; }
+    public decimal TotalDeliveredValueZIG { get; set; }
+    public decimal TotalPendingValueUSD { get; set; }
+    public decimal TotalPendingValueZIG { get; set; }
+    public decimal AverageOrderValueUSD { get; set; }
+    public int TotalLineItems { get; set; }
+    public int FullyDeliveredLines { get; set; }
+    public int PartiallyDeliveredLines { get; set; }
+    public int UndeliveredLines { get; set; }
+    public List<OrderFulfillmentItem> Orders { get; set; } = new();
+    public List<FulfillmentByCustomer> FulfillmentByCustomer { get; set; } = new();
+    public List<DailyFulfillment> DailyFulfillment { get; set; } = new();
+}
+
+public class OrderFulfillmentItem
+{
+    public int DocNum { get; set; }
+    public int DocEntry { get; set; }
+    public DateTime OrderDate { get; set; }
+    public DateTime DueDate { get; set; }
+    public string CardCode { get; set; } = string.Empty;
+    public string CardName { get; set; } = string.Empty;
+    public string DocCurrency { get; set; } = string.Empty;
+    public decimal OrderTotal { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public int TotalLines { get; set; }
+    public int DeliveredLines { get; set; }
+    public decimal TotalQuantityOrdered { get; set; }
+    public decimal TotalQuantityDelivered { get; set; }
+    public decimal TotalQuantityPending { get; set; }
+    public decimal FulfillmentPercent { get; set; }
+    public bool IsOverdue { get; set; }
+    public int DaysOverdue { get; set; }
+}
+
+public class FulfillmentByCustomer
+{
+    public string CardCode { get; set; } = string.Empty;
+    public string CardName { get; set; } = string.Empty;
+    public int TotalOrders { get; set; }
+    public int OpenOrders { get; set; }
+    public int ClosedOrders { get; set; }
+    public decimal TotalOrderValue { get; set; }
+    public decimal FulfillmentRatePercent { get; set; }
+    public decimal TotalPendingValue { get; set; }
+}
+
+public class DailyFulfillment
+{
+    public DateTime Date { get; set; }
+    public int OrdersPlaced { get; set; }
+    public int OrdersClosed { get; set; }
+    public decimal OrderValueUSD { get; set; }
+    public decimal QuantityOrdered { get; set; }
+    public decimal QuantityDelivered { get; set; }
+}
+
 #endregion
 
 #region User Management Models

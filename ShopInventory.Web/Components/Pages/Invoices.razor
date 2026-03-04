@@ -10,152 +10,122 @@
 
 <PageTitle>Invoices - Shop Inventory</PageTitle>
 
-<div class="container-fluid">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="bi bi-receipt me-2"></i>Invoices</h2>
-        <a href="invoices/create" class="btn btn-primary">
-            <i class="bi bi-plus-circle me-2"></i>Create Invoice
-        </a>
-    </div>
+<div class="page-shell">
+    <div class="container-fluid">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div class="d-flex align-items-center gap-3">
+                <div class="page-header-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.Receipt" />
+                </div>
+                <div>
+                    <MudText Typo="Typo.h4" Class="fw-bold" Style="letter-spacing: -0.5px;">Invoices</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">View and manage sales invoices</MudText>
+                </div>
+            </div>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       Href="invoices/create" Style="border-radius: 12px; text-transform: none; font-weight: 600; padding: 8px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                Create Invoice
+            </MudButton>
+        </div>
 
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5 class="mb-0"><i class="bi bi-funnel me-2"></i>Filter</h5>
-        </div>
-        <div class="card-body">
-            <div class="row g-3">
-                <div class="col-md-2">
-                    <label class="form-label">Doc Number</label>
-                    <input type="number" class="form-control" @bind="docNumSearch" @bind:event="oninput"
-                        @onkeyup="OnDocNumChanged" placeholder="e.g., 123" />
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Customer Code</label>
-                    <input type="text" class="form-control" @bind="customerCode" @bind:event="oninput"
-                        @onkeyup="OnCustomerCodeChanged" placeholder="e.g., C001" />
-                </div>
-                <div class="col-md-2">
-                    <FlexibleDatePicker Label="From Date" @bind-Date="fromDate" />
-                </div>
-                <div class="col-md-2">
-                    <FlexibleDatePicker Label="To Date" @bind-Date="toDate" />
-                </div>
-                <div class="col-md-3 d-flex align-items-end">
-                    <button class="btn btn-primary me-2" @onclick="ApplyFilter">
-                        <i class="bi bi-search me-1"></i>Search
-                    </button>
-                    <button class="btn btn-outline-secondary" @onclick="ClearFilter">
-                        <i class="bi bi-x-circle me-1"></i>Clear
-                    </button>
-                </div>
+        <!-- Filters -->
+        <div class="filter-panel">
+            <div class="filter-panel-header">
+                <MudIcon Icon="@Icons.Material.Filled.Tune" />
+                <MudText Typo="Typo.subtitle2" Style="color: white; font-weight: 600;">Search & Filter</MudText>
             </div>
-            <div class="row mt-3">
-                <div class="col-md-2">
-                    <label class="form-label">Records per page</label>
-                    <select class="form-select" @bind="pageSize" @bind:after="OnPageSizeChanged">
-                        <option value="10">10</option>
-                        <option value="20">20</option>
-                        <option value="50">50</option>
-                        <option value="100">100</option>
-                    </select>
-                </div>
+            <div class="filter-panel-body">
+                <MudGrid Spacing="3">
+                    <MudItem xs="12" md="2">
+                        <MudNumericField T="int?" @bind-Value="docNumSearch" @bind-Value:after="OnDocNumChanged"
+                            Label="Doc Number" Variant="Variant.Filled" Margin="Margin.Dense"
+                            Placeholder="e.g., 123" Immediate="true" Clearable="true"
+                            Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Tag" />
+                    </MudItem>
+                    <MudItem xs="12" md="3">
+                        <MudTextField T="string" @bind-Value="customerCode" @bind-Value:after="OnCustomerCodeChanged"
+                            Label="Customer Code" Variant="Variant.Filled" Margin="Margin.Dense"
+                            Placeholder="e.g., C001" Immediate="true" Clearable="true"
+                            Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Person" />
+                    </MudItem>
+                    <MudItem xs="12" md="2">
+                        <FlexibleDatePicker Label="From Date" @bind-Date="fromDate" Variant="Variant.Filled" />
+                    </MudItem>
+                    <MudItem xs="12" md="2">
+                        <FlexibleDatePicker Label="To Date" @bind-Date="toDate" Variant="Variant.Filled" />
+                    </MudItem>
+                    <MudItem xs="12" md="3" Class="d-flex align-items-end gap-2 filter-actions">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Search"
+                            OnClick="ApplyFilter">Search</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Clear"
+                            OnClick="ClearFilter">Clear</MudButton>
+                    </MudItem>
+                </MudGrid>
             </div>
         </div>
-    </div>
 
     @if (isLoading)
     {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <p class="mt-2">Loading invoices...</p>
+        <div class="d-flex flex-column align-items-center py-5">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+            <MudText Typo="Typo.body2" Class="mt-2">Loading invoices...</MudText>
         </div>
     }
     else if (errorMessage != null)
     {
-        <div class="alert alert-danger">
-            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
-        </div>
+        <MudAlert Severity="Severity.Error" Class="mb-4">@errorMessage</MudAlert>
     }
     else if (invoices?.Any() == true)
     {
-        <MudDataGrid T="InvoiceDto" Items="@invoices" SortMode="SortMode.Multiple" Filterable="true"
-            QuickFilter="@_quickFilter" Hideable="true" RowClick="@OnInvoiceRowClicked" Dense="true" Hover="true"
-            Striped="true">
-            <ToolBarContent>
-                <MudText Typo="Typo.h6">Invoices</MudText>
-                <MudSpacer />
-                <MudTextField @bind-Value="_searchString" Placeholder="Search" Adornment="Adornment.Start" Immediate="true"
-                    AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
-            </ToolBarContent>
-            <Columns>
-                <PropertyColumn Property="x => x.DocEntry" Title="Doc Entry" />
-                <PropertyColumn Property="x => x.DocNum" Title="Doc #">
-                    <CellTemplate>
-                        <MudText Typo="Typo.body2"><strong>@context.Item.DocNum</strong></MudText>
-                    </CellTemplate>
-                </PropertyColumn>
-                <PropertyColumn Property="x => x.CardName" Title="Customer">
-                    <CellTemplate>
-                        <MudChip T="string" Color="Color.Default" Size="Size.Small" Class="me-1">@context.Item.CardCode
-                        </MudChip>
-                        @context.Item.CardName
-                    </CellTemplate>
-                </PropertyColumn>
-                <PropertyColumn Property="x => x.DocDate" Title="Date">
-                    <CellTemplate>
-                        @FormatDate(context.Item.DocDate)
-                    </CellTemplate>
-                </PropertyColumn>
-                <PropertyColumn Property="x => x.DocDueDate" Title="Due Date">
-                    <CellTemplate>
-                        @FormatDate(context.Item.DocDueDate)
-                    </CellTemplate>
-                </PropertyColumn>
-                <PropertyColumn Property="x => x.DocCurrency" Title="Currency" />
-                <PropertyColumn Property="x => x.VatSum" Title="VAT">
-                    <CellTemplate>
-                        <MudText Typo="Typo.body2" Align="Align.End">@context.Item.VatSum.ToString("N2")</MudText>
-                    </CellTemplate>
-                </PropertyColumn>
-                <PropertyColumn Property="x => x.DocTotal" Title="Total">
-                    <CellTemplate>
-                        <MudText Typo="Typo.body2" Align="Align.End"><strong>@context.Item.DocTotal.ToString("N2")</strong>
-                        </MudText>
-                    </CellTemplate>
-                </PropertyColumn>
-                <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
-                    <CellTemplate>
-                        <MudIconButton Icon="@Icons.Material.Filled.Visibility" Color="Color.Primary" Size="Size.Small"
-                            OnClick="@(() => ViewInvoice(context.Item.DocEntry))" />
-                    </CellTemplate>
-                </TemplateColumn>
-            </Columns>
-            <PagerContent>
-                <div class="d-flex justify-content-between align-items-center px-4 py-2">
-                    <MudText Typo="Typo.body2">Showing @invoices.Count invoices (Page @currentPage)</MudText>
-                    <div>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" Class="me-2"
-                            Disabled="@(currentPage <= 1)" OnClick="PreviousPage">
-                            <MudIcon Icon="@Icons.Material.Filled.ChevronLeft" Size="Size.Small" /> Previous
-                        </MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" Disabled="@(!hasMore)"
-                            OnClick="NextPage">
-                            Next
-                            <MudIcon Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" />
-                        </MudButton>
-                    </div>
-                </div>
-            </PagerContent>
-        </MudDataGrid>
+        <div class="card page-card">
+            <div class="card-body p-4">
+                <MudTable Items="@invoices" Dense="true" Hover="true" Striped="true" Filter="new Func<InvoiceDto, bool>(_quickFilter)" OnRowClick="@OnInvoiceRowClicked" T="InvoiceDto">
+                    <ToolBarContent>
+                        <MudText Typo="Typo.h6">Invoices</MudText>
+                        <MudSpacer />
+                        <MudTextField @bind-Value="_searchString" Placeholder="Search" Adornment="Adornment.Start" Immediate="true"
+                            AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+                    </ToolBarContent>
+                    <HeaderContent>
+                        <MudTh>Doc Entry</MudTh>
+                        <MudTh>Doc #</MudTh>
+                        <MudTh>Customer</MudTh>
+                        <MudTh>Date</MudTh>
+                        <MudTh>Due Date</MudTh>
+                        <MudTh>Currency</MudTh>
+                        <MudTh Style="text-align:right">VAT</MudTh>
+                        <MudTh Style="text-align:right">Total</MudTh>
+                        <MudTh>Actions</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Doc Entry">@context.DocEntry</MudTd>
+                        <MudTd DataLabel="Doc #"><strong>@context.DocNum</strong></MudTd>
+                        <MudTd DataLabel="Customer">
+                            <MudChip T="string" Color="Color.Default" Size="Size.Small" Class="me-1">@context.CardCode</MudChip>
+                            @context.CardName
+                        </MudTd>
+                        <MudTd DataLabel="Date">@FormatDate(context.DocDate)</MudTd>
+                        <MudTd DataLabel="Due Date">@FormatDate(context.DocDueDate)</MudTd>
+                        <MudTd DataLabel="Currency">@context.DocCurrency</MudTd>
+                        <MudTd DataLabel="VAT" Style="text-align:right">@context.VatSum.ToString("N2")</MudTd>
+                        <MudTd DataLabel="Total" Style="text-align:right"><strong>@context.DocTotal.ToString("N2")</strong></MudTd>
+                        <MudTd DataLabel="Actions">
+                            <MudIconButton Icon="@Icons.Material.Filled.Visibility" Color="Color.Primary" Size="Size.Small"
+                                OnClick="@(() => ViewInvoice(context.DocEntry))" />
+                        </MudTd>
+                    </RowTemplate>
+                    <PagerContent>
+                        <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+                    </PagerContent>
+                </MudTable>
+            </div>
+        </div>
     }
     else
     {
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle me-2"></i>No invoices found.
-        </div>
+        <MudAlert Severity="Severity.Info" Class="mb-4">No invoices found.</MudAlert>
     }
+    </div>
 </div>
 
 <!-- Invoice Detail Modal -->
@@ -480,6 +450,8 @@
     private int currentPage = 1;
     private int pageSize = 20;
     private bool hasMore = false;
+    private int totalPages = 1;
+    private int totalCount = 0;
     private string _searchString = string.Empty;
 
     private int? docNumSearch;
@@ -529,7 +501,7 @@
     };
 
     // Row click handler
-    private void OnInvoiceRowClicked(DataGridRowClickEventArgs<InvoiceDto> args)
+    private void OnInvoiceRowClicked(TableRowClickEventArgs<InvoiceDto> args)
     {
         ViewInvoice(args.Item.DocEntry);
     }
@@ -563,6 +535,17 @@
                 invoices = response.Invoices;
                 allInvoices = response.Invoices; // Store for client-side filtering
                 hasMore = response.HasMore;
+                totalCount = response.Count;
+                // Estimate total pages: at minimum current page, plus 1 if there are more
+                if (hasMore)
+                {
+                    // If there are more pages, we know at least currentPage + 1 exist
+                    totalPages = Math.Max(totalPages, currentPage + 1);
+                }
+                else
+                {
+                    totalPages = currentPage;
+                }
             }
             else
             {
@@ -759,6 +742,7 @@
         fromDate = null;
         toDate = null;
         currentPage = 1;
+        totalPages = 1;
         allInvoices = null; // Clear cache to force reload
         await LoadInvoices();
     }
@@ -975,20 +959,11 @@
         return text.Length <= maxLength ? text : text.Substring(0, maxLength) + "...";
     }
 
-    private async Task PreviousPage()
+    private async Task OnPageChanged(int page)
     {
-        if (currentPage > 1)
+        if (page >= 1 && page != currentPage)
         {
-            currentPage--;
-            await LoadInvoices();
-        }
-    }
-
-    private async Task NextPage()
-    {
-        if (hasMore)
-        {
-            currentPage++;
+            currentPage = page;
             await LoadInvoices();
         }
     }

@@ -91,10 +91,15 @@ public class IncomingPaymentController : ControllerBase
             _logger.LogWarning(ex, "Validation error creating incoming payment");
             return BadRequest(new ErrorResponseDto { Message = "Validation error", Errors = ex.Message.Split("; ").ToList() });
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out" });
+            _logger.LogWarning("Request was canceled by the client while creating incoming payment");
+            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout or connection abort while creating incoming payment in SAP Service Layer");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted" });
         }
         catch (HttpRequestException ex)
         {
@@ -222,10 +227,15 @@ public class IncomingPaymentController : ControllerBase
                 Payments = payments.ToDto()
             });
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out" });
+            _logger.LogWarning("Request was canceled by the client while retrieving incoming payments");
+            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout or connection abort while retrieving incoming payments from SAP Service Layer");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted" });
         }
         catch (HttpRequestException ex)
         {
@@ -270,10 +280,15 @@ public class IncomingPaymentController : ControllerBase
 
             return Ok(payment.ToDto());
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out" });
+            _logger.LogWarning("Request was canceled by the client while retrieving incoming payment {DocEntry}", docEntry);
+            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout or connection abort while retrieving incoming payment from SAP Service Layer");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted" });
         }
         catch (HttpRequestException ex)
         {
@@ -318,10 +333,15 @@ public class IncomingPaymentController : ControllerBase
 
             return Ok(payment.ToDto());
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out" });
+            _logger.LogWarning("Request was canceled by the client while retrieving incoming payment DocNum {DocNum}", docNum);
+            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout or connection abort while retrieving incoming payment from SAP Service Layer");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted" });
         }
         catch (HttpRequestException ex)
         {
@@ -371,10 +391,15 @@ public class IncomingPaymentController : ControllerBase
                 Payments = payments.ToDto()
             });
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out" });
+            _logger.LogWarning("Request was canceled by the client while retrieving payments for customer {CardCode}", cardCode);
+            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout or connection abort while retrieving customer payments from SAP Service Layer");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted" });
         }
         catch (HttpRequestException ex)
         {
@@ -428,10 +453,15 @@ public class IncomingPaymentController : ControllerBase
                 Payments = payments.ToDto()
             });
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out" });
+            _logger.LogWarning("Request was canceled by the client while retrieving payments by date range");
+            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout or connection abort while retrieving payments by date range from SAP Service Layer");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted" });
         }
         catch (HttpRequestException ex)
         {
@@ -473,10 +503,10 @@ public class IncomingPaymentController : ControllerBase
                 Payments = payments.ToDto()
             });
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException)
         {
-            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out" });
+            _logger.LogError("Timeout or connection abort while retrieving today's payments from SAP Service Layer");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted" });
         }
         catch (HttpRequestException ex)
         {

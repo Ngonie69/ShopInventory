@@ -32,15 +32,15 @@
             </button>
             <div class="btn-group">
                 <button class="btn @(selectedType == "C" ? "btn-primary" : "btn-outline-primary")"
-                    @onclick='() => FilterByType("C")'>
+                        @onclick='() => FilterByType("C")'>
                     Customers
                 </button>
                 <button class="btn @(selectedType == "S" ? "btn-primary" : "btn-outline-primary")"
-                    @onclick='() => FilterByType("S")'>
+                        @onclick='() => FilterByType("S")'>
                     Suppliers
                 </button>
                 <button class="btn @(selectedType == "" ? "btn-primary" : "btn-outline-primary")"
-                    @onclick='() => FilterByType("")'>
+                        @onclick='() => FilterByType("")'>
                     All
                 </button>
             </div>
@@ -55,7 +55,7 @@
                     <div class="input-group">
                         <span class="input-group-text"><i class="bi bi-search"></i></span>
                         <input type="text" class="form-control" @bind="searchTerm" @bind:event="oninput"
-                            @onkeyup="OnSearchKeyUp" placeholder="Search by code, name, or email..." />
+                               @onkeyup="OnSearchKeyUp" placeholder="Search by code, name, or email..." />
                         <button class="btn btn-primary" @onclick="SearchCustomers">
                             Search
                         </button>
@@ -94,101 +94,90 @@
     }
     else if (customers?.Any() == true)
     {
-        <MudDataGrid T="BusinessPartnerDto" Items="@customers" SortMode="SortMode.Multiple" Filterable="true"
-            QuickFilter="@_quickFilter" Hideable="true" RowClick="@OnCustomerRowClicked" Dense="true" Hover="true"
-            Striped="true">
+        <MudTable Items="@customers" Dense="true" Hover="true" Striped="true"
+                  Filter="new Func<BusinessPartnerDto, bool>(_quickFilter)" OnRowClick="@OnCustomerRowClicked"
+                  T="BusinessPartnerDto">
             <ToolBarContent>
                 <MudText Typo="Typo.h6">Customers</MudText>
                 <MudSpacer />
                 <MudChip T="string" Color="Color.Primary" Size="Size.Small">@totalCount total</MudChip>
                 <MudTextField @bind-Value="_searchString" Placeholder="Search" Adornment="Adornment.Start" Immediate="true"
-                    AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0 ms-4"></MudTextField>
+                              AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0 ms-4"></MudTextField>
             </ToolBarContent>
-            <Columns>
-                <PropertyColumn Property="x => x.CardCode" Title="Code">
-                    <CellTemplate>
-                        <MudText Typo="Typo.body2"><strong>@context.Item.CardCode</strong></MudText>
-                    </CellTemplate>
-                </PropertyColumn>
-                <PropertyColumn Property="x => x.CardName" Title="Name" />
-                <PropertyColumn Property="x => x.CardType" Title="Type">
-                    <CellTemplate>
-                        <MudChip T="string" Color="@GetTypeChipColor(context.Item.CardType)" Size="Size.Small">
-                            @GetTypeLabel(context.Item.CardType)
-                        </MudChip>
-                    </CellTemplate>
-                </PropertyColumn>
-                <PropertyColumn Property="x => x.Email" Title="Contact">
-                    <CellTemplate>
-                        @if (!string.IsNullOrEmpty(context.Item.Email))
-                        {
-                            <a href="mailto:@context.Item.Email" class="text-decoration-none">
-                                <MudIcon Icon="@Icons.Material.Filled.Email" Size="Size.Small" Class="me-1" />
-                                @context.Item.Email
-                            </a>
-                        }
-                        @if (!string.IsNullOrEmpty(context.Item.Phone1))
-                        {
-                            <MudText Typo="Typo.caption" Class="d-block text-muted">
-                                <MudIcon Icon="@Icons.Material.Filled.Phone" Size="Size.Small" Class="me-1" />
-                                @context.Item.Phone1
-                            </MudText>
-                        }
-                    </CellTemplate>
-                </PropertyColumn>
-                <PropertyColumn Property="x => x.City" Title="Location">
-                    <CellTemplate>
-                        @if (!string.IsNullOrEmpty(context.Item.City) || !string.IsNullOrEmpty(context.Item.Country))
-                        {
-                            <span>@context.Item.City @context.Item.Country</span>
-                        }
-                        else
-                        {
-                            <span class="text-muted">-</span>
-                        }
-                    </CellTemplate>
-                </PropertyColumn>
-                <PropertyColumn Property="x => x.Currency" Title="Currency">
-                    <CellTemplate>
-                        @(context.Item.Currency ?? "USD")
-                    </CellTemplate>
-                </PropertyColumn>
-                <PropertyColumn Property="x => x.Balance" Title="Balance">
-                    <CellTemplate>
-                        <MudText Typo="Typo.body2" Align="Align.End"
-                            Color="@(context.Item.Balance > 0 ? Color.Error : Color.Success)">
-                            @((context.Item.Balance ?? 0).ToString("N2"))
+            <HeaderContent>
+                <MudTh>Code</MudTh>
+                <MudTh>Name</MudTh>
+                <MudTh>Type</MudTh>
+                <MudTh>Contact</MudTh>
+                <MudTh>Location</MudTh>
+                <MudTh>Currency</MudTh>
+                <MudTh Style="text-align:right">Balance</MudTh>
+                <MudTh>Status</MudTh>
+                <MudTh>Actions</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Code"><strong>@context.CardCode</strong></MudTd>
+                <MudTd DataLabel="Name">@context.CardName</MudTd>
+                <MudTd DataLabel="Type">
+                    <MudChip T="string" Color="@GetTypeChipColor(context.CardType)" Size="Size.Small">
+                        @GetTypeLabel(context.CardType)
+                    </MudChip>
+                </MudTd>
+                <MudTd DataLabel="Contact">
+                    @if (!string.IsNullOrEmpty(context.Email))
+                    {
+                        <a href="mailto:@context.Email" class="text-decoration-none">
+                            <MudIcon Icon="@Icons.Material.Filled.Email" Size="Size.Small" Class="me-1" />
+                            @context.Email
+                        </a>
+                    }
+                    @if (!string.IsNullOrEmpty(context.Phone1))
+                    {
+                        <MudText Typo="Typo.caption" Class="d-block text-muted">
+                            <MudIcon Icon="@Icons.Material.Filled.Phone" Size="Size.Small" Class="me-1" />
+                            @context.Phone1
                         </MudText>
-                    </CellTemplate>
-                </PropertyColumn>
-                <PropertyColumn Property="x => x.IsActive" Title="Status">
-                    <CellTemplate>
-                        @if (context.Item.IsActive)
-                        {
-                            <MudChip T="string" Color="Color.Success" Size="Size.Small">Active</MudChip>
-                        }
-                        else
-                        {
-                            <MudChip T="string" Color="Color.Default" Size="Size.Small">Inactive</MudChip>
-                        }
-                    </CellTemplate>
-                </PropertyColumn>
-                <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
-                    <CellTemplate>
-                        <MudButtonGroup Size="Size.Small" Variant="Variant.Outlined">
-                            <MudIconButton Icon="@Icons.Material.Filled.Visibility" Color="Color.Primary" Size="Size.Small"
-                                OnClick="@(() => ViewCustomer(context.Item))" Title="View Details" />
-                            <MudIconButton Icon="@Icons.Material.Filled.Receipt" Color="Color.Info" Size="Size.Small"
-                                OnClick="@(() => NavigateToInvoices(context.Item.CardCode ?? string.Empty))"
-                                Title="View Invoices" />
-                        </MudButtonGroup>
-                    </CellTemplate>
-                </TemplateColumn>
-            </Columns>
+                    }
+                </MudTd>
+                <MudTd DataLabel="Location">
+                    @if (!string.IsNullOrEmpty(context.City) || !string.IsNullOrEmpty(context.Country))
+                    {
+                        <span>@context.City @context.Country</span>
+                    }
+                    else
+                    {
+                        <span class="text-muted">-</span>
+                    }
+                </MudTd>
+                <MudTd DataLabel="Currency">@(context.Currency ?? "USD")</MudTd>
+                <MudTd DataLabel="Balance" Style="text-align:right">
+                    <MudText Typo="Typo.body2"                        Color="@(context.Balance > 0 ? Color.Error : Color.Success)">
+                        @((context.Balance ?? 0).ToString("N2"))
+                    </MudText>
+                </MudTd>
+                <MudTd DataLabel="Status">
+                    @if (context.IsActive)
+                    {
+                        <MudChip T="string" Color="Color.Success" Size="Size.Small">Active</MudChip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Color="Color.Default" Size="Size.Small">Inactive</MudChip>
+                    }
+                </MudTd>
+                <MudTd DataLabel="Actions">
+                    <MudButtonGroup Size="Size.Small" Variant="Variant.Outlined">
+                        <MudIconButton Icon="@Icons.Material.Filled.Visibility" Color="Color.Primary" Size="Size.Small"
+                                       OnClick="@(() => ViewCustomer(context))" Title="View Details" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Receipt" Color="Color.Info" Size="Size.Small"
+                                       OnClick="@(() => NavigateToInvoices(context.CardCode ?? string.Empty))"                            Title="View Invoices" />
+                    </MudButtonGroup>
+                </MudTd>
+            </RowTemplate>
             <PagerContent>
-                <MudDataGridPager T="BusinessPartnerDto" />
+                <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
             </PagerContent>
-        </MudDataGrid>
+        </MudTable>
 
         <!-- Summary Stats -->
         <div class="row mt-4">
@@ -253,11 +242,11 @@
                             <div class="row g-3">
                                 <div class="col-md-5">
                                     <FlexibleDatePicker Label="From Date" Date="statementFromDate"
-                                        DateChanged="(d) => statementFromDate = d ?? DateTime.Now.AddMonths(-3)" />
+                                                        DateChanged="(d) => statementFromDate = d ?? DateTime.Now.AddMonths(-3)" />
                                 </div>
                                 <div class="col-md-5">
                                     <FlexibleDatePicker Label="To Date" Date="statementToDate"
-                                        DateChanged="(d) => statementToDate = d ?? DateTime.Now" />
+                                                        DateChanged="(d) => statementToDate = d ?? DateTime.Now" />
                                 </div>
                             </div>
                         </div>
@@ -358,8 +347,8 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-warning"
-                        @onclick="() => GenerateStatement(selectedCustomer.CardCode ?? string.Empty)"
-                        disabled="@isGeneratingStatement">
+                            @onclick="() => GenerateStatement(selectedCustomer.CardCode ?? string.Empty)"
+                            disabled="@isGeneratingStatement">
                         @if (isGeneratingStatement)
                         {
                             <span class="spinner-border spinner-border-sm me-2"></span>
@@ -372,7 +361,7 @@
                         }
                     </button>
                     <button type="button" class="btn btn-info"
-                        @onclick='() => NavigateToInvoices(selectedCustomer.CardCode ?? "")'>
+                            @onclick='() => NavigateToInvoices(selectedCustomer.CardCode ?? "")'>
                         <i class="bi bi-receipt me-1"></i>View Invoices
                     </button>
                     <button type="button" class="btn btn-secondary" @onclick="() => selectedCustomer = null">Close</button>
@@ -427,7 +416,7 @@
     };
 
     // Row click handler
-    private void OnCustomerRowClicked(DataGridRowClickEventArgs<BusinessPartnerDto> args)
+    private void OnCustomerRowClicked(TableRowClickEventArgs<BusinessPartnerDto> args)
     {
         ViewCustomer(args.Item);
     }

@@ -128,6 +128,17 @@ public class CustomerPortalUser
     /// Account status (Active, Suspended, Locked)
     /// </summary>
     public string Status { get; set; } = "Active";
+
+    /// <summary>
+    /// Account structure type: "Single" = all transactions on one CardCode,
+    /// "Multi" = has separate main accounts (for invoicing/payments) and sub accounts (for sales orders)
+    /// </summary>
+    public string AccountStructure { get; set; } = "Single";
+
+    /// <summary>
+    /// Navigation property for linked accounts (main + sub accounts)
+    /// </summary>
+    public List<CustomerLinkedAccount> LinkedAccounts { get; set; } = new();
 }
 
 /// <summary>
@@ -292,4 +303,72 @@ public class CustomerRateLimit
     /// Number of times blocked
     /// </summary>
     public int BlockCount { get; set; } = 0;
+}
+
+/// <summary>
+/// Entity for linking multiple SAP Business Partner accounts to a single customer portal user.
+/// Supports a hierarchy where main accounts handle invoicing/payments and sub accounts handle sales orders.
+/// </summary>
+public class CustomerLinkedAccount
+{
+    public int Id { get; set; }
+
+    /// <summary>
+    /// FK to the portal user who owns this linked account
+    /// </summary>
+    public int CustomerPortalUserId { get; set; }
+
+    /// <summary>
+    /// Navigation property to portal user
+    /// </summary>
+    public CustomerPortalUser CustomerPortalUser { get; set; } = null!;
+
+    /// <summary>
+    /// SAP Business Partner card code for this linked account
+    /// </summary>
+    public string CardCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Display name (from SAP)
+    /// </summary>
+    public string CardName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Account type: "Main" = invoicing and incoming payments, "Sub" = sales orders only
+    /// </summary>
+    public string AccountType { get; set; } = "Main";
+
+    /// <summary>
+    /// Currency for this account (e.g. "ZiG", "USD")
+    /// </summary>
+    public string? Currency { get; set; }
+
+    /// <summary>
+    /// For sub accounts, the CardCode of the parent main account they derive from
+    /// </summary>
+    public string? ParentCardCode { get; set; }
+
+    /// <summary>
+    /// Whether this is the default account shown on the dashboard
+    /// </summary>
+    public bool IsDefault { get; set; } = false;
+
+    /// <summary>
+    /// User-friendly description (e.g. "Main ZiG Account", "Harare Branch - Orders")
+    /// </summary>
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// Whether this linked account is active
+    /// </summary>
+    public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// Allowed transaction types on this account (comma-separated: "SalesOrder", "Invoice", "Payment")
+    /// For Main: "Invoice,Payment"   For Sub: "SalesOrder"
+    /// </summary>
+    public string AllowedTransactions { get; set; } = string.Empty;
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; }
 }

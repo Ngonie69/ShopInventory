@@ -37,6 +37,7 @@ public class CustomerAuthService : ICustomerAuthService
 {
     private readonly IDbContextFactory<WebAppDbContext> _dbContextFactory;
     private readonly IBusinessPartnerService _businessPartnerService;
+    private readonly ICustomerLinkedAccountService _linkedAccountService;
     private readonly IEmailService _emailService;
     private readonly ILogger<CustomerAuthService> _logger;
     private readonly IConfiguration _configuration;
@@ -54,12 +55,14 @@ public class CustomerAuthService : ICustomerAuthService
     public CustomerAuthService(
         IDbContextFactory<WebAppDbContext> dbContextFactory,
         IBusinessPartnerService businessPartnerService,
+        ICustomerLinkedAccountService linkedAccountService,
         IEmailService emailService,
         ILogger<CustomerAuthService> logger,
         IConfiguration configuration)
     {
         _dbContextFactory = dbContextFactory;
         _businessPartnerService = businessPartnerService;
+        _linkedAccountService = linkedAccountService;
         _emailService = emailService;
         _logger = logger;
         _configuration = configuration;
@@ -1017,7 +1020,7 @@ public class CustomerAuthService : ICustomerAuthService
             if (partner == null)
                 return null;
 
-            return new CustomerInfo
+            var customerInfo = new CustomerInfo
             {
                 CardCode = partner.CardCode ?? cardCode,
                 CardName = partner.CardName ?? "",
@@ -1026,6 +1029,28 @@ public class CustomerAuthService : ICustomerAuthService
                 Balance = partner.Balance ?? 0,
                 Currency = partner.Currency
             };
+
+            // Enrich with linked account info for multi-account customers
+            try
+            {
+                var accountStructure = await _linkedAccountService.GetAccountStructureAsync(cardCode);
+                customerInfo.AccountStructure = accountStructure;
+
+                if (accountStructure == "Multi")
+                {
+                    customerInfo.LinkedAccounts = await _linkedAccountService.GetLinkedAccountsAsync(cardCode);
+                    _logger.LogInformation(
+                        "Customer {CardCode} has multi-account structure with {Count} linked accounts",
+                        cardCode, customerInfo.LinkedAccounts.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error fetching linked accounts for {CardCode}, defaulting to single account", cardCode);
+                customerInfo.AccountStructure = "Single";
+            }
+
+            return customerInfo;
         }
         catch (Exception ex)
         {

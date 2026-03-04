@@ -46,7 +46,7 @@
                     <div class="input-group">
                         <span class="input-group-text"><i class="bi bi-search"></i></span>
                         <input type="text" class="form-control" @bind="searchTerm" @bind:event="oninput"
-                            @bind:after="FilterPrices" placeholder="Type to search by code or description..." />
+                               @bind:after="FilterPrices" placeholder="Type to search by code or description..." />
                         @if (!string.IsNullOrWhiteSpace(searchTerm))
                         {
                             <button class="btn btn-outline-secondary" type="button" @onclick="ClearSearch">
@@ -91,163 +91,180 @@
                             {
                                 <span class="badge bg-secondary ms-2">Factor:
                                     @selectedPriceList.Factor.Value.ToString("N2")</span>
-                            }
-                        </div>
-                    </div>
-                </div>
-            }
-        </div>
-    </div>
-
-    @if (isLoading)
-    {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <p class="mt-2">Loading prices for @(selectedPriceList?.ListName ?? "selected list")...</p>
-        </div>
-    }
-    else if (errorMessage != null)
-    {
-        <div class="alert alert-danger">
-            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
-        </div>
-    }
-    else if (selectedPriceListNum == 0)
-    {
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle me-2"></i>
-            Select a price list above to view item prices.
-        </div>
-
-        <!-- Show available price lists as cards -->
-        @if (priceLists?.Any() == true)
-        {
-            <div class="row g-4 mt-3">
-                @foreach (var priceList in priceLists.Where(p => p.IsActive).OrderBy(p => p.ListNum))
-                {
-                    <div class="col-md-4 col-lg-3">
-                        <div class="card h-100 cursor-pointer price-list-card" @onclick="() => SelectPriceList(priceList.ListNum)">
-                            <div class="card-body text-center">
-                                <i class="bi bi-tags fs-1 text-primary mb-2"></i>
-                                <h5 class="card-title">@priceList.ListName</h5>
-                                <p class="card-text">
-                                    @if (!string.IsNullOrEmpty(priceList.Currency))
-                                    {
-                                        <span class="badge bg-success">@priceList.Currency</span>
-                                    }
-                                    <span class="badge bg-secondary">List #@priceList.ListNum</span>
-                                </p>
-                            </div>
-                            <div class="card-footer bg-transparent border-top-0 text-center">
-                                <small class="text-muted">Click to view prices</small>
+                                }
                             </div>
                         </div>
                     </div>
                 }
             </div>
-        }
-    }
-    else if (searchedPrice != null)
-    {
-        <div class="card mb-4">
-            <div class="card-header bg-info text-white">
-                <h5 class="mb-0">Search Result</h5>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Loading prices for @(selectedPriceList?.ListName ?? "selected list")...</p>
             </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <h4>@searchedPrice.ItemName</h4>
-                        <p class="text-muted mb-3">Item Code: <strong>@searchedPrice.ItemCode</strong></p>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="card bg-success bg-opacity-10">
-                            <div class="card-body text-center">
-                                <h6 class="text-muted">@(selectedPriceList?.ListName ?? "Price")</h6>
-                                <h3 class="text-success mb-0">
-                                    @GetCurrencySymbol(selectedPriceList?.Currency)@searchedPrice.Price.ToString("N2")
-                                </h3>
-                                @if (!string.IsNullOrEmpty(selectedPriceList?.Currency))
-                                {
-                                    <small class="text-muted">@selectedPriceList.Currency</small>
-                                }
+        }
+        else if (errorMessage != null)
+        {
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+            </div>
+        }
+        else if (selectedPriceListNum == 0)
+        {
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>
+                Select a price list above to view item prices.
+            </div>
+
+            <!-- Show available price lists as cards -->
+            @if (priceLists?.Any() == true)
+            {
+                <div class="row g-4 mt-3">
+                    @foreach (var priceList in priceLists.Where(p => p.IsActive).OrderBy(p => p.ListNum))
+                    {
+                        <div class="col-md-4 col-lg-3">
+                            <div class="card h-100 cursor-pointer price-list-card" @onclick="() => SelectPriceList(priceList.ListNum)">
+                                <div class="card-body text-center">
+                                    <i class="bi bi-tags fs-1 text-primary mb-2"></i>
+                                    <h5 class="card-title">@priceList.ListName</h5>
+                                    <p class="card-text">
+                                        @if (!string.IsNullOrEmpty(priceList.Currency))
+                                        {
+                                            <span class="badge bg-success">@priceList.Currency</span>
+                                        }
+                                        <span class="badge bg-secondary">List #@priceList.ListNum</span>
+                                    </p>
+                                </div>
+                                <div class="card-footer bg-transparent border-top-0 text-center">
+                                    <small class="text-muted">Click to view prices</small>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        }
+        else if (searchedPrice != null)
+        {
+            <div class="card mb-4">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">Search Result</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h4>@searchedPrice.ItemName</h4>
+                            <p class="text-muted mb-3">Item Code: <strong>@searchedPrice.ItemCode</strong></p>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card bg-success bg-opacity-10">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">@(selectedPriceList?.ListName ?? "Price")</h6>
+                                    <h3 class="text-success mb-0">
+                                        @GetCurrencySymbol(selectedPriceList?.Currency)@searchedPrice.Price.ToString("N2")
+                                    </h3>
+                                    @if (!string.IsNullOrEmpty(selectedPriceList?.Currency))
+                                    {
+                                        <small class="text-muted">@selectedPriceList.Currency</small>
+                                    }
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
-    }
-    else if (filteredPrices?.Any() == true)
-    {
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">
-                    @(selectedPriceList?.ListName ?? "Prices")
-                    @if (!string.IsNullOrEmpty(selectedPriceList?.Currency))
-                    {
-                        <span class="badge bg-primary ms-2">@selectedPriceList.Currency</span>
-                    }
-                </h5>
-                <span class="badge bg-primary">@filteredPrices.Count items</span>
-            </div>
-            <div class="card-body">
-                <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
-                    <table class="table table-hover table-sm">
-                        <thead class="table-light sticky-top">
-                            <tr>
-                                <th>Item Code</th>
-                                <th>Item Name</th>
-                                <th class="text-end">Price (@(selectedPriceList?.Currency ?? ""))</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var item in filteredPrices)
-                            {
+        }
+        else if (filteredPrices?.Any() == true)
+        {
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        @(selectedPriceList?.ListName ?? "Prices")
+                        @if (!string.IsNullOrEmpty(selectedPriceList?.Currency))
+                        {
+                            <span class="badge bg-primary ms-2">@selectedPriceList.Currency</span>
+                        }
+                    </h5>
+                    <span class="badge bg-primary">@filteredPrices.Count items</span>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                        <table class="table table-hover table-sm">
+                            <thead class="table-light sticky-top">
                                 <tr>
-                                    <td><strong>@HighlightMatch(item.ItemCode, searchTerm)</strong></td>
-                                    <td>@HighlightMatch(item.ItemName, searchTerm)</td>
-                                    <td class="text-end">
-                                        <span class="text-success fw-bold">
-                                            @GetCurrencySymbol(selectedPriceList?.Currency)@item.Price.ToString("N2")
-                                        </span>
-                                    </td>
+                                    <th>Item Code</th>
+                                    <th>Item Name</th>
+                                    <th class="text-end">Price (@(selectedPriceList?.Currency ?? ""))</th>
                                 </tr>
-                            }
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in filteredPrices)
+                                {
+                                    <tr>
+                                        <td><strong>@HighlightMatch(item.ItemCode, searchTerm)</strong></td>
+                                        <td>@HighlightMatch(item.ItemName, searchTerm)</td>
+                                        <td class="text-end">
+                                            <span class="text-success fw-bold">
+                                                @GetCurrencySymbol(selectedPriceList?.Currency)@item.Price.ToString("N2")
+                                            </span>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
-        </div>
-    }
-    else if (allPricesForList != null && !string.IsNullOrWhiteSpace(searchTerm))
-    {
-        <div class="alert alert-warning">
-            <i class="bi bi-search me-2"></i>
-            No items found matching "<strong>@searchTerm</strong>". Try a different search term.
-        </div>
-    }
-    else if (selectedPriceListNum > 0 && allPricesForList?.Count == 0)
-    {
-        <div class="alert alert-warning">
-            <i class="bi bi-exclamation-triangle me-2"></i>
-            No items found in this price list. The price list may be empty.
-        </div>
-    }
-</div>
+        }
+        else if (allPricesForList != null && !string.IsNullOrWhiteSpace(searchTerm))
+        {
+            <div class="alert alert-warning">
+                <i class="bi bi-search me-2"></i>
+                No items found matching "<strong>@searchTerm</strong>". Try a different search term.
+            </div>
+        }
+        else if (selectedPriceListNum > 0 && allPricesForList?.Count == 0)
+        {
+            <div class="alert alert-warning d-flex align-items-center justify-content-between">
+                <span>
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    No items found in this price list. It may not have been synced yet or the list is empty in SAP.
+                </span>
+                <button class="btn btn-sm btn-outline-warning ms-3" @onclick="ForceRefreshPrices" disabled="@isLoading">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Retry from SAP
+                </button>
+            </div>
+        }
+        else if (selectedPriceListNum > 0 && allPricesForList == null)
+        {
+            <div class="alert alert-danger d-flex align-items-center justify-content-between">
+                <span>
+                    <i class="bi bi-exclamation-circle me-2"></i>
+                    Failed to load prices from the server. Please check your connection and try again.
+                </span>
+                <button class="btn btn-sm btn-outline-danger ms-3" @onclick="ForceRefreshPrices" disabled="@isLoading">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Retry
+                </button>
+            </div>
+        }
+    </div>
 
-<style>
-    .price-list-card {
-        cursor: pointer;
-        transition: transform 0.2s, box-shadow 0.2s;
-    }
+    <style>
+        .price-list-card {
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
 
-    .price-list-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-    }
-</style>
+        .price-list-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+    </style>
 
 @code {
     private List<PriceListDto>? priceLists;
@@ -333,7 +350,7 @@
         }
     }
 
-    private async Task LoadPricesForList()
+    private async Task LoadPricesForList(bool forceRefresh = false)
     {
         if (selectedPriceListNum == 0) return;
 
@@ -344,7 +361,9 @@
         try
         {
             await EnsureAuthenticatedAsync();
-            var response = await PriceService.GetPricesByPriceListAsync(selectedPriceListNum);
+            var response = forceRefresh
+                ? await PriceService.GetPricesByPriceListForceRefreshAsync(selectedPriceListNum)
+                : await PriceService.GetPricesByPriceListAsync(selectedPriceListNum);
 
             if (response?.Prices != null)
             {
@@ -354,8 +373,8 @@
             }
             else
             {
-                allPricesForList = new List<ItemPriceByListDto>();
-                filteredPrices = new List<ItemPriceByListDto>();
+                allPricesForList = null;
+                filteredPrices = null;
             }
         }
         catch (Exception ex)
@@ -368,6 +387,11 @@
             isLoading = false;
             StateHasChanged();
         }
+    }
+
+    private async Task ForceRefreshPrices()
+    {
+        await LoadPricesForList(forceRefresh: true);
     }
 
     private void FilterPrices()

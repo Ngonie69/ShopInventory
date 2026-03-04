@@ -163,6 +163,11 @@ public class CreateInventoryTransferLineRequest
     /// Batch allocations for batch-managed items
     /// </summary>
     public List<TransferBatchRequest>? BatchNumbers { get; set; }
+
+    /// <summary>
+    /// Serial number allocations for serial-managed items
+    /// </summary>
+    public List<TransferSerialRequest>? SerialNumbers { get; set; }
 }
 
 /// <summary>
@@ -182,6 +187,28 @@ public class TransferBatchRequest
     [Required(ErrorMessage = "Quantity is required")]
     [Range(0.00001, double.MaxValue, ErrorMessage = "Quantity must be greater than zero")]
     public decimal Quantity { get; set; }
+}
+
+/// <summary>
+/// Serial number allocation for transfer
+/// </summary>
+public class TransferSerialRequest
+{
+    /// <summary>
+    /// Internal serial number (required)
+    /// </summary>
+    [Required(ErrorMessage = "Serial number is required")]
+    public string? InternalSerialNumber { get; set; }
+
+    /// <summary>
+    /// SAP system serial number (optional - will be looked up if not provided)
+    /// </summary>
+    public int? SystemSerialNumber { get; set; }
+
+    /// <summary>
+    /// Quantity (always 1 for serial-managed items)
+    /// </summary>
+    public decimal Quantity { get; set; } = 1;
 }
 
 /// <summary>

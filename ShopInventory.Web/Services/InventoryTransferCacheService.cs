@@ -94,7 +94,7 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
                 Warehouse = warehouseCode,
                 Page = page,
                 PageSize = pageSize,
-                Count = cachedItems.Count,
+                Count = cachedCount,
                 HasMore = skip + cachedItems.Count < cachedCount,
                 Transfers = cachedItems.Select(MapCachedToDto).ToList()
             };
@@ -111,47 +111,107 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
         // No cached data - fetch first page from API and start background sync
         _logger.LogInformation("No cached transfers for warehouse {WarehouseCode}, fetching from API", warehouseCode);
 
-        try
+        var apiResponse = await FetchTransfersFromApiAsync(warehouseCode, page, pageSize);
+        if (apiResponse?.Transfers?.Any() == true)
         {
-            var apiResponse = await FetchTransfersFromApiAsync(warehouseCode, page, pageSize);
-            if (apiResponse?.Transfers?.Any() == true)
-            {
-                // Save first page to cache
-                await SaveTransfersToCacheAsync(apiResponse.Transfers);
+            // Save first page to cache
+            await SaveTransfersToCacheAsync(apiResponse.Transfers);
 
-                // Start background sync for remaining items
-                _ = Task.Run(async () => await SyncRemainingTransfersInBackgroundAsync(warehouseCode, apiResponse.HasMore));
+            // Start background sync for remaining items
+            _ = Task.Run(async () => await SyncRemainingTransfersInBackgroundAsync(warehouseCode, apiResponse.HasMore));
 
-                return apiResponse;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error fetching transfers from API for warehouse {WarehouseCode}", warehouseCode);
+            return apiResponse;
         }
 
-        return null;
+        // API returned empty results - return a proper empty response
+        return apiResponse ?? new InventoryTransferListResponse
+        {
+            Warehouse = warehouseCode,
+            Page = page,
+            PageSize = pageSize,
+            Count = 0,
+            HasMore = false,
+            Transfers = new List<InventoryTransferDto>()
+        };
     }
 
     public async Task<InventoryTransferDateResponse?> GetCachedTransfersByDateRangeAsync(string warehouseCode, DateTime fromDate, DateTime toDate)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
+        // Ensure dates are UTC for PostgreSQL compatibility
+        var fromDateUtc = fromDate.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(fromDate, DateTimeKind.Utc) : fromDate.ToUniversalTime();
+        var toDateUtc = toDate.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(toDate, DateTimeKind.Utc) : toDate.ToUniversalTime();
+
         var transfers = await dbContext.CachedInventoryTransfers
             .Where(t => (t.FromWarehouse == warehouseCode || t.ToWarehouse == warehouseCode) &&
-                       t.DocDate >= fromDate && t.DocDate <= toDate)
+                       t.DocDate >= fromDateUtc && t.DocDate <= toDateUtc)
             .OrderByDescending(t => t.DocDate)
             .ThenByDescending(t => t.DocNum)
             .ToListAsync();
 
-        return new InventoryTransferDateResponse
+        // If cache has data, return it (and trigger background sync if stale)
+        if (transfers.Count > 0)
         {
-            Warehouse = warehouseCode,
-            FromDate = fromDate.ToString("yyyy-MM-dd"),
-            ToDate = toDate.ToString("yyyy-MM-dd"),
-            Count = transfers.Count,
-            Transfers = transfers.Select(MapCachedToDto).ToList()
-        };
+            var cacheKey = $"InventoryTransfers_{warehouseCode}";
+            var syncInfo = await dbContext.CacheSyncInfo.FindAsync(cacheKey);
+            var isCacheStale = syncInfo == null ||
+                              (DateTime.UtcNow - syncInfo.LastSyncedAt) > _cacheExpiration ||
+                              !syncInfo.SyncSuccessful;
+
+            if (isCacheStale)
+            {
+                _ = Task.Run(async () => await SyncTransfersInBackgroundAsync(warehouseCode));
+            }
+
+            return new InventoryTransferDateResponse
+            {
+                Warehouse = warehouseCode,
+                FromDate = fromDate.ToString("yyyy-MM-dd"),
+                ToDate = toDate.ToString("yyyy-MM-dd"),
+                Count = transfers.Count,
+                Transfers = transfers.Select(MapCachedToDto).ToList()
+            };
+        }
+
+        // No cached data - fall back to API directly
+        _logger.LogInformation("No cached transfers for warehouse {WarehouseCode} in date range, fetching from API", warehouseCode);
+        try
+        {
+            var from = fromDate.ToString("yyyy-MM-dd");
+            var to = toDate.ToString("yyyy-MM-dd");
+            var apiResponse = await _httpClient.GetFromJsonAsync<InventoryTransferDateResponse>(
+                $"api/inventorytransfer/{warehouseCode}/daterange?fromDate={from}&toDate={to}", _jsonOptions);
+
+            if (apiResponse?.Transfers?.Any() == true)
+            {
+                // Cache the results we got
+                await SaveTransfersToCacheAsync(apiResponse.Transfers);
+                // Trigger full background sync
+                _ = Task.Run(async () => await SyncTransfersInBackgroundAsync(warehouseCode));
+            }
+
+            return apiResponse ?? new InventoryTransferDateResponse
+            {
+                Warehouse = warehouseCode,
+                FromDate = from,
+                ToDate = to,
+                Count = 0,
+                Transfers = new List<InventoryTransferDto>()
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching transfers by date range from API for warehouse {WarehouseCode}", warehouseCode);
+            return new InventoryTransferDateResponse
+            {
+                Warehouse = warehouseCode,
+                FromDate = fromDate.ToString("yyyy-MM-dd"),
+                ToDate = toDate.ToString("yyyy-MM-dd"),
+                Count = 0,
+                Transfers = new List<InventoryTransferDto>()
+            };
+        }
     }
 
     public async Task<InventoryTransferDto?> GetCachedTransferByDocEntryAsync(int docEntry)
@@ -328,8 +388,20 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<InventoryTransferListResponse>(
-                $"api/inventorytransfer/{warehouseCode}/paged?page={page}&pageSize={pageSize}", _jsonOptions);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+            var response = await _httpClient.GetFromJsonAsync<InventoryTransferListResponse>(
+                $"api/inventorytransfer/{warehouseCode}/paged?page={page}&pageSize={pageSize}", _jsonOptions, cts.Token);
+            return response;
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogWarning(ex, "Timeout fetching transfers from API for warehouse {WarehouseCode}, page {Page}", warehouseCode, page);
+            throw new TimeoutException($"Timed out fetching transfers for warehouse {warehouseCode}. SAP may be responding slowly.", ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP error fetching transfers from API for warehouse {WarehouseCode}, page {Page}", warehouseCode, page);
+            throw; // Propagate so callers can show meaningful errors
         }
         catch (Exception ex)
         {

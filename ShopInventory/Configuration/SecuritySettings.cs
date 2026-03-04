@@ -34,6 +34,26 @@ public class SecuritySettings
     /// Account lockout duration in minutes
     /// </summary>
     public int LockoutDurationMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// Maximum allowed file upload size in MB
+    /// </summary>
+    public int MaxFileUploadSizeMB { get; set; } = 25;
+
+    /// <summary>
+    /// Allowed file extensions for uploads (comma-separated)
+    /// </summary>
+    public string AllowedFileExtensions { get; set; } = ".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.txt,.zip";
+
+    /// <summary>
+    /// Enable idempotency key checking for write operations
+    /// </summary>
+    public bool EnableIdempotencyKeys { get; set; } = true;
+
+    /// <summary>
+    /// Idempotency key expiration in minutes (how long duplicate requests are blocked)
+    /// </summary>
+    public int IdempotencyKeyExpirationMinutes { get; set; } = 60;
 }
 
 /// <summary>

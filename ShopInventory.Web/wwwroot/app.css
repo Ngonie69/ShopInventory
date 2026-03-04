@@ -223,6 +223,85 @@ a:hover {
     padding: 1.5rem;
 }
 
+/* ========================================
+   Filter Panel Styles
+   ======================================== */
+.filter-panel {
+    background: white;
+    border-radius: 16px;
+    border: 1px solid rgba(0,0,0,0.06);
+    overflow: hidden;
+    box-shadow: 0 1px 8px rgba(0,0,0,0.04);
+    margin-bottom: 1.5rem;
+    transition: box-shadow 0.2s ease;
+}
+
+.filter-panel:hover {
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+}
+
+.filter-panel-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 0.75rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.filter-panel-header .mud-icon-root {
+    color: rgba(255,255,255,0.85) !important;
+    font-size: 1.15rem !important;
+}
+
+.filter-panel-body {
+    padding: 1.25rem 1.5rem 1.5rem;
+}
+
+.filter-actions .mud-button-root {
+    border-radius: 10px !important;
+    text-transform: none !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.02em;
+    padding: 6px 20px !important;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.filter-actions .mud-button-filled-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.filter-actions .mud-button-filled-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(102, 126, 234, 0.45) !important;
+}
+
+.filter-actions .mud-button-outlined {
+    border-color: #dee2e6 !important;
+}
+
+.filter-actions .mud-button-outlined:hover {
+    background: #f8f9fa !important;
+}
+
+/* Page header styling */
+.page-header-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    box-shadow: 0 4px 14px rgba(102, 126, 234, 0.3);
+    flex-shrink: 0;
+}
+
+.page-header-icon .mud-icon-root {
+    color: white !important;
+    font-size: 1.5rem !important;
+}
+
 .page-hero {
     display: flex;
     justify-content: space-between;

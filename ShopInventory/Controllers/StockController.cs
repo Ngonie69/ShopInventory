@@ -288,6 +288,17 @@ public class StockController : ControllerBase
             _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
             return StatusCode(504, new { message = "Connection to SAP Service Layer timed out." });
         }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Connection aborted by SAP or stale TCP connection — treat as gateway timeout
+            _logger.LogError(ex, "SAP connection aborted for warehouse {Warehouse} (I/O error)", warehouseCode);
+            return StatusCode(504, new { message = "Connection to SAP was interrupted. Please try again.", error = ex.InnerException?.Message ?? ex.Message });
+        }
+        catch (TaskCanceledException)
+        {
+            // Client cancelled the request (e.g. navigated away) — just return 499
+            return StatusCode(499, new { message = "Request was cancelled by client." });
+        }
         catch (HttpRequestException ex)
         {
             _logger.LogError(ex, "Network error connecting to SAP Service Layer");
