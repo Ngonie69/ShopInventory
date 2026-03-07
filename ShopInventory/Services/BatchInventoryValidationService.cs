@@ -162,13 +162,19 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             return result;
         }
 
-        // Use parallel processing for validating all lines concurrently
-        var validationTasks = request.Lines.Select((line, index) =>
-            ValidateLineAsync(line, index + 1, autoAllocate, strategy, cancellationToken));
+        // Process lines SEQUENTIALLY to avoid EF Core DbContext concurrency issues.
+        // DbContext is not thread-safe, so concurrent async operations on the same
+        // instance (via Task.WhenAll) cause "A second operation was started on this
+        // context instance" errors.
+        var lineResults = new List<LineValidationResult>();
+        for (int i = 0; i < request.Lines.Count; i++)
+        {
+            var lineResult = await ValidateLineAsync(
+                request.Lines[i], i + 1, autoAllocate, strategy, cancellationToken);
+            lineResults.Add(lineResult);
+        }
 
-        var lineResults = await Task.WhenAll(validationTasks);
-
-        // Aggregate results from all parallel validations
+        // Aggregate results from all validations
         var allocatedLines = new List<AllocatedBatchLine>();
         var errors = new List<BatchValidationErrorDto>();
         var warnings = new List<string>();

@@ -1,264 +1,920 @@
 @page "/payments"
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize]
+@attribute [Authorize(Roles = "Admin,Cashier,DepotController")]
 @inject IPaymentService PaymentService
 @inject ILogger<Payments> Logger
 @rendermode InteractiveServer
 
 <PageTitle>Incoming Payments - Shop Inventory</PageTitle>
 
-<div class="page-shell">
+<style>
+    /* ── Page ────────────────────────────────────────── */
+    .pay-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
+    }
+
+    /* ── Header ──────────────────────────────────────── */
+    .pay-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .pay-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .pay-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #059669, #10b981);
+        box-shadow: 0 4px 14px rgba(5, 150, 105, .3);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .pay-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+    }
+
+    .pay-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: .88rem;
+    }
+
+    .pay-header-actions {
+        display: flex;
+        gap: .5rem;
+        flex-wrap: wrap;
+    }
+
+    .btn-gradient {
+        background: linear-gradient(135deg, #059669, #10b981);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        text-decoration: none;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        box-shadow: 0 2px 8px rgba(5, 150, 105, .25);
+    }
+
+    .btn-gradient:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(5, 150, 105, .4);
+        color: #fff;
+    }
+
+    /* ── Stat Cards ──────────────────────────────────── */
+    .stat-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .stat-card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 1.1rem 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        transition: box-shadow .2s;
+    }
+
+    .stat-card:hover {
+        box-shadow: 0 4px 14px rgba(0, 0, 0, .08);
+    }
+
+    .stat-icon {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        flex-shrink: 0;
+    }
+
+    .stat-icon.green {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+    .stat-icon.blue {
+        background: #dbeafe;
+        color: #2563eb;
+    }
+
+    .stat-icon.amber {
+        background: #fef3c7;
+        color: #d97706;
+    }
+
+    .stat-icon.purple {
+        background: #ede9fe;
+        color: #7c3aed;
+    }
+
+    .stat-info .stat-value {
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        line-height: 1.2;
+    }
+
+    .stat-info .stat-label {
+        font-size: .78rem;
+        color: #6b7280;
+        font-weight: 500;
+    }
+
+    /* ── Filter Bar ──────────────────────────────────── */
+    .filter-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .75rem;
+        align-items: flex-end;
+        padding: 1rem 1.25rem;
+        background: #f8fafc;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        margin-bottom: 1.25rem;
+    }
+
+    .filter-bar .filter-field {
+        flex: 1;
+        min-width: 160px;
+    }
+
+    .filter-bar .filter-field label {
+        display: block;
+        font-size: .75rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        margin-bottom: .3rem;
+    }
+
+    .filter-actions-row {
+        display: flex;
+        gap: .5rem;
+        align-items: flex-end;
+    }
+
+    .btn-search {
+        background: #059669;
+        color: #fff;
+        border: none;
+        padding: .5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .btn-search:hover {
+        background: #047857;
+    }
+
+    .btn-search:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+    }
+
+    .btn-clear {
+        background: #fff;
+        color: #6b7280;
+        border: 1px solid #d1d5db;
+        padding: .5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .2s;
+    }
+
+    .btn-clear:hover {
+        background: #f3f4f6;
+    }
+
+    /* ── Table ───────────────────────────────────────── */
+    .pay-table-wrap {
+        border-radius: 10px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        overflow: hidden;
+    }
+
+    /* ── Badges ──────────────────────────────────────── */
+    .method-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        padding: .15rem .55rem;
+        border-radius: 6px;
+        font-size: .75rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .method-badge.cash {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .method-badge.transfer {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    .method-badge.check {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .method-badge.credit {
+        background: #ede9fe;
+        color: #5b21b6;
+    }
+
+    .amount-total {
+        font-weight: 700;
+        color: #059669;
+        font-size: .92rem;
+    }
+
+    /* ── Empty State ─────────────────────────────────── */
+    .empty-state {
+        text-align: center;
+        padding: 3rem 1.5rem;
+    }
+
+    .empty-icon {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: #f3f4f6;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 1rem;
+        font-size: 1.8rem;
+        color: #9ca3af;
+    }
+
+    .empty-state h6 {
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: .35rem;
+    }
+
+    .empty-state p {
+        color: #9ca3af;
+        font-size: .88rem;
+        margin-bottom: 1rem;
+    }
+
+    /* ── Alerts ──────────────────────────────────────── */
+    .alert-banner {
+        border-radius: 10px;
+        padding: .75rem 1rem;
+        display: flex;
+        align-items: flex-start;
+        gap: .6rem;
+        margin-bottom: 1rem;
+        font-size: .88rem;
+        animation: slideDown .3s ease;
+    }
+
+    .alert-banner.success-alert {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        color: #166534;
+    }
+
+    .alert-banner.error-alert {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #991b1b;
+    }
+
+    .alert-banner.warn-alert {
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        color: #92400e;
+    }
+
+    .alert-banner .alert-body {
+        flex: 1;
+    }
+
+    .alert-banner .alert-close {
+        background: none;
+        border: none;
+        color: inherit;
+        opacity: .45;
+        cursor: pointer;
+        padding: .2rem;
+        font-size: 1rem;
+    }
+
+    .alert-banner .alert-close:hover {
+        opacity: 1;
+    }
+
+    @@keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-6px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    /* ── Drawer ──────────────────────────────────────── */
+    .modal-backdrop-custom {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, .45);
+        z-index: 9998;
+        animation: fadeIn .2s ease;
+    }
+
+    .detail-drawer {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: min(580px, 95vw);
+        height: 100vh;
+        background: #fff;
+        z-index: 9999;
+        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
+        display: flex;
+        flex-direction: column;
+        animation: slideInRight .25s ease;
+    }
+
+    .drawer-header {
+        padding: 1.15rem 1.5rem;
+        background: linear-gradient(135deg, #059669, #10b981);
+        color: #fff;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-shrink: 0;
+    }
+
+    .drawer-header h5 {
+        margin: 0;
+        font-weight: 600;
+        font-size: 1.05rem;
+    }
+
+    .drawer-header .btn-close-drawer {
+        background: rgba(255, 255, 255, .15);
+        border: none;
+        color: #fff;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background .15s;
+        font-size: 1rem;
+    }
+
+    .drawer-header .btn-close-drawer:hover {
+        background: rgba(255, 255, 255, .25);
+    }
+
+    .drawer-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.5rem;
+    }
+
+    .drawer-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        gap: .5rem;
+        justify-content: flex-end;
+        flex-shrink: 0;
+    }
+
+    .detail-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .detail-item .detail-label {
+        font-size: .72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #9ca3af;
+        margin-bottom: .2rem;
+    }
+
+    .detail-item .detail-value {
+        font-size: .92rem;
+        font-weight: 600;
+        color: #1a1a2e;
+    }
+
+    .detail-section-title {
+        font-weight: 600;
+        color: #1a1a2e;
+        font-size: .9rem;
+        margin-bottom: .75rem;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .breakdown-card {
+        background: #f8fafc;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: .85rem;
+        text-align: center;
+    }
+
+    .breakdown-card .bc-icon {
+        font-size: 1.3rem;
+        margin-bottom: .25rem;
+    }
+
+    .breakdown-card .bc-label {
+        font-size: .72rem;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        font-weight: 600;
+    }
+
+    .breakdown-card .bc-value {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #1a1a2e;
+    }
+
+    .invoice-table {
+        width: 100%;
+        font-size: .85rem;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .invoice-table th {
+        background: #f8fafc;
+        font-size: .72rem;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #6b7280;
+        font-weight: 600;
+        padding: .6rem .75rem;
+        border-bottom: 2px solid #e5e7eb;
+    }
+
+    .invoice-table td {
+        padding: .55rem .75rem;
+        border-bottom: 1px solid #f3f4f6;
+        color: #374151;
+    }
+
+    .invoice-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .total-banner {
+        background: linear-gradient(135deg, #059669, #10b981);
+        color: #fff;
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 1.25rem;
+    }
+
+    .total-banner .total-label {
+        font-size: .9rem;
+        font-weight: 500;
+    }
+
+    .total-banner .total-value {
+        font-size: 1.4rem;
+        font-weight: 700;
+    }
+
+    @@keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+
+        to {
+            opacity: 1;
+        }
+    }
+
+    @@keyframes slideInRight {
+        from {
+            transform: translateX(100%);
+        }
+
+        to {
+            transform: translateX(0);
+        }
+    }
+
+    /* ── Responsive ──────────────────────────────────── */
+    @@media (max-width:768px) {
+        .stat-row {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .detail-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .pay-header {
+            flex-direction: column;
+        }
+    }
+</style>
+
+<div class="pay-page">
     <div class="container-fluid">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div class="d-flex align-items-center gap-3">
-                <div class="page-header-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.Payments" />
-                </div>
+
+        <!-- ━━━ Header ━━━ -->
+        <div class="pay-header">
+            <div class="pay-header-left">
+                <div class="pay-header-icon"><i class="bi bi-cash-stack"></i></div>
                 <div>
-                    <MudText Typo="Typo.h4" Class="fw-bold" Style="letter-spacing: -0.5px;">Incoming Payments</MudText>
-                    <MudText Typo="Typo.body2" Color="Color.Secondary">Review incoming receipts and applied invoices</MudText>
+                    <h2>Incoming Payments</h2>
+                    <p>Review incoming receipts and applied invoices</p>
                 </div>
             </div>
-        </div>
-
-        <div class="filter-panel">
-            <div class="filter-panel-header">
-                <MudIcon Icon="@Icons.Material.Filled.Tune" />
-                <MudText Typo="Typo.subtitle2" Style="color: white; font-weight: 600;">Search & Filter</MudText>
-            </div>
-            <div class="filter-panel-body">
-                <MudGrid Spacing="3">
-                    <MudItem xs="12" md="3">
-                        <MudNumericField T="int?" @bind-Value="docNum" Label="Doc Number" Variant="Variant.Filled"
-                            Margin="Margin.Dense" Placeholder="e.g., 123" Clearable="true"
-                            Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Tag" />
-                    </MudItem>
-                    <MudItem xs="12" md="3">
-                        <MudTextField T="string" @bind-Value="customerCode" Label="Customer Code" Variant="Variant.Filled"
-                            Margin="Margin.Dense" Placeholder="e.g., C001" Clearable="true"
-                            Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Person" />
-                    </MudItem>
-                    <MudItem xs="12" md="2">
-                        <FlexibleDatePicker Label="From Date" @bind-Date="fromDate" Variant="Variant.Filled" Class="w-100" />
-                    </MudItem>
-                    <MudItem xs="12" md="2">
-                        <FlexibleDatePicker Label="To Date" @bind-Date="toDate" Variant="Variant.Filled" Class="w-100" />
-                    </MudItem>
-                    <MudItem xs="12" md="2" Class="d-flex align-items-end gap-2 filter-actions">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Search"
-                            OnClick="ApplyFilter">Search</MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Clear"
-                            OnClick="ClearFilter">Clear</MudButton>
-                    </MudItem>
-                </MudGrid>
+            <div class="pay-header-actions">
+                <a href="/payments/create" class="btn-gradient">
+                    <i class="bi bi-plus-lg"></i> New Payment
+                </a>
             </div>
         </div>
 
-        @if (isLoading)
+        <!-- Alerts -->
+        @if (!string.IsNullOrEmpty(errorMessage))
         {
-            <div class="d-flex flex-column align-items-center py-5">
-                <MudProgressCircular Color="Color.Success" Indeterminate="true" />
-                <MudText Typo="Typo.body2" Class="mt-2">Loading payments...</MudText>
+            <div class="alert-banner @(isTimeoutError ? "warn-alert" : "error-alert")">
+                <i class="bi @(isTimeoutError ? "bi-exclamation-triangle-fill" : "bi-exclamation-octagon-fill")"></i>
+                <div class="alert-body">
+                    @errorMessage
+                    @if (isTimeoutError)
+                    {
+                        <button class="btn-search btn-sm ms-2" style="padding:.3rem .75rem;font-size:.8rem;"
+                                @onclick="RetryLoad">
+                            <i class="bi bi-arrow-clockwise me-1"></i>Retry
+                        </button>
+                    }
+                </div>
+                <button class="alert-close" @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
             </div>
         }
-        else if (errorMessage != null)
+
+        <!-- ━━━ Stat Cards ━━━ -->
+        <div class="stat-row">
+            <div class="stat-card">
+                <div class="stat-icon green"><i class="bi bi-receipt-cutoff"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@(payments?.Count ?? 0)</div>
+                    <div class="stat-label">Payments Loaded</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon blue"><i class="bi bi-cash-coin"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@((payments?.Sum(p => p.DocTotal) ?? 0).ToString("N0"))</div>
+                    <div class="stat-label">Total Amount</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon amber"><i class="bi bi-people-fill"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@(payments?.Select(p => p.CardCode).Distinct().Count() ?? 0)</div>
+                    <div class="stat-label">Unique Customers</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon purple"><i class="bi bi-calendar-range"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@(fromDate.HasValue? fromDate.Value.ToString("dd MMM") : "All")</div>
+                    <div class="stat-label">Date Filter</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ━━━ Filter Bar ━━━ -->
+        <div class="filter-bar">
+            <div class="filter-field">
+                <label>Doc Number</label>
+                <MudNumericField T="int?" @bind-Value="docNum" Placeholder="e.g. 123" Variant="Variant.Outlined"
+                                 Margin="Margin.Dense" Clearable="true" Class="mt-0" />
+            </div>
+            <div class="filter-field">
+                <label>Customer Code</label>
+                <MudTextField T="string" @bind-Value="customerCode" Placeholder="e.g. C001" Variant="Variant.Outlined"
+                              Margin="Margin.Dense" Clearable="true" Class="mt-0" />
+            </div>
+            <div class="filter-field" style="min-width:150px;">
+                <label>From Date</label>
+                <FlexibleDatePicker Label="From" @bind-Date="fromDate" Variant="Variant.Outlined" />
+            </div>
+            <div class="filter-field" style="min-width:150px;">
+                <label>To Date</label>
+                <FlexibleDatePicker Label="To" @bind-Date="toDate" Variant="Variant.Outlined" />
+            </div>
+            <div class="filter-actions-row">
+                <button class="btn-search" @onclick="ApplyFilter" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-search"></i>
+                    }
+                    Search
+                </button>
+                <button class="btn-clear" @onclick="ClearFilter"><i class="bi bi-x-lg"></i> Clear</button>
+            </div>
+        </div>
+
+        <!-- ━━━ Table ━━━ -->
+        @if (isLoading)
         {
-            <MudAlert Severity="@(isTimeoutError ? Severity.Warning : Severity.Error)" Class="mb-4">
-                @errorMessage
-                @if (isTimeoutError)
-                {
-                    <MudButton Variant="Variant.Text" Color="Color.Warning" Size="Size.Small" Class="ms-3"
-                        StartIcon="@Icons.Material.Filled.Refresh" OnClick="RetryLoad">Try Again</MudButton>
-                }
-            </MudAlert>
+            <div class="empty-state">
+                <div class="spinner-border text-success" role="status" style="width:2.5rem;height:2.5rem;"></div>
+                <p class="mt-3 text-muted">Loading payments…</p>
+            </div>
         }
         else if (payments?.Any() == true)
         {
-            <div class="card page-card">
-                <div class="card-body p-4">
-                    <MudTable Items="@payments" Dense="true" Hover="true" Striped="true" T="IncomingPaymentDto">
-                        <ToolBarContent>
-                            <MudText Typo="Typo.h6">Incoming Payments</MudText>
-                            <MudSpacer />
-                        </ToolBarContent>
-                        <HeaderContent>
-                            <MudTh>Doc Entry</MudTh>
-                            <MudTh>Doc #</MudTh>
-                            <MudTh>Customer</MudTh>
-                            <MudTh>Date</MudTh>
-                            <MudTh>Currency</MudTh>
-                            <MudTh Style="text-align:right">Cash</MudTh>
-                            <MudTh Style="text-align:right">Check</MudTh>
-                            <MudTh Style="text-align:right">Transfer</MudTh>
-                            <MudTh Style="text-align:right">Credit</MudTh>
-                            <MudTh Style="text-align:right">Total</MudTh>
-                            <MudTh>Actions</MudTh>
-                        </HeaderContent>
-                        <RowTemplate>
-                            <MudTd DataLabel="Doc Entry">@context.DocEntry</MudTd>
-                            <MudTd DataLabel="Doc #"><strong>@context.DocNum</strong></MudTd>
-                            <MudTd DataLabel="Customer">
-                                <MudChip T="string" Color="Color.Default" Size="Size.Small">@context.CardCode</MudChip>
-                                @context.CardName
-                            </MudTd>
-                            <MudTd DataLabel="Date">@FormatDate(context.DocDate)</MudTd>
-                            <MudTd DataLabel="Currency">@context.DocCurrency</MudTd>
-                            <MudTd DataLabel="Cash" Style="text-align:right">@FormatAmount(context.CashSum)</MudTd>
-                            <MudTd DataLabel="Check" Style="text-align:right">@FormatAmount(context.CheckSum)</MudTd>
-                            <MudTd DataLabel="Transfer" Style="text-align:right">@FormatAmount(context.TransferSum)</MudTd>
-                            <MudTd DataLabel="Credit" Style="text-align:right">@FormatAmount(context.CreditSum)</MudTd>
-                            <MudTd DataLabel="Total" Style="text-align:right">
-                                <strong class="text-success">@context.DocTotal.ToString("N2")</strong>
-                            </MudTd>
-                            <MudTd DataLabel="Actions">
-                                <MudIconButton Icon="@Icons.Material.Filled.Visibility" Color="Color.Success" Size="Size.Small"
-                                    OnClick="@(() => ViewPayment(context))" Title="View payment details" />
-                            </MudTd>
-                        </RowTemplate>
-                        <PagerContent>
-                            <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
-                        </PagerContent>
-                    </MudTable>
-                </div>
-            </div>
-        }
-        else
-        {
-            <MudAlert Severity="Severity.Info" Class="mb-4">No payments found.</MudAlert>
-        }
-    </div>
-</div>
-
-<!-- Payment Detail Modal -->
-@if (selectedPayment != null)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header bg-success text-white">
-                    <h5 class="modal-title">Payment #@selectedPayment.DocNum</h5>
-                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="row mb-4">
-                        <div class="col-md-6">
-                            <h6 class="text-muted">Customer Information</h6>
-                            <p class="mb-1"><strong>Customer:</strong> @selectedPayment.CardName</p>
-                            <p class="mb-1"><strong>Code:</strong> @selectedPayment.CardCode</p>
-                        </div>
-                        <div class="col-md-6">
-                            <h6 class="text-muted">Payment Information</h6>
-                            <p class="mb-1"><strong>Date:</strong> @FormatDate(selectedPayment.DocDate)</p>
-                            <p class="mb-1"><strong>Due Date:</strong> @FormatDate(selectedPayment.DocDueDate)</p>
-                            <p class="mb-1"><strong>Currency:</strong> @selectedPayment.DocCurrency</p>
-                        </div>
-                    </div>
-
-                    <div class="row mb-4">
-                        <div class="col-12">
-                            <h6 class="text-muted">Payment Breakdown</h6>
-                            <div class="row g-3">
-                                <div class="col-md-3">
-                                    <div class="card bg-light">
-                                        <div class="card-body text-center">
-                                            <i class="bi bi-cash fs-4 text-success"></i>
-                                            <p class="mb-0 small text-muted">Cash</p>
-                                            <p class="mb-0 fw-bold">@selectedPayment.CashSum.ToString("N2")</p>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="card bg-light">
-                                        <div class="card-body text-center">
-                                            <i class="bi bi-journal-check fs-4 text-primary"></i>
-                                            <p class="mb-0 small text-muted">Check</p>
-                                            <p class="mb-0 fw-bold">@selectedPayment.CheckSum.ToString("N2")</p>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="card bg-light">
-                                        <div class="card-body text-center">
-                                            <i class="bi bi-bank fs-4 text-info"></i>
-                                            <p class="mb-0 small text-muted">Transfer</p>
-                                            <p class="mb-0 fw-bold">@selectedPayment.TransferSum.ToString("N2")</p>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="card bg-light">
-                                        <div class="card-body text-center">
-                                            <i class="bi bi-credit-card fs-4 text-warning"></i>
-                                            <p class="mb-0 small text-muted">Credit Card</p>
-                                            <p class="mb-0 fw-bold">@selectedPayment.CreditSum.ToString("N2")</p>
-                                        </div>
-                                    </div>
-                                </div>
+            <div class="pay-table-wrap">
+                <MudTable @ref="_paymentsTable" Items="@payments" RowsPerPage="10" Hover="true" Dense="true"
+                          Breakpoint="Breakpoint.Sm" LoadingProgressColor="Color.Success"
+                          Filter="new Func<IncomingPaymentDto, bool>(PaymentQuickFilter)" Elevation="0">
+                    <ToolBarContent>
+                        <MudText Typo="Typo.subtitle1" Style="font-weight:600; color:#1a1a2e;">
+                            <i class="bi bi-list-ul me-1"></i> @payments.Count payment(s)
+                        </MudText>
+                        <MudSpacer />
+                        <MudTextField @bind-Value="_searchString" Placeholder="Quick filter…" Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
+                    </ToolBarContent>
+                    <HeaderContent>
+                        <MudTh>Doc #</MudTh>
+                        <MudTh>Customer</MudTh>
+                        <MudTh>Date</MudTh>
+                        <MudTh>Method</MudTh>
+                        <MudTh Style="text-align:right">Total</MudTh>
+                        <MudTh Style="width:60px;text-align:center;">View</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Doc #"><strong style="color:#059669;">#@context.DocNum</strong></MudTd>
+                        <MudTd DataLabel="Customer">
+                            <div>
+                                <span class="fw-semibold" style="font-size:.88rem;">@context.CardName</span>
+                                <br /><small class="text-muted">@context.CardCode</small>
                             </div>
-                        </div>
-                    </div>
-
-                    @if (!string.IsNullOrEmpty(selectedPayment.TransferReference))
-                    {
-                        <div class="mb-4">
-                            <h6 class="text-muted">Transfer Details</h6>
-                            <p class="mb-1"><strong>Reference:</strong> @selectedPayment.TransferReference</p>
-                            <p class="mb-1"><strong>Account:</strong> @selectedPayment.TransferAccount</p>
-                            <p class="mb-0"><strong>Date:</strong> @FormatDate(selectedPayment.TransferDate)</p>
-                        </div>
-                    }
-
-                    @if (selectedPayment.PaymentInvoices?.Any() == true)
-                    {
-                        <h6 class="text-muted">Applied to Invoices</h6>
-                        <div class="table-responsive">
-                            <table class="table table-sm">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>#</th>
-                                        <th>Invoice Doc Entry</th>
-                                        <th>Type</th>
-                                        <th class="text-end">Amount Applied</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var invoice in selectedPayment.PaymentInvoices)
-                                    {
-                                        <tr>
-                                            <td>@invoice.LineNum</td>
-                                            <td>@invoice.DocEntry</td>
-                                            <td>@invoice.InvoiceType</td>
-                                            <td class="text-end">@FormatAppliedAmount(invoice)</td>
-                                        </tr>
+                        </MudTd>
+                        <MudTd DataLabel="Date">@FormatDate(context.DocDate)</MudTd>
+                        <MudTd DataLabel="Method">
+                            @if (context.CashSum > 0)
+                            {
+                                <span class="method-badge cash"><i class="bi bi-cash"></i>
+                                    @context.CashSum.ToString("N0")</span>
+                                }
+                                @if (context.TransferSum > 0)
+                                {
+                                    <span class="method-badge transfer"><i class="bi bi-bank"></i>
+                                        @context.TransferSum.ToString("N0")</span>
                                     }
-                                </tbody>
-                            </table>
-                        </div>
-                    }
-
-                    @if (!string.IsNullOrEmpty(selectedPayment.Remarks))
-                    {
-                        <div class="mt-3">
-                            <h6 class="text-muted">Remarks</h6>
-                            <p class="mb-0">@selectedPayment.Remarks</p>
-                        </div>
-                    }
-
-                    <div class="mt-4 p-3 bg-success bg-opacity-10 rounded">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span class="fs-5">Total Payment:</span>
-                            <strong class="fs-4 text-success">@selectedPayment.DocCurrency
-                                @selectedPayment.DocTotal.ToString("N2")</strong>
+                                    @if (context.CheckSum > 0)
+                                    {
+                                        <span class="method-badge check"><i
+                                            class="bi bi-journal-check"></i> @context.CheckSum.ToString("N0")</span>
+                                        }
+                                        @if (context.CreditSum > 0)
+                                        {
+                                            <span class="method-badge credit"><i
+                                                class="bi bi-credit-card"></i> @context.CreditSum.ToString("N0")</span>
+                                            }
+                                        </MudTd>
+                                        <MudTd DataLabel="Total" Style="text-align:right">
+                                            <span class="amount-total">@context.DocCurrency @context.DocTotal.ToString("N2")</span>
+                                        </MudTd>
+                                        <MudTd DataLabel="View" Style="text-align:center;">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Color="Color.Success"
+                                                           OnClick="() => ViewPayment(context)" />
+                                        </MudTd>
+                                    </RowTemplate>
+                                    <PagerContent>
+                                        <MudPagination SelectedChanged="PageChanged"
+                                                       Count="@((_paymentsTable.GetFilteredItemsCount() + _paymentsTable.RowsPerPage - 1) / _paymentsTable.RowsPerPage)"
+                                                       Class="pa-4" />
+                                    </PagerContent>
+                                </MudTable>
                             </div>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" @onclick="CloseModal">Close</button>
+                        }
+        else if (!isLoading)
+                        {
+                            <div class="empty-state">
+                                <div class="empty-icon"><i class="bi bi-inbox"></i></div>
+                                <h6>No Payments Found</h6>
+                                <p>No incoming payments match your filters. Try adjusting your search criteria.</p>
+                                <a href="/payments/create" class="btn-gradient"><i class="bi bi-plus-lg"></i> Create Payment</a>
+                            </div>
+                        }
                     </div>
                 </div>
-            </div>
-        </div>
-    }
+
+                <!-- ━━━ Payment Detail Drawer ━━━ -->
+                @if (selectedPayment != null)
+                {
+                    <div class="modal-backdrop-custom" @onclick="CloseModal"></div>
+                    <div class="detail-drawer">
+                        <div class="drawer-header">
+                            <h5><i class="bi bi-receipt me-2"></i>Payment #@selectedPayment.DocNum</h5>
+                            <button class="btn-close-drawer" @onclick="CloseModal"><i class="bi bi-x-lg"></i></button>
+                        </div>
+                        <div class="drawer-body">
+                            <!-- Details Grid -->
+                            <div class="detail-grid">
+                                <div class="detail-item">
+                                    <div class="detail-label">Customer</div>
+                                    <div class="detail-value">@selectedPayment.CardName</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Code</div>
+                                    <div class="detail-value">@selectedPayment.CardCode</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Document Date</div>
+                                    <div class="detail-value">@FormatDate(selectedPayment.DocDate)</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Due Date</div>
+                                    <div class="detail-value">@FormatDate(selectedPayment.DocDueDate)</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Doc Entry</div>
+                                    <div class="detail-value">@selectedPayment.DocEntry</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Currency</div>
+                                    <div class="detail-value">@selectedPayment.DocCurrency</div>
+                                </div>
+                            </div>
+
+                            <!-- Payment Breakdown -->
+                            <div class="detail-section-title"><i class="bi bi-pie-chart-fill text-success"></i> Payment Breakdown</div>
+                            <div class="row g-2 mb-4">
+                                <div class="col-6 col-md-3">
+                                    <div class="breakdown-card">
+                                        <div class="bc-icon text-success"><i class="bi bi-cash"></i></div>
+                                        <div class="bc-label">Cash</div>
+                                        <div class="bc-value">@selectedPayment.CashSum.ToString("N2")</div>
+                                    </div>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <div class="breakdown-card">
+                                        <div class="bc-icon text-primary"><i class="bi bi-bank"></i></div>
+                                        <div class="bc-label">Transfer</div>
+                                        <div class="bc-value">@selectedPayment.TransferSum.ToString("N2")</div>
+                                    </div>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <div class="breakdown-card">
+                                        <div class="bc-icon text-warning"><i class="bi bi-journal-check"></i></div>
+                                        <div class="bc-label">Check</div>
+                                        <div class="bc-value">@selectedPayment.CheckSum.ToString("N2")</div>
+                                    </div>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <div class="breakdown-card">
+                                        <div class="bc-icon text-purple" style="color:#7c3aed;"><i class="bi bi-credit-card"></i></div>
+                                        <div class="bc-label">Credit</div>
+                                        <div class="bc-value">@selectedPayment.CreditSum.ToString("N2")</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            @if (!string.IsNullOrEmpty(selectedPayment.TransferReference))
+                            {
+                                <div class="detail-section-title"><i class="bi bi-bank text-primary"></i> Transfer Details</div>
+                                <div class="detail-grid mb-4">
+                                    <div class="detail-item">
+                                        <div class="detail-label">Reference</div>
+                                        <div class="detail-value">@selectedPayment.TransferReference</div>
+                                    </div>
+                                    <div class="detail-item">
+                                        <div class="detail-label">Account</div>
+                                        <div class="detail-value">@(selectedPayment.TransferAccount ?? "—")</div>
+                                    </div>
+                                    <div class="detail-item">
+                                        <div class="detail-label">Transfer Date</div>
+                                        <div class="detail-value">@FormatDate(selectedPayment.TransferDate)</div>
+                                    </div>
+                                </div>
+                            }
+
+                            @if (selectedPayment.PaymentInvoices?.Any() == true)
+                            {
+                                <div class="detail-section-title"><i class="bi bi-receipt text-amber" style="color:#d97706;"></i> Applied
+                                    Invoices</div>
+                                    <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; margin-bottom:1rem;">
+                                        <table class="invoice-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>#</th>
+                                                    <th>Doc Entry</th>
+                                                    <th>Type</th>
+                                                    <th style="text-align:right;">Applied</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var invoice in selectedPayment.PaymentInvoices)
+                                                {
+                                                    <tr>
+                                                        <td>@invoice.LineNum</td>
+                                                        <td><strong>@invoice.DocEntry</strong></td>
+                                                        <td>@invoice.InvoiceType</td>
+                                                        <td style="text-align:right; font-weight:600;">@FormatAppliedAmount(invoice)</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+
+                                @if (!string.IsNullOrEmpty(selectedPayment.Remarks))
+                                {
+                                    <div class="detail-section-title"><i class="bi bi-chat-left-text text-muted"></i> Remarks</div>
+                                    <div
+                                        style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:.75rem 1rem; font-size:.88rem; color:#374151; margin-bottom:1rem;">
+                                        @selectedPayment.Remarks
+                                    </div>
+                                }
+
+                                <!-- Total Banner -->
+                                <div class="total-banner">
+                                    <span class="total-label">Total Payment</span>
+                                    <span class="total-value">@selectedPayment.DocCurrency @selectedPayment.DocTotal.ToString("N2")</span>
+                                </div>
+                            </div>
+                            <div class="drawer-footer">
+                                <button class="btn-clear" @onclick="CloseModal"><i class="bi bi-x-lg me-1"></i>Close</button>
+                            </div>
+                        </div>
+                    }
 
 @code {
     private List<IncomingPaymentDto>? payments;
@@ -274,6 +930,25 @@
     private string? customerCode;
     private DateTime? fromDate;
     private DateTime? toDate;
+
+    private MudTable<IncomingPaymentDto>? _paymentsTable;
+    private string _searchString = string.Empty;
+
+    private bool PaymentQuickFilter(IncomingPaymentDto p)
+    {
+        if (string.IsNullOrWhiteSpace(_searchString)) return true;
+        var q = _searchString.Trim();
+        if (p.DocNum.ToString().Contains(q, StringComparison.OrdinalIgnoreCase)) return true;
+        if (p.CardCode?.Contains(q, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (p.CardName?.Contains(q, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (p.DocTotal.ToString("N2").Contains(q)) return true;
+        return false;
+    }
+
+    private void PageChanged(int i)
+    {
+        _paymentsTable.NavigateTo(i - 1);
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -312,7 +987,8 @@
         catch (HttpRequestException ex)
         {
             Logger.LogError(ex, "Payments page: HTTP error loading payments");
-            if (ex.Message.Contains("502") || ex.Message.Contains("503") || ex.Message.Contains("504") || ex.Message.Contains("Gateway"))
+            if (ex.Message.Contains("502") || ex.Message.Contains("503") || ex.Message.Contains("504") ||
+            ex.Message.Contains("Gateway"))
             {
                 errorMessage = "Gateway error - the API or SAP server is not responding. Please try again in a moment.";
                 isTimeoutError = true;
@@ -330,7 +1006,7 @@
         {
             Logger.LogError(ex, "Payments page: Error loading payments");
             if (ex.Message.Contains("504") || ex.Message.Contains("Gateway") || ex.Message.Contains("timeout",
-StringComparison.OrdinalIgnoreCase))
+            StringComparison.OrdinalIgnoreCase))
             {
                 errorMessage = "Gateway timeout - the server took too long to respond. Please try again.";
                 isTimeoutError = true;
@@ -402,7 +1078,7 @@ StringComparison.OrdinalIgnoreCase))
         catch (Exception ex)
         {
             if (ex.Message.Contains("504") || ex.Message.Contains("Gateway") || ex.Message.Contains("timeout",
-StringComparison.OrdinalIgnoreCase))
+            StringComparison.OrdinalIgnoreCase))
             {
                 errorMessage = "Gateway timeout - the server took too long to respond. Please try again.";
                 isTimeoutError = true;

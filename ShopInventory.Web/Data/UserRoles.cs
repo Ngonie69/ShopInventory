@@ -6,24 +6,37 @@ namespace ShopInventory.Web.Data;
 public static class UserRoles
 {
     /// <summary>
-    /// Administrator with full access to all features
+    /// Administrator with full access to all features. Only role that can create and manage users.
     /// </summary>
     public const string Admin = "Admin";
 
     /// <summary>
-    /// Sales person with access to invoices, payments, and product views
+    /// Cashier with access to incoming payments, invoicing, and sales orders
     /// </summary>
-    public const string SalesPerson = "SalesPerson";
+    public const string Cashier = "Cashier";
 
     /// <summary>
-    /// ADR role with limited access
+    /// Stock Controller with access to inventory transfers only
     /// </summary>
-    public const string ADR = "ADR";
+    public const string StockController = "StockController";
+
+    /// <summary>
+    /// Depot Controller with access to incoming payments and inventory transfers
+    /// </summary>
+    public const string DepotController = "DepotController";
+
+    /// <summary>
+    /// Comma-separated role strings for use in [Authorize(Roles = "...")] attributes
+    /// </summary>
+    public const string InvoicingRoles = "Admin,Cashier";
+    public const string PaymentRoles = "Admin,Cashier,DepotController";
+    public const string InventoryTransferRoles = "Admin,StockController,DepotController";
+    public const string SalesOrderRoles = "Admin,Cashier";
 
     /// <summary>
     /// Get all available roles
     /// </summary>
-    public static IReadOnlyList<string> AllRoles => new[] { Admin, SalesPerson, ADR };
+    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController };
 
     /// <summary>
     /// Check if a role has admin privileges
@@ -32,25 +45,34 @@ public static class UserRoles
         string.Equals(role, Admin, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Check if a role can create invoices
+    /// Check if a role can view/create invoices and credit notes
     /// </summary>
     public static bool CanCreateInvoices(string role) =>
         IsAdmin(role) ||
-        string.Equals(role, SalesPerson, StringComparison.OrdinalIgnoreCase);
+        string.Equals(role, Cashier, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Check if a role can view payments
     /// </summary>
     public static bool CanViewPayments(string role) =>
         IsAdmin(role) ||
-        string.Equals(role, SalesPerson, StringComparison.OrdinalIgnoreCase);
+        string.Equals(role, Cashier, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(role, DepotController, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Check if a role can create payments
     /// </summary>
     public static bool CanCreatePayments(string role) =>
         IsAdmin(role) ||
-        string.Equals(role, SalesPerson, StringComparison.OrdinalIgnoreCase);
+        string.Equals(role, Cashier, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(role, DepotController, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Check if a role can view/create sales orders
+    /// </summary>
+    public static bool CanViewSalesOrders(string role) =>
+        IsAdmin(role) ||
+        string.Equals(role, Cashier, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Check if a role can view settings
@@ -71,6 +93,12 @@ public static class UserRoles
         IsAdmin(role);
 
     /// <summary>
+    /// Check if a role can manage users (create, edit, delete)
+    /// </summary>
+    public static bool CanManageUsers(string role) =>
+        IsAdmin(role);
+
+    /// <summary>
     /// Check if a role can view products
     /// </summary>
     public static bool CanViewProducts(string role) => true;
@@ -85,5 +113,6 @@ public static class UserRoles
     /// </summary>
     public static bool CanViewInventoryTransfers(string role) =>
         IsAdmin(role) ||
-        string.Equals(role, SalesPerson, StringComparison.OrdinalIgnoreCase);
+        string.Equals(role, StockController, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(role, DepotController, StringComparison.OrdinalIgnoreCase);
 }

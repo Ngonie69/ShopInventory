@@ -1,0 +1,732 @@
+@page "/products"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@implements IDisposable
+@inject IProductService ProductService
+@inject IMasterDataCacheService MasterDataCache
+@inject ILogger<Products> Logger
+@rendermode InteractiveServer
+
+<PageTitle>Products - Shop Inventory</PageTitle>
+
+<div class="page-shell">
+    <div class="container-fluid">
+        <!-- Page Header -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div class="d-flex align-items-center gap-3">
+                <div class="page-header-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.Inventory2" />
+                </div>
+                <div>
+                    <MudText Typo="Typo.h4" Class="fw-bold" Style="letter-spacing: -0.5px;">Products</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Browse and search inventory across warehouses</MudText>
+                </div>
+            </div>
+            @if (products?.Any() == true)
+            {
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                    <MudChip T="string" Color="Color.Primary" Size="Size.Small" Icon="@Icons.Material.Filled.Inventory">
+                        @totalProducts products
+                    </MudChip>
+                    @if (productsWithBatches > 0)
+                    {
+                        <MudChip T="string" Color="Color.Info" Size="Size.Small" Icon="@Icons.Material.Filled.Layers">
+                            @productsWithBatches with batches
+                        </MudChip>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Search Card -->
+        <div class="filter-panel">
+            <div class="filter-panel-header">
+                <MudIcon Icon="@Icons.Material.Filled.Tune" />
+                <MudText Typo="Typo.subtitle2" Style="color: white; font-weight: 600;">Search & Filter</MudText>
+            </div>
+            <div class="filter-panel-body">
+                <MudGrid Spacing="3">
+                    <MudItem xs="12" md="4">
+                        <MudText Typo="Typo.body2" Class="fw-semibold mb-1">Warehouse <span class="text-danger">*</span></MudText>
+                        @if (isLoadingWarehouses)
+                        {
+                            <div class="d-flex align-items-center py-2">
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" Class="me-2" />
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">Loading warehouses...</MudText>
+                            </div>
+                        }
+                        else
+                        {
+                            <MudAutocomplete T="WarehouseDto" @bind-Value="selectedWarehouse" Label="Search warehouse..."
+                                             SearchFunc="SearchWarehousesAsync"
+                                             ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
+                                             Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense" ResetValueOnEmptyText="true"
+                                             ShowProgressIndicator="true" MaxItems="20" DebounceInterval="150" Class="mt-0">
+                                <ItemTemplate>
+                                    <div class="d-flex flex-column">
+                                        <span class="fw-semibold">@context.WarehouseCode</span>
+                                        <small class="text-muted">@context.WarehouseName</small>
+                                    </div>
+                                </ItemTemplate>
+                                <NoItemsTemplate>
+                                    <div class="p-2 text-muted">
+                                        <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Class="me-1" />No warehouses found
+                                    </div>
+                                </NoItemsTemplate>
+                            </MudAutocomplete>
+                        }
+                    </MudItem>
+                    <MudItem xs="12" md="3">
+                        <MudText Typo="Typo.body2" Class="fw-semibold mb-1">Barcode</MudText>
+                        <MudTextField T="string" @bind-Value="barcode" Label="Scan or enter barcode" Variant="Variant.Outlined"
+                                      Margin="Margin.Dense" Clearable="true"
+                                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.QrCodeScanner" />
+                    </MudItem>
+                    <MudItem xs="12" md="5" Class="d-flex align-items-end gap-2 filter-actions">
+                        <MudButton Variant="Variant.Filled" Color="Color.Dark"
+                                   StartIcon="@(isLoading ? null : Icons.Material.Filled.Search)"
+                                   OnClick="SearchProducts" Disabled="@(selectedWarehouse == null || isLoading)"
+                                   Style="min-width: 120px;">
+                            @if (isLoading)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" Color="Color.Inherit" />
+                                <span>Searching...</span>
+                            }
+                            else
+                            {
+                                <span>Search</span>
+                            }
+                        </MudButton>
+                        @if (!string.IsNullOrWhiteSpace(barcode))
+                        {
+                            <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.QrCodeScanner"
+                                       OnClick="SearchByBarcode" Disabled="@(selectedWarehouse == null || isLoading)">
+                                Scan
+                            </MudButton>
+                        }
+                        @if (isLoading)
+                        {
+                            <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Filled.Cancel"
+                                       OnClick="CancelSearch">Cancel</MudButton>
+                        }
+                        else
+                        {
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Clear"
+                                       OnClick="ClearSearch">Clear</MudButton>
+                        }
+                    </MudItem>
+                </MudGrid>
+            </div>
+        </div>
+
+        <!-- Error Message -->
+        @if (errorMessage != null)
+        {
+            <MudAlert Severity="@errorSeverity" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="() => errorMessage = null"
+                      Variant="Variant.Filled" Dense="true" Style="border-radius: 12px;">
+                <div class="d-flex align-items-center justify-content-between">
+                    <span>@errorMessage</span>
+                    @if (errorSeverity == Severity.Error || errorSeverity == Severity.Warning)
+                    {
+                        <MudButton Variant="Variant.Text" Color="Color.Inherit" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.Refresh" OnClick="SearchProducts" Class="ms-3">
+                            Retry
+                        </MudButton>
+                    }
+                </div>
+            </MudAlert>
+        }
+
+        <!-- Loading State -->
+        @if (isLoading)
+        {
+            <MudPaper Class="pa-8 mb-4" Elevation="0" Style="border-radius: 16px; border: 1px solid #e0e0e0;">
+                <div class="d-flex flex-column align-items-center py-5">
+                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" StrokeWidth="3" />
+                    <MudText Typo="Typo.h6" Class="mt-4 fw-semibold">Loading products...</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-1">
+                        Fetching inventory for <strong>@selectedWarehouse?.WarehouseCode</strong>
+                    </MudText>
+                    @if (_loadingElapsedSeconds > 5)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">
+                            This is taking longer than usual (@_loadingElapsedSeconds seconds)...
+                        </MudText>
+                    }
+                    @if (_loadingElapsedSeconds > 15)
+                    {
+                        <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.Cancel" OnClick="CancelSearch" Class="mt-2">
+                            Cancel search
+                        </MudButton>
+                    }
+                </div>
+            </MudPaper>
+        }
+        else if (products?.Any() == true)
+        {
+            <!-- Data Table -->
+            <MudPaper Elevation="0" Class="mb-4" Style="border-radius: 16px; border: 1px solid #e0e0e0; overflow: hidden;">
+                <MudTable Items="@products" Dense="true" Hover="true" Striped="true"
+                          Filter="new Func<ProductDto, bool>(_quickFilter)" OnRowClick="@OnRowClicked" T="ProductDto"
+                          Elevation="0" Style="background: transparent;">
+                    <ToolBarContent>
+                        <div class="d-flex align-items-center">
+                            <MudIcon Icon="@Icons.Material.Filled.Warehouse" Class="me-2" Color="Color.Primary" />
+                            <MudText Typo="Typo.h6" Class="fw-semibold">@selectedWarehouse?.WarehouseCode</MudText>
+                            <MudText Typo="Typo.body2" Class="ms-2 text-muted">@selectedWarehouse?.WarehouseName</MudText>
+                        </div>
+                        <MudSpacer />
+                        <MudTextField @bind-Value="_searchString" Placeholder="Quick filter..." Adornment="Adornment.Start"
+                                      Immediate="true" AdornmentIcon="@Icons.Material.Filled.FilterList" IconSize="Size.Medium"
+                                      Class="mt-0" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      Style="max-width: 280px;" />
+                    </ToolBarContent>
+                    <HeaderContent>
+                        <MudTh><MudTableSortLabel SortBy="new Func<ProductDto, object>(x => x.ItemCode ?? string.Empty)">Item Code</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<ProductDto, object>(x => x.ItemName ?? string.Empty)">Item Name</MudTableSortLabel></MudTh>
+                        <MudTh Style="text-align:right"><MudTableSortLabel SortBy="new Func<ProductDto, object>(x => x.QuantityInStock)">In Stock</MudTableSortLabel></MudTh>
+                        <MudTh Style="text-align:right"><MudTableSortLabel SortBy="new Func<ProductDto, object>(x => x.QuantityAvailable)">Available</MudTableSortLabel></MudTh>
+                        <MudTh Style="text-align:right"><MudTableSortLabel SortBy="new Func<ProductDto, object>(x => x.QuantityCommitted)">Committed</MudTableSortLabel></MudTh>
+                        <MudTh>UoM</MudTh>
+                        <MudTh Style="width: 50px;"></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Item Code">
+                            <span class="fw-semibold" style="color: #1a237e; white-space: nowrap; font-size: 0.85rem;">@context.ItemCode</span>
+                        </MudTd>
+                        <MudTd DataLabel="Item Name">
+                            <span style="font-size: 0.875rem;">@context.ItemName</span>
+                        </MudTd>
+                        <MudTd DataLabel="In Stock" Style="text-align:right">
+                            <span class="fw-medium" style="font-size: 0.875rem;">@FormatQuantity(context.QuantityInStock)</span>
+                        </MudTd>
+                        <MudTd DataLabel="Available" Style="text-align:right">
+                            <MudChip T="string" Size="Size.Small" Color="@(context.QuantityAvailable > 0 ? Color.Success : Color.Default)"
+                                     Variant="Variant.Text" Style="font-weight: 600; font-size: 0.85rem;">
+                                @FormatQuantity(context.QuantityAvailable)
+                            </MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="Committed" Style="text-align:right">
+                            <span style="color: @(context.QuantityCommitted > 0 ? "#e65100" : "#9e9e9e"); font-size: 0.875rem;">
+                                @FormatQuantity(context.QuantityCommitted)
+                            </span>
+                        </MudTd>
+                        <MudTd DataLabel="UoM">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default"
+                                     Style="font-size: 0.75rem;">@context.UoM</MudChip>
+                        </MudTd>
+                        <MudTd>
+                            <MudTooltip Text="View details">
+                                <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" Color="Color.Primary" Size="Size.Small"
+                                               OnClick="@(() => ViewProduct(context))" />
+                            </MudTooltip>
+                        </MudTd>
+                    </RowTemplate>
+                    <PagerContent>
+                        <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+                    </PagerContent>
+                </MudTable>
+            </MudPaper>
+        }
+        else if (_hasSearched && !isLoading)
+        {
+            <!-- Empty State -->
+            <MudPaper Class="pa-8 mb-4" Elevation="0" Style="border-radius: 16px; border: 1px solid #e0e0e0;">
+                <div class="d-flex flex-column align-items-center py-5">
+                    <div style="width: 80px; height: 80px; border-radius: 50%; background: #f5f5f5; display: flex; align-items: center; justify-content: center; margin-bottom: 1rem;">
+                        <MudIcon Icon="@Icons.Material.Filled.Inbox" Style="font-size: 2.5rem; color: #bdbdbd;" />
+                    </div>
+                    <MudText Typo="Typo.h6" Class="fw-semibold" Color="Color.Secondary">No products found</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4 text-center" Style="max-width: 400px;">
+                        No products found in warehouse <strong>@selectedWarehouse?.WarehouseCode</strong>.
+                        Try a different warehouse or check your connection.
+                    </MudText>
+                    <div class="d-flex gap-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh"
+                                   OnClick="SearchProducts" Size="Size.Small">Retry</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Clear"
+                                   OnClick="ClearSearch" Size="Size.Small">Reset</MudButton>
+                    </div>
+                </div>
+            </MudPaper>
+        }
+        else if (!isLoading)
+        {
+            <!-- Initial State -->
+            <MudPaper Class="pa-8 mb-4" Elevation="0" Style="border-radius: 16px; border: 1px dashed #ccc;">
+                <div class="d-flex flex-column align-items-center py-5">
+                    <div style="width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #667eea20, #764ba220); display: flex; align-items: center; justify-content: center; margin-bottom: 1rem;">
+                        <MudIcon Icon="@Icons.Material.Filled.Search" Style="font-size: 2.5rem; color: #667eea;" />
+                    </div>
+                    <MudText Typo="Typo.h6" Class="fw-semibold" Style="color: #424242;">Search Products</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="text-center" Style="max-width: 350px;">
+                        Select a warehouse above and click <strong>Search</strong> to browse inventory.
+                    </MudText>
+                </div>
+            </MudPaper>
+        }
+    </div>
+
+    <!-- Product Detail Dialog -->
+    <MudDialog @bind-Visible="_showProductDialog" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true, NoHeader = true })">
+        <DialogContent>
+            @if (selectedProduct != null)
+            {
+                <div style="background: linear-gradient(135deg, #1a237e 0%, #283593 100%); color: white; padding: 1.5rem; margin: -24px -24px 0; border-radius: 4px 4px 0 0;">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <MudText Typo="Typo.h5" Style="color: white; font-weight: 700;">@selectedProduct.ItemName</MudText>
+                            <div class="d-flex gap-2 align-items-center mt-2 flex-wrap">
+                                <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">
+                                    @selectedProduct.ItemCode
+                                </MudChip>
+                                @if (!string.IsNullOrWhiteSpace(selectedProduct.BarCode))
+                                {
+                                    <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white; font-family: monospace;">
+                                        @selectedProduct.BarCode
+                                    </MudChip>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(selectedProduct.UoM))
+                                {
+                                    <MudChip T="string" Size="Size.Small" Style="background: rgba(255,255,255,0.2); color: white;">
+                                        @selectedProduct.UoM
+                                    </MudChip>
+                                }
+                            </div>
+                        </div>
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CloseModal"
+                                       Style="color: rgba(255,255,255,0.7);" Size="Size.Small" />
+                    </div>
+                </div>
+
+                <div class="pa-4">
+                    <!-- Stock Level Cards -->
+                    <MudGrid Spacing="3" Class="mb-4">
+                        <MudItem xs="4">
+                            <MudPaper Elevation="0" Class="pa-4 text-center" Style="background: #f5f5f5; border-radius: 12px;">
+                                <MudIcon Icon="@Icons.Material.Filled.Archive" Color="Color.Primary" Size="Size.Medium" />
+                                <MudText Typo="Typo.overline" Color="Color.Secondary" Class="mt-1">In Stock</MudText>
+                                <MudText Typo="Typo.h5" Class="fw-bold">@FormatQuantity(selectedProduct.QuantityInStock)</MudText>
+                            </MudPaper>
+                        </MudItem>
+                        <MudItem xs="4">
+                            <MudPaper Elevation="0" Class="pa-4 text-center" Style="background: #e8f5e9; border-radius: 12px;">
+                                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Medium" />
+                                <MudText Typo="Typo.overline" Color="Color.Secondary" Class="mt-1">Available</MudText>
+                                <MudText Typo="Typo.h5" Class="fw-bold" Color="Color.Success">@FormatQuantity(selectedProduct.QuantityAvailable)</MudText>
+                            </MudPaper>
+                        </MudItem>
+                        <MudItem xs="4">
+                            <MudPaper Elevation="0" Class="pa-4 text-center" Style="background: #fff3e0; border-radius: 12px;">
+                                <MudIcon Icon="@Icons.Material.Filled.Schedule" Style="color: #e65100;" Size="Size.Medium" />
+                                <MudText Typo="Typo.overline" Color="Color.Secondary" Class="mt-1">Committed</MudText>
+                                <MudText Typo="Typo.h5" Class="fw-bold" Style="color: #e65100;">@FormatQuantity(selectedProduct.QuantityCommitted)</MudText>
+                            </MudPaper>
+                        </MudItem>
+                    </MudGrid>
+
+                    @if (selectedProduct.ManagesBatches && selectedProduct.Batches?.Any() == true)
+                    {
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <MudText Typo="Typo.subtitle1" Class="fw-semibold" Style="color: #1a237e;">
+                                <MudIcon Icon="@Icons.Material.Filled.Layers" Size="Size.Small" Class="me-1" />
+                                Batch Information
+                            </MudText>
+                            <MudChip T="string" Size="Size.Small" Color="Color.Info">@selectedProduct.Batches.Count batches</MudChip>
+                        </div>
+
+                        <MudSimpleTable Dense="true" Hover="true" Striped="true" Style="border-radius: 10px; overflow: hidden; border: 1px solid #e9ecef;">
+                            <thead style="background: #f8f9fa;">
+                                <tr>
+                                    <th class="fw-semibold" style="font-size: 0.8rem;">Batch #</th>
+                                    <th class="fw-semibold text-end" style="font-size: 0.8rem;">Quantity</th>
+                                    <th class="fw-semibold" style="font-size: 0.8rem;">Status</th>
+                                    <th class="fw-semibold" style="font-size: 0.8rem;">Expiry</th>
+                                    <th class="fw-semibold" style="font-size: 0.8rem;">Manufacturing</th>
+                                    <th class="fw-semibold" style="font-size: 0.8rem;">Location</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var batch in selectedProduct.Batches)
+                                {
+                                    <tr>
+                                        <td><strong style="color: #1a237e;">@batch.BatchNumber</strong></td>
+                                        <td class="text-end fw-medium">@batch.Quantity</td>
+                                        <td>
+                                            <MudChip T="string" Size="Size.Small" Color="@GetBatchStatusColor(batch.Status)"
+                                                     Variant="Variant.Filled" Style="font-size: 0.75rem;">@batch.Status</MudChip>
+                                        </td>
+                                        <td class="text-muted">@batch.ExpiryDate</td>
+                                        <td class="text-muted">@batch.ManufacturingDate</td>
+                                        <td class="text-muted">@batch.Location</td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr style="background: #e8eaf6;">
+                                    <td class="fw-bold" style="color: #1a237e;">Total</td>
+                                    <td class="text-end fw-bold" style="color: #1a237e;">@selectedProduct.Batches.Sum(b => b.Quantity)</td>
+                                    <td colspan="4"></td>
+                                </tr>
+                            </tfoot>
+                        </MudSimpleTable>
+                    }
+                    else if (selectedProduct.ManagesBatches)
+                    {
+                        <MudPaper Elevation="0" Class="pa-4 text-center" Style="background: #f8f9fa; border-radius: 10px;">
+                            <MudIcon Icon="@Icons.Material.Filled.Layers" Color="Color.Secondary" Size="Size.Large" />
+                            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">
+                                This product manages batches, but no batches were found.
+                            </MudText>
+                        </MudPaper>
+                    }
+                </div>
+            }
+        </DialogContent>
+    </MudDialog>
+</div>
+
+@code {
+    private List<ProductDto>? products;
+    private ProductDto? selectedProduct;
+    private bool isLoading = false;
+    private string? errorMessage;
+    private Severity errorSeverity = Severity.Error;
+    private int currentPage = 1;
+    private int pageSize = 20;
+    private bool hasMore = false;
+    private int totalProducts = 0;
+    private int totalPages => pageSize > 0 ? (int)Math.Ceiling((double)totalProducts / pageSize) : 1;
+    private int productsWithBatches = 0;
+    private bool _hasSearched = false;
+
+    private string? barcode;
+    private string _searchString = string.Empty;
+
+    // Warehouse selection
+    private List<WarehouseDto> warehouses = new();
+    private WarehouseDto? selectedWarehouse;
+    private bool isLoadingWarehouses = true;
+    private bool _hasLoadedData = false;
+
+    // Cancellation & timing
+    private CancellationTokenSource? _searchCts;
+    private int _loadingElapsedSeconds = 0;
+    private System.Threading.Timer? _loadingTimer;
+
+    // Product detail dialog
+    private bool _showProductDialog = false;
+
+    // Quick filter
+    private Func<ProductDto, bool> _quickFilter => x =>
+    {
+        if (string.IsNullOrWhiteSpace(_searchString))
+            return true;
+
+        if (x.ItemCode?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.ItemName?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.BarCode?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.ItemType?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        if (x.UoM?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        return false;
+    };
+
+    private void OnRowClicked(TableRowClickEventArgs<ProductDto> args)
+    {
+        ViewProduct(args.Item);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_hasLoadedData)
+        {
+            Logger.LogInformation("Products page: OnAfterRenderAsync - firstRender, starting data load");
+            _hasLoadedData = true;
+            await LoadWarehousesAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadWarehousesAsync()
+    {
+        Logger.LogInformation("Products page: LoadWarehousesAsync started");
+        isLoadingWarehouses = true;
+        try
+        {
+            warehouses = await MasterDataCache.GetWarehousesAsync();
+            Logger.LogInformation("Products page: Loaded {Count} warehouses", warehouses?.Count ?? 0);
+
+            if (warehouses?.Any() == true)
+            {
+                var defaultWarehouse = warehouses.FirstOrDefault(w => w.WarehouseCode == "01")
+                    ?? warehouses.First();
+                selectedWarehouse = defaultWarehouse;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Products page: Failed to load warehouses");
+            errorMessage = $"Failed to load warehouses: {ex.Message}";
+            errorSeverity = Severity.Error;
+        }
+        finally
+        {
+            isLoadingWarehouses = false;
+        }
+    }
+
+    private async Task<IEnumerable<WarehouseDto>> SearchWarehousesAsync(string searchText, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+            return warehouses.Take(20);
+
+        return warehouses
+            .Where(w =>
+                (w.WarehouseCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (w.WarehouseName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
+            .Take(20);
+    }
+
+    private void StartLoadingTimer()
+    {
+        _loadingElapsedSeconds = 0;
+        _loadingTimer?.Dispose();
+        _loadingTimer = new System.Threading.Timer(async _ =>
+        {
+            _loadingElapsedSeconds++;
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private void StopLoadingTimer()
+    {
+        _loadingTimer?.Dispose();
+        _loadingTimer = null;
+        _loadingElapsedSeconds = 0;
+    }
+
+    private void CancelSearch()
+    {
+        _searchCts?.Cancel();
+        isLoading = false;
+        StopLoadingTimer();
+        errorMessage = "Search was cancelled.";
+        errorSeverity = Severity.Info;
+    }
+
+    private async Task SearchProducts()
+    {
+        if (selectedWarehouse == null)
+            return;
+
+        // Cancel any previous search
+        _searchCts?.Cancel();
+        _searchCts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+
+        isLoading = true;
+        _hasSearched = true;
+        errorMessage = null;
+        StartLoadingTimer();
+
+        try
+        {
+            // Load ALL products for the warehouse — MudTable handles client-side pagination
+            var response = await ProductService.GetProductsInWarehouseAsync(
+                selectedWarehouse.WarehouseCode!);
+
+            _searchCts?.Token.ThrowIfCancellationRequested();
+
+            if (response?.Products != null && response.Products.Any())
+            {
+                products = response.Products;
+                totalProducts = response.TotalProducts;
+                productsWithBatches = products.Count(p => p.ManagesBatches);
+                hasMore = false;
+            }
+            else if (response != null)
+            {
+                products = new List<ProductDto>();
+                totalProducts = 0;
+                productsWithBatches = 0;
+            }
+            else
+            {
+                products = new List<ProductDto>();
+                totalProducts = 0;
+                errorMessage = "No data returned. The warehouse may be empty or the server may be unavailable. Try again.";
+                errorSeverity = Severity.Warning;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            products = null;
+            errorMessage = "Search timed out. The server is taking too long to respond. Please try again.";
+            errorSeverity = Severity.Warning;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error searching products in warehouse {WarehouseCode}", selectedWarehouse.WarehouseCode);
+            products = null;
+            errorMessage = $"Failed to load products: {ex.Message}";
+            errorSeverity = Severity.Error;
+        }
+        finally
+        {
+            isLoading = false;
+            StopLoadingTimer();
+        }
+    }
+
+    private async Task SearchByBarcode()
+    {
+        if (selectedWarehouse == null || string.IsNullOrWhiteSpace(barcode))
+            return;
+
+        _searchCts?.Cancel();
+        _searchCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+
+        isLoading = true;
+        _hasSearched = true;
+        errorMessage = null;
+        StartLoadingTimer();
+
+        try
+        {
+            var product = await ProductService.SearchProductByBarcodeAsync(barcode, selectedWarehouse.WarehouseCode!);
+
+            _searchCts?.Token.ThrowIfCancellationRequested();
+
+            if (product != null)
+            {
+                products = new List<ProductDto> { product };
+                totalProducts = 1;
+                productsWithBatches = product.ManagesBatches ? 1 : 0;
+                hasMore = false;
+            }
+            else
+            {
+                products = new List<ProductDto>();
+                errorMessage = $"No product found with barcode \"{barcode}\" in warehouse {selectedWarehouse.WarehouseCode}.";
+                errorSeverity = Severity.Warning;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            products = null;
+            errorMessage = "Barcode search timed out. Please try again.";
+            errorSeverity = Severity.Warning;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error searching barcode {Barcode}", barcode);
+            errorMessage = $"Error: {ex.Message}";
+            errorSeverity = Severity.Error;
+        }
+        finally
+        {
+            isLoading = false;
+            StopLoadingTimer();
+        }
+    }
+
+    private void ClearSearch()
+    {
+        _searchCts?.Cancel();
+
+        if (warehouses?.Any() == true)
+        {
+            var defaultWarehouse = warehouses.FirstOrDefault(w => w.WarehouseCode == "01")
+                ?? warehouses.First();
+            selectedWarehouse = defaultWarehouse;
+        }
+        else
+        {
+            selectedWarehouse = null;
+        }
+
+        barcode = null;
+        products = null;
+        currentPage = 1;
+        _hasSearched = false;
+        errorMessage = null;
+        _searchString = string.Empty;
+    }
+
+    private void ViewProduct(ProductDto product)
+    {
+        selectedProduct = product;
+        _showProductDialog = true;
+    }
+
+    private void CloseModal()
+    {
+        selectedProduct = null;
+        _showProductDialog = false;
+    }
+
+    private string FormatQuantity(decimal quantity)
+    {
+        return quantity.ToString("N2");
+    }
+
+    private Color GetBatchStatusColor(string? status)
+    {
+        return status?.ToLower() switch
+        {
+            "released" => Color.Success,
+            "not accessible" => Color.Warning,
+            "locked" => Color.Error,
+            _ => Color.Default
+        };
+    }
+
+    private string GetStatusBadgeClass(string? status)
+    {
+        return status?.ToLower() switch
+        {
+            "released" => "bg-success",
+            "not accessible" => "bg-warning",
+            "locked" => "bg-danger",
+            _ => "bg-secondary"
+        };
+    }
+
+    private async Task OnPageChanged(int page)
+    {
+        if (page != currentPage)
+        {
+            currentPage = page;
+            await SearchProducts();
+        }
+    }
+
+    private async Task OnPageSizeChangedValue(int newPageSize)
+    {
+        pageSize = newPageSize;
+        currentPage = 1;
+        await SearchProducts();
+    }
+
+    private async Task OnPageSizeChanged()
+    {
+        currentPage = 1;
+        await SearchProducts();
+    }
+
+    public void Dispose()
+    {
+        _searchCts?.Dispose();
+        _loadingTimer?.Dispose();
+    }
+}

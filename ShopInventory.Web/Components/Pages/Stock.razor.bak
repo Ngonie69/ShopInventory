@@ -1,0 +1,548 @@
+@page "/stock"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Services
+@using ShopInventory.Web.Models
+@attribute [Authorize]
+@inject IMasterDataCacheService MasterDataCache
+@inject HttpClient Http
+@rendermode InteractiveServer
+
+<PageTitle>Stock Monitoring - Shop Inventory</PageTitle>
+
+<div class="container-fluid fade-in">
+    <div class="page-header d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2>
+                <i class="bi bi-clipboard-data me-2" style="color: var(--primary-color);"></i>
+                Stock Monitoring
+            </h2>
+            <span class="text-muted">Monitor inventory levels, alerts & stock status</span>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-warning" @onclick="ShowLowStockAlerts" disabled="@(stockItems.Count == 0)">
+                <i class="bi bi-exclamation-triangle me-1"></i>
+                Low Stock Alerts (@lowStockCount)
+            </button>
+            <button class="btn btn-outline-secondary" @onclick="RefreshStock" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                }
+                else
+                {
+                    <i class="bi bi-arrow-clockwise me-1"></i>
+                }
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- Quick Stats Overview -->
+    @if (stockItems.Any())
+    {
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <p class="text-muted mb-1 small">Total SKUs</p>
+                                <h3 class="mb-0 text-primary">@totalItems</h3>
+                            </div>
+                            <div class="rounded-circle bg-primary bg-opacity-10 p-3">
+                                <i class="bi bi-box-seam fs-4 text-primary"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <p class="text-muted mb-1 small">Healthy Stock</p>
+                                <h3 class="mb-0 text-success">@inStockCount</h3>
+                            </div>
+                            <div class="rounded-circle bg-success bg-opacity-10 p-3">
+                                <i class="bi bi-check-circle fs-4 text-success"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm h-100 @(lowStockCount > 0 ? "border-warning" : "")">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <p class="text-muted mb-1 small">Low Stock</p>
+                                <h3 class="mb-0 text-warning">@lowStockCount</h3>
+                                @if (lowStockCount > 0)
+                                {
+                                    <small class="text-warning"><i class="bi bi-exclamation-triangle"></i> Needs reorder</small>
+                                }
+                            </div>
+                            <div class="rounded-circle bg-warning bg-opacity-10 p-3">
+                                <i class="bi bi-exclamation-triangle fs-4 text-warning"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm h-100 @(outOfStockCount > 0 ? "border-danger" : "")">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <p class="text-muted mb-1 small">Out of Stock</p>
+                                <h3 class="mb-0 text-danger">@outOfStockCount</h3>
+                                @if (outOfStockCount > 0)
+                                {
+                                    <small class="text-danger"><i class="bi bi-x-circle"></i> Critical</small>
+                                }
+                            </div>
+                            <div class="rounded-circle bg-danger bg-opacity-10 p-3">
+                                <i class="bi bi-x-circle fs-4 text-danger"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Warehouse Selection & Filters -->
+    <div class="card mb-4 border-0 shadow-sm">
+        <div class="card-header bg-transparent border-bottom">
+            <h6 class="mb-0"><i class="bi bi-funnel me-2"></i>Filters</h6>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label fw-semibold">Warehouse *</label>
+                    @if (isLoadingWarehouses)
+                    {
+                        <div class="d-flex align-items-center">
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                            <span class="text-muted">Loading warehouses...</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <select class="form-select" @bind="selectedWarehouseCode">
+                            <option value="">-- Select Warehouse --</option>
+                            @foreach (var warehouse in warehouses)
+                            {
+                                <option value="@warehouse.WarehouseCode">@warehouse.WarehouseCode - @warehouse.WarehouseName
+                                </option>
+                            }
+                        </select>
+                    }
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-semibold">Stock Status</label>
+                    <select class="form-select" @bind="stockFilter">
+                        <option value="all">All Items</option>
+                        <option value="instock">✓ Healthy Stock</option>
+                        <option value="lowstock">⚠ Low Stock</option>
+                        <option value="outofstock">✗ Out of Stock</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-semibold">Low Stock Threshold</label>
+                    <input type="number" class="form-control" @bind="lowStockThreshold" min="1" max="1000" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-semibold">Search Item</label>
+                    <input type="text" class="form-control" @bind="searchTerm" @bind:event="oninput"
+                        placeholder="Code, name or barcode..." @onkeypress="OnSearchKeyPress" />
+                </div>
+                <div class="col-md-2 d-flex align-items-end gap-2">
+                    <button class="btn btn-primary flex-grow-1" @onclick="LoadStock"
+                        disabled="@(string.IsNullOrEmpty(selectedWarehouseCode))">
+                        <i class="bi bi-search me-1"></i>Load
+                    </button>
+                    <button class="btn btn-outline-secondary" @onclick="ClearFilters">
+                        <i class="bi bi-x-circle"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stock Table -->
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading stock data...</p>
+        </div>
+    }
+    else if (errorMessage != null)
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+        </div>
+    }
+    else if (string.IsNullOrEmpty(selectedWarehouseCode))
+    {
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <i class="bi bi-building display-1 text-muted"></i>
+                <h5 class="mt-3 text-muted">Select a Warehouse</h5>
+                <p class="text-muted">Choose a warehouse to view its stock levels</p>
+            </div>
+        </div>
+    }
+    else if (!stockItems.Any())
+    {
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <i class="bi bi-inbox display-1 text-muted"></i>
+                <h5 class="mt-3 text-muted">No stock items found</h5>
+                <p class="text-muted">No items match your search criteria</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-transparent border-bottom d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">
+                    <i class="bi bi-table me-2"></i>Stock Status - @selectedWarehouseCode
+                </h6>
+                <span class="badge bg-secondary">@filteredItems.Count() of @stockItems.Count items</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 40px;">Status</th>
+                                <th>Item Code</th>
+                                <th>Item Name</th>
+                                <th class="text-end">On Hand</th>
+                                <th class="text-end">Committed</th>
+                                <th class="text-end">On Order</th>
+                                <th class="text-end">Available</th>
+                                <th>UoM</th>
+                                <th class="text-center">Health</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in filteredItems)
+                            {
+                                var statusClass = GetStockStatusClass(item);
+                                <tr
+                                    class="@(item.Available <= 0 ? "table-danger" : item.Available < lowStockThreshold ? "table-warning" : "")">
+                                    <td class="text-center">
+                                        @if (item.Available <= 0)
+                                        {
+                                            <i class="bi bi-x-circle-fill text-danger fs-5"></i>
+                                        }
+                                        else if (item.Available < lowStockThreshold)
+                                        {
+                                            <i class="bi bi-exclamation-triangle-fill text-warning fs-5"></i>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-check-circle-fill text-success fs-5"></i>
+                                        }
+                                    </td>
+                                    <td><code class="fw-bold">@item.ItemCode</code></td>
+                                    <td>@item.ItemName</td>
+                                    <td class="text-end font-monospace">@item.InStock.ToString("N0")</td>
+                                    <td class="text-end font-monospace text-warning">@item.Committed.ToString("N0")</td>
+                                    <td class="text-end font-monospace text-info">@item.Ordered.ToString("N0")</td>
+                                    <td class="text-end font-monospace fw-bold @GetAvailableClass(item.Available)">
+                                        @item.Available.ToString("N0")
+                                    </td>
+                                    <td>@item.UoM</td>
+                                    <td class="text-center">
+                                        @{
+                                            var healthPercent = item.InStock > 0 ? Math.Min(100, (item.Available /
+                                            lowStockThreshold) * 100) : 0;
+                                            var healthClass = healthPercent >= 100 ? "bg-success" : healthPercent >= 50 ?
+                                            "bg-warning" : "bg-danger";
+                                        }
+                                        <div class="progress" style="height: 8px; width: 60px;"
+                                            title="@healthPercent.ToString("N0")% healthy">
+                                            <div class="progress-bar @healthClass" style="width: @healthPercent%"></div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pagination -->
+        @if (hasMore || currentPage > 1)
+        {
+            <nav class="mt-4">
+                <ul class="pagination justify-content-center">
+                    <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                        <a class="page-link" href="#" @onclick="PreviousPage" @onclick:preventDefault>Previous</a>
+                    </li>
+                    <li class="page-item active">
+                        <span class="page-link">Page @currentPage</span>
+                    </li>
+                    <li class="page-item @(!hasMore ? "disabled" : "")">
+                        <a class="page-link" href="#" @onclick="NextPage" @onclick:preventDefault>Next</a>
+                    </li>
+                </ul>
+            </nav>
+        }
+    }
+</div>
+
+<!-- Warehouse Details Modal -->
+@if (showWarehouseDetails && selectedWarehouse != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-building me-2"></i>Warehouse Details
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="() => showWarehouseDetails = false"></button>
+                </div>
+                <div class="modal-body">
+                    <table class="table table-sm">
+                        <tr>
+                            <th>Code</th>
+                            <td>@selectedWarehouse.WarehouseCode</td>
+                        </tr>
+                        <tr>
+                            <th>Name</th>
+                            <td>@selectedWarehouse.WarehouseName</td>
+                        </tr>
+                        <tr>
+                            <th>Location</th>
+                            <td>@(selectedWarehouse.Location ?? "-")</td>
+                        </tr>
+                        <tr>
+                            <th>City</th>
+                            <td>@(selectedWarehouse.City ?? "-")</td>
+                        </tr>
+                        <tr>
+                            <th>Country</th>
+                            <td>@(selectedWarehouse.Country ?? "-")</td>
+                        </tr>
+                        <tr>
+                            <th>Status</th>
+                            <td>
+                                @if (selectedWarehouse.IsActive)
+                                {
+                                    <span class="badge bg-success">Active</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary">Inactive</span>
+                                }
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary"
+                        @onclick="() => showWarehouseDetails = false">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<WarehouseDto> warehouses = new();
+    private List<StockQuantityDto> stockItems = new();
+    private WarehouseDto? selectedWarehouse;
+    private string selectedWarehouseCode = "";
+    private string searchTerm = "";
+    private string stockFilter = "all";
+    private bool isLoading = false;
+    private bool isLoadingWarehouses = true;
+    private bool showWarehouseDetails = false;
+    private string? errorMessage;
+    private int currentPage = 1;
+    private int pageSize = 50;
+    private bool hasMore = false;
+    private int lowStockThreshold = 10;
+
+    private int totalItems => stockItems.Count;
+    private int inStockCount => stockItems.Count(i => i.Available > lowStockThreshold);
+    private int lowStockCount => stockItems.Count(i => i.Available > 0 && i.Available <= lowStockThreshold);
+    private int outOfStockCount => stockItems.Count(i => i.Available <= 0);
+
+    private IEnumerable<StockQuantityDto> filteredItems
+    {
+        get
+        {
+            var items = stockItems.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                var term = searchTerm.ToLowerInvariant();
+                items = items.Where(i =>
+                (i.ItemCode?.ToLowerInvariant().Contains(term) ?? false) ||
+                (i.ItemName?.ToLowerInvariant().Contains(term) ?? false) ||
+                (i.BarCode?.ToLowerInvariant().Contains(term) ?? false));
+            }
+
+            return stockFilter switch
+            {
+                "instock" => items.Where(i => i.Available > lowStockThreshold),
+                "lowstock" => items.Where(i => i.Available > 0 && i.Available <= lowStockThreshold),
+                "outofstock" => items.Where(i => i.Available <= 0),
+                _ => items
+            };
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadWarehouses();
+    }
+
+    private async Task LoadWarehouses()
+    {
+        isLoadingWarehouses = true;
+        try
+        {
+            var warehouseList = await MasterDataCache.GetWarehousesAsync();
+            warehouses = warehouseList?.Where(w => w.IsActive).ToList() ?? new();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load warehouses: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingWarehouses = false;
+        }
+    }
+
+    private async Task LoadStock()
+    {
+        if (string.IsNullOrEmpty(selectedWarehouseCode)) return;
+
+        isLoading = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var response = await Http.GetFromJsonAsync<WarehouseStockPagedResponseDto>(
+            $"/api/stock/warehouse/{selectedWarehouseCode}/paged?page={currentPage}&pageSize={pageSize}");
+
+            if (response != null)
+            {
+                stockItems = response.Items ?? new();
+                hasMore = response.HasMore;
+            }
+
+            selectedWarehouse = warehouses.FirstOrDefault(w => w.WarehouseCode == selectedWarehouseCode);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load stock: {ex.Message}";
+            stockItems = new();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task RefreshStock()
+    {
+        currentPage = 1;
+        await LoadStock();
+    }
+
+    private async Task NextPage()
+    {
+        if (hasMore)
+        {
+            currentPage++;
+            await LoadStock();
+        }
+    }
+
+    private async Task PreviousPage()
+    {
+        if (currentPage > 1)
+        {
+            currentPage--;
+            await LoadStock();
+        }
+    }
+
+    private async Task OnSearchKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrEmpty(selectedWarehouseCode))
+        {
+            await LoadStock();
+        }
+    }
+
+    private void ClearFilters()
+    {
+        searchTerm = "";
+        stockFilter = "all";
+        selectedWarehouseCode = "";
+        stockItems = new();
+        currentPage = 1;
+    }
+
+    private void ShowLowStockAlerts()
+    {
+        stockFilter = "lowstock";
+        StateHasChanged();
+    }
+
+    private string GetStockStatusClass(StockQuantityDto item)
+    {
+        if (item.Available <= 0) return "danger";
+        if (item.Available < lowStockThreshold) return "warning";
+        return "success";
+    }
+
+    private string GetAvailableClass(decimal available) => available switch
+    {
+        <= 0 => "text-danger",
+        < 10 => "text-warning",
+        _ => "text-success"
+    };
+
+    // DTOs for API responses (Stock-specific models not in shared models)
+    public class StockQuantityDto
+    {
+        public string? ItemCode { get; set; }
+        public string? ItemName { get; set; }
+        public string? BarCode { get; set; }
+        public string? WarehouseCode { get; set; }
+        public decimal InStock { get; set; }
+        public decimal Committed { get; set; }
+        public decimal Ordered { get; set; }
+        public decimal Available { get; set; }
+        public string? UoM { get; set; }
+    }
+
+    public class WarehouseStockPagedResponseDto
+    {
+        public string? WarehouseCode { get; set; }
+        public int Page { get; set; }
+        public int PageSize { get; set; }
+        public int Count { get; set; }
+        public bool HasMore { get; set; }
+        public DateTime QueryDate { get; set; }
+        public List<StockQuantityDto>? Items { get; set; }
+    }
+}

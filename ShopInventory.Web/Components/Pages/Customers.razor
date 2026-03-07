@@ -4,376 +4,1191 @@
 @inject IBusinessPartnerService BusinessPartnerService
 @inject HttpClient Http
 @inject IJSRuntime JS
+@inject NavigationManager NavigationManager
 @rendermode InteractiveServer
 
 <PageTitle>Customers - Shop Inventory</PageTitle>
 
-<div class="container-fluid">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="bi bi-people me-2"></i>Customers</h2>
-        <div class="d-flex align-items-center gap-2">
-            @if (lastSyncTime.HasValue)
-            {
-                <small class="text-muted me-2">
-                    <i class="bi bi-clock-history me-1"></i>Last sync: @lastSyncTime.Value.ToLocalTime().ToString("g")
-                </small>
-            }
-            <button class="btn btn-outline-secondary btn-sm" @onclick="RefreshFromApi" disabled="@isSyncing">
-                @if (isSyncing)
-                {
-                    <span class="spinner-border spinner-border-sm me-1"></span>
-                    <span>Syncing...</span>
-                }
-                else
-                {
-                    <i class="bi bi-arrow-clockwise me-1"></i>
-                    <span>Refresh</span>
-                }
-            </button>
-            <div class="btn-group">
-                <button class="btn @(selectedType == "C" ? "btn-primary" : "btn-outline-primary")"
-                        @onclick='() => FilterByType("C")'>
-                    Customers
-                </button>
-                <button class="btn @(selectedType == "S" ? "btn-primary" : "btn-outline-primary")"
-                        @onclick='() => FilterByType("S")'>
-                    Suppliers
-                </button>
-                <button class="btn @(selectedType == "" ? "btn-primary" : "btn-outline-primary")"
-                        @onclick='() => FilterByType("")'>
-                    All
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Search -->
-    <div class="card mb-4">
-        <div class="card-body">
-            <div class="row g-3">
-                <div class="col-md-6">
-                    <div class="input-group">
-                        <span class="input-group-text"><i class="bi bi-search"></i></span>
-                        <input type="text" class="form-control" @bind="searchTerm" @bind:event="oninput"
-                               @onkeyup="OnSearchKeyUp" placeholder="Search by code, name, or email..." />
-                        <button class="btn btn-primary" @onclick="SearchCustomers">
-                            Search
-                        </button>
-                        @if (!string.IsNullOrEmpty(searchTerm))
-                        {
-                            <button class="btn btn-outline-secondary" @onclick="ClearSearch">
-                                <i class="bi bi-x-circle"></i>
-                            </button>
-                        }
-                    </div>
-                </div>
-                <div class="col-md-6 text-end">
-                    @if (customers != null)
-                    {
-                        <span class="text-muted">Showing @customers.Count of @totalCount customers</span>
-                    }
-                </div>
-            </div>
-        </div>
-    </div>
-
-    @if (isLoading)
-    {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <p class="mt-2">Loading customers...</p>
-        </div>
+<style>
+    /* ── Page ────────────────────────────────────────── */
+    .cust-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
     }
-    else if (errorMessage != null)
-    {
-        <div class="alert alert-danger">
-            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
-        </div>
+
+    /* ── Header ──────────────────────────────────────── */
+    .cust-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
     }
-    else if (customers?.Any() == true)
-    {
-        <MudTable Items="@customers" Dense="true" Hover="true" Striped="true"
-                  Filter="new Func<BusinessPartnerDto, bool>(_quickFilter)" OnRowClick="@OnCustomerRowClicked"
-                  T="BusinessPartnerDto">
-            <ToolBarContent>
-                <MudText Typo="Typo.h6">Customers</MudText>
-                <MudSpacer />
-                <MudChip T="string" Color="Color.Primary" Size="Size.Small">@totalCount total</MudChip>
-                <MudTextField @bind-Value="_searchString" Placeholder="Search" Adornment="Adornment.Start" Immediate="true"
-                              AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0 ms-4"></MudTextField>
-            </ToolBarContent>
-            <HeaderContent>
-                <MudTh>Code</MudTh>
-                <MudTh>Name</MudTh>
-                <MudTh>Type</MudTh>
-                <MudTh>Contact</MudTh>
-                <MudTh>Location</MudTh>
-                <MudTh>Currency</MudTh>
-                <MudTh Style="text-align:right">Balance</MudTh>
-                <MudTh>Status</MudTh>
-                <MudTh>Actions</MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd DataLabel="Code"><strong>@context.CardCode</strong></MudTd>
-                <MudTd DataLabel="Name">@context.CardName</MudTd>
-                <MudTd DataLabel="Type">
-                    <MudChip T="string" Color="@GetTypeChipColor(context.CardType)" Size="Size.Small">
-                        @GetTypeLabel(context.CardType)
-                    </MudChip>
-                </MudTd>
-                <MudTd DataLabel="Contact">
-                    @if (!string.IsNullOrEmpty(context.Email))
+
+    .cust-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .cust-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .cust-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+        letter-spacing: -.3px;
+    }
+
+    .cust-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: .88rem;
+    }
+
+    .cust-header-actions {
+        display: flex;
+        gap: .5rem;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .btn-cust-outline {
+        background: #fff;
+        color: #374151;
+        border: 1px solid #d1d5db;
+        padding: .45rem 1.1rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .btn-cust-outline:hover {
+        background: #f9fafb;
+        border-color: #9ca3af;
+    }
+
+    .btn-cust-outline:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+    }
+
+    .btn-cust-outline.active {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        border-color: transparent;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
+    }
+
+    .sync-hint {
+        font-size: .78rem;
+        color: #9ca3af;
+        display: flex;
+        align-items: center;
+        gap: .3rem;
+    }
+
+    /* ── Stat Cards ──────────────────────────────────── */
+    .stat-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .stat-card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 1.1rem 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        transition: all .25s ease;
+    }
+
+    .stat-card:hover {
+        box-shadow: 0 4px 14px rgba(0, 0, 0, .08);
+        transform: translateY(-2px);
+    }
+
+    .stat-icon {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        flex-shrink: 0;
+    }
+
+    .stat-icon.purple {
+        background: #ede9fe;
+        color: #7c3aed;
+    }
+
+    .stat-icon.blue {
+        background: #dbeafe;
+        color: #2563eb;
+    }
+
+    .stat-icon.green {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+    .stat-icon.amber {
+        background: #fef3c7;
+        color: #d97706;
+    }
+
+    .stat-info .stat-value {
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        line-height: 1.2;
+    }
+
+    .stat-info .stat-label {
+        font-size: .78rem;
+        color: #6b7280;
+        font-weight: 500;
+    }
+
+    /* ── Filter Bar ──────────────────────────────────── */
+    .filter-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .75rem;
+        align-items: flex-end;
+        padding: 1rem 1.25rem;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        margin-bottom: 1.25rem;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .filter-bar .filter-field {
+        flex: 1;
+        min-width: 200px;
+    }
+
+    .filter-bar .filter-field label {
+        display: block;
+        font-size: .72rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        margin-bottom: .3rem;
+    }
+
+    .filter-bar .filter-field input {
+        width: 100%;
+        padding: .5rem .75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: .88rem;
+        color: #374151;
+        background: #fff;
+        transition: all .15s;
+    }
+
+    .filter-bar .filter-field input:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
+    }
+
+    .filter-actions-row {
+        display: flex;
+        gap: .5rem;
+        align-items: flex-end;
+    }
+
+    .btn-search {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        border: none;
+        padding: .5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .btn-search:hover {
+        opacity: .92;
+        transform: translateY(-1px);
+    }
+
+    .btn-clear {
+        background: #fff;
+        color: #6b7280;
+        border: 1px solid #d1d5db;
+        padding: .5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .15s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .btn-clear:hover {
+        background: #f3f4f6;
+    }
+
+    /* ── Type Toggle ─────────────────────────────────── */
+    .type-toggle {
+        display: flex;
+        gap: 0;
+        border-radius: 10px;
+        overflow: hidden;
+        border: 1px solid #d1d5db;
+    }
+
+    .type-toggle button {
+        padding: .4rem 1rem;
+        border: none;
+        background: #fff;
+        color: #6b7280;
+        font-weight: 600;
+        font-size: .82rem;
+        cursor: pointer;
+        transition: all .15s;
+    }
+
+    .type-toggle button:not(:last-child) {
+        border-right: 1px solid #e5e7eb;
+    }
+
+    .type-toggle button:hover {
+        background: #f3f4f6;
+    }
+
+    .type-toggle button.active {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+    }
+
+    /* ── Table ───────────────────────────────────────── */
+    .cust-table-wrap {
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        overflow: hidden;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        margin-bottom: 1.25rem;
+    }
+
+    .cust-table-header {
+        padding: .85rem 1.25rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #e5e7eb;
+        background: #f8fafc;
+    }
+
+    .cust-table-header h6 {
+        margin: 0;
+        font-weight: 600;
+        color: #1a1a2e;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+        font-size: .92rem;
+    }
+
+    .cust-count-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .25rem;
+        padding: .2rem .6rem;
+        border-radius: 6px;
+        font-size: .75rem;
+        font-weight: 600;
+        background: #f3f4f6;
+        color: #374151;
+    }
+
+    /* Quick filter within table */
+    .table-quick-filter {
+        padding: .5rem .75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: .85rem;
+        color: #374151;
+        min-width: 220px;
+        transition: all .15s;
+    }
+
+    .table-quick-filter:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
+    }
+
+    /* ── Status & Type Badges ────────────────────────── */
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        padding: .2rem .6rem;
+        border-radius: 6px;
+        font-size: .73rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .status-badge.active {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .status-badge.inactive {
+        background: #f3f4f6;
+        color: #6b7280;
+    }
+
+    .type-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .2rem;
+        padding: .15rem .55rem;
+        border-radius: 6px;
+        font-size: .75rem;
+        font-weight: 600;
+    }
+
+    .type-badge.customer {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    .type-badge.supplier {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .type-badge.lead {
+        background: #e0e7ff;
+        color: #3730a3;
+    }
+
+    /* ── Contact Info ────────────────────────────────── */
+    .contact-cell {
+        font-size: .85rem;
+    }
+
+    .contact-cell a {
+        color: #667eea;
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .contact-cell a:hover {
+        text-decoration: underline;
+    }
+
+    .contact-cell .phone {
+        font-size: .78rem;
+        color: #9ca3af;
+    }
+
+    /* ── Balance Cell ────────────────────────────────── */
+    .balance-positive {
+        color: #dc2626;
+        font-weight: 700;
+        font-family: 'Space Grotesk', monospace;
+    }
+
+    .balance-zero {
+        color: #059669;
+        font-weight: 600;
+        font-family: 'Space Grotesk', monospace;
+    }
+
+    /* ── Customer Code ───────────────────────────────── */
+    .customer-code {
+        font-weight: 700;
+        color: #667eea;
+        font-size: .88rem;
+        font-family: 'Space Grotesk', monospace;
+    }
+
+    .customer-name {
+        font-weight: 600;
+        color: #1a1a2e;
+        font-size: .88rem;
+    }
+
+    /* ── Action Buttons ──────────────────────────────── */
+    .action-btn {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        color: #6b7280;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all .15s;
+        font-size: .85rem;
+    }
+
+    .action-btn:hover {
+        background: #f3f4f6;
+        color: #374151;
+        border-color: #d1d5db;
+    }
+
+    .action-btn.primary:hover {
+        background: #ede9fe;
+        color: #667eea;
+        border-color: #c4b5fd;
+    }
+
+    .action-btn.info:hover {
+        background: #dbeafe;
+        color: #2563eb;
+        border-color: #93c5fd;
+    }
+
+    /* ── Drawer Modal ────────────────────────────────── */
+    .modal-backdrop-custom {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, .45);
+        z-index: 9998;
+        animation: fadeIn .2s ease;
+    }
+
+    .detail-drawer {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: min(640px, 95vw);
+        height: 100vh;
+        background: #fff;
+        z-index: 9999;
+        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
+        display: flex;
+        flex-direction: column;
+        animation: slideInRight .25s ease;
+    }
+
+    .drawer-header {
+        padding: 1.15rem 1.5rem;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-shrink: 0;
+    }
+
+    .drawer-header h5 {
+        margin: 0;
+        font-weight: 600;
+        font-size: 1.05rem;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .drawer-header .btn-close-drawer {
+        background: rgba(255, 255, 255, .15);
+        border: none;
+        color: #fff;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background .15s;
+        font-size: 1rem;
+    }
+
+    .drawer-header .btn-close-drawer:hover {
+        background: rgba(255, 255, 255, .25);
+    }
+
+    .drawer-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.5rem;
+    }
+
+    .drawer-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        gap: .5rem;
+        justify-content: flex-end;
+        flex-shrink: 0;
+        flex-wrap: wrap;
+    }
+
+    .detail-section-title {
+        font-weight: 600;
+        color: #1a1a2e;
+        font-size: .9rem;
+        margin-bottom: .75rem;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .detail-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .85rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .detail-item .detail-label {
+        font-size: .72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #9ca3af;
+        margin-bottom: .15rem;
+    }
+
+    .detail-item .detail-value {
+        font-size: .92rem;
+        font-weight: 600;
+        color: #1a1a2e;
+    }
+
+    /* Statement date fields */
+    .stmt-row {
+        display: flex;
+        gap: .75rem;
+        align-items: flex-end;
+        padding: .85rem 1rem;
+        background: #f8fafc;
+        border-radius: 10px;
+        border: 1px solid #e5e7eb;
+        margin-bottom: 1.25rem;
+        flex-wrap: wrap;
+    }
+
+    .stmt-row .stmt-field {
+        flex: 1;
+        min-width: 140px;
+    }
+
+    .stmt-row .stmt-field label {
+        display: block;
+        font-size: .72rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        margin-bottom: .25rem;
+    }
+
+    .stmt-row .stmt-field input {
+        width: 100%;
+        padding: .4rem .6rem;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: .85rem;
+    }
+
+    .stmt-row .stmt-field input:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
+    }
+
+    /* Action buttons in drawer */
+    .btn-drawer-primary {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border: none;
+        color: #fff;
+        padding: .5rem 1.25rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .btn-drawer-primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
+    }
+
+    .btn-drawer-primary:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .btn-drawer-warning {
+        background: linear-gradient(135deg, #f59e0b, #d97706);
+        border: none;
+        color: #fff;
+        padding: .5rem 1.25rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .btn-drawer-warning:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(217, 119, 6, .3);
+    }
+
+    .btn-drawer-warning:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .btn-drawer-secondary {
+        background: #fff;
+        color: #374151;
+        border: 1px solid #d1d5db;
+        padding: .5rem 1.25rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .15s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .btn-drawer-secondary:hover {
+        background: #f9fafb;
+    }
+
+    /* ── Empty & Loading States ──────────────────────── */
+    .empty-state {
+        text-align: center;
+        padding: 3rem 1.5rem;
+        background: #fff;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+    }
+
+    .empty-icon {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: #f3f4f6;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 1rem;
+        font-size: 1.8rem;
+        color: #9ca3af;
+    }
+
+    .empty-state h6 {
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: .35rem;
+    }
+
+    .empty-state p {
+        color: #9ca3af;
+        font-size: .88rem;
+        margin-bottom: 1rem;
+    }
+
+    .loading-state {
+        text-align: center;
+        padding: 3rem;
+        background: #fff;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+    }
+
+    /* ── Alert ───────────────────────────────────────── */
+    .alert-banner {
+        border-radius: 10px;
+        padding: .75rem 1rem;
+        display: flex;
+        align-items: flex-start;
+        gap: .6rem;
+        margin-bottom: 1rem;
+        font-size: .88rem;
+        animation: slideDown .3s ease;
+    }
+
+    .alert-banner.error-alert {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #991b1b;
+    }
+
+    .alert-banner.info-alert {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        color: #1e40af;
+    }
+
+    /* ── Animations ──────────────────────────────────── */
+    @@keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+
+        to {
+            opacity: 1;
+        }
+    }
+
+    @@keyframes slideInRight {
+        from {
+            transform: translateX(100%);
+        }
+
+        to {
+            transform: translateX(0);
+        }
+    }
+
+    @@keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-6px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    /* ── Responsive ──────────────────────────────────── */
+    @@media (max-width:768px) {
+        .stat-row {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .cust-header {
+            flex-direction: column;
+        }
+
+        .detail-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .stmt-row {
+            flex-direction: column;
+        }
+    }
+</style>
+
+<div class="cust-page">
+    <div class="container-fluid">
+
+        <!-- ━━━ Header ━━━ -->
+        <div class="cust-header">
+            <div class="cust-header-left">
+                <div class="cust-header-icon"><i class="bi bi-people-fill"></i></div>
+                <div>
+                    <h2>Customers</h2>
+                    <p>Manage customers, suppliers & business partners</p>
+                </div>
+            </div>
+            <div class="cust-header-actions">
+                @if (lastSyncTime.HasValue)
+                {
+                    <span class="sync-hint">
+                        <i class="bi bi-clock-history"></i> Synced @lastSyncTime.Value.ToLocalTime().ToString("g")
+                    </span>
+                }
+                <button class="btn-cust-outline" @onclick="RefreshFromApi" disabled="@isSyncing">
+                    @if (isSyncing)
                     {
-                        <a href="mailto:@context.Email" class="text-decoration-none">
-                            <MudIcon Icon="@Icons.Material.Filled.Email" Size="Size.Small" Class="me-1" />
-                            @context.Email
-                        </a>
-                    }
-                    @if (!string.IsNullOrEmpty(context.Phone1))
-                    {
-                        <MudText Typo="Typo.caption" Class="d-block text-muted">
-                            <MudIcon Icon="@Icons.Material.Filled.Phone" Size="Size.Small" Class="me-1" />
-                            @context.Phone1
-                        </MudText>
-                    }
-                </MudTd>
-                <MudTd DataLabel="Location">
-                    @if (!string.IsNullOrEmpty(context.City) || !string.IsNullOrEmpty(context.Country))
-                    {
-                        <span>@context.City @context.Country</span>
+                        <span class="spinner-border spinner-border-sm"></span>
+                        <span>Syncing...</span>
                     }
                     else
                     {
-                        <span class="text-muted">-</span>
+                        <i class="bi bi-arrow-clockwise"></i>
+                        <span>Refresh</span>
                     }
-                </MudTd>
-                <MudTd DataLabel="Currency">@(context.Currency ?? "USD")</MudTd>
-                <MudTd DataLabel="Balance" Style="text-align:right">
-                    <MudText Typo="Typo.body2"                        Color="@(context.Balance > 0 ? Color.Error : Color.Success)">
-                        @((context.Balance ?? 0).ToString("N2"))
-                    </MudText>
-                </MudTd>
-                <MudTd DataLabel="Status">
-                    @if (context.IsActive)
-                    {
-                        <MudChip T="string" Color="Color.Success" Size="Size.Small">Active</MudChip>
-                    }
-                    else
-                    {
-                        <MudChip T="string" Color="Color.Default" Size="Size.Small">Inactive</MudChip>
-                    }
-                </MudTd>
-                <MudTd DataLabel="Actions">
-                    <MudButtonGroup Size="Size.Small" Variant="Variant.Outlined">
-                        <MudIconButton Icon="@Icons.Material.Filled.Visibility" Color="Color.Primary" Size="Size.Small"
-                                       OnClick="@(() => ViewCustomer(context))" Title="View Details" />
-                        <MudIconButton Icon="@Icons.Material.Filled.Receipt" Color="Color.Info" Size="Size.Small"
-                                       OnClick="@(() => NavigateToInvoices(context.CardCode ?? string.Empty))"                            Title="View Invoices" />
-                    </MudButtonGroup>
-                </MudTd>
-            </RowTemplate>
-            <PagerContent>
-                <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
-            </PagerContent>
-        </MudTable>
-
-        <!-- Summary Stats -->
-        <div class="row mt-4">
-            <div class="col-md-3">
-                <div class="card bg-light">
-                    <div class="card-body text-center">
-                        <h4>@customers.Count(c => c.CardType == "C")</h4>
-                        <small class="text-muted">Customers</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card bg-light">
-                    <div class="card-body text-center">
-                        <h4>@customers.Count(c => c.CardType == "S")</h4>
-                        <small class="text-muted">Suppliers</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card bg-light">
-                    <div class="card-body text-center">
-                        <h4>@customers.Count(c => c.IsActive)</h4>
-                        <small class="text-muted">Active</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card bg-light">
-                    <div class="card-body text-center">
-                        <h4>@customers.Where(c => c.Balance > 0).Sum(c => c.Balance ?? 0).ToString("N0")</h4>
-                        <small class="text-muted">Total Outstanding</small>
-                    </div>
+                </button>
+                <div class="type-toggle">
+                    <button class="@(selectedType == "C" ? "active" : "")"
+                            @onclick='() => FilterByType("C")'>Customers</button>
+                    <button class="@(selectedType == "S" ? "active" : "")"
+                            @onclick='() => FilterByType("S")'>Suppliers</button>
+                    <button class="@(selectedType == "" ? "active" : "")" @onclick='() => FilterByType("")'>All</button>
                 </div>
             </div>
         </div>
-    }
-    else
-    {
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle me-2"></i>No customers found. Try adjusting your search criteria.
-        </div>
-    }
-</div>
 
-<!-- View Customer Modal -->
-@if (selectedCustomer != null)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">
-                        <i class="bi bi-person-badge me-2"></i>@selectedCustomer.CardName
-                    </h5>
-                    <button type="button" class="btn-close" @onclick="() => selectedCustomer = null"></button>
+        <!-- ━━━ Alerts ━━━ -->
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert-banner error-alert">
+                <i class="bi bi-exclamation-octagon-fill"></i>
+                <div style="flex:1;">@errorMessage</div>
+                <button style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;"
+                        @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+        }
+
+        <!-- ━━━ Stat Cards ━━━ -->
+        @if (customers?.Any() == true)
+        {
+            <div class="stat-row">
+                <div class="stat-card">
+                    <div class="stat-icon purple"><i class="bi bi-people-fill"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value">@customers.Count(c => c.CardType == "C")</div>
+                        <div class="stat-label">Customers</div>
+                    </div>
                 </div>
-                <div class="modal-body">
-                    <div class="row mb-4">
-                        <div class="col-12">
-                            <h6 class="text-muted">Generate Statement</h6>
-                            <div class="row g-3">
-                                <div class="col-md-5">
-                                    <FlexibleDatePicker Label="From Date" Date="statementFromDate"
-                                                        DateChanged="(d) => statementFromDate = d ?? DateTime.Now.AddMonths(-3)" />
-                                </div>
-                                <div class="col-md-5">
-                                    <FlexibleDatePicker Label="To Date" Date="statementToDate"
-                                                        DateChanged="(d) => statementToDate = d ?? DateTime.Now" />
-                                </div>
+                <div class="stat-card">
+                    <div class="stat-icon blue"><i class="bi bi-truck"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value">@customers.Count(c => c.CardType == "S")</div>
+                        <div class="stat-label">Suppliers</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon green"><i class="bi bi-check-circle-fill"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value">@customers.Count(c => c.IsActive)</div>
+                        <div class="stat-label">Active</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon amber"><i class="bi bi-cash-coin"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value">@customers.Where(c => c.Balance > 0).Sum(c => c.Balance ?? 0).ToString("N0")
+                        </div>
+                        <div class="stat-label">Total Outstanding</div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- ━━━ Filter Bar ━━━ -->
+        <div class="filter-bar">
+            <div class="filter-field">
+                <label>Search</label>
+                <input type="text" @bind="searchTerm" @bind:event="oninput" @onkeyup="OnSearchKeyUp"
+                       placeholder="Search by code, name, or email..." />
+            </div>
+            <div class="filter-actions-row">
+                <button class="btn-search" @onclick="SearchCustomers">
+                    <i class="bi bi-search"></i> Search
+                </button>
+                @if (!string.IsNullOrEmpty(searchTerm))
+                {
+                    <button class="btn-clear" @onclick="ClearSearch">
+                        <i class="bi bi-x-circle"></i> Clear
+                    </button>
+                }
+            </div>
+        </div>
+
+        <!-- ━━━ Content ━━━ -->
+        @if (isLoading)
+        {
+            <div class="loading-state">
+                <div class="spinner-border" style="color:#667eea;width:2.5rem;height:2.5rem;" role="status"></div>
+                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading customers...</p>
+            </div>
+        }
+        else if (customers?.Any() == true)
+        {
+            <div class="cust-table-wrap">
+                <div class="cust-table-header">
+                    <h6><i class="bi bi-table"></i> Business Partners</h6>
+                    <div style="display:flex;align-items:center;gap:.75rem;">
+                        <span class="cust-count-badge">@totalCount total</span>
+                        <input type="text" class="table-quick-filter" @bind="_searchString" @bind:event="oninput"
+                               placeholder="Quick filter..." />
+                    </div>
+                </div>
+                <MudTable @ref="@_table" Items="@customers" RowsPerPage="10" Dense="true" Hover="true" Striped="true"
+                          Filter="new Func<BusinessPartnerDto, bool>(_quickFilter)" OnRowClick="@OnCustomerRowClicked"
+                          T="BusinessPartnerDto" Elevation="0" Style="background:transparent;">
+                    <HeaderContent>
+                        <MudTh>Code</MudTh>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Type</MudTh>
+                        <MudTh>Contact</MudTh>
+                        <MudTh>Location</MudTh>
+                        <MudTh>Currency</MudTh>
+                        <MudTh Style="text-align:right">Balance</MudTh>
+                        <MudTh>Status</MudTh>
+                        <MudTh Style="width:80px">Actions</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Code"><span class="customer-code">@context.CardCode</span></MudTd>
+                        <MudTd DataLabel="Name"><span class="customer-name">@context.CardName</span></MudTd>
+                        <MudTd DataLabel="Type">
+                            <span class="type-badge @GetTypeClass(context.CardType)">@GetTypeLabel(context.CardType)</span>
+                        </MudTd>
+                        <MudTd DataLabel="Contact">
+                            <div class="contact-cell">
+                                @if (!string.IsNullOrEmpty(context.Email))
+                                {
+                                    <a href="mailto:@context.Email">@context.Email</a>
+                                }
+                                @if (!string.IsNullOrEmpty(context.Phone1))
+                                {
+                                    <div class="phone"><i class="bi bi-telephone me-1"></i>@context.Phone1</div>
+                                }
                             </div>
-                        </div>
-                    </div>
-                    <hr />
-                    <div class="row">
-                        <div class="col-md-6">
-                            <h6 class="text-muted">General Information</h6>
-                            <table class="table table-sm">
-                                <tr>
-                                    <th width="40%">Code</th>
-                                    <td>@selectedCustomer.CardCode</td>
-                                </tr>
-                                <tr>
-                                    <th>Name</th>
-                                    <td>@selectedCustomer.CardName</td>
-                                </tr>
-                                <tr>
-                                    <th>Type</th>
-                                    <td>
-                                        <span class="badge @GetTypeBadgeClass(selectedCustomer.CardType)">
-                                            @GetTypeLabel(selectedCustomer.CardType)
-                                        </span>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <th>Group Code</th>
-                                    <td>@(selectedCustomer.GroupCode ?? "-")</td>
-                                </tr>
-                                <tr>
-                                    <th>Status</th>
-                                    <td>
-                                        @if (selectedCustomer.IsActive)
-                                        {
-                                            <span class="badge bg-success">Active</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="badge bg-secondary">Inactive</span>
-                                        }
-                                    </td>
-                                </tr>
-                            </table>
-                        </div>
-                        <div class="col-md-6">
-                            <h6 class="text-muted">Contact Information</h6>
-                            <table class="table table-sm">
-                                <tr>
-                                    <th width="40%">Email</th>
-                                    <td>
-                                        @if (!string.IsNullOrEmpty(selectedCustomer.Email))
-                                        {
-                                            <a href="mailto:@selectedCustomer.Email">@selectedCustomer.Email</a>
-                                        }
-                                        else
-                                        {
-                                            <span>-</span>
-                                        }
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <th>Phone 1</th>
-                                    <td>@(selectedCustomer.Phone1 ?? "-")</td>
-                                </tr>
-                                <tr>
-                                    <th>Phone 2</th>
-                                    <td>@(selectedCustomer.Phone2 ?? "-")</td>
-                                </tr>
-                                <tr>
-                                    <th>Address</th>
-                                    <td>@(selectedCustomer.Address ?? "-")</td>
-                                </tr>
-                                <tr>
-                                    <th>City/Country</th>
-                                    <td>@selectedCustomer.City @selectedCustomer.Country</td>
-                                </tr>
-                            </table>
-                        </div>
-                    </div>
-                    <hr />
-                    <div class="row">
-                        <div class="col-md-6">
-                            <h6 class="text-muted">Financial Information</h6>
-                            <table class="table table-sm">
-                                <tr>
-                                    <th width="40%">Currency</th>
-                                    <td>@(selectedCustomer.Currency ?? "USD")</td>
-                                </tr>
-                                <tr>
-                                    <th>Balance</th>
-                                    <td class="@(selectedCustomer.Balance > 0 ? "text-danger fw-bold" : "text-success")">
-                                        @((selectedCustomer.Balance ?? 0).ToString("N2"))
-                                    </td>
-                                </tr>
-                            </table>
-                        </div>
-                    </div>
+                        </MudTd>
+                        <MudTd DataLabel="Location">
+                            @if (!string.IsNullOrEmpty(context.City) || !string.IsNullOrEmpty(context.Country))
+                            {
+                                <span style="font-size:.85rem;">@context.City @context.Country</span>
+                            }
+                            else
+                            {
+                                <span style="color:#d1d5db;">—</span>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Currency">
+                            <span
+                                style="font-size:.82rem;padding:.15rem .45rem;border-radius:4px;background:#f3f4f6;color:#374151;font-weight:600;">@(context.Currency
+                                                            ?? "USD")</span>
+                            </MudTd>
+                            <MudTd DataLabel="Balance" Style="text-align:right">
+                                <span class="@(context.Balance > 0 ? "balance-positive" : "balance-zero")">
+                                    @((context.Balance ?? 0).ToString("N2"))
+                                </span>
+                            </MudTd>
+                            <MudTd DataLabel="Status">
+                                @if (context.IsActive)
+                                {
+                                    <span class="status-badge active"><i class="bi bi-check-circle-fill"></i> Active</span>
+                                }
+                                else
+                                {
+                                    <span class="status-badge inactive">Inactive</span>
+                                }
+                            </MudTd>
+                            <MudTd DataLabel="Actions">
+                                <div style="display:flex;gap:.3rem;">
+                                    <button class="action-btn primary" @onclick="@(() => ViewCustomer(context))"
+                                            title="View Details">
+                                        <i class="bi bi-eye"></i>
+                                    </button>
+                                    <button class="action-btn info"
+                                            @onclick="@(() => NavigateToInvoices(context.CardCode ?? string.Empty))"
+                                            title="View Invoices">
+                                        <i class="bi bi-receipt"></i>
+                                    </button>
+                                </div>
+                            </MudTd>
+                        </RowTemplate>
+                        <PagerContent>
+                            <MudPagination SelectedChanged="PageChanged"
+                                           Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
+                                           Class="pa-4" />
+                        </PagerContent>
+                    </MudTable>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-warning"
+            }
+        else
+            {
+                <div class="empty-state">
+                    <div class="empty-icon"><i class="bi bi-people"></i></div>
+                    <h6>No customers found</h6>
+                    <p>Try adjusting your search criteria or click Refresh to sync from server.</p>
+                    <button class="btn-search" @onclick="RefreshFromApi"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- ━━━ Customer Detail Drawer ━━━ -->
+    @if (selectedCustomer != null)
+    {
+        <div class="modal-backdrop-custom" @onclick="() => selectedCustomer = null"></div>
+        <div class="detail-drawer">
+            <div class="drawer-header">
+                <h5><i class="bi bi-person-badge"></i> @selectedCustomer.CardName</h5>
+                <button class="btn-close-drawer" @onclick="() => selectedCustomer = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="drawer-body">
+                <!-- Statement Generator -->
+                <div class="stmt-row">
+                    <div class="stmt-field">
+                        <label>Statement From</label>
+                        <input type="date" @bind="statementFromDate" />
+                    </div>
+                    <div class="stmt-field">
+                        <label>Statement To</label>
+                        <input type="date" @bind="statementToDate" />
+                    </div>
+                    <button class="btn-drawer-warning" style="align-self:flex-end;"
                             @onclick="() => GenerateStatement(selectedCustomer.CardCode ?? string.Empty)"
                             disabled="@isGeneratingStatement">
                         @if (isGeneratingStatement)
                         {
-                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            <span class="spinner-border spinner-border-sm"></span>
                             <span>Generating...</span>
                         }
                         else
                         {
-                            <i class="bi bi-file-pdf me-1"></i>
+                            <i class="bi bi-file-pdf"></i>
                             <span>Generate Statement</span>
                         }
                     </button>
-                    <button type="button" class="btn btn-info"
-                            @onclick='() => NavigateToInvoices(selectedCustomer.CardCode ?? "")'>
-                        <i class="bi bi-receipt me-1"></i>View Invoices
+                </div>
+
+                <!-- General Information -->
+                <div class="detail-section-title"><i class="bi bi-info-circle"></i> General Information</div>
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-label">Code</div>
+                        <div class="detail-value" style="font-family:'Space Grotesk',monospace;color:#667eea;">
+                            @selectedCustomer.CardCode</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Name</div>
+                            <div class="detail-value">@selectedCustomer.CardName</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Type</div>
+                            <div class="detail-value">
+                                <span
+                                class="type-badge @GetTypeClass(selectedCustomer.CardType)">@GetTypeLabel(selectedCustomer.CardType)</span>
+                            </div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Group Code</div>
+                            <div class="detail-value">@(selectedCustomer.GroupCode ?? "—")</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Status</div>
+                            <div class="detail-value">
+                                @if (selectedCustomer.IsActive)
+                                {
+                                    <span class="status-badge active"><i class="bi bi-check-circle-fill"></i> Active</span>
+                                }
+                                else
+                                {
+                                    <span class="status-badge inactive">Inactive</span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Contact Information -->
+                    <div class="detail-section-title"><i class="bi bi-telephone"></i> Contact Information</div>
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <div class="detail-label">Email</div>
+                            <div class="detail-value">
+                                @if (!string.IsNullOrEmpty(selectedCustomer.Email))
+                                {
+                                    <a href="mailto:@selectedCustomer.Email"
+                                       style="color:#667eea;text-decoration:none;">@selectedCustomer.Email</a>
+                                }
+                                else
+                                {
+
+                                    <span style="color:#d1d5db;">—</span>
+                                }
+                            </div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Phone 1</div>
+                            <div class="detail-value">@(selectedCustomer.Phone1 ?? "—")</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Phone 2</div>
+                            <div class="detail-value">@(selectedCustomer.Phone2 ?? "—")</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Address</div>
+                            <div class="detail-value">@(selectedCustomer.Address ?? "—")</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">City / Country</div>
+                            <div class="detail-value">@selectedCustomer.City @selectedCustomer.Country</div>
+                        </div>
+                    </div>
+
+                    <!-- Financial Information -->
+                    <div class="detail-section-title"><i class="bi bi-cash-coin"></i> Financial Information</div>
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <div class="detail-label">Currency</div>
+                            <div class="detail-value">@(selectedCustomer.Currency ?? "USD")</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Balance</div>
+                            <div class="detail-value">
+                                <span class="@(selectedCustomer.Balance > 0 ? "balance-positive" : "balance-zero")"
+                                      style="font-size:1.1rem;">
+                                    @((selectedCustomer.Balance ?? 0).ToString("N2"))
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="drawer-footer">
+                    <button class="btn-drawer-primary" @onclick='() => NavigateToInvoices(selectedCustomer.CardCode ?? "")'>
+                        <i class="bi bi-receipt"></i> View Invoices
                     </button>
-                    <button type="button" class="btn btn-secondary" @onclick="() => selectedCustomer = null">Close</button>
+                    <button class="btn-drawer-secondary" @onclick="() => selectedCustomer = null">Close</button>
                 </div>
             </div>
-        </div>
-    </div>
-}
-
-@inject NavigationManager NavigationManager
+        }
 
 @code {
+    private MudTable<BusinessPartnerDto>? _table;
     private List<BusinessPartnerDto>? customers;
     private BusinessPartnerDto? selectedCustomer;
     private bool isLoading = true;
@@ -388,7 +1203,6 @@
     private DateTime? lastSyncTime;
     private string _searchString = string.Empty;
 
-    // Quick filter - filter globally across multiple columns with the same input
     private Func<BusinessPartnerDto, bool> _quickFilter => x =>
     {
         if (string.IsNullOrWhiteSpace(_searchString))
@@ -415,20 +1229,15 @@
         return false;
     };
 
-    // Row click handler
     private void OnCustomerRowClicked(TableRowClickEventArgs<BusinessPartnerDto> args)
     {
         ViewCustomer(args.Item);
     }
 
-    // Helper for chip color
-    private Color GetTypeChipColor(string? type) => type switch
+    private void PageChanged(int i)
     {
-        "C" => Color.Primary,
-        "S" => Color.Success,
-        "L" => Color.Info,
-        _ => Color.Default
-    };
+        _table.NavigateTo(i - 1);
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -445,7 +1254,6 @@
         {
             BusinessPartnerListResponse? response;
 
-            // Use cached data from local database for fast filtering
             if (!string.IsNullOrEmpty(searchTerm))
             {
                 response = await BusinessPartnerService.SearchCachedBusinessPartnersAsync(searchTerm);
@@ -459,7 +1267,6 @@
             {
                 var filteredPartners = response.BusinessPartners;
 
-                // Apply type filter client-side (works with or without search)
                 if (!string.IsNullOrEmpty(selectedType))
                 {
                     filteredPartners = filteredPartners?.Where(p => p.CardType == selectedType).ToList();
@@ -470,7 +1277,6 @@
             }
             else
             {
-                // Fallback to API if cache is empty
                 errorMessage = "No cached data found. Click Refresh to sync from server.";
             }
         }
@@ -550,6 +1356,14 @@
         _ => "bg-secondary"
     };
 
+    private string GetTypeClass(string? type) => type switch
+    {
+        "C" => "customer",
+        "S" => "supplier",
+        "L" => "lead",
+        _ => ""
+    };
+
     private string GetTypeLabel(string? type) => type switch
     {
         "C" => "Customer",
@@ -571,7 +1385,6 @@
                 var fileBytes = await response.Content.ReadAsByteArrayAsync();
                 var fileName = $"Statement_{cardCode}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
 
-                // Convert to base64 for JS interop (same pattern as Kefalos-Workshop)
                 var base64 = Convert.ToBase64String(fileBytes);
                 await JS.InvokeVoidAsync("downloadFile", fileName, base64);
             }
@@ -589,11 +1402,5 @@
         {
             isGeneratingStatement = false;
         }
-    }
-
-    private async Task TriggerFileDownload(byte[] fileBytes, string fileName, string mimeType)
-    {
-        // For Blazor Server, we can use direct download approach
-        var module = await Http.GetAsync($"javascript:void(0)");
     }
 }

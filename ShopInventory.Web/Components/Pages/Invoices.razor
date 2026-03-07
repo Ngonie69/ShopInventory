@@ -2,7 +2,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
-@attribute [Authorize]
+@attribute [Authorize(Roles = "Admin,Cashier")]
 @inject IInvoiceService InvoiceService
 @inject ICreditNoteService CreditNoteService
 @inject NavigationManager NavigationManager
@@ -10,84 +10,1093 @@
 
 <PageTitle>Invoices - Shop Inventory</PageTitle>
 
-<div class="page-shell">
+<style>
+    /* ── Page ────────────────────────────────────────── */
+    .inv-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
+    }
+
+    /* ── Header ──────────────────────────────────────── */
+    .inv-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .inv-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .inv-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .inv-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+        letter-spacing: -.3px;
+    }
+
+    .inv-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: .88rem;
+    }
+
+    .inv-header-actions {
+        display: flex;
+        gap: .5rem;
+        flex-wrap: wrap;
+    }
+
+    .btn-inv-gradient {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        text-decoration: none;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
+    }
+
+    .btn-inv-gradient:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .4);
+        color: #fff;
+    }
+
+    /* ── Stat Cards ──────────────────────────────────── */
+    .stat-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .stat-card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 1.1rem 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        transition: box-shadow .2s;
+    }
+
+    .stat-card:hover {
+        box-shadow: 0 4px 14px rgba(0, 0, 0, .08);
+    }
+
+    .stat-icon {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        flex-shrink: 0;
+    }
+
+    .stat-icon.purple {
+        background: #ede9fe;
+        color: #7c3aed;
+    }
+
+    .stat-icon.blue {
+        background: #dbeafe;
+        color: #2563eb;
+    }
+
+    .stat-icon.amber {
+        background: #fef3c7;
+        color: #d97706;
+    }
+
+    .stat-icon.green {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+    .stat-info .stat-value {
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        line-height: 1.2;
+    }
+
+    .stat-info .stat-label {
+        font-size: .78rem;
+        color: #6b7280;
+        font-weight: 500;
+    }
+
+    /* ── Filter Bar ──────────────────────────────────── */
+    .filter-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .75rem;
+        align-items: flex-end;
+        padding: 1rem 1.25rem;
+        background: #f8fafc;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        margin-bottom: 1.25rem;
+    }
+
+    .filter-bar .filter-field {
+        flex: 1;
+        min-width: 160px;
+    }
+
+    .filter-bar .filter-field label {
+        display: block;
+        font-size: .75rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        margin-bottom: .3rem;
+    }
+
+    .filter-actions-row {
+        display: flex;
+        gap: .5rem;
+        align-items: flex-end;
+    }
+
+    .btn-search {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        border: none;
+        padding: .5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .btn-search:hover {
+        opacity: .92;
+        transform: translateY(-1px);
+    }
+
+    .btn-search:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+    }
+
+    .btn-clear {
+        background: #fff;
+        color: #6b7280;
+        border: 1px solid #d1d5db;
+        padding: .5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .2s;
+    }
+
+    .btn-clear:hover {
+        background: #f3f4f6;
+    }
+
+    /* ── Table ───────────────────────────────────────── */
+    .inv-table-wrap {
+        border-radius: 10px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        overflow: hidden;
+    }
+
+    .customer-info {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .customer-info .name {
+        font-weight: 600;
+        font-size: .88rem;
+        color: #1a1a2e;
+    }
+
+    .customer-info .code {
+        font-size: .78rem;
+        color: #9ca3af;
+    }
+
+    .doc-num-cell {
+        font-weight: 700;
+        color: #667eea;
+        font-size: .92rem;
+    }
+
+    .amount-cell {
+        font-weight: 700;
+        color: #1a1a2e;
+        font-size: .92rem;
+    }
+
+    .vat-cell {
+        color: #6b7280;
+        font-size: .88rem;
+    }
+
+    .currency-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .2rem;
+        padding: .15rem .55rem;
+        border-radius: 6px;
+        font-size: .75rem;
+        font-weight: 600;
+        background: #f3f4f6;
+        color: #374151;
+    }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        padding: .2rem .6rem;
+        border-radius: 6px;
+        font-size: .73rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .status-badge.open {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .status-badge.closed {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    .status-badge.partial {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    /* ── Alerts ──────────────────────────────────────── */
+    .alert-banner {
+        border-radius: 10px;
+        padding: .75rem 1rem;
+        display: flex;
+        align-items: flex-start;
+        gap: .6rem;
+        margin-bottom: 1rem;
+        font-size: .88rem;
+        animation: slideDown .3s ease;
+    }
+
+    .alert-banner.success-alert {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        color: #166534;
+    }
+
+    .alert-banner.error-alert {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #991b1b;
+    }
+
+    .alert-banner.warn-alert {
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        color: #92400e;
+    }
+
+    .alert-banner.info-alert {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        color: #1e40af;
+    }
+
+    .alert-banner .alert-body {
+        flex: 1;
+    }
+
+    .alert-banner .alert-close {
+        background: none;
+        border: none;
+        color: inherit;
+        opacity: .45;
+        cursor: pointer;
+        padding: .2rem;
+        font-size: 1rem;
+    }
+
+    .alert-banner .alert-close:hover {
+        opacity: 1;
+    }
+
+    /* ── Empty State ─────────────────────────────────── */
+    .empty-state {
+        text-align: center;
+        padding: 3rem 1.5rem;
+    }
+
+    .empty-icon {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: #f3f4f6;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 1rem;
+        font-size: 1.8rem;
+        color: #9ca3af;
+    }
+
+    .empty-state h6 {
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: .35rem;
+    }
+
+    .empty-state p {
+        color: #9ca3af;
+        font-size: .88rem;
+        margin-bottom: 1rem;
+    }
+
+    /* ── Invoice Detail Drawer ───────────────────────── */
+    .modal-backdrop-custom {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, .45);
+        z-index: 9998;
+        animation: fadeIn .2s ease;
+    }
+
+    .detail-drawer {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: min(640px, 95vw);
+        height: 100vh;
+        background: #fff;
+        z-index: 9999;
+        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
+        display: flex;
+        flex-direction: column;
+        animation: slideInRight .25s ease;
+    }
+
+    .drawer-header {
+        padding: 1.15rem 1.5rem;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-shrink: 0;
+    }
+
+    .drawer-header h5 {
+        margin: 0;
+        font-weight: 600;
+        font-size: 1.05rem;
+    }
+
+    .drawer-header .btn-close-drawer {
+        background: rgba(255, 255, 255, .15);
+        border: none;
+        color: #fff;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background .15s;
+        font-size: 1rem;
+    }
+
+    .drawer-header .btn-close-drawer:hover {
+        background: rgba(255, 255, 255, .25);
+    }
+
+    .drawer-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.5rem;
+    }
+
+    .drawer-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        gap: .5rem;
+        justify-content: flex-end;
+        flex-shrink: 0;
+    }
+
+    /* Detail Grid */
+    .detail-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .detail-item .detail-label {
+        font-size: .72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #9ca3af;
+        margin-bottom: .2rem;
+    }
+
+    .detail-item .detail-value {
+        font-size: .92rem;
+        font-weight: 600;
+        color: #1a1a2e;
+    }
+
+    .detail-section-title {
+        font-weight: 600;
+        color: #1a1a2e;
+        font-size: .9rem;
+        margin-bottom: .75rem;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    /* Lines Table */
+    .lines-table {
+        width: 100%;
+        font-size: .85rem;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .lines-table th {
+        background: #f8fafc;
+        font-size: .72rem;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #6b7280;
+        font-weight: 600;
+        padding: .6rem .75rem;
+        border-bottom: 2px solid #e5e7eb;
+    }
+
+    .lines-table td {
+        padding: .55rem .75rem;
+        border-bottom: 1px solid #f3f4f6;
+        color: #374151;
+    }
+
+    .lines-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .lines-table tfoot td {
+        border-top: 2px solid #e5e7eb;
+        background: #f8fafc;
+    }
+
+    /* Total Banner */
+    .total-banner {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 1.25rem;
+    }
+
+    .total-banner .total-label {
+        font-size: .9rem;
+        font-weight: 500;
+    }
+
+    .total-banner .total-value {
+        font-size: 1.4rem;
+        font-weight: 700;
+    }
+
+    /* Credit Note Warning */
+    .cn-warning {
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        border-radius: 10px;
+        padding: .85rem 1rem;
+        display: flex;
+        align-items: flex-start;
+        gap: .6rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .cn-warning-icon {
+        color: #d97706;
+        font-size: 1.1rem;
+        flex-shrink: 0;
+        margin-top: .1rem;
+    }
+
+    .cn-warning-body {
+        flex: 1;
+        font-size: .88rem;
+        color: #92400e;
+    }
+
+    .cn-warning-body strong {
+        color: #78350f;
+    }
+
+    .cn-view-link {
+        background: none;
+        border: none;
+        color: #d97706;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 0;
+        font-size: .85rem;
+        text-decoration: underline;
+    }
+
+    .cn-view-link:hover {
+        color: #b45309;
+    }
+
+    /* ── Credit Note Modal ───────────────────────────── */
+    .cn-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, .5);
+        z-index: 10000;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        animation: fadeIn .2s ease;
+        padding: 1rem;
+    }
+
+    .cn-modal {
+        background: #fff;
+        border-radius: 14px;
+        width: min(700px, 95vw);
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, .2);
+        animation: scaleIn .25s ease;
+    }
+
+    .cn-modal-header {
+        padding: 1.15rem 1.5rem;
+        border-bottom: 1px solid #e5e7eb;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .cn-modal-header h5 {
+        margin: 0;
+        font-weight: 600;
+        font-size: 1rem;
+        color: #1a1a2e;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .cn-modal-header .btn-close-modal {
+        background: #f3f4f6;
+        border: none;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        color: #6b7280;
+        transition: all .15s;
+        font-size: .9rem;
+    }
+
+    .cn-modal-header .btn-close-modal:hover {
+        background: #e5e7eb;
+        color: #374151;
+    }
+
+    .cn-modal-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.5rem;
+    }
+
+    .cn-modal-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        gap: .5rem;
+        justify-content: flex-end;
+    }
+
+    .btn-warning-action {
+        background: linear-gradient(135deg, #f59e0b, #d97706);
+        border: none;
+        color: #fff;
+        padding: .5rem 1.25rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .btn-warning-action:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(217, 119, 6, .3);
+    }
+
+    .btn-warning-action:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+    }
+
+    .btn-secondary-action {
+        background: #fff;
+        color: #374151;
+        border: 1px solid #d1d5db;
+        padding: .5rem 1.25rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .15s;
+    }
+
+    .btn-secondary-action:hover {
+        background: #f9fafb;
+    }
+
+    /* Credit note line selection table */
+    .cn-lines-table {
+        width: 100%;
+        font-size: .85rem;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .cn-lines-table th {
+        background: #f8fafc;
+        font-size: .72rem;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #6b7280;
+        font-weight: 600;
+        padding: .55rem .65rem;
+        border-bottom: 2px solid #e5e7eb;
+    }
+
+    .cn-lines-table td {
+        padding: .5rem .65rem;
+        border-bottom: 1px solid #f3f4f6;
+    }
+
+    .cn-lines-table tr.selected-row {
+        background: #fef3c7;
+    }
+
+    .cn-lines-table tfoot td {
+        border-top: 2px solid #e5e7eb;
+        background: #fffbeb;
+        font-weight: 700;
+    }
+
+    .cn-qty-input {
+        width: 72px;
+        padding: .3rem .5rem;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: .85rem;
+        text-align: right;
+    }
+
+    .cn-qty-input:focus {
+        outline: none;
+        border-color: #f59e0b;
+        box-shadow: 0 0 0 2px rgba(245, 158, 11, .2);
+    }
+
+    .cn-qty-input:disabled {
+        background: #f3f4f6;
+        color: #9ca3af;
+    }
+
+    /* Progress overlay */
+    .cn-progress-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(255, 255, 255, .95);
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        border-radius: 14px;
+    }
+
+    .progress-ring-wrap {
+        position: relative;
+        margin-bottom: 1rem;
+    }
+
+    .progress-ring-wrap .ring-label {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 1.3rem;
+        font-weight: 700;
+        color: #d97706;
+    }
+
+    .progress-dots {
+        display: flex;
+        justify-content: center;
+        gap: .4rem;
+        margin-bottom: .75rem;
+    }
+
+    .progress-dots .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        animation: pulse 1.2s infinite;
+    }
+
+    .progress-dots .dot:nth-child(1) {
+        background: #667eea;
+        animation-delay: 0s;
+    }
+
+    .progress-dots .dot:nth-child(2) {
+        background: #f59e0b;
+        animation-delay: .2s;
+    }
+
+    .progress-dots .dot:nth-child(3) {
+        background: #059669;
+        animation-delay: .4s;
+    }
+
+    /* ── Toast ───────────────────────────────────────── */
+    .toast-banner {
+        position: fixed;
+        bottom: 1.5rem;
+        right: 1.5rem;
+        z-index: 10100;
+        min-width: 320px;
+        max-width: 420px;
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        display: flex;
+        align-items: flex-start;
+        gap: .6rem;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, .15);
+        animation: slideUp .3s ease;
+    }
+
+    .toast-banner.success {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        color: #166534;
+    }
+
+    .toast-banner.error {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #991b1b;
+    }
+
+    .toast-banner .toast-icon {
+        font-size: 1.1rem;
+        flex-shrink: 0;
+        margin-top: .1rem;
+    }
+
+    .toast-banner .toast-body {
+        flex: 1;
+        font-size: .88rem;
+        font-weight: 500;
+    }
+
+    .toast-banner .toast-close {
+        background: none;
+        border: none;
+        color: inherit;
+        opacity: .45;
+        cursor: pointer;
+        font-size: .9rem;
+    }
+
+    .toast-banner .toast-close:hover {
+        opacity: 1;
+    }
+
+    /* ── Animations ──────────────────────────────────── */
+    @@keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+
+        to {
+            opacity: 1;
+        }
+    }
+
+    @@keyframes slideInRight {
+        from {
+            transform: translateX(100%);
+        }
+
+        to {
+            transform: translateX(0);
+        }
+    }
+
+    @@keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-6px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @@keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(12px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @@keyframes scaleIn {
+        from {
+            opacity: 0;
+            transform: scale(.95);
+        }
+
+        to {
+            opacity: 1;
+            transform: scale(1);
+        }
+    }
+
+    @@keyframes pulse {
+
+        0%,
+        100% {
+            opacity: .3;
+            transform: scale(.8);
+        }
+
+        50% {
+            opacity: 1;
+            transform: scale(1);
+        }
+    }
+
+    /* ── Responsive ──────────────────────────────────── */
+    @@media (max-width:768px) {
+        .stat-row {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .detail-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .inv-header {
+            flex-direction: column;
+        }
+    }
+</style>
+
+<div class="inv-page">
     <div class="container-fluid">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div class="d-flex align-items-center gap-3">
-                <div class="page-header-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.Receipt" />
-                </div>
+
+        <!-- ━━━ Header ━━━ -->
+        <div class="inv-header">
+            <div class="inv-header-left">
+                <div class="inv-header-icon"><i class="bi bi-receipt"></i></div>
                 <div>
-                    <MudText Typo="Typo.h4" Class="fw-bold" Style="letter-spacing: -0.5px;">Invoices</MudText>
-                    <MudText Typo="Typo.body2" Color="Color.Secondary">View and manage sales invoices</MudText>
+                    <h2>Invoices</h2>
+                    <p>View and manage sales invoices</p>
                 </div>
             </div>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
-                       Href="invoices/create" Style="border-radius: 12px; text-transform: none; font-weight: 600; padding: 8px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                Create Invoice
-            </MudButton>
-        </div>
-
-        <!-- Filters -->
-        <div class="filter-panel">
-            <div class="filter-panel-header">
-                <MudIcon Icon="@Icons.Material.Filled.Tune" />
-                <MudText Typo="Typo.subtitle2" Style="color: white; font-weight: 600;">Search & Filter</MudText>
-            </div>
-            <div class="filter-panel-body">
-                <MudGrid Spacing="3">
-                    <MudItem xs="12" md="2">
-                        <MudNumericField T="int?" @bind-Value="docNumSearch" @bind-Value:after="OnDocNumChanged"
-                            Label="Doc Number" Variant="Variant.Filled" Margin="Margin.Dense"
-                            Placeholder="e.g., 123" Immediate="true" Clearable="true"
-                            Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Tag" />
-                    </MudItem>
-                    <MudItem xs="12" md="3">
-                        <MudTextField T="string" @bind-Value="customerCode" @bind-Value:after="OnCustomerCodeChanged"
-                            Label="Customer Code" Variant="Variant.Filled" Margin="Margin.Dense"
-                            Placeholder="e.g., C001" Immediate="true" Clearable="true"
-                            Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Person" />
-                    </MudItem>
-                    <MudItem xs="12" md="2">
-                        <FlexibleDatePicker Label="From Date" @bind-Date="fromDate" Variant="Variant.Filled" />
-                    </MudItem>
-                    <MudItem xs="12" md="2">
-                        <FlexibleDatePicker Label="To Date" @bind-Date="toDate" Variant="Variant.Filled" />
-                    </MudItem>
-                    <MudItem xs="12" md="3" Class="d-flex align-items-end gap-2 filter-actions">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Search"
-                            OnClick="ApplyFilter">Search</MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Clear"
-                            OnClick="ClearFilter">Clear</MudButton>
-                    </MudItem>
-                </MudGrid>
+            <div class="inv-header-actions">
+                <a href="/invoices/create" class="btn-inv-gradient">
+                    <i class="bi bi-plus-lg"></i> Create Invoice
+                </a>
             </div>
         </div>
 
-    @if (isLoading)
-    {
-        <div class="d-flex flex-column align-items-center py-5">
-            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
-            <MudText Typo="Typo.body2" Class="mt-2">Loading invoices...</MudText>
+        <!-- ━━━ Alerts ━━━ -->
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert-banner error-alert">
+                <i class="bi bi-exclamation-octagon-fill"></i>
+                <div class="alert-body">@errorMessage</div>
+                <button class="alert-close" @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+        }
+
+        <!-- ━━━ Stat Cards ━━━ -->
+        <div class="stat-row">
+            <div class="stat-card">
+                <div class="stat-icon purple"><i class="bi bi-receipt-cutoff"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@(invoices?.Count ?? 0)</div>
+                    <div class="stat-label">Invoices Loaded</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon blue"><i class="bi bi-cash-coin"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@((invoices?.Sum(i => i.DocTotal) ?? 0).ToString("N0"))</div>
+                    <div class="stat-label">Total Value</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon amber"><i class="bi bi-people-fill"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@(invoices?.Select(i => i.CardCode).Distinct().Count() ?? 0)</div>
+                    <div class="stat-label">Unique Customers</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon green"><i class="bi bi-percent"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@((invoices?.Sum(i => i.VatSum) ?? 0).ToString("N0"))</div>
+                    <div class="stat-label">Total VAT</div>
+                </div>
+            </div>
         </div>
-    }
-    else if (errorMessage != null)
-    {
-        <MudAlert Severity="Severity.Error" Class="mb-4">@errorMessage</MudAlert>
-    }
-    else if (invoices?.Any() == true)
-    {
-        <div class="card page-card">
-            <div class="card-body p-4">
-                <MudTable Items="@invoices" Dense="true" Hover="true" Striped="true" Filter="new Func<InvoiceDto, bool>(_quickFilter)" OnRowClick="@OnInvoiceRowClicked" T="InvoiceDto">
+
+        <!-- ━━━ Filter Bar ━━━ -->
+        <div class="filter-bar">
+            <div class="filter-field">
+                <label>Doc Number</label>
+                <MudNumericField T="int?" @bind-Value="docNumSearch" @bind-Value:after="OnDocNumChanged"
+                                 Placeholder="e.g. 123" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
+                                 Immediate="true" Class="mt-0" />
+            </div>
+            <div class="filter-field">
+                <label>Customer Code</label>
+                <MudTextField T="string" @bind-Value="customerCode" @bind-Value:after="OnCustomerCodeChanged"
+                              Placeholder="e.g. C001" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
+                              Immediate="true" Class="mt-0" />
+            </div>
+            <div class="filter-field" style="min-width:150px;">
+                <label>From Date</label>
+                <FlexibleDatePicker Label="From" @bind-Date="fromDate" Variant="Variant.Outlined" />
+            </div>
+            <div class="filter-field" style="min-width:150px;">
+                <label>To Date</label>
+                <FlexibleDatePicker Label="To" @bind-Date="toDate" Variant="Variant.Outlined" />
+            </div>
+            <div class="filter-actions-row">
+                <button class="btn-search" @onclick="ApplyFilter" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-search"></i>
+                    }
+                    Search
+                </button>
+                <button class="btn-clear" @onclick="ClearFilter"><i class="bi bi-x-lg"></i> Clear</button>
+            </div>
+        </div>
+
+        <!-- ━━━ Table ━━━ -->
+        @if (isLoading)
+        {
+            <div class="empty-state">
+                <div class="spinner-border text-primary" role="status"
+                     style="width:2.5rem;height:2.5rem;color:#667eea !important;"></div>
+                <p class="mt-3 text-muted">Loading invoices…</p>
+            </div>
+        }
+        else if (invoices?.Any() == true)
+        {
+            <div class="inv-table-wrap">
+                <MudTable @ref="@_table" Items="@invoices" RowsPerPage="15" Hover="true" Dense="true"
+                          Breakpoint="Breakpoint.Sm" LoadingProgressColor="Color.Primary"
+                          Filter="new Func<InvoiceDto, bool>(_quickFilter)" OnRowClick="@OnInvoiceRowClicked" T="InvoiceDto"
+                          Elevation="0">
                     <ToolBarContent>
-                        <MudText Typo="Typo.h6">Invoices</MudText>
+                        <MudText Typo="Typo.subtitle1" Style="font-weight:600; color:#1a1a2e;">
+                            <i class="bi bi-list-ul me-1"></i> @invoices.Count invoice(s)
+                        </MudText>
                         <MudSpacer />
-                        <MudTextField @bind-Value="_searchString" Placeholder="Search" Adornment="Adornment.Start" Immediate="true"
-                            AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+                        <MudTextField @bind-Value="_searchString" Placeholder="Quick filter…" Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
                     </ToolBarContent>
                     <HeaderContent>
-                        <MudTh>Doc Entry</MudTh>
                         <MudTh>Doc #</MudTh>
                         <MudTh>Customer</MudTh>
                         <MudTh>Date</MudTh>
@@ -95,95 +1104,132 @@
                         <MudTh>Currency</MudTh>
                         <MudTh Style="text-align:right">VAT</MudTh>
                         <MudTh Style="text-align:right">Total</MudTh>
-                        <MudTh>Actions</MudTh>
+                        <MudTh Style="width:60px;text-align:center;">View</MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd DataLabel="Doc Entry">@context.DocEntry</MudTd>
-                        <MudTd DataLabel="Doc #"><strong>@context.DocNum</strong></MudTd>
+                        <MudTd DataLabel="Doc #">
+                            <span class="doc-num-cell">#@context.DocNum</span>
+                        </MudTd>
                         <MudTd DataLabel="Customer">
-                            <MudChip T="string" Color="Color.Default" Size="Size.Small" Class="me-1">@context.CardCode</MudChip>
-                            @context.CardName
+                            <div class="customer-info">
+                                <span class="name">@context.CardName</span>
+                                <span class="code">@context.CardCode</span>
+                            </div>
                         </MudTd>
                         <MudTd DataLabel="Date">@FormatDate(context.DocDate)</MudTd>
                         <MudTd DataLabel="Due Date">@FormatDate(context.DocDueDate)</MudTd>
-                        <MudTd DataLabel="Currency">@context.DocCurrency</MudTd>
-                        <MudTd DataLabel="VAT" Style="text-align:right">@context.VatSum.ToString("N2")</MudTd>
-                        <MudTd DataLabel="Total" Style="text-align:right"><strong>@context.DocTotal.ToString("N2")</strong></MudTd>
-                        <MudTd DataLabel="Actions">
-                            <MudIconButton Icon="@Icons.Material.Filled.Visibility" Color="Color.Primary" Size="Size.Small"
-                                OnClick="@(() => ViewInvoice(context.DocEntry))" />
-                        </MudTd>
-                    </RowTemplate>
-                    <PagerContent>
-                        <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
-                    </PagerContent>
-                </MudTable>
+                        <MudTd DataLabel="Currency"><span class="currency-badge">@context.DocCurrency</span></MudTd>
+                        <MudTd DataLabel="VAT" Style="text-align:right"><span
+                            class="vat-cell">@context.VatSum.ToString("N2")</span></MudTd>
+                            <MudTd DataLabel="Total" Style="text-align:right"><span
+                                class="amount-cell">@context.DocTotal.ToString("N2")</span></MudTd>
+                                <MudTd DataLabel="View" Style="text-align:center;">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Color="Color.Primary"
+                                                   OnClick="@(() => ViewInvoice(context.DocEntry))" />
+                                </MudTd>
+                            </RowTemplate>
+                            <PagerContent>
+                                <MudPagination SelectedChanged="PageChanged"
+                                               Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
+                                               Class="pa-4" />
+                            </PagerContent>
+                        </MudTable>
+                    </div>
+                }
+        else if (!isLoading)
+                {
+                    <div class="empty-state">
+                        <div class="empty-icon"><i class="bi bi-receipt"></i></div>
+                        <h6>No Invoices Found</h6>
+                        <p>No invoices match your filters. Try adjusting your search criteria.</p>
+                        <a href="/invoices/create" class="btn-inv-gradient"><i class="bi bi-plus-lg"></i> Create Invoice</a>
+                    </div>
+                }
             </div>
         </div>
-    }
-    else
-    {
-        <MudAlert Severity="Severity.Info" Class="mb-4">No invoices found.</MudAlert>
-    }
-    </div>
-</div>
 
-<!-- Invoice Detail Modal -->
-@if (selectedInvoice != null)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Invoice #@selectedInvoice.DocNum</h5>
-                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+        <!-- ━━━ Invoice Detail Drawer ━━━ -->
+        @if (selectedInvoice != null && !showCreateCreditNoteModal && !showExistingCreditNotesModal)
+        {
+            <div class="modal-backdrop-custom" @onclick="CloseModal"></div>
+            <div class="detail-drawer">
+                <div class="drawer-header">
+                    <h5><i class="bi bi-receipt me-2"></i>Invoice #@selectedInvoice.DocNum</h5>
+                    <button class="btn-close-drawer" @onclick="CloseModal"><i class="bi bi-x-lg"></i></button>
                 </div>
-                <div class="modal-body">
-                    <!-- Credit Note Warning Banner -->
+                <div class="drawer-body">
+                    <!-- Credit Note Warning -->
                     @if (existingCreditNotes?.HasExistingCreditNotes == true)
                     {
-                        <div class="alert alert-warning d-flex align-items-center mb-3">
-                            <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
-                            <div>
-                                <strong>Credit Note Warning:</strong> This invoice already has
-                                <strong>@existingCreditNotes.CreditNotes.Count</strong> credit note(s) totaling
-                                <strong>@existingCreditNotes.TotalCreditedAmount.ToString("N2")
-                                    @selectedInvoice.DocCurrency</strong>.
-                                <button class="btn btn-link btn-sm p-0 ms-2" @onclick="ShowExistingCreditNotes">
-                                    View Details
-                                </button>
+                        <div class="cn-warning">
+                            <i class="bi bi-exclamation-triangle-fill cn-warning-icon"></i>
+                            <div class="cn-warning-body">
+                                <strong>@existingCreditNotes.CreditNotes.Count credit note(s)</strong> totaling
+                                <strong>@existingCreditNotes.TotalCreditedAmount.ToString("N2") @selectedInvoice.DocCurrency</strong>
+                                already exist for this invoice.
+                                <button class="cn-view-link" @onclick="ShowExistingCreditNotes">View Details</button>
                             </div>
                         </div>
                     }
 
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <p><strong>Customer:</strong> @selectedInvoice.CardName (@selectedInvoice.CardCode)</p>
-                            <p><strong>Date:</strong> @FormatDate(selectedInvoice.DocDate)</p>
-                            <p><strong>Due Date:</strong> @FormatDate(selectedInvoice.DocDueDate)</p>
+                    <!-- Detail Grid -->
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <div class="detail-label">Customer</div>
+                            <div class="detail-value">@selectedInvoice.CardName</div>
                         </div>
-                        <div class="col-md-6">
-                            <p><strong>Currency:</strong> @selectedInvoice.DocCurrency</p>
-                            <p><strong>Reference:</strong> @selectedInvoice.NumAtCard</p>
-                            <p><strong>Comments:</strong> @selectedInvoice.Comments</p>
+                        <div class="detail-item">
+                            <div class="detail-label">Customer Code</div>
+                            <div class="detail-value">@selectedInvoice.CardCode</div>
                         </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Document Date</div>
+                            <div class="detail-value">@FormatDate(selectedInvoice.DocDate)</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Due Date</div>
+                            <div class="detail-value">@FormatDate(selectedInvoice.DocDueDate)</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Doc Entry</div>
+                            <div class="detail-value">@selectedInvoice.DocEntry</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Currency</div>
+                            <div class="detail-value">@selectedInvoice.DocCurrency</div>
+                        </div>
+                        @if (!string.IsNullOrEmpty(selectedInvoice.NumAtCard))
+                        {
+                            <div class="detail-item">
+                                <div class="detail-label">Reference</div>
+                                <div class="detail-value">@selectedInvoice.NumAtCard</div>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(selectedInvoice.Comments))
+                        {
+                            <div class="detail-item">
+                                <div class="detail-label">Comments</div>
+                                <div class="detail-value" style="font-weight:400;">@selectedInvoice.Comments</div>
+                            </div>
+                        }
                     </div>
 
+                    <!-- Invoice Lines -->
                     @if (selectedInvoice.Lines?.Any() == true)
                     {
-                        <h6>Invoice Lines</h6>
-                        <div class="table-responsive">
-                            <table class="table table-sm">
-                                <thead class="table-light">
+                        <div class="detail-section-title"><i class="bi bi-list-check" style="color:#667eea;"></i> Invoice Lines</div>
+                        <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; margin-bottom:1rem;">
+                            <table class="lines-table">
+                                <thead>
                                     <tr>
                                         <th>#</th>
                                         <th>Item Code</th>
                                         <th>Description</th>
                                         <th>Warehouse</th>
-                                        <th class="text-end">Qty</th>
-                                        <th class="text-end">Price</th>
-                                        <th class="text-end">Discount</th>
-                                        <th class="text-end">Total</th>
+                                        <th style="text-align:right;">Qty</th>
+                                        <th style="text-align:right;">Price</th>
+                                        <th style="text-align:right;">Disc %</th>
+                                        <th style="text-align:right;">Total</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -191,259 +1237,246 @@
                                     {
                                         <tr>
                                             <td>@line.LineNum</td>
-                                            <td>@line.ItemCode</td>
+                                            <td><strong>@line.ItemCode</strong></td>
                                             <td>@line.ItemDescription</td>
                                             <td>@line.WarehouseCode</td>
-                                            <td class="text-end">@line.Quantity</td>
-                                            <td class="text-end">@line.UnitPrice.ToString("N2")</td>
-                                            <td class="text-end">@line.DiscountPercent%</td>
-                                            <td class="text-end">@line.LineTotal.ToString("N2")</td>
+                                            <td style="text-align:right;">@line.Quantity</td>
+                                            <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
+                                            <td style="text-align:right;">@line.DiscountPercent%</td>
+                                            <td style="text-align:right; font-weight:600;">@line.LineTotal.ToString("N2")</td>
                                         </tr>
                                     }
                                 </tbody>
                                 <tfoot>
-                                    <tr class="table-light">
-                                        <td colspan="7" class="text-end"><strong>VAT:</strong></td>
-                                        <td class="text-end">@selectedInvoice.VatSum.ToString("N2")</td>
-                                    </tr>
-                                    <tr class="table-primary">
-                                        <td colspan="7" class="text-end"><strong>Total:</strong></td>
-                                        <td class="text-end"><strong>@selectedInvoice.DocTotal.ToString("N2")</strong></td>
+                                    <tr>
+                                        <td colspan="7" style="text-align:right; font-weight:600; color:#6b7280;">VAT</td>
+                                        <td style="text-align:right; font-weight:600;">@selectedInvoice.VatSum.ToString("N2")</td>
                                     </tr>
                                 </tfoot>
                             </table>
                         </div>
                     }
+
+                    <!-- Total Banner -->
+                    <div class="total-banner">
+                        <span class="total-label">Invoice Total</span>
+                        <span class="total-value">@selectedInvoice.DocCurrency @selectedInvoice.DocTotal.ToString("N2")</span>
+                    </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-warning" @onclick="OpenCreateCreditNoteModal">
-                        <i class="bi bi-file-earmark-minus me-1"></i>Create Credit Note
+                <div class="drawer-footer">
+                    <button class="btn-warning-action" @onclick="OpenCreateCreditNoteModal">
+                        <i class="bi bi-file-earmark-minus"></i> Create Credit Note
                     </button>
-                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Close</button>
+                    <button class="btn-secondary-action" @onclick="CloseModal"><i class="bi bi-x-lg me-1"></i>Close</button>
                 </div>
             </div>
-        </div>
-    </div>
-}
+        }
 
-<!-- Existing Credit Notes Modal -->
-@if (showExistingCreditNotesModal && existingCreditNotes != null)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5); z-index: 1060;">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header bg-warning text-dark">
-                    <h5 class="modal-title">
-                        <i class="bi bi-file-earmark-minus me-2"></i>Existing Credit Notes for Invoice
-                        #@selectedInvoice?.DocNum
-                    </h5>
-                    <button type="button" class="btn-close" @onclick="() => showExistingCreditNotesModal = false"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="alert alert-info mb-3">
-                        <strong>Total Credited:</strong> @existingCreditNotes.TotalCreditedAmount.ToString("N2")
-                        @selectedInvoice?.DocCurrency
-                    </div>
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Credit Note #</th>
-                                    <th>Date</th>
-                                    <th>Type</th>
-                                    <th>Status</th>
-                                    <th>Reason</th>
-                                    <th class="text-end">Amount</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var cn in existingCreditNotes.CreditNotes)
-                                {
-                                    <tr>
-                                        <td><strong>@cn.CreditNoteNumber</strong></td>
-                                        <td>@cn.CreditNoteDate.ToString("dd MMM yyyy")</td>
-                                        <td><span class="badge bg-info">@cn.TypeName</span></td>
-                                        <td><span class="badge @GetCreditNoteStatusBadge(cn.Status)">@cn.StatusName</span></td>
-                                        <td>@TruncateText(cn.Reason, 30)</td>
-                                        <td class="text-end"><strong>@cn.DocTotal.ToString("N2")</strong></td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary"
-                        @onclick="() => showExistingCreditNotesModal = false">Close</button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
-
-<!-- Create Credit Note Modal -->
-@if (showCreateCreditNoteModal && selectedInvoice != null)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5); z-index: 1060;">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content position-relative">
-                @* Loading Overlay *@
-                        @if (isCreatingCreditNote)
-                {
-                    <div class="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column justify-content-center align-items-center"
-                        style="background-color: rgba(255,255,255,0.95); z-index: 1070; border-radius: inherit;">
-                        <div class="text-center">
-                            <div class="position-relative d-inline-block mb-3">
-                                @* Animated Progress Circles *@
-                                                <div class="d-flex justify-content-center gap-2 mb-3">
-                                    <div class="spinner-grow text-primary"
-                                        style="width: 1rem; height: 1rem; animation-delay: 0s;" role="status"></div>
-                                    <div class="spinner-grow text-warning"
-                                        style="width: 1rem; height: 1rem; animation-delay: 0.2s;" role="status"></div>
-                                    <div class="spinner-grow text-success"
-                                        style="width: 1rem; height: 1rem; animation-delay: 0.4s;" role="status"></div>
+        <!-- ━━━ Existing Credit Notes Modal ━━━ -->
+        @if (showExistingCreditNotesModal && existingCreditNotes != null)
+        {
+            <div class="cn-modal-overlay" @onclick="() => showExistingCreditNotesModal = false">
+                <div class="cn-modal" @onclick:stopPropagation="true">
+                    <div class="cn-modal-header">
+                        <h5><i class="bi bi-file-earmark-minus" style="color:#d97706;"></i> Credit Notes — Invoice
+                            #@selectedInvoice?.DocNum</h5>
+                            <button class="btn-close-modal" @onclick="() => showExistingCreditNotesModal = false"><i
+                                class="bi bi-x-lg"></i></button>
+                            </div>
+                            <div class="cn-modal-body">
+                                <div class="alert-banner info-alert" style="margin-bottom:1rem;">
+                                    <i class="bi bi-info-circle-fill"></i>
+                                    <div class="alert-body">
+                                        <strong>Total Credited:</strong> @existingCreditNotes.TotalCreditedAmount.ToString("N2")
+                                        @selectedInvoice?.DocCurrency
+                                    </div>
                                 </div>
-                                @* Main Progress Circle *@
-                                                <svg width="120" height="120" viewBox="0 0 120 120" class="progress-ring">
-                                    <circle cx="60" cy="60" r="52" fill="none" stroke="#e9ecef" stroke-width="8" />
-                                    <circle cx="60" cy="60" r="52" fill="none" stroke="#ffc107" stroke-width="8"
-                                        stroke-linecap="round" stroke-dasharray="@(327 * creditNoteProgress / 100) 327"
-                                        style="transform: rotate(-90deg); transform-origin: center; transition: stroke-dasharray 0.3s ease;">
-                                    </circle>
-                                </svg>
-                                <div class="position-absolute top-50 start-50 translate-middle">
-                                    <span class="fs-4 fw-bold text-warning">@creditNoteProgress%</span>
+                                <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden;">
+                                    <table class="lines-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Credit Note #</th>
+                                                <th>Date</th>
+                                                <th>Type</th>
+                                                <th>Status</th>
+                                                <th>Reason</th>
+                                                <th style="text-align:right;">Amount</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var cn in existingCreditNotes.CreditNotes)
+                                            {
+                                                <tr>
+                                                    <td><strong>@cn.CreditNoteNumber</strong></td>
+                                                    <td>@cn.CreditNoteDate.ToString("dd MMM yyyy")</td>
+                                                    <td><span class="status-badge open">@cn.TypeName</span></td>
+                                                    <td><span class="status-badge @GetCreditNoteStatusClass(cn.Status)">@cn.StatusName</span>
+                                                    </td>
+                                                    <td>@TruncateText(cn.Reason, 30)</td>
+                                                    <td style="text-align:right; font-weight:600;">@cn.DocTotal.ToString("N2")</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
-                            <h5 class="text-warning mb-2">
-                                <i class="bi bi-cloud-upload me-2"></i>Posting to SAP
-                            </h5>
-                            <p class="text-muted mb-1">@creditNoteProgressMessage</p>
-                            <small class="text-secondary">Please wait while the credit note is being created...</small>
+                            <div class="cn-modal-footer">
+                                <button class="btn-secondary-action" @onclick="() => showExistingCreditNotesModal = false">Close</button>
+                            </div>
                         </div>
                     </div>
                 }
 
-                <div class="modal-header">
-                    <h5 class="modal-title">
-                        <i class="bi bi-file-earmark-minus me-2"></i>Create Credit Note from Invoice
-                        #@selectedInvoice.DocNum
-                    </h5>
-                    <button type="button" class="btn-close" @onclick="() => showCreateCreditNoteModal = false"
-                        disabled="@isCreatingCreditNote"></button>
-                </div>
-                <div class="modal-body">
-                    @if (existingCreditNotes?.HasExistingCreditNotes == true)
-                    {
-                        <div class="alert alert-warning">
-                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                            <strong>Warning:</strong> This invoice already has @existingCreditNotes.CreditNotes.Count credit
-                            note(s)
-                            totaling @existingCreditNotes.TotalCreditedAmount.ToString("N2") @selectedInvoice.DocCurrency.
-                            Are you sure you want to create another credit note?
-                        </div>
-                    }
+                <!-- ━━━ Create Credit Note Modal ━━━ -->
+                @if (showCreateCreditNoteModal && selectedInvoice != null)
+                {
+                    <div class="cn-modal-overlay">
+                        <div class="cn-modal" style="position:relative;" @onclick:stopPropagation="true">
+                            @if (isCreatingCreditNote)
+                            {
+                                <div class="cn-progress-overlay">
+                                    <div class="progress-dots">
+                                        <div class="dot"></div>
+                                        <div class="dot"></div>
+                                        <div class="dot"></div>
+                                    </div>
+                                    <div class="progress-ring-wrap">
+                                        <svg width="100" height="100" viewBox="0 0 100 100">
+                                            <circle cx="50" cy="50" r="42" fill="none" stroke="#e9ecef" stroke-width="7" />
+                                            <circle cx="50" cy="50" r="42" fill="none" stroke="#f59e0b" stroke-width="7" stroke-linecap="round"
+                                                    stroke-dasharray="@(264 * creditNoteProgress / 100) 264"
+                                                    style="transform:rotate(-90deg);transform-origin:center;transition:stroke-dasharray .3s ease;" />
+                                        </svg>
+                                        <span class="ring-label">@creditNoteProgress%</span>
+                                    </div>
+                                    <h6 style="color:#d97706; font-weight:600; margin-bottom:.3rem;">
+                                        <i class="bi bi-cloud-upload me-1"></i>Posting to SAP
+                                    </h6>
+                                    <p style="color:#6b7280; font-size:.88rem; margin-bottom:.15rem;">@creditNoteProgressMessage</p>
+                                    <small style="color:#9ca3af;">Please wait while the credit note is being created…</small>
+                                </div>
+                            }
 
-                    <div class="mb-3">
-                        <label class="form-label"><strong>Reason for Credit Note *</strong></label>
-                        <textarea class="form-control" @bind="creditNoteReason" rows="3"
-                            placeholder="Enter the reason for creating this credit note..."
-                            disabled="@isCreatingCreditNote"></textarea>
-                    </div>
-
-                    <h6 class="mb-3">Select Items to Credit</h6>
-                    <div class="table-responsive">
-                        <table class="table table-sm">
-                            <thead class="table-light">
-                                <tr>
-                                    <th style="width: 40px;">
-                                        <input type="checkbox" class="form-check-input" @bind="selectAllLines"
-                                            @bind:after="ToggleAllLines" disabled="@isCreatingCreditNote" />
-                                    </th>
-                                    <th>Item</th>
-                                    <th>Description</th>
-                                    <th class="text-end">Qty</th>
-                                    <th class="text-end">Credit Qty</th>
-                                    <th class="text-end">Price</th>
-                                    <th class="text-end">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @if (creditNoteLines != null)
-                                {
-                                    @foreach (var line in creditNoteLines)
+                            <div class="cn-modal-header">
+                                <h5><i class="bi bi-file-earmark-minus" style="color:#d97706;"></i> Create Credit Note — Invoice
+                                    #@selectedInvoice.DocNum</h5>
+                                    <button class="btn-close-modal" @onclick="() => showCreateCreditNoteModal = false"
+                                            disabled="@isCreatingCreditNote">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </div>
+                                <div class="cn-modal-body">
+                                    @if (existingCreditNotes?.HasExistingCreditNotes == true)
                                     {
-                                        <tr class="@(line.IsSelected ? "table-active" : "")">
-                                            <td>
-                                                <input type="checkbox" class="form-check-input" @bind="line.IsSelected"
-                                                    disabled="@isCreatingCreditNote" />
-                                            </td>
-                                            <td>@line.ItemCode</td>
-                                            <td>@line.ItemDescription</td>
-                                            <td class="text-end">@line.OriginalQuantity</td>
-                                            <td class="text-end" style="width: 100px;">
-                                                <input type="number" class="form-control form-control-sm text-end"
-                                                    @bind="line.CreditQuantity" min="0" max="@line.OriginalQuantity" step="0.01"
-                                                    disabled="@(!line.IsSelected || isCreatingCreditNote)" />
-                                            </td>
-                                            <td class="text-end">@line.UnitPrice.ToString("N2")</td>
-                                            <td class="text-end">@((line.IsSelected ? line.CreditQuantity * line.UnitPrice :
-                                                                                    0).ToString("N2"))</td>
-                                        </tr>
+                                        <div class="alert-banner warn-alert" style="margin-bottom:1rem;">
+                                            <i class="bi bi-exclamation-triangle-fill"></i>
+                                            <div class="alert-body">
+                                                <strong>Warning:</strong> This invoice already has @existingCreditNotes.CreditNotes.Count credit
+                                                note(s)
+                                                totaling @existingCreditNotes.TotalCreditedAmount.ToString("N2") @selectedInvoice.DocCurrency.
+                                            </div>
+                                        </div>
                                     }
-                                }
-                            </tbody>
-                            <tfoot>
-                                <tr class="table-primary">
-                                    <td colspan="6" class="text-end"><strong>Credit Note Total:</strong></td>
-                                    <td class="text-end"><strong>@CalculateCreditNoteTotal().ToString("N2")</strong></td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="() => showCreateCreditNoteModal = false"
-                        disabled="@isCreatingCreditNote">Cancel</button>
-                    <button type="button" class="btn btn-warning" @onclick="CreateCreditNote"
-                        disabled="@(isCreatingCreditNote || string.IsNullOrWhiteSpace(creditNoteReason) || !HasSelectedLines())">
-                        @if (isCreatingCreditNote)
-                        {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
-                            <span>Posting...</span>
-                        }
-                        else
-                        {
-                            <i class="bi bi-check-lg me-1"></i>
-                            <span>Create Credit Note</span>
-                        }
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
 
-<!-- Success/Error Message Toast -->
-@if (!string.IsNullOrEmpty(creditNoteMessage))
-{
-    <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1100;">
-        <div class="toast show @(creditNoteSuccess ? "bg-success" : "bg-danger") text-white">
-            <div class="toast-header @(creditNoteSuccess ? "bg-success" : "bg-danger") text-white">
-                <i class="bi @(creditNoteSuccess ? "bi-check-circle" : "bi-exclamation-circle") me-2"></i>
-                <strong class="me-auto">@(creditNoteSuccess ? "Success" : "Error")</strong>
-                <button type="button" class="btn-close btn-close-white" @onclick="() => creditNoteMessage = null"></button>
-            </div>
-            <div class="toast-body">
-                @creditNoteMessage
-            </div>
-        </div>
-    </div>
-}
+                                    <div style="margin-bottom:1.25rem;">
+                                        <label
+                                            style="display:block;font-size:.75rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:.4rem;">
+                                            Reason for Credit Note *
+                                        </label>
+                                        <textarea
+                                        style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:.6rem .85rem;font-size:.9rem;resize:vertical;min-height:80px;"
+                                        @bind="creditNoteReason" placeholder="Enter the reason for creating this credit note…"
+                                        disabled="@isCreatingCreditNote"></textarea>
+                                    </div>
+
+                                    <div class="detail-section-title"><i class="bi bi-list-check" style="color:#d97706;"></i> Select Items to
+                                        Credit</div>
+                                        <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden;">
+                                            <table class="cn-lines-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th style="width:36px;">
+                                                            <input type="checkbox" @bind="selectAllLines" @bind:after="ToggleAllLines"
+                                                                   disabled="@isCreatingCreditNote" style="cursor:pointer;" />
+                                                        </th>
+                                                        <th>Item</th>
+                                                        <th>Description</th>
+                                                        <th style="text-align:right;">Qty</th>
+                                                        <th style="text-align:right;">Credit Qty</th>
+                                                        <th style="text-align:right;">Price</th>
+                                                        <th style="text-align:right;">Total</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @if (creditNoteLines != null)
+                                                    {
+                                                        @foreach (var line in creditNoteLines)
+                                                        {
+                                                            <tr class="@(line.IsSelected ? "selected-row" : "")">
+                                                                <td>
+                                                                    <input type="checkbox" @bind="line.IsSelected" disabled="@isCreatingCreditNote"
+                                                                           style="cursor:pointer;" />
+                                                                </td>
+                                                                <td><strong>@line.ItemCode</strong></td>
+                                                                <td>@line.ItemDescription</td>
+                                                                <td style="text-align:right;">@line.OriginalQuantity</td>
+                                                                <td style="text-align:right;">
+                                                                    <input type="number" class="cn-qty-input" @bind="line.CreditQuantity" min="0"
+                                                                           max="@line.OriginalQuantity" step="0.01"
+                                                                           disabled="@(!line.IsSelected || isCreatingCreditNote)" />
+                                                                </td>
+                                                                <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
+                                                                <td style="text-align:right; font-weight:600;">
+                                                                    @((line.IsSelected ? line.CreditQuantity * line.UnitPrice : 0).ToString("N2"))
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                    }
+                                                </tbody>
+                                                <tfoot>
+                                                    <tr>
+                                                        <td colspan="6" style="text-align:right;">Credit Note Total:</td>
+                                                        <td style="text-align:right;">@CalculateCreditNoteTotal().ToString("N2")</td>
+                                                    </tr>
+                                                </tfoot>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    <div class="cn-modal-footer">
+                                        <button class="btn-secondary-action" @onclick="() => showCreateCreditNoteModal = false"
+                                                disabled="@isCreatingCreditNote">Cancel</button>
+                                        <button class="btn-warning-action" @onclick="CreateCreditNote"
+                                                disabled="@(isCreatingCreditNote || string.IsNullOrWhiteSpace(creditNoteReason) || !HasSelectedLines())">
+                                            @if (isCreatingCreditNote)
+                                            {
+                                                <span class="spinner-border spinner-border-sm"></span>
+                                                <span>Posting…</span>
+                                            }
+                                            else
+                                            {
+                                                <i class="bi bi-check-lg"></i>
+                                                <span>Create Credit Note</span>
+                                            }
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        <!-- ━━━ Toast Notification ━━━ -->
+                        @if (!string.IsNullOrEmpty(creditNoteMessage))
+                        {
+                            <div class="toast-banner @(creditNoteSuccess ? "success" : "error")">
+                                <i class="bi @(creditNoteSuccess ? "bi-check-circle-fill" : "bi-exclamation-circle-fill") toast-icon"></i>
+                                <div class="toast-body">@creditNoteMessage</div>
+                                <button class="toast-close" @onclick="() => creditNoteMessage = null"><i class="bi bi-x-lg"></i></button>
+                            </div>
+                        }
 
 @code {
+    private MudTable<InvoiceDto>? _table;
     private List<InvoiceDto>? invoices;
-    private List<InvoiceDto>? allInvoices; // Store all invoices for client-side filtering
+    private List<InvoiceDto>? allInvoices;
     private InvoiceDto? selectedInvoice;
     private bool isLoading = true;
     private string? errorMessage;
@@ -476,34 +1509,32 @@
     private string creditNoteProgressMessage = "Initializing...";
     private CancellationTokenSource? _progressCancellationTokenSource;
 
-    // Quick filter - filter globally across multiple columns with the same input
+    // Quick filter
     private Func<InvoiceDto, bool> _quickFilter => x =>
     {
         if (string.IsNullOrWhiteSpace(_searchString))
             return true;
-
         if (x.DocNum.ToString().Contains(_searchString, StringComparison.OrdinalIgnoreCase))
             return true;
-
         if (x.CardCode?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
             return true;
-
         if (x.CardName?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
             return true;
-
         if (x.DocCurrency?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
             return true;
-
         if ($"{x.DocEntry} {x.DocTotal}".Contains(_searchString))
             return true;
-
         return false;
     };
 
-    // Row click handler
     private void OnInvoiceRowClicked(TableRowClickEventArgs<InvoiceDto> args)
     {
         ViewInvoice(args.Item.DocEntry);
+    }
+
+    private void PageChanged(int i)
+    {
+        _table.NavigateTo(i - 1);
     }
 
     protected override async Task OnInitializedAsync()
@@ -513,12 +1544,9 @@
 
     private string FormatDate(string? dateStr)
     {
-        if (string.IsNullOrEmpty(dateStr))
-            return "-";
-
+        if (string.IsNullOrEmpty(dateStr)) return "—";
         if (DateTime.TryParse(dateStr, out var date))
             return date.ToString("dd MMM yyyy");
-
         return dateStr;
     }
 
@@ -533,23 +1561,17 @@
             if (response != null)
             {
                 invoices = response.Invoices;
-                allInvoices = response.Invoices; // Store for client-side filtering
+                allInvoices = response.Invoices;
                 hasMore = response.HasMore;
                 totalCount = response.Count;
-                // Estimate total pages: at minimum current page, plus 1 if there are more
                 if (hasMore)
-                {
-                    // If there are more pages, we know at least currentPage + 1 exist
                     totalPages = Math.Max(totalPages, currentPage + 1);
-                }
                 else
-                {
                     totalPages = currentPage;
-                }
             }
             else
             {
-                errorMessage = "Failed to load invoices";
+                errorMessage = "Failed to load invoices. Check if the API is running.";
             }
         }
         catch (Exception ex)
@@ -570,76 +1592,54 @@
             {
                 var response = await InvoiceService.GetInvoicesAsync(1, 1000);
                 if (response?.Invoices != null)
-                {
                     allInvoices = response.Invoices;
-                }
             }
-            catch
-            {
-                // Keep existing data if load fails
-            }
+            catch { /* Keep existing data */ }
         }
     }
 
     private async Task OnDocNumChanged()
     {
-        // Cancel previous debounce
         _debounceTokenSource?.Cancel();
         _debounceTokenSource = new CancellationTokenSource();
-
         try
         {
             await Task.Delay(DebounceDelayMs, _debounceTokenSource.Token);
             await FilterByDocNum();
         }
-        catch (TaskCanceledException)
-        {
-            // Debounce cancelled, ignore
-        }
+        catch (TaskCanceledException) { }
     }
 
     private async Task OnCustomerCodeChanged()
     {
-        // Cancel previous debounce
         _debounceTokenSource?.Cancel();
         _debounceTokenSource = new CancellationTokenSource();
-
         try
         {
             await Task.Delay(DebounceDelayMs, _debounceTokenSource.Token);
             await FilterByCustomerCode();
         }
-        catch (TaskCanceledException)
-        {
-            // Debounce cancelled, ignore
-        }
+        catch (TaskCanceledException) { }
     }
 
     private async Task FilterByDocNum()
     {
         if (!docNumSearch.HasValue || docNumSearch.Value == 0)
         {
-            // If cleared, reload original list
             if (string.IsNullOrWhiteSpace(customerCode))
-            {
                 await LoadInvoices();
-            }
             return;
         }
 
         isLoading = true;
         StateHasChanged();
-
         try
         {
             await LoadAllInvoicesIfNeeded();
-
             if (allInvoices != null)
             {
                 var searchNum = docNumSearch.Value.ToString();
-                invoices = allInvoices
-                .Where(i => i.DocNum.ToString().Contains(searchNum))
-                .ToList();
+                invoices = allInvoices.Where(i => i.DocNum.ToString().Contains(searchNum)).ToList();
                 hasMore = false;
             }
         }
@@ -654,21 +1654,16 @@
     {
         if (string.IsNullOrWhiteSpace(customerCode))
         {
-            // If cleared, reload original list
             if (!docNumSearch.HasValue)
-            {
                 await LoadInvoices();
-            }
             return;
         }
 
         isLoading = true;
         StateHasChanged();
-
         try
         {
             await LoadAllInvoicesIfNeeded();
-
             if (allInvoices != null)
             {
                 var searchCode = customerCode.ToUpper();
@@ -693,15 +1688,12 @@
 
         try
         {
-            // First load all invoices if filtering by DocNum (client-side filter)
             if (docNumSearch.HasValue)
             {
                 var response = await InvoiceService.GetInvoicesAsync(1, 1000);
                 if (response?.Invoices != null)
                 {
-                    invoices = response.Invoices
-                    .Where(i => i.DocNum == docNumSearch.Value)
-                    .ToList();
+                    invoices = response.Invoices.Where(i => i.DocNum == docNumSearch.Value).ToList();
                     hasMore = false;
                 }
             }
@@ -743,7 +1735,7 @@
         toDate = null;
         currentPage = 1;
         totalPages = 1;
-        allInvoices = null; // Clear cache to force reload
+        allInvoices = null;
         await LoadInvoices();
     }
 
@@ -751,10 +1743,7 @@
     {
         selectedInvoice = await InvoiceService.GetInvoiceByDocEntryAsync(docEntry);
         if (selectedInvoice != null)
-        {
-            // Check for existing credit notes
             existingCreditNotes = await CreditNoteService.GetCreditNotesForInvoiceAsync(docEntry);
-        }
     }
 
     private void CloseModal()
@@ -776,7 +1765,6 @@
     {
         if (selectedInvoice?.Lines == null) return;
 
-        // Initialize credit note lines from invoice lines
         creditNoteLines = selectedInvoice.Lines.Select(line => new CreditNoteLineSelection
         {
             ItemCode = line.ItemCode ?? "",
@@ -799,9 +1787,7 @@
         if (creditNoteLines != null)
         {
             foreach (var line in creditNoteLines)
-            {
                 line.IsSelected = selectAllLines;
-            }
         }
     }
 
@@ -826,7 +1812,6 @@
         creditNoteProgress = 0;
         creditNoteProgressMessage = "Initializing...";
 
-        // Start progress simulation
         _progressCancellationTokenSource = new CancellationTokenSource();
         _ = SimulateSapProgressAsync(_progressCancellationTokenSource.Token);
 
@@ -841,7 +1826,7 @@
                 Quantity = l.CreditQuantity,
                 UnitPrice = l.UnitPrice,
                 WarehouseCode = l.WarehouseCode,
-                OriginalInvoiceLineId = l.LineNum // Link to original invoice line for SAP BaseLine reference
+                OriginalInvoiceLineId = l.LineNum
             })
             .ToList();
 
@@ -851,22 +1836,19 @@
             creditNoteReason
             );
 
-            // Stop progress simulation
             _progressCancellationTokenSource?.Cancel();
 
             if (result.Success && result.CreditNote != null)
             {
-                // Show completion
                 creditNoteProgress = 100;
                 creditNoteProgressMessage = "Credit note created successfully!";
                 StateHasChanged();
-                await Task.Delay(500); // Brief pause to show 100%
+                await Task.Delay(500);
 
                 creditNoteSuccess = true;
                 creditNoteMessage = $"Credit Note {result.CreditNote.CreditNoteNumber} created successfully!";
                 showCreateCreditNoteModal = false;
 
-                // Refresh credit notes for this invoice
                 existingCreditNotes = await CreditNoteService.GetCreditNotesForInvoiceAsync(selectedInvoice.DocEntry);
             }
             else
@@ -905,10 +1887,8 @@
         {
             foreach (var (progress, message) in progressSteps)
             {
-                if (cancellationToken.IsCancellationRequested)
-                    return;
+                if (cancellationToken.IsCancellationRequested) return;
 
-                // Animate progress smoothly
                 while (creditNoteProgress < progress && !cancellationToken.IsCancellationRequested)
                 {
                     creditNoteProgress += 2;
@@ -923,40 +1903,34 @@
                 await Task.Delay(800, cancellationToken);
             }
 
-            // Keep cycling near the end if still waiting
             while (!cancellationToken.IsCancellationRequested)
             {
                 if (creditNoteProgress >= 95)
-                {
                     creditNoteProgress = 85;
-                }
                 creditNoteProgress += 1;
                 await InvokeAsync(StateHasChanged);
                 await Task.Delay(300, cancellationToken);
             }
         }
-        catch (TaskCanceledException)
-        {
-            // Expected when operation completes
-        }
+        catch (TaskCanceledException) { /* Expected */ }
     }
 
-    private string GetCreditNoteStatusBadge(CreditNoteStatus status) => status switch
+    private string GetCreditNoteStatusClass(CreditNoteStatus status) => status switch
     {
-        CreditNoteStatus.Draft => "bg-secondary",
-        CreditNoteStatus.Pending => "bg-warning text-dark",
-        CreditNoteStatus.Approved => "bg-success",
-        CreditNoteStatus.Applied => "bg-primary",
-        CreditNoteStatus.PartiallyApplied => "bg-info",
-        CreditNoteStatus.Cancelled => "bg-danger",
-        CreditNoteStatus.Voided => "bg-dark",
-        _ => "bg-secondary"
+        CreditNoteStatus.Draft => "",
+        CreditNoteStatus.Pending => "partial",
+        CreditNoteStatus.Approved => "open",
+        CreditNoteStatus.Applied => "closed",
+        CreditNoteStatus.PartiallyApplied => "partial",
+        CreditNoteStatus.Cancelled => "",
+        CreditNoteStatus.Voided => "",
+        _ => ""
     };
 
     private string TruncateText(string? text, int maxLength)
     {
-        if (string.IsNullOrEmpty(text)) return "-";
-        return text.Length <= maxLength ? text : text.Substring(0, maxLength) + "...";
+        if (string.IsNullOrEmpty(text)) return "—";
+        return text.Length <= maxLength ? text : text.Substring(0, maxLength) + "…";
     }
 
     private async Task OnPageChanged(int page)
@@ -974,7 +1948,6 @@
         await LoadInvoices();
     }
 
-    // Helper class for credit note line selection
     private class CreditNoteLineSelection
     {
         public string ItemCode { get; set; } = "";

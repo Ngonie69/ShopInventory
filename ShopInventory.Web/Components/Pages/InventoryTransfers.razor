@@ -1,505 +1,1354 @@
 @page "/inventory-transfers"
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize]
+@attribute [Authorize(Roles = "Admin,StockController,DepotController")]
 @inject IInventoryTransferService TransferService
 @inject IMasterDataCacheService CacheService
 @inject ILogger<InventoryTransfers> Logger
 @rendermode InteractiveServer
 
+<PageTitle>Inventory Transfers - Shop Inventory</PageTitle>
+
 <style>
-    .spin {
-        animation: spin 1s linear infinite;
+    /* ── Page ────────────────────────────────────────── */
+    .it-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
     }
 
-    @@keyframes spin {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
+    /* ── Header ──────────────────────────────────────── */
+    .it-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
     }
 
-    .loading-overlay {
+    .it-header-left {
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+    }
+
+    .it-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #2563eb, #7c3aed);
+        box-shadow: 0 4px 14px rgba(37, 99, 235, .3);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .it-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+    }
+
+    .it-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: 0.88rem;
+    }
+
+    .it-header-actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .btn-gradient {
+        background: linear-gradient(135deg, #2563eb, #7c3aed);
+        border: none;
+        color: #fff;
+        padding: 0.55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: 0.88rem;
+        text-decoration: none;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        box-shadow: 0 2px 8px rgba(37, 99, 235, .25);
+    }
+
+    .btn-gradient:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(37, 99, 235, .4);
+        color: #fff;
+    }
+
+    .btn-outline-action {
+        background: #fff;
+        border: 1px solid #d1d5db;
+        color: #374151;
+        padding: 0.55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: 0.88rem;
+        text-decoration: none;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .btn-outline-action:hover {
+        background: #f3f4f6;
+        border-color: #9ca3af;
+        color: #111827;
+    }
+
+    /* ── Stat Cards ──────────────────────────────────── */
+    .stat-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .stat-card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 1.1rem 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        transition: box-shadow .2s;
+    }
+
+    .stat-card:hover {
+        box-shadow: 0 4px 14px rgba(0, 0, 0, .08);
+    }
+
+    .stat-icon {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        flex-shrink: 0;
+    }
+
+    .stat-icon.blue {
+        background: #dbeafe;
+        color: #2563eb;
+    }
+
+    .stat-icon.green {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+    .stat-icon.amber {
+        background: #fef3c7;
+        color: #d97706;
+    }
+
+    .stat-icon.purple {
+        background: #ede9fe;
+        color: #7c3aed;
+    }
+
+    .stat-info .stat-value {
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        line-height: 1.2;
+    }
+
+    .stat-info .stat-label {
+        font-size: 0.78rem;
+        color: #6b7280;
+        font-weight: 500;
+    }
+
+    /* ── Tabs ────────────────────────────────────────── */
+    .it-tabs {
+        display: flex;
+        gap: 0;
+        background: #fff;
+        border-radius: 12px 12px 0 0;
+        border: 1px solid #e5e7eb;
+        border-bottom: none;
+        overflow: hidden;
+    }
+
+    .it-tab {
+        flex: 1;
+        padding: 0.85rem 1.25rem;
+        text-align: center;
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: #6b7280;
+        background: #fafbfc;
+        border: none;
+        border-bottom: 3px solid transparent;
+        cursor: pointer;
+        transition: all .2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+
+    .it-tab:hover {
+        background: #f3f4f6;
+        color: #374151;
+    }
+
+    .it-tab.active {
+        background: #fff;
+        color: #2563eb;
+        border-bottom-color: #2563eb;
+    }
+
+    .it-tab .tab-badge {
+        background: #e5e7eb;
+        color: #6b7280;
+        padding: 0.1rem 0.5rem;
+        border-radius: 20px;
+        font-size: 0.72rem;
+        font-weight: 700;
+    }
+
+    .it-tab.active .tab-badge {
+        background: #dbeafe;
+        color: #2563eb;
+    }
+
+    .it-tab-body {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-top: none;
+        border-radius: 0 0 12px 12px;
+        padding: 1.25rem;
+        min-height: 300px;
+    }
+
+    /* ── Filter Bar ──────────────────────────────────── */
+    .filter-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: flex-end;
+        padding: 1rem 1.25rem;
+        background: #f8fafc;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        margin-bottom: 1.25rem;
+    }
+
+    .filter-bar .filter-field {
+        flex: 1;
+        min-width: 160px;
+    }
+
+    .filter-bar .filter-field label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 0.3rem;
+    }
+
+    .filter-bar .filter-actions-row {
+        display: flex;
+        gap: 0.5rem;
+        align-items: flex-end;
+    }
+
+    .btn-search {
+        background: #2563eb;
+        color: #fff;
+        border: none;
+        padding: 0.5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .btn-search:hover {
+        background: #1d4ed8;
+    }
+
+    .btn-search:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .btn-clear {
+        background: #fff;
+        color: #6b7280;
+        border: 1px solid #d1d5db;
+        padding: 0.5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        cursor: pointer;
+        transition: all .2s;
+    }
+
+    .btn-clear:hover {
+        background: #f3f4f6;
+    }
+
+    /* ── Table ───────────────────────────────────────── */
+    .it-table-wrapper {
+        overflow-x: auto;
+        border-radius: 10px;
+        border: 1px solid #e5e7eb;
+    }
+
+    .it-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-size: 0.88rem;
+    }
+
+    .it-table thead th {
+        background: #f8fafc;
+        font-weight: 600;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #6b7280;
+        padding: 0.75rem 1rem;
+        border-bottom: 2px solid #e5e7eb;
+        white-space: nowrap;
+    }
+
+    .it-table tbody td {
+        padding: 0.7rem 1rem;
+        border-bottom: 1px solid #f3f4f6;
+        color: #374151;
+        vertical-align: middle;
+    }
+
+    .it-table tbody tr {
+        transition: background .15s;
+    }
+
+    .it-table tbody tr:hover {
+        background: #f8fafc;
+    }
+
+    .it-table tbody tr:last-child td {
+        border-bottom: none;
+    }
+
+    /* ── Badges / Pills ──────────────────────────────── */
+    .wh-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.2rem 0.6rem;
+        border-radius: 6px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .wh-badge.from {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .wh-badge.to {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .wh-badge.info {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.2rem 0.6rem;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    .status-badge.open {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    .status-badge.closed {
+        background: #e5e7eb;
+        color: #4b5563;
+    }
+
+    .status-badge.approved {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .status-badge.rejected {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+
+    .status-badge.pending {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .flow-arrow {
+        color: #9ca3af;
+        font-size: 0.85rem;
+        margin: 0 0.25rem;
+    }
+
+    /* ── Action Buttons ──────────────────────────────── */
+    .btn-icon {
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all .15s;
+        font-size: 0.95rem;
+        color: #2563eb;
+    }
+
+    .btn-icon:hover {
+        background: #dbeafe;
+        border-color: #93c5fd;
+        color: #1d4ed8;
+    }
+
+    .btn-icon.convert-btn {
+        color: #059669;
+        border-color: #a7f3d0;
+        background: #f0fdf4;
+    }
+
+    .btn-icon.convert-btn:hover {
+        background: #d1fae5;
+        border-color: #6ee7b7;
+        color: #047857;
+    }
+
+    .btn-icon:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+    }
+
+    /* ── Search within table ─────────────────────────── */
+    .table-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .table-header h6 {
+        font-weight: 600;
+        color: #1a1a2e;
+        margin: 0;
+        font-size: 0.95rem;
+    }
+
+    .quick-search {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        background: #f3f4f6;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 0.35rem 0.75rem;
+        width: 250px;
+        max-width: 100%;
+    }
+
+    .quick-search i {
+        color: #9ca3af;
+        font-size: 0.85rem;
+    }
+
+    .quick-search input {
+        border: none;
+        background: transparent;
+        outline: none;
+        font-size: 0.85rem;
+        color: #374151;
+        width: 100%;
+    }
+
+    .quick-search input::placeholder {
+        color: #9ca3af;
+    }
+
+    /* ── Empty State ─────────────────────────────────── */
+    .empty-state {
+        text-align: center;
+        padding: 3rem 1.5rem;
+    }
+
+    .empty-icon {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: #f3f4f6;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 1rem;
+        font-size: 1.8rem;
+        color: #9ca3af;
+    }
+
+    .empty-state h6 {
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: 0.35rem;
+    }
+
+    .empty-state p {
+        color: #9ca3af;
+        font-size: 0.88rem;
+        margin-bottom: 1rem;
+    }
+
+    /* ── Alerts ──────────────────────────────────────── */
+    .alert-banner {
+        border-radius: 10px;
+        padding: 0.75rem 1rem;
+        display: flex;
+        align-items: flex-start;
+        gap: 0.6rem;
+        margin-bottom: 1rem;
+        font-size: 0.88rem;
+        animation: slideDown .3s ease;
+    }
+
+    .alert-banner.success-alert {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        color: #166534;
+    }
+
+    .alert-banner.error-alert {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #991b1b;
+    }
+
+    .alert-banner .alert-body {
+        flex: 1;
+    }
+
+    .alert-banner .alert-close {
+        background: none;
+        border: none;
+        color: inherit;
+        opacity: 0.45;
+        cursor: pointer;
+        padding: 0.2rem;
+        font-size: 1rem;
+    }
+
+    .alert-banner .alert-close:hover {
+        opacity: 1;
+    }
+
+    @@keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-6px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    /* ── Modal / Drawer ──────────────────────────────── */
+    .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, .45);
+        z-index: 9998;
+        animation: fadeIn .2s ease;
+    }
+
+    .detail-drawer {
         position: fixed;
         top: 0;
-        left: 0;
-        width: 100vw;
+        right: 0;
+        width: min(560px, 95vw);
         height: 100vh;
-        background: rgba(0, 0, 0, 0.6);
+        background: #fff;
         z-index: 9999;
+        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
+        display: flex;
+        flex-direction: column;
+        animation: slideInRight .25s ease;
+    }
+
+    .drawer-header {
+        padding: 1.15rem 1.5rem;
+        background: linear-gradient(135deg, #2563eb, #7c3aed);
+        color: #fff;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-shrink: 0;
+    }
+
+    .drawer-header h5 {
+        margin: 0;
+        font-weight: 600;
+        font-size: 1.05rem;
+    }
+
+    .drawer-header .btn-close-drawer {
+        background: rgba(255, 255, 255, .15);
+        border: none;
+        color: #fff;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background .15s;
+        font-size: 1rem;
+    }
+
+    .drawer-header .btn-close-drawer:hover {
+        background: rgba(255, 255, 255, .25);
+    }
+
+    .drawer-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.5rem;
+    }
+
+    .drawer-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        gap: 0.5rem;
+        justify-content: flex-end;
+        flex-shrink: 0;
+    }
+
+    .detail-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .detail-item .detail-label {
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #9ca3af;
+        margin-bottom: 0.2rem;
+    }
+
+    .detail-item .detail-value {
+        font-size: 0.92rem;
+        font-weight: 600;
+        color: #1a1a2e;
+    }
+
+    .detail-section-title {
+        font-weight: 600;
+        color: #1a1a2e;
+        font-size: 0.9rem;
+        margin-bottom: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    @@keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+
+        to {
+            opacity: 1;
+        }
+    }
+
+    @@keyframes slideInRight {
+        from {
+            transform: translateX(100%);
+        }
+
+        to {
+            transform: translateX(0);
+        }
+    }
+
+    /* ── Converting overlay ──────────────────────────── */
+    .converting-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, .55);
+        z-index: 99999;
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: center;
-        color: white;
+        color: #fff;
     }
 
-    .loading-overlay .spinner-border {
-        width: 4rem;
-        height: 4rem;
-        border-width: 0.4em;
+    .converting-overlay .spinner-border {
+        width: 3rem;
+        height: 3rem;
     }
 
-    .loading-overlay p {
+    .converting-overlay p {
         margin-top: 1rem;
-        font-size: 1.25rem;
+        font-weight: 600;
+        font-size: 1.1rem;
+    }
+
+    .converting-overlay small {
+        color: rgba(255, 255, 255, .6);
+    }
+
+    /* ── Pager ───────────────────────────────────────── */
+    .table-pager {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        padding: 0.75rem 0;
+        font-size: 0.82rem;
+        color: #6b7280;
+    }
+
+    .table-pager .pager-info {
         font-weight: 500;
+    }
+
+    .pager-buttons {
+        display: flex;
+        gap: 0.35rem;
+    }
+
+    .pager-buttons button {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        color: #374151;
+        padding: 0.3rem 0.65rem;
+        border-radius: 6px;
+        font-size: 0.82rem;
+        cursor: pointer;
+        transition: all .15s;
+        font-weight: 500;
+    }
+
+    .pager-buttons button:hover:not(:disabled) {
+        background: #f3f4f6;
+        border-color: #9ca3af;
+    }
+
+    .pager-buttons button:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+    }
+
+    /* ── Responsive ──────────────────────────────────── */
+    @@media (max-width: 768px) {
+        .stat-row {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .detail-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .it-header {
+            flex-direction: column;
+        }
     }
 </style>
 
 @if (isConverting)
 {
-    <div class="loading-overlay">
-        <div class="spinner-border text-light" role="status">
-            <span class="visually-hidden">Converting...</span>
-        </div>
-        <p>Converting Transfer Request...</p>
-        <small class="text-white-50">Please wait while the transfer is being created</small>
+    <div class="converting-overlay">
+        <div class="spinner-border text-light" role="status"></div>
+        <p>Converting Transfer Request…</p>
+        <small>Please wait while the transfer is being created</small>
     </div>
 }
 
-<PageTitle>Inventory Transfers - Shop Inventory</PageTitle>
+<div class="it-page">
+    <div class="container-fluid">
 
-<div class="page-shell">
-<div class="container-fluid">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div class="d-flex align-items-center gap-3">
-            <div class="page-header-icon">
-                <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" />
-            </div>
-            <div>
-                <MudText Typo="Typo.h4" Class="fw-bold" Style="letter-spacing: -0.5px;">Inventory Transfers</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">Manage stock movements between warehouses</MudText>
-            </div>
-        </div>
-        <div class="d-flex gap-2">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
-                       Href="/inventory-transfer/create" Style="border-radius: 12px; text-transform: none; font-weight: 600; padding: 8px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                Create Transfer
-            </MudButton>
-            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.NoteAdd"
-                       Href="/transfer-request/create" Style="border-radius: 12px; text-transform: none; font-weight: 600; padding: 8px 24px;">
-                Create Request
-            </MudButton>
-        </div>
-    </div>
-
-    @if (!string.IsNullOrEmpty(successMessage))
-    {
-        <MudAlert Severity="Severity.Success" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="() => successMessage = null">
-            @successMessage
-        </MudAlert>
-    }
-
-    @if (!string.IsNullOrEmpty(errorMessage))
-    {
-        <MudAlert Severity="Severity.Error" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="() => errorMessage = null">
-            @errorMessage
-        </MudAlert>
-    }
-
-    <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pt-4"
-             ActivePanelIndex="activeTabIndex" ActivePanelIndexChanged="OnTabIndexChanged">
-        <MudTabPanel Text="Completed Transfers" Icon="@Icons.Material.Filled.SwapHoriz" BadgeColor="Color.Primary">
-            <!-- Filter Card -->
-            <div class="filter-panel">
-                <div class="filter-panel-header">
-                    <MudIcon Icon="@Icons.Material.Filled.Tune" />
-                    <MudText Typo="Typo.subtitle2" Style="color: white; font-weight: 600;">Search & Filter</MudText>
+        <!-- ━━━ Header ━━━ -->
+        <div class="it-header">
+            <div class="it-header-left">
+                <div class="it-header-icon"><i class="bi bi-arrow-left-right"></i></div>
+                <div>
+                    <h2>Inventory Transfers</h2>
+                    <p>Manage stock movements between warehouses</p>
                 </div>
-                <div class="filter-panel-body">
-                    <MudGrid Spacing="3">
-                        <MudItem xs="12" md="3">
-                            <MudText Typo="Typo.body2" Class="fw-semibold mb-1">Warehouse <span class="text-danger">*</span></MudText>
-                            @if (isLoadingWarehouses)
+            </div>
+            <div class="it-header-actions">
+                <a href="/inventory-transfer/create" class="btn-gradient">
+                    <i class="bi bi-plus-lg"></i> New Transfer
+                </a>
+                <a href="/transfer-request/create" class="btn-outline-action">
+                    <i class="bi bi-file-earmark-plus"></i> New Request
+                </a>
+            </div>
+        </div>
+
+        <!-- Alerts -->
+        @if (!string.IsNullOrEmpty(successMessage))
+        {
+            <div class="alert-banner success-alert">
+                <i class="bi bi-check-circle-fill"></i>
+                <div class="alert-body">@successMessage</div>
+                <button class="alert-close" @onclick="() => successMessage = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert-banner error-alert">
+                <i class="bi bi-exclamation-octagon-fill"></i>
+                <div class="alert-body">@errorMessage</div>
+                <button class="alert-close" @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+        }
+
+        <!-- ━━━ Stat Cards ━━━ -->
+        <div class="stat-row">
+            <div class="stat-card">
+                <div class="stat-icon blue"><i class="bi bi-arrow-left-right"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@totalCount</div>
+                    <div class="stat-label">Completed Transfers</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon amber"><i class="bi bi-file-earmark-text"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@transferRequestCount</div>
+                    <div class="stat-label">Transfer Requests</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon green"><i class="bi bi-building"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@(selectedWarehouse?.WarehouseCode ?? "—")</div>
+                    <div class="stat-label">Active Warehouse</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon purple"><i class="bi bi-calendar-range"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@(fromDate.HasValue? fromDate.Value.ToString("dd MMM") : "All")</div>
+                    <div class="stat-label">Date Filter</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ━━━ Tabs ━━━ -->
+        <div class="it-tabs">
+            <button class="it-tab @(activeTabIndex == 0 ? "active" : "")" @onclick="() => SwitchTab(0)">
+                <i class="bi bi-arrow-left-right"></i>
+                Completed Transfers
+                @if (totalCount > 0)
+                {
+                    <span class="tab-badge">@totalCount</span>
+                }
+            </button>
+            <button class="it-tab @(activeTabIndex == 1 ? "active" : "")" @onclick="() => SwitchTab(1)">
+                <i class="bi bi-file-earmark-text"></i>
+                Transfer Requests
+                @if (transferRequestCount > 0)
+                {
+                    <span class="tab-badge">@transferRequestCount</span>
+                }
+            </button>
+        </div>
+
+        <div class="it-tab-body">
+            @if (activeTabIndex == 0)
+            {
+                <!-- ══════ COMPLETED TRANSFERS TAB ══════ -->
+
+                <!-- Filter Bar -->
+                <div class="filter-bar">
+                    <div class="filter-field" style="min-width:220px;">
+                        <label>Warehouse <span class="text-danger">*</span></label>
+                        @if (isLoadingWarehouses)
+                        {
+                            <div class="d-flex align-items-center gap-2" style="padding:0.4rem 0;">
+                                <div class="spinner-border spinner-border-sm text-primary"></div>
+                                <span class="text-muted" style="font-size:0.85rem;">Loading…</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <MudAutocomplete T="WarehouseDto" @bind-Value="selectedWarehouse" Label="Search warehouse…"
+                                             SearchFunc="SearchWarehousesAsync"
+                                             ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
+                                             Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense" ResetValueOnEmptyText="true"
+                                             ShowProgressIndicator="true" MaxItems="20" DebounceInterval="150" Class="mt-0">
+                                <ItemTemplate>
+                                    <div class="d-flex flex-column py-1">
+                                        <span class="fw-semibold" style="font-size:0.88rem;">@context.WarehouseCode</span>
+                                        <small class="text-muted">@context.WarehouseName</small>
+                                    </div>
+                                </ItemTemplate>
+                                <NoItemsTemplate>
+                                    <div class="p-2 text-muted small"><i class="bi bi-info-circle me-1"></i>No warehouses found
+                                    </div>
+                                </NoItemsTemplate>
+                            </MudAutocomplete>
+                        }
+                    </div>
+                    <div class="filter-field" style="min-width:150px;">
+                        <label>From Date</label>
+                        <FlexibleDatePicker Label="From" @bind-Date="fromDate" Variant="Variant.Outlined" />
+                    </div>
+                    <div class="filter-field" style="min-width:150px;">
+                        <label>To Date</label>
+                        <FlexibleDatePicker Label="To" @bind-Date="toDate" Variant="Variant.Outlined" />
+                    </div>
+                    <div class="filter-actions-row">
+                        <button class="btn-search" @onclick="LoadTransfers"
+                                disabled="@(selectedWarehouse == null || isLoading)">
+                            @if (isLoading)
                             {
-                                <div class="d-flex align-items-center">
-                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
-                                    <MudText Typo="Typo.body2" Color="Color.Secondary">Loading warehouses...</MudText>
-                                </div>
+                                <span class="spinner-border spinner-border-sm"></span>
                             }
                             else
                             {
-                                <MudAutocomplete T="WarehouseDto" @bind-Value="selectedWarehouse" Label="Search warehouse..."
-                                    SearchFunc="SearchWarehousesAsync"
-                                    ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
-                                    Dense="true" Variant="Variant.Filled" Margin="Margin.Dense" ResetValueOnEmptyText="true"
-                                    ShowProgressIndicator="true" MaxItems="20" DebounceInterval="150" Class="mt-0">
-                                    <ItemTemplate>
-                                        <div class="d-flex flex-column">
-                                            <span class="fw-semibold">@context.WarehouseCode</span>
-                                            <small class="text-muted">@context.WarehouseName</small>
-                                        </div>
-                                    </ItemTemplate>
-                                    <NoItemsTemplate>
-                                        <div class="p-2 text-muted">
-                                            <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Class="me-1" />No warehouses found
-                                        </div>
-                                    </NoItemsTemplate>
-                                </MudAutocomplete>
+                                <i class="bi bi-search"></i>
                             }
-                        </MudItem>
-                        <MudItem xs="12" md="2">
-                            <FlexibleDatePicker Label="From Date" @bind-Date="fromDate" Variant="Variant.Filled" />
-                        </MudItem>
-                        <MudItem xs="12" md="2">
-                            <FlexibleDatePicker Label="To Date" @bind-Date="toDate" Variant="Variant.Filled" />
-                        </MudItem>
-                        <MudItem xs="12" md="5" Class="d-flex align-items-end gap-2 filter-actions">
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Search"
-                                OnClick="LoadTransfers" Disabled="@(selectedWarehouse == null || isLoading)">
-                                @if (isLoading)
-                                {
-                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                                }
-                                Search
-                            </MudButton>
-                            <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Clear"
-                                OnClick="ClearFilter">Clear</MudButton>
-                        </MudItem>
-                    </MudGrid>
+                            Search
+                        </button>
+                        <button class="btn-clear" @onclick="ClearFilter"><i class="bi bi-x-lg"></i> Clear</button>
+                    </div>
                 </div>
-            </div>
 
-            @if (isLoading)
-            {
-                <div class="d-flex flex-column align-items-center py-5">
-                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
-                    <MudText Typo="Typo.body2" Class="mt-2" Color="Color.Secondary">Loading transfers...</MudText>
-                </div>
-            }
-            else if (transfers?.Any() == true)
-            {
-                <MudTable Items="@transfers" Dense="true" Hover="true" Striped="true" Filter="new Func<InventoryTransferDto, bool>(_transferQuickFilter)" T="InventoryTransferDto">
-                    <ToolBarContent>
-                        <MudText Typo="Typo.h6">Transfers for @selectedWarehouse?.WarehouseCode</MudText>
-                        <MudSpacer />
-                        <MudTextField @bind-Value="_transferSearchString" Placeholder="Search transfers..."
-                            Adornment="Adornment.Start" Immediate="true"
-                            AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0" />
-                    </ToolBarContent>
-                    <HeaderContent>
-                        <MudTh>Doc Entry</MudTh>
-                        <MudTh>Doc #</MudTh>
-                        <MudTh>From Warehouse</MudTh>
-                        <MudTh>To Warehouse</MudTh>
-                        <MudTh>Date</MudTh>
-                        <MudTh>Due Date</MudTh>
-                        <MudTh>Items</MudTh>
-                        <MudTh>Actions</MudTh>
-                    </HeaderContent>
-                    <RowTemplate>
-                        <MudTd DataLabel="Doc Entry">@context.DocEntry</MudTd>
-                        <MudTd DataLabel="Doc #"><strong>@context.DocNum</strong></MudTd>
-                        <MudTd DataLabel="From Warehouse">
-                            <MudChip T="string" Color="Color.Warning" Size="Size.Small">@context.FromWarehouse</MudChip>
-                        </MudTd>
-                        <MudTd DataLabel="To Warehouse">
-                            <MudChip T="string" Color="Color.Success" Size="Size.Small">@context.ToWarehouse</MudChip>
-                        </MudTd>
-                        <MudTd DataLabel="Date">@FormatDate(context.DocDate)</MudTd>
-                        <MudTd DataLabel="Due Date">@FormatDate(context.DueDate)</MudTd>
-                        <MudTd DataLabel="Items">
-                            <MudChip T="string" Color="Color.Info" Size="Size.Small">@(context.Lines?.Count ?? 0) items</MudChip>
-                        </MudTd>
-                        <MudTd DataLabel="Actions">
-                            <MudIconButton Icon="@Icons.Material.Filled.Visibility" Color="Color.Primary"
-                                Size="Size.Small" OnClick="@(() => ViewTransfer(context))" />
-                        </MudTd>
-                    </RowTemplate>
-                    <PagerContent>
-                        <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
-                    </PagerContent>
-                </MudTable>
-            }
-            else if (selectedWarehouse != null && !isLoading)
-            {
-                <div class="text-center py-5">
-                    <i class="bi bi-inbox text-muted" style="font-size: 3rem;"></i>
-                    <p class="mt-3 text-muted">No inventory transfers found for warehouse <strong>@selectedWarehouse.WarehouseCode</strong>.</p>
-                    <p class="text-muted small">Try adjusting your date range or selecting a different warehouse.</p>
-                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh"
-                        OnClick="LoadTransfers" Class="mt-2">Retry</MudButton>
-                </div>
+                @if (isLoading)
+                {
+                    <div class="empty-state">
+                        <div class="spinner-border text-primary" role="status" style="width:2.5rem;height:2.5rem;"></div>
+                        <p class="mt-3 text-muted">Loading transfers…</p>
+                    </div>
+                }
+                else if (transfers?.Any() == true)
+                {
+                    <MudTable @ref="@_transfersTable" Items="@transfers" RowsPerPage="10" Hover="true" Dense="true"
+                              Breakpoint="Breakpoint.Sm" LoadingProgressColor="Color.Info"
+                              Filter="new Func<InventoryTransferDto, bool>(_transferQuickFilter)" Elevation="0"
+                              Style="border: 1px solid #e5e7eb; border-radius: 10px;">
+                        <ToolBarContent>
+                            <MudText Typo="Typo.subtitle1" Style="font-weight:600; color:#1a1a2e;">
+                                <i class="bi bi-list-ul me-1"></i> @transfers.Count transfer(s) for
+                                @selectedWarehouse?.WarehouseCode
+                            </MudText>
+                            <MudSpacer />
+                            <MudTextField @bind-Value="_transferSearchString" Placeholder="Quick filter…"
+                                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium"
+                                          Class="mt-0" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
+                        </ToolBarContent>
+                        <HeaderContent>
+                            <MudTh>Doc #</MudTh>
+                            <MudTh>Route</MudTh>
+                            <MudTh>Date</MudTh>
+                            <MudTh>Due Date</MudTh>
+                            <MudTh>Items</MudTh>
+                            <MudTh Style="width:60px;text-align:center;">View</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Doc #"><strong style="color:#2563eb;">#@context.DocNum</strong></MudTd>
+                            <MudTd DataLabel="Route">
+                                <span class="wh-badge from"><i class="bi bi-box-arrow-right"></i> @context.FromWarehouse</span>
+                                <span class="flow-arrow"><i class="bi bi-arrow-right"></i></span>
+                                <span class="wh-badge to"><i class="bi bi-box-arrow-in-right"></i> @context.ToWarehouse</span>
+                            </MudTd>
+                            <MudTd DataLabel="Date">@FormatDate(context.DocDate)</MudTd>
+                            <MudTd DataLabel="Due Date">@FormatDate(context.DueDate)</MudTd>
+                            <MudTd DataLabel="Items"><span class="wh-badge info">@(context.Lines?.Count ?? 0) items</span>
+                            </MudTd>
+                            <MudTd DataLabel="View" Style="text-align:center;">
+                                <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Color="Color.Primary"
+                                               OnClick="() => ViewTransfer(context)" />
+                            </MudTd>
+                        </RowTemplate>
+                        <PagerContent>
+                            <MudPagination SelectedChanged="TransferPageChanged"
+                                           Count="@((_transfersTable.GetFilteredItemsCount() + _transfersTable.RowsPerPage - 1) / _transfersTable.RowsPerPage)"
+                                           Class="pa-4" />
+                        </PagerContent>
+                    </MudTable>
+                }
+                else if (selectedWarehouse != null && !isLoading)
+                {
+                    <div class="empty-state">
+                        <div class="empty-icon"><i class="bi bi-inbox"></i></div>
+                        <h6>No Transfers Found</h6>
+                        <p>No inventory transfers found for warehouse
+                            <strong>@selectedWarehouse.WarehouseCode</strong>.<br />Try adjusting the date range or warehouse.
+                        </p>
+                        <button class="btn-search" @onclick="LoadTransfers"><i class="bi bi-arrow-clockwise"></i> Retry</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-state">
+                        <div class="empty-icon"><i class="bi bi-search"></i></div>
+                        <h6>Search Transfers</h6>
+                        <p>Select a warehouse above and click <strong>Search</strong> to view inventory transfers.</p>
+                    </div>
+                }
             }
             else
             {
-                <div class="text-center py-5">
-                    <i class="bi bi-search text-muted" style="font-size: 3rem;"></i>
-                    <p class="mt-3 text-muted">Select a warehouse and click <strong>Search</strong> to view inventory transfers.</p>
-                </div>
-            }
-        </MudTabPanel>
+                <!-- ══════ TRANSFER REQUESTS TAB ══════ -->
 
-        <MudTabPanel Text="Transfer Requests" Icon="@Icons.Material.Filled.Description"
-                     BadgeData="@(transferRequestCount > 0 ? transferRequestCount.ToString() : null)"
-                     BadgeColor="Color.Primary">
-            <div class="d-flex justify-content-between align-items-center mb-3 mt-2">
-                <MudText Typo="Typo.h6">
-                    <MudIcon Icon="@Icons.Material.Filled.Description" Class="me-2" />Transfer Requests
-                </MudText>
-                <div class="d-flex gap-2">
-                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
-                        StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshTransferRequests"
-                        Disabled="@isLoadingRequests">Refresh</MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
-                        StartIcon="@Icons.Material.Filled.Add" Href="/transfer-request/create">New Request</MudButton>
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold mb-0" style="color:#1a1a2e;">
+                        <i class="bi bi-file-earmark-text me-2 text-primary"></i>Transfer Requests
+                    </h6>
+                    <div class="d-flex gap-2">
+                        <button class="btn-clear" @onclick="RefreshTransferRequests" disabled="@isLoadingRequests">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </button>
+                        <a href="/transfer-request/create" class="btn-search" style="text-decoration:none;">
+                            <i class="bi bi-plus-lg"></i> New Request
+                        </a>
+                    </div>
                 </div>
-            </div>
 
-            @if (isLoadingRequests)
-            {
-                <div class="d-flex flex-column align-items-center py-5">
-                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
-                    <MudText Typo="Typo.body2" Class="mt-2" Color="Color.Secondary">Loading transfer requests...</MudText>
-                </div>
+                @if (isLoadingRequests)
+                {
+                    <div class="empty-state">
+                        <div class="spinner-border text-primary" role="status" style="width:2.5rem;height:2.5rem;"></div>
+                        <p class="mt-3 text-muted">Loading transfer requests…</p>
+                    </div>
+                }
+                else if (transferRequests?.Any() == true)
+                {
+                    <MudTable @ref="@_requestsTable" Items="@transferRequests" RowsPerPage="10" Hover="true" Dense="true"
+                              Breakpoint="Breakpoint.Sm" LoadingProgressColor="Color.Info"
+                              Filter="new Func<InventoryTransferRequestDto, bool>(_requestQuickFilter)" Elevation="0"
+                              Style="border: 1px solid #e5e7eb; border-radius: 10px;">
+                        <ToolBarContent>
+                            <MudText Typo="Typo.subtitle1" Style="font-weight:500; color:#6b7280;">
+                                @transferRequests.Count request(s)
+                            </MudText>
+                            <MudSpacer />
+                            <MudTextField @bind-Value="_requestSearchString" Placeholder="Quick filter…"
+                                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium"
+                                          Class="mt-0" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
+                        </ToolBarContent>
+                        <HeaderContent>
+                            <MudTh>Doc #</MudTh>
+                            <MudTh>Route</MudTh>
+                            <MudTh>Date</MudTh>
+                            <MudTh>Requester</MudTh>
+                            <MudTh>Status</MudTh>
+                            <MudTh>Items</MudTh>
+                            <MudTh Style="width:100px;text-align:center;">Actions</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Doc #"><strong style="color:#7c3aed;">#@context.DocNum</strong></MudTd>
+                            <MudTd DataLabel="Route">
+                                <span class="wh-badge from"><i class="bi bi-box-arrow-right"></i> @context.FromWarehouse</span>
+                                <span class="flow-arrow"><i class="bi bi-arrow-right"></i></span>
+                                <span class="wh-badge to"><i class="bi bi-box-arrow-in-right"></i> @context.ToWarehouse</span>
+                            </MudTd>
+                            <MudTd DataLabel="Date">@FormatDate(context.DocDate)</MudTd>
+                            <MudTd DataLabel="Requester">@(context.RequesterName ?? "—")</MudTd>
+                            <MudTd DataLabel="Status">
+                                <span class="status-badge @GetStatusCssClass(context.DocumentStatus)">
+                                    @GetFriendlyStatus(context.DocumentStatus)
+                                </span>
+                            </MudTd>
+                            <MudTd DataLabel="Items"><span class="wh-badge info">@(context.Lines?.Count ?? 0)</span></MudTd>
+                            <MudTd DataLabel="Actions" Style="text-align:center;">
+                                <div class="d-flex justify-content-center gap-1">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small"
+                                                   Color="Color.Primary" OnClick="() => ViewTransferRequest(context)" />
+                                    @if (IsRequestConvertible(context))
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Small"
+                                                       Color="Color.Success" OnClick="() => ConvertRequest(context)"
+                                                       Disabled="@isConverting" />
+                                    }
+                                </div>
+                            </MudTd>
+                        </RowTemplate>
+                        <PagerContent>
+                            <MudPagination SelectedChanged="RequestPageChanged"
+                                           Count="@((_requestsTable.GetFilteredItemsCount() + _requestsTable.RowsPerPage - 1) / _requestsTable.RowsPerPage)"
+                                           Class="pa-4" />
+                        </PagerContent>
+                    </MudTable>
+                }
+                else
+                {
+                    <div class="empty-state">
+                        <div class="empty-icon"><i class="bi bi-file-earmark-text"></i></div>
+                        <h6>No Transfer Requests</h6>
+                        <p>No transfer requests have been created yet.</p>
+                        <a href="/transfer-request/create" class="btn-gradient" style="text-decoration:none;">
+                            <i class="bi bi-plus-lg"></i> Create First Request
+                        </a>
+                    </div>
+                }
             }
-            else if (transferRequests?.Any() == true)
-            {
-                <MudTable Items="@transferRequests" Dense="true" Hover="true" Striped="true" Filter="new Func<InventoryTransferRequestDto, bool>(_requestQuickFilter)" T="InventoryTransferRequestDto">
-                    <ToolBarContent>
-                        <MudText Typo="Typo.h6">Requests</MudText>
-                        <MudSpacer />
-                        <MudTextField @bind-Value="_requestSearchString" Placeholder="Search requests..."
-                            Adornment="Adornment.Start" Immediate="true"
-                            AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0" />
-                    </ToolBarContent>
-                    <HeaderContent>
-                        <MudTh>Doc #</MudTh>
-                        <MudTh>From</MudTh>
-                        <MudTh>To</MudTh>
-                        <MudTh>Date</MudTh>
-                        <MudTh>Requester</MudTh>
-                        <MudTh>Status</MudTh>
-                        <MudTh>Items</MudTh>
-                        <MudTh>Actions</MudTh>
-                    </HeaderContent>
-                    <RowTemplate>
-                        <MudTd DataLabel="Doc #"><strong>@context.DocNum</strong></MudTd>
-                        <MudTd DataLabel="From">
-                            <MudChip T="string" Color="Color.Warning" Size="Size.Small">@context.FromWarehouse</MudChip>
-                        </MudTd>
-                        <MudTd DataLabel="To">
-                            <MudChip T="string" Color="Color.Success" Size="Size.Small">@context.ToWarehouse</MudChip>
-                        </MudTd>
-                        <MudTd DataLabel="Date">@FormatDate(context.DocDate)</MudTd>
-                        <MudTd DataLabel="Requester">@(context.RequesterName ?? "-")</MudTd>
-                        <MudTd DataLabel="Status">
-                            <MudChip T="string" Color="@GetStatusColor(context.DocumentStatus)" Size="Size.Small">
-                                @(context.DocumentStatus ?? "Open")
-                            </MudChip>
-                        </MudTd>
-                        <MudTd DataLabel="Items">
-                            <MudChip T="string" Color="Color.Info" Size="Size.Small">@(context.Lines?.Count ?? 0)</MudChip>
-                        </MudTd>
-                        <MudTd DataLabel="Actions">
-                            <div class="d-flex gap-1">
-                                <MudIconButton Icon="@Icons.Material.Filled.Visibility" Color="Color.Primary"
-                                    Size="Size.Small" OnClick="@(() => ViewTransferRequest(context))" />
-                                @if (IsRequestConvertible(context))
-                                {
-                                    <MudIconButton Icon="@Icons.Material.Filled.SwapHoriz" Color="Color.Success"
-                                        Size="Size.Small" OnClick="@(() => ConvertRequest(context))"
-                                        Disabled="@isConverting" />
-                                }
-                            </div>
-                        </MudTd>
-                    </RowTemplate>
-                    <PagerContent>
-                        <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
-                    </PagerContent>
-                </MudTable>
-            }
-            else
-            {
-                <div class="text-center py-5">
-                    <i class="bi bi-inbox text-muted" style="font-size: 3rem;"></i>
-                    <p class="mt-3 text-muted">No transfer requests found</p>
-                    <a href="/transfer-request/create" class="btn btn-primary">
-                        <i class="bi bi-plus-circle me-1"></i>Create First Request
-                    </a>
-                </div>
-            }
-        </MudTabPanel>
-    </MudTabs>
+        </div>
+
+    </div>
 </div>
 
-<!-- Transfer Detail Modal -->
+<!-- ━━━ Transfer Detail Drawer ━━━ -->
 @if (selectedTransfer != null)
 {
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-lg modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title"><i class="bi bi-arrow-left-right me-2"></i>Inventory Transfer #@selectedTransfer.DocNum</h5>
-                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
+    <div class="modal-backdrop" @onclick="CloseModal"></div>
+    <div class="detail-drawer">
+        <div class="drawer-header">
+            <h5><i class="bi bi-arrow-left-right me-2"></i>Transfer #@selectedTransfer.DocNum</h5>
+            <button class="btn-close-drawer" @onclick="CloseModal"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="drawer-body">
+            <!-- Route visual -->
+            <div class="d-flex align-items-center gap-2 mb-3 p-3"
+                 style="background:#f8fafc; border-radius:10px; border:1px solid #e5e7eb;">
+                <div class="text-center flex-fill">
+                    <div style="font-size:0.7rem;font-weight:600;color:#9ca3af;text-transform:uppercase;">Source</div>
+                    <div style="font-size:1.1rem;font-weight:700;color:#92400e;">@selectedTransfer.FromWarehouse</div>
                 </div>
-                <div class="modal-body">
-                    <div class="row mb-4">
-                        <div class="col-md-6">
-                            <div class="mb-2">
-                                <small class="text-muted">From Warehouse</small><br />
-                                <MudChip T="string" Color="Color.Warning" Size="Size.Small">@selectedTransfer.FromWarehouse</MudChip>
-                            </div>
-                            <div class="mb-2">
-                                <small class="text-muted">To Warehouse</small><br />
-                                <MudChip T="string" Color="Color.Success" Size="Size.Small">@selectedTransfer.ToWarehouse</MudChip>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="mb-2">
-                                <small class="text-muted">Date</small><br />
-                                <strong>@FormatDate(selectedTransfer.DocDate)</strong>
-                            </div>
-                            <div class="mb-2">
-                                <small class="text-muted">Due Date</small><br />
-                                <strong>@FormatDate(selectedTransfer.DueDate)</strong>
-                            </div>
-                            @if (!string.IsNullOrWhiteSpace(selectedTransfer.Comments))
-                            {
-                                <div class="mb-2">
-                                    <small class="text-muted">Comments</small><br />
-                                    @selectedTransfer.Comments
-                                </div>
-                            }
-                        </div>
-                    </div>
-
-                    @if (selectedTransfer.Lines?.Any() == true)
-                    {
-                        <h6 class="mb-3"><i class="bi bi-list-ul me-1"></i>Transfer Lines</h6>
-                        <div class="table-responsive">
-                            <table class="table table-sm table-bordered">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>#</th>
-                                        <th>Item Code</th>
-                                        <th>Description</th>
-                                        <th>From WH</th>
-                                        <th>To WH</th>
-                                        <th class="text-end">Quantity</th>
-                                        <th>UoM</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var line in selectedTransfer.Lines)
-                                    {
-                                        <tr>
-                                            <td>@line.LineNum</td>
-                                            <td><code>@line.ItemCode</code></td>
-                                            <td>@line.ItemDescription</td>
-                                            <td>@line.FromWarehouseCode</td>
-                                            <td>@line.ToWarehouseCode</td>
-                                            <td class="text-end"><strong>@line.Quantity</strong></td>
-                                            <td>@line.UoMCode</td>
-                                        </tr>
-                                    }
-                                </tbody>
-                                <tfoot>
-                                    <tr class="table-primary">
-                                        <td colspan="5" class="text-end"><strong>Total Quantity:</strong></td>
-                                        <td class="text-end"><strong>@selectedTransfer.Lines.Sum(l => l.Quantity)</strong></td>
-                                        <td></td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                        </div>
-                    }
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Close</button>
+                <i class="bi bi-arrow-right-circle-fill" style="font-size:1.5rem;color:#2563eb;"></i>
+                <div class="text-center flex-fill">
+                    <div style="font-size:0.7rem;font-weight:600;color:#9ca3af;text-transform:uppercase;">Destination</div>
+                    <div style="font-size:1.1rem;font-weight:700;color:#065f46;">@selectedTransfer.ToWarehouse</div>
                 </div>
             </div>
-        </div>
-    </div>
-}
 
-<!-- Transfer Request Detail Modal -->
-@if (selectedTransferRequest != null)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-lg modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title"><i class="bi bi-file-earmark-text me-2"></i>Transfer Request #@selectedTransferRequest.DocNum</h5>
-                    <button type="button" class="btn-close btn-close-white" @onclick="CloseRequestModal"></button>
+            <div class="detail-grid">
+                <div class="detail-item">
+                    <div class="detail-label">Doc Entry</div>
+                    <div class="detail-value">@selectedTransfer.DocEntry</div>
                 </div>
-                <div class="modal-body">
-                    <div class="row mb-4">
-                        <div class="col-md-6">
-                            <div class="mb-2">
-                                <small class="text-muted">From Warehouse</small><br />
-                                <MudChip T="string" Color="Color.Warning" Size="Size.Small">@selectedTransferRequest.FromWarehouse</MudChip>
-                            </div>
-                            <div class="mb-2">
-                                <small class="text-muted">To Warehouse</small><br />
-                                <MudChip T="string" Color="Color.Success" Size="Size.Small">@selectedTransferRequest.ToWarehouse</MudChip>
-                            </div>
-                            <div class="mb-2">
-                                <small class="text-muted">Status</small><br />
-                                <MudChip T="string" Color="@GetStatusColor(selectedTransferRequest.DocumentStatus)" Size="Size.Small">
-                                    @(selectedTransferRequest.DocumentStatus ?? "Open")
-                                </MudChip>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="mb-2">
-                                <small class="text-muted">Date</small><br />
-                                <strong>@FormatDate(selectedTransferRequest.DocDate)</strong>
-                            </div>
-                            <div class="mb-2">
-                                <small class="text-muted">Due Date</small><br />
-                                <strong>@FormatDate(selectedTransferRequest.DueDate)</strong>
-                            </div>
-                            <div class="mb-2">
-                                <small class="text-muted">Requester</small><br />
-                                @(selectedTransferRequest.RequesterName ?? "-")
-                            </div>
-                            <div class="mb-2">
-                                <small class="text-muted">Email</small><br />
-                                @(selectedTransferRequest.RequesterEmail ?? "-")
-                            </div>
-                            @if (!string.IsNullOrWhiteSpace(selectedTransferRequest.Comments))
+                <div class="detail-item">
+                    <div class="detail-label">Doc Number</div>
+                    <div class="detail-value">#@selectedTransfer.DocNum</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Document Date</div>
+                    <div class="detail-value">@FormatDate(selectedTransfer.DocDate)</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Due Date</div>
+                    <div class="detail-value">@FormatDate(selectedTransfer.DueDate)</div>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(selectedTransfer.Comments))
+                {
+                    <div class="detail-item" style="grid-column: span 2;">
+                        <div class="detail-label">Comments</div>
+                        <div class="detail-value" style="font-weight:400;">@selectedTransfer.Comments</div>
+                    </div>
+                }
+            </div>
+
+            @if (selectedTransfer.Lines?.Any() == true)
+            {
+                <div class="detail-section-title">
+                    <i class="bi bi-list-check text-primary"></i>
+                    Transfer Lines (@selectedTransfer.Lines.Count)
+                </div>
+                <div class="it-table-wrapper">
+                    <table class="it-table" style="font-size:0.82rem;">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Item</th>
+                                <th>From</th>
+                                <th>To</th>
+                                <th style="text-align:right;">Qty</th>
+                                <th>UoM</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var line in selectedTransfer.Lines)
                             {
-                                <div class="mb-2">
-                                    <small class="text-muted">Comments</small><br />
-                                    @selectedTransferRequest.Comments
-                                </div>
+                                <tr>
+                                    <td>@line.LineNum</td>
+                                    <td>
+                                        <div style="font-weight:600;">@line.ItemCode</div>
+                                        <div style="font-size:0.78rem;color:#6b7280;">@line.ItemDescription</div>
+                                    </td>
+                                    <td><span class="wh-badge from" style="font-size:0.72rem;">@line.FromWarehouseCode</span></td>
+                                    <td><span class="wh-badge to" style="font-size:0.72rem;">@line.ToWarehouseCode</span></td>
+                                    <td style="text-align:right;font-weight:700;">@line.Quantity</td>
+                                    <td style="color:#6b7280;">@line.UoMCode</td>
+                                </tr>
                             }
+                        </tbody>
+                        <tfoot>
+                            <tr style="background:#f8fafc;">
+                                <td colspan="4" style="text-align:right;font-weight:600;color:#6b7280;">Total</td>
+                                <td style="text-align:right;font-weight:700;color:#2563eb;">@selectedTransfer.Lines.Sum(l =>
+                                                                                                                                                                                                                l.Quantity)</td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                }
+            </div>
+            <div class="drawer-footer">
+                <button class="btn-clear" @onclick="CloseModal">Close</button>
+            </div>
+        </div>
+    }
+
+    <!-- ━━━ Transfer Request Detail Drawer ━━━ -->
+    @if (selectedTransferRequest != null)
+    {
+        <div class="modal-backdrop" @onclick="CloseRequestModal"></div>
+        <div class="detail-drawer">
+            <div class="drawer-header" style="background: linear-gradient(135deg, #7c3aed, #a855f7);">
+                <h5><i class="bi bi-file-earmark-text me-2"></i>Transfer Request #@selectedTransferRequest.DocNum</h5>
+                <button class="btn-close-drawer" @onclick="CloseRequestModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="drawer-body">
+                <!-- Route visual -->
+                <div class="d-flex align-items-center gap-2 mb-3 p-3"
+                     style="background:#f8fafc; border-radius:10px; border:1px solid #e5e7eb;">
+                    <div class="text-center flex-fill">
+                        <div style="font-size:0.7rem;font-weight:600;color:#9ca3af;text-transform:uppercase;">Source</div>
+                        <div style="font-size:1.1rem;font-weight:700;color:#92400e;">@selectedTransferRequest.FromWarehouse
                         </div>
                     </div>
+                    <i class="bi bi-arrow-right-circle-fill" style="font-size:1.5rem;color:#7c3aed;"></i>
+                    <div class="text-center flex-fill">
+                        <div style="font-size:0.7rem;font-weight:600;color:#9ca3af;text-transform:uppercase;">Destination</div>
+                        <div style="font-size:1.1rem;font-weight:700;color:#065f46;">@selectedTransferRequest.ToWarehouse</div>
+                    </div>
+                </div>
 
-                    @if (selectedTransferRequest.Lines?.Any() == true)
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-label">Doc Number</div>
+                        <div class="detail-value">#@selectedTransferRequest.DocNum</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Status</div>
+                        <div class="detail-value">
+                            <span class="status-badge @GetStatusCssClass(selectedTransferRequest.DocumentStatus)">
+                                @GetFriendlyStatus(selectedTransferRequest.DocumentStatus)
+                            </span>
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Document Date</div>
+                        <div class="detail-value">@FormatDate(selectedTransferRequest.DocDate)</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Due Date</div>
+                        <div class="detail-value">@FormatDate(selectedTransferRequest.DueDate)</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Requester</div>
+                        <div class="detail-value">@(selectedTransferRequest.RequesterName ?? "—")</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Email</div>
+                        <div class="detail-value" style="font-weight:400;">@(selectedTransferRequest.RequesterEmail ?? "—")
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(selectedTransferRequest.Comments))
                     {
-                        <h6 class="mb-3"><i class="bi bi-list-ul me-1"></i>Request Lines</h6>
-                        <div class="table-responsive">
-                            <table class="table table-sm table-bordered">
-                                <thead class="table-light">
+                        <div class="detail-item" style="grid-column: span 2;">
+                            <div class="detail-label">Comments</div>
+                            <div class="detail-value" style="font-weight:400;">@selectedTransferRequest.Comments</div>
+                        </div>
+                    }
+                </div>
+
+                @if (selectedTransferRequest.Lines?.Any() == true)
+                {
+                    <div class="detail-section-title">
+                        <i class="bi bi-list-check" style="color:#7c3aed;"></i>
+                        Request Lines (@selectedTransferRequest.Lines.Count)
+                    </div>
+                    <div class="it-table-wrapper">
+                        <table class="it-table" style="font-size:0.82rem;">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Item</th>
+                                    <th>From</th>
+                                    <th>To</th>
+                                    <th style="text-align:right;">Qty</th>
+                                    <th>UoM</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in selectedTransferRequest.Lines)
+                                {
                                     <tr>
-                                        <th>#</th>
-                                        <th>Item Code</th>
-                                        <th>Description</th>
-                                        <th>From WH</th>
-                                        <th>To WH</th>
-                                        <th class="text-end">Quantity</th>
-                                        <th>UoM</th>
+                                        <td>@line.LineNum</td>
+                                        <td>
+                                            <div style="font-weight:600;">@line.ItemCode</div>
+                                            <div style="font-size:0.78rem;color:#6b7280;">@line.ItemDescription</div>
+                                        </td>
+                                        <td><span class="wh-badge from" style="font-size:0.72rem;">@line.FromWarehouseCode</span></td>
+                                        <td><span class="wh-badge to" style="font-size:0.72rem;">@line.ToWarehouseCode</span></td>
+                                        <td style="text-align:right;font-weight:700;">@line.Quantity</td>
+                                        <td style="color:#6b7280;">@line.UoMCode</td>
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var line in selectedTransferRequest.Lines)
-                                    {
-                                        <tr>
-                                            <td>@line.LineNum</td>
-                                            <td><code>@line.ItemCode</code></td>
-                                            <td>@line.ItemDescription</td>
-                                            <td>@line.FromWarehouseCode</td>
-                                            <td>@line.ToWarehouseCode</td>
-                                            <td class="text-end"><strong>@line.Quantity</strong></td>
-                                            <td>@line.UoMCode</td>
-                                        </tr>
-                                    }
-                                </tbody>
-                                <tfoot>
-                                    <tr class="table-primary">
-                                        <td colspan="5" class="text-end"><strong>Total Quantity:</strong></td>
-                                        <td class="text-end"><strong>@selectedTransferRequest.Lines.Sum(l => l.Quantity)</strong></td>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr style="background:#f8fafc;">
+                                    <td colspan="4" style="text-align:right;font-weight:600;color:#6b7280;">Total</td>
+                                    <td style="text-align:right;font-weight:700;color:#7c3aed;">@selectedTransferRequest.Lines.Sum(l
+                                                                                                                                                                                                                                    => l.Quantity)</td>
                                         <td></td>
                                     </tr>
                                 </tfoot>
@@ -507,36 +1356,37 @@
                         </div>
                     }
                 </div>
-                <div class="modal-footer">
+                <div class="drawer-footer">
                     @if (IsRequestConvertible(selectedTransferRequest))
                     {
-                        <button type="button" class="btn btn-success" @onclick="() => ConvertRequest(selectedTransferRequest)"
-                            disabled="@isConverting">
+                        <button class="btn-gradient" @onclick="() => ConvertRequest(selectedTransferRequest)" disabled="@isConverting"
+                                style="@(isConverting ? "opacity:0.5;" : "")">
                             @if (isConverting)
                             {
-                                <span class="spinner-border spinner-border-sm me-1"></span>
-                                <span>Converting...</span>
+                                <span class="spinner-border spinner-border-sm"></span>
+                                <span>Converting…</span>
                             }
                             else
                             {
-                                <i class="bi bi-arrow-left-right me-1"></i>
+                                <i class="bi bi-arrow-left-right"></i>
                                 <span>Convert to Transfer</span>
                             }
                         </button>
                     }
-                    <button type="button" class="btn btn-secondary" @onclick="CloseRequestModal">Close</button>
+                    <button class="btn-clear" @onclick="CloseRequestModal">Close</button>
                 </div>
             </div>
-        </div>
-    </div>
-}
-</div>
+        }
 
 @code {
-    // Tab state
+    // ── Tab state ───────────────────────────────────────
     private int activeTabIndex = 0;
 
-    // Completed transfers
+    // ── MudTable refs ───────────────────────────────────
+    private MudTable<InventoryTransferDto> _transfersTable = null!;
+    private MudTable<InventoryTransferRequestDto> _requestsTable = null!;
+
+    // ── Completed transfers ─────────────────────────────
     private List<InventoryTransferDto>? transfers;
     private InventoryTransferDto? selectedTransfer;
     private bool isLoading = false;
@@ -548,16 +1398,18 @@
     private int totalCount = 0;
     private int totalPages = 0;
 
-    // Transfer requests
+    // ── Transfer requests ───────────────────────────────
     private List<InventoryTransferRequestDto>? transferRequests;
     private InventoryTransferRequestDto? selectedTransferRequest;
     private bool isLoadingRequests = false;
     private bool isConverting = false;
     private int requestPage = 1;
+    private int requestPageSize = 20;
+    private int requestTotalPages = 0;
     private bool hasMoreRequests = false;
     private int transferRequestCount = 0;
 
-    // Warehouse search
+    // ── Warehouse search ────────────────────────────────
     private bool isLoadingWarehouses = true;
     private List<WarehouseDto> cachedWarehouses = new();
     private WarehouseDto? selectedWarehouse;
@@ -565,102 +1417,85 @@
     private DateTime? fromDate;
     private DateTime? toDate;
 
-    // Quick filter search strings
+    // ── Quick filter ────────────────────────────────────
     private string? _transferSearchString;
     private string? _requestSearchString;
 
     private bool _hasLoadedData = false;
 
-    // Quick filter for completed transfers
+    // ── Filtered collections ────────────────────────────
+    private IEnumerable<InventoryTransferDto> FilteredTransfers =>
+    transfers?.Where(_transferQuickFilter) ?? Enumerable.Empty<InventoryTransferDto>();
+
+    private IEnumerable<InventoryTransferRequestDto> FilteredRequests =>
+    transferRequests?.Where(_requestQuickFilter) ?? Enumerable.Empty<InventoryTransferRequestDto>();
+
+    // ── Quick filters ───────────────────────────────────
     private Func<InventoryTransferDto, bool> _transferQuickFilter => x =>
     {
-        if (string.IsNullOrWhiteSpace(_transferSearchString))
-            return true;
-        if (x.DocNum.ToString().Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase))
-            return true;
-        if (x.DocEntry.ToString().Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase))
-            return true;
-        if (x.FromWarehouse?.Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-        if (x.ToWarehouse?.Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-        if (x.Comments?.Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
+        if (string.IsNullOrWhiteSpace(_transferSearchString)) return true;
+        if (x.DocNum.ToString().Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (x.DocEntry.ToString().Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (x.FromWarehouse?.Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (x.ToWarehouse?.Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (x.Comments?.Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
         return false;
     };
 
-    // Quick filter for transfer requests
     private Func<InventoryTransferRequestDto, bool> _requestQuickFilter => x =>
     {
-        if (string.IsNullOrWhiteSpace(_requestSearchString))
-            return true;
-        if (x.DocNum.ToString().Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase))
-            return true;
-        if (x.FromWarehouse?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-        if (x.ToWarehouse?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-        if (x.RequesterName?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-        if (x.DocumentStatus?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
+        if (string.IsNullOrWhiteSpace(_requestSearchString)) return true;
+        if (x.DocNum.ToString().Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (x.FromWarehouse?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (x.ToWarehouse?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (x.RequesterName?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (x.DocumentStatus?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
         return false;
     };
 
+    // ── Lifecycle ───────────────────────────────────────
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender && !_hasLoadedData)
         {
-            Logger.LogInformation("InventoryTransfers page: OnAfterRenderAsync - firstRender, starting data load");
             _hasLoadedData = true;
+            // Only load warehouses on first render (fast, cached).
+            // Transfer requests are deferred until the user switches to that tab.
             await LoadWarehousesAsync();
-            await LoadTransferRequestsAsync(); // Load transfer requests to get count
             StateHasChanged();
         }
     }
 
     private async Task LoadWarehousesAsync()
     {
-        Logger.LogInformation("InventoryTransfers page: LoadWarehousesAsync started");
         try
         {
             isLoadingWarehouses = true;
-            Logger.LogDebug("InventoryTransfers page: Calling CacheService.GetWarehousesAsync()");
             cachedWarehouses = await CacheService.GetWarehousesAsync();
-            Logger.LogInformation("InventoryTransfers page: Loaded {Count} warehouses", cachedWarehouses?.Count ?? 0);
-
-            // Pre-select warehouse "01" if it exists
+            Logger.LogInformation("Loaded {Count} warehouses", cachedWarehouses?.Count ?? 0);
             if (cachedWarehouses != null)
             {
                 var defaultWarehouse = cachedWarehouses.FirstOrDefault(w => w.WarehouseCode == "01");
                 if (defaultWarehouse != null)
-                {
                     selectedWarehouse = defaultWarehouse;
-                }
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "InventoryTransfers page: Failed to load warehouses");
+            Logger.LogError(ex, "Failed to load warehouses");
             errorMessage = $"Failed to load warehouses: {ex.Message}";
         }
         finally
         {
             isLoadingWarehouses = false;
-            Logger.LogDebug("InventoryTransfers page: LoadWarehousesAsync completed");
         }
     }
 
-    private async Task<IEnumerable<WarehouseDto>> SearchWarehousesAsync(string searchText, CancellationToken
-    cancellationToken)
+    private async Task<IEnumerable<WarehouseDto>> SearchWarehousesAsync(string searchText, CancellationToken ct)
     {
-        // Return all warehouses if search is empty
         if (string.IsNullOrWhiteSpace(searchText))
-        {
             return cachedWarehouses.Take(20);
-        }
 
-        // Filter warehouses based on search text
         return cachedWarehouses
         .Where(w =>
         (w.WarehouseCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
@@ -670,21 +1505,22 @@
 
     private string FormatDate(string? dateString)
     {
-        if (string.IsNullOrEmpty(dateString))
-            return "-";
-
-        if (DateTime.TryParse(dateString, out var date))
-        {
-            return date.ToString("dd MMM yyyy");
-        }
-
-        return dateString;
+        if (string.IsNullOrEmpty(dateString)) return "—";
+        return DateTime.TryParse(dateString, out var date) ? date.ToString("dd MMM yyyy") : dateString;
     }
 
+    // ── Tab switching ───────────────────────────────────
+    private async Task SwitchTab(int index)
+    {
+        activeTabIndex = index;
+        if (index == 1 && transferRequests == null)
+            await LoadTransferRequestsAsync();
+    }
+
+    // ── Load transfers ──────────────────────────────────
     private async Task LoadTransfers()
     {
-        if (selectedWarehouse == null)
-            return;
+        if (selectedWarehouse == null) return;
 
         isLoading = true;
         errorMessage = null;
@@ -722,19 +1558,19 @@
                 else
                 {
                     transfers = null;
-                    errorMessage = "Failed to load transfers - no response from server. Check if the API is running.";
+                    errorMessage = "Failed to load transfers — no response from server.";
                 }
             }
         }
         catch (TimeoutException ex)
         {
             Logger.LogWarning(ex, "Timeout loading transfers");
-            errorMessage = "The request timed out while loading transfers. SAP may be responding slowly. Please try again.";
+            errorMessage = "Request timed out. SAP may be responding slowly — please try again.";
         }
         catch (HttpRequestException ex)
         {
             Logger.LogError(ex, "HTTP error loading transfers");
-            errorMessage = $"Connection error while loading transfers: {ex.Message}";
+            errorMessage = $"Connection error: {ex.Message}";
         }
         catch (Exception ex)
         {
@@ -757,70 +1593,50 @@
         totalCount = 0;
         totalPages = 0;
 
-        // Re-select default warehouse
         var defaultWarehouse = cachedWarehouses?.FirstOrDefault(w => w.WarehouseCode == "01");
         if (defaultWarehouse != null)
-        {
             selectedWarehouse = defaultWarehouse;
-        }
     }
 
-    private void ViewTransfer(InventoryTransferDto transfer)
-    {
-        selectedTransfer = transfer;
-    }
+    private void ViewTransfer(InventoryTransferDto transfer) => selectedTransfer = transfer;
+    private void CloseModal() => selectedTransfer = null;
 
-    private void CloseModal()
-    {
-        selectedTransfer = null;
-    }
+    private void TransferPageChanged(int i) => _transfersTable.NavigateTo(i - 1);
+    private void RequestPageChanged(int i) => _requestsTable.NavigateTo(i - 1);
 
     private async Task PreviousPage()
     {
-        if (currentPage > 1)
-        {
-            currentPage--;
-            await LoadTransfers();
-        }
+        if (currentPage > 1) { currentPage--; await LoadTransfers(); }
     }
 
     private async Task NextPage()
     {
-        if (hasMore)
-        {
-            currentPage++;
-            await LoadTransfers();
-        }
+        if (hasMore) { currentPage++; await LoadTransfers(); }
     }
 
-    private async Task OnPageSizeChanged()
-    {
-        currentPage = 1;
-        await LoadTransfers();
-    }
-
-    #region Transfer Request Methods
-
-    private async Task OnTabIndexChanged(int index)
-    {
-        activeTabIndex = index;
-        if (index == 1 && transferRequests == null)
-        {
-            await LoadTransferRequestsAsync();
-        }
-    }
-
+    // ── Transfer Request Methods ────────────────────────
     private async Task LoadTransferRequestsAsync()
     {
         isLoadingRequests = true;
         try
         {
-            var response = await TransferService.GetTransferRequestsAsync(requestPage, pageSize);
-            if (response != null)
+            // Load a single page of transfer requests (fast) instead of fetching ALL pages
+            var response = await TransferService.GetTransferRequestsAsync(requestPage, requestPageSize);
+            if (response?.TransferRequests != null)
             {
                 transferRequests = response.TransferRequests;
+                transferRequestCount = response.Count > 0 ? response.Count : response.TransferRequests.Count;
                 hasMoreRequests = response.HasMore;
-                transferRequestCount = response.Count;
+                requestTotalPages = requestPageSize > 0
+                    ? (int)Math.Ceiling((double)transferRequestCount / requestPageSize)
+                    : 1;
+            }
+            else
+            {
+                transferRequests = new();
+                transferRequestCount = 0;
+                hasMoreRequests = false;
+                requestTotalPages = 0;
             }
         }
         catch (Exception ex)
@@ -833,33 +1649,18 @@
         }
     }
 
-    private void ViewTransferRequest(InventoryTransferRequestDto request)
+    private async Task RequestPreviousPage()
     {
-        selectedTransferRequest = request;
+        if (requestPage > 1) { requestPage--; await LoadTransferRequestsAsync(); }
     }
 
-    private void CloseRequestModal()
+    private async Task RequestNextPage()
     {
-        selectedTransferRequest = null;
+        if (hasMoreRequests) { requestPage++; await LoadTransferRequestsAsync(); }
     }
 
-    private async Task PreviousRequestPage()
-    {
-        if (requestPage > 1)
-        {
-            requestPage--;
-            await LoadTransferRequestsAsync();
-        }
-    }
-
-    private async Task NextRequestPage()
-    {
-        if (hasMoreRequests)
-        {
-            requestPage++;
-            await LoadTransferRequestsAsync();
-        }
-    }
+    private void ViewTransferRequest(InventoryTransferRequestDto request) => selectedTransferRequest = request;
+    private void CloseRequestModal() => selectedTransferRequest = null;
 
     private async Task RefreshTransferRequests()
     {
@@ -867,24 +1668,31 @@
         await LoadTransferRequestsAsync();
     }
 
-    private Color GetStatusColor(string? status)
+    private string GetStatusCssClass(string? status) => status?.ToLower() switch
     {
-        return status?.ToLower() switch
-        {
-            "open" or "bost_open" => Color.Info,
-            "closed" or "bost_close" => Color.Default,
-            "approved" => Color.Success,
-            "rejected" => Color.Error,
-            "pending" => Color.Warning,
-            _ => Color.Info
-        };
-    }
+        "open" or "bost_open" => "open",
+        "closed" or "bost_close" => "closed",
+        "approved" => "approved",
+        "rejected" => "rejected",
+        "pending" => "pending",
+        _ => "open"
+    };
+
+    private string GetFriendlyStatus(string? status) => status?.ToLower() switch
+    {
+        "bost_open" or "open" => "Open",
+        "bost_close" or "closed" => "Closed",
+        "bost_delivered" => "Delivered",
+        "bost_paid" => "Paid",
+        "approved" => "Approved",
+        "rejected" => "Rejected",
+        "pending" => "Pending",
+        _ => status ?? "Open"
+    };
 
     private bool IsRequestConvertible(InventoryTransferRequestDto? request)
     {
         if (request == null) return false;
-
-        // Check if the request is open (can be converted)
         var status = request.DocumentStatus?.ToLower();
         return status == null || status == "open" || status == "bost_open";
     }
@@ -899,29 +1707,17 @@
 
         try
         {
-            Logger.LogInformation("Converting transfer request {DocEntry} to inventory transfer", request.DocEntry);
-
             var (success, message, transfer) = await TransferService.ConvertTransferRequestToTransferAsync(request.DocEntry);
 
             if (success)
             {
                 successMessage = message;
-                Logger.LogInformation("Transfer request {RequestDocEntry} converted to transfer {TransferDocEntry}",
-                request.DocEntry, transfer?.DocEntry);
-
-                // Close the modal
                 CloseRequestModal();
-
-                // Refresh the transfer requests list
                 await LoadTransferRequestsAsync();
-
-                // Switch to the transfers tab if desired
-                // await SwitchTab("transfers");
             }
             else
             {
                 errorMessage = message;
-                Logger.LogWarning("Failed to convert transfer request: {Message}", message);
             }
         }
         catch (Exception ex)
@@ -935,7 +1731,4 @@
             StateHasChanged();
         }
     }
-
-    #endregion
-
 }

@@ -351,7 +351,7 @@
 
 @code {
     private List<UserModel> users = new();
-    private List<string> availableRoles = new() { "Admin", "Manager", "User", "ReadOnly" };
+    private List<string> availableRoles = new() { "Admin", "Cashier", "StockController", "DepotController" };
     private bool isLoading = true;
     private bool isSaving = false;
     private bool showUserModal = false;
@@ -398,9 +398,9 @@
     private Color GetRoleChipColor(string role) => role switch
     {
         "Admin" => Color.Error,
-        "Manager" => Color.Primary,
-        "User" => Color.Info,
-        "ReadOnly" => Color.Default,
+        "Cashier" => Color.Primary,
+        "StockController" => Color.Info,
+        "DepotController" => Color.Warning,
         _ => Color.Default
     };
 
@@ -665,9 +665,9 @@
     private string GetRoleBadgeClass(string role) => role switch
     {
         "Admin" => "bg-danger",
-        "Manager" => "bg-primary",
-        "User" => "bg-info",
-        "ReadOnly" => "bg-secondary",
+        "Cashier" => "bg-primary",
+        "StockController" => "bg-info",
+        "DepotController" => "bg-warning",
         _ => "bg-secondary"
     };
 

@@ -20,6 +20,7 @@ public class InvoiceController : ControllerBase
     private readonly IInventoryLockService _lockService;
     private readonly IFiscalizationService _fiscalizationService;
     private readonly IDocumentService _documentService;
+    private readonly IInvoicePdfService _invoicePdfService;
     private readonly SAPSettings _settings;
     private readonly ILogger<InvoiceController> _logger;
 
@@ -30,6 +31,7 @@ public class InvoiceController : ControllerBase
         IInventoryLockService lockService,
         IFiscalizationService fiscalizationService,
         IDocumentService documentService,
+        IInvoicePdfService invoicePdfService,
         IOptions<SAPSettings> settings,
         ILogger<InvoiceController> logger)
     {
@@ -39,6 +41,7 @@ public class InvoiceController : ControllerBase
         _lockService = lockService;
         _fiscalizationService = fiscalizationService;
         _documentService = documentService;
+        _invoicePdfService = invoicePdfService;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -532,6 +535,56 @@ public class InvoiceController : ControllerBase
         {
             _logger.LogError(ex, "Error retrieving invoice {DocEntry}", docEntry);
             return StatusCode(500, new ErrorResponseDto { Message = "Error retrieving invoice", Errors = new List<string> { ex.Message } });
+        }
+    }
+
+    /// <summary>
+    /// Downloads the invoice as a formatted A4 PDF (Fiscal Tax Invoice)
+    /// </summary>
+    /// <param name="docEntry">The document entry number</param>
+    /// <returns>PDF file</returns>
+    [HttpGet("{docEntry:int}/pdf")]
+    [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DownloadInvoicePdf(
+        int docEntry,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!_settings.Enabled)
+            {
+                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+            }
+
+            var invoice = await _sapClient.GetInvoiceByDocEntryAsync(docEntry, cancellationToken);
+
+            if (invoice == null)
+            {
+                return NotFound(new ErrorResponseDto { Message = $"Invoice with DocEntry {docEntry} not found" });
+            }
+
+            var invoiceDto = invoice.ToDto();
+            var pdfBytes = await _invoicePdfService.GenerateInvoicePdfAsync(invoiceDto);
+
+            var fileName = $"Invoice_{invoiceDto.DocNum}_{DateTime.Now:yyyyMMdd}.pdf";
+            return File(pdfBytes, "application/pdf", fileName);
+        }
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        {
+            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out." });
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
+            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer.", Errors = new List<string> { ex.Message } });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating PDF for invoice {DocEntry}", docEntry);
+            return StatusCode(500, new ErrorResponseDto { Message = "Error generating invoice PDF", Errors = new List<string> { ex.Message } });
         }
     }
 

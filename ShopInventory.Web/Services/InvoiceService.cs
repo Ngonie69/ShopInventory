@@ -12,6 +12,7 @@ public interface IInvoiceService
     Task<InvoiceDateResponse?> GetInvoicesByDateAsync(DateTime date);
     Task<InvoiceDateResponse?> GetInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate);
     Task<(bool Success, string Message, InvoiceDto? Invoice)> CreateInvoiceAsync(CreateInvoiceRequest request);
+    Task<byte[]?> GetInvoicePdfAsync(int docEntry);
 }
 
 public class InvoiceService : IInvoiceService
@@ -124,6 +125,13 @@ public class InvoiceService : IInvoiceService
 
             try
             {
+                // Try to parse as batch validation error first (rich error structure)
+                var friendlyBatchError = TryParseBatchValidationError(errorContent);
+                if (friendlyBatchError != null)
+                {
+                    return (false, friendlyBatchError, null);
+                }
+
                 var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
                     new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
@@ -173,6 +181,97 @@ public class InvoiceService : IInvoiceService
         {
             _logger.LogError(ex, "Unexpected error creating invoice");
             return (false, $"Error: {ex.Message}", null);
+        }
+    }
+
+    /// <summary>
+    /// Attempts to parse a batch validation error response into a user-friendly HTML message.
+    /// Returns null if the response is not a batch validation error.
+    /// </summary>
+    private string? TryParseBatchValidationError(string errorContent)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(errorContent);
+            var root = doc.RootElement;
+
+            // Check if this is a batch validation error
+            if (!root.TryGetProperty("isValid", out var isValidProp) || isValidProp.GetBoolean())
+                return null;
+
+            if (!root.TryGetProperty("errors", out var errorsArray) || errorsArray.ValueKind != System.Text.Json.JsonValueKind.Array)
+                return null;
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append("<strong>Some items don't have enough stock to complete this invoice:</strong>");
+            sb.Append("<ul style='margin:8px 0 4px 0; padding-left:20px;'>");
+
+            foreach (var err in errorsArray.EnumerateArray())
+            {
+                var itemCode = err.TryGetProperty("itemCode", out var ic) ? ic.GetString() : "Unknown";
+                var warehouse = err.TryGetProperty("warehouseCode", out var wc) ? wc.GetString() : "";
+                var requested = err.TryGetProperty("requestedQuantity", out var rq) ? rq.GetDecimal() : 0;
+                var available = err.TryGetProperty("availableQuantity", out var aq) ? aq.GetDecimal() : 0;
+                var suggestion = err.TryGetProperty("suggestedAction", out var sa) ? sa.GetString() : null;
+
+                sb.Append("<li style='margin-bottom:6px;'>");
+                sb.Append($"<strong>{System.Net.WebUtility.HtmlEncode(itemCode)}</strong>");
+
+                if (!string.IsNullOrEmpty(warehouse))
+                    sb.Append($" (warehouse: {System.Net.WebUtility.HtmlEncode(warehouse)})");
+
+                sb.Append($" &mdash; You requested <strong>{requested:G29}</strong>");
+
+                if (available > 0)
+                    sb.Append($", but only <strong>{available:G29}</strong> is available");
+                else
+                    sb.Append(", but <strong>none</strong> is available");
+
+                sb.Append('.');
+
+                // Show suggested action in friendly terms
+                if (!string.IsNullOrEmpty(suggestion))
+                {
+                    // Clean up the API-style suggestion to be more user-friendly
+                    var friendlySuggestion = suggestion
+                        .Replace("Reduce quantity to ", "Try reducing the quantity to ")
+                        .Replace(" or transfer more stock", ", or ask for a stock transfer.");
+                    sb.Append($"<br/><em style='color:#666; font-size:0.92em;'>{System.Net.WebUtility.HtmlEncode(friendlySuggestion)}</em>");
+                }
+
+                sb.Append("</li>");
+            }
+
+            sb.Append("</ul>");
+            sb.Append("<span style='font-size:0.92em; color:#666;'>Please adjust the quantities and try again.</span>");
+
+            return sb.ToString();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Error content is not a batch validation response");
+            return null;
+        }
+    }
+
+    public async Task<byte[]?> GetInvoicePdfAsync(int docEntry)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"api/invoice/{docEntry}/pdf");
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadAsByteArrayAsync();
+            }
+
+            _logger.LogWarning("Failed to download invoice PDF for DocEntry {DocEntry}: {StatusCode}",
+                docEntry, response.StatusCode);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error downloading invoice PDF for DocEntry {DocEntry}", docEntry);
+            return null;
         }
     }
 }

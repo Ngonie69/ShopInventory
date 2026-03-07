@@ -12,424 +12,430 @@
 
 <PageTitle>Settings - Shop Inventory</PageTitle>
 
-<div class="container-fluid">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="bi bi-gear me-2"></i>Settings</h2>
-        <button class="btn btn-primary" @onclick="SaveSettings" disabled="@(!hasChanges || isSaving)">
+<div class="settings-page">
+    <!-- Page Header -->
+    <div class="settings-header">
+        <div class="settings-header-left">
+            <div class="settings-icon-box">
+                <i class="bi bi-gear-wide-connected"></i>
+            </div>
+            <div>
+                <h2 class="settings-title">Settings</h2>
+                <p class="settings-subtitle">Manage application configuration, data sync, and user accounts</p>
+            </div>
+        </div>
+        <button class="btn-settings-save" @onclick="SaveSettings" disabled="@(!hasChanges || isSaving)">
             @if (isSaving)
             {
                 <span class="spinner-border spinner-border-sm me-2" role="status"></span>
             }
-            <i class="bi bi-save me-1"></i>Save Changes
+            else
+            {
+                <i class="bi bi-check2-circle me-1"></i>
+            }
+            Save Changes
         </button>
     </div>
 
+    <!-- Alerts -->
     @if (!string.IsNullOrEmpty(successMessage))
     {
-        <div class="alert alert-success alert-dismissible fade show">
-            <i class="bi bi-check-circle me-2"></i>@successMessage
-            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+        <div class="settings-alert settings-alert-success">
+            <i class="bi bi-check-circle-fill"></i>
+            <span>@successMessage</span>
+            <button class="settings-alert-close" @onclick="() => successMessage = null">
+                <i class="bi bi-x-lg"></i>
+            </button>
         </div>
     }
-
     @if (!string.IsNullOrEmpty(errorMessage))
     {
-        <div class="alert alert-danger alert-dismissible fade show">
-            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
-            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        <div class="settings-alert settings-alert-error">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <span>@errorMessage</span>
+            <button class="settings-alert-close" @onclick="() => errorMessage = null">
+                <i class="bi bi-x-lg"></i>
+            </button>
         </div>
     }
 
     @if (isLoading)
     {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
+        <div class="settings-loading">
+            <div class="spinner-border" role="status">
                 <span class="visually-hidden">Loading...</span>
             </div>
-            <p class="mt-2">Loading settings...</p>
+            <p>Loading settings...</p>
         </div>
     }
     else
     {
-        <div class="row">
-            <!-- Settings Navigation -->
-            <div class="col-md-3">
-                <div class="card">
-                    <div class="card-body p-0">
-                        <div class="list-group list-group-flush">
-                            @foreach (var category in categories)
-                            {
-                                <button type="button"
-                                    class="list-group-item list-group-item-action @(selectedCategory == category ? "active" : "")"
-                                    @onclick="() => SelectCategory(category)">
-                                    <i class="bi @GetCategoryIcon(category) me-2"></i>@category
-                                </button>
-                            }
-                            <button type="button"
-                                class="list-group-item list-group-item-action @(selectedCategory == DataManagementCategory ? "active" : "")"
-                                @onclick="() => SelectCategory(DataManagementCategory)">
-                                <i class="bi bi-arrow-repeat me-2"></i>Data Management
+        <!-- Tab Navigation -->
+        <div class="settings-tabs">
+            @foreach (var category in categories)
+            {
+                <button class="settings-tab @(selectedCategory == category ? "active" : "")"
+                        @onclick="() => SelectCategory(category)">
+                    <i class="bi @GetCategoryIcon(category)"></i>
+                    <span>@category</span>
+                </button>
+            }
+            <button class="settings-tab @(selectedCategory == DataManagementCategory ? "active" : "")"
+                    @onclick="() => SelectCategory(DataManagementCategory)">
+                <i class="bi bi-arrow-repeat"></i>
+                <span>Data Sync</span>
+            </button>
+            <button class="settings-tab @(selectedCategory == UserManagementCategory ? "active" : "")"
+                    @onclick="() => SelectCategory(UserManagementCategory)">
+                <i class="bi bi-person-plus"></i>
+                <span>Users</span>
+            </button>
+        </div>
+
+        <!-- Tab Content -->
+        <div class="settings-content">
+
+            @if (selectedCategory == DataManagementCategory)
+            {
+                <!-- Data Management Section -->
+                <div class="settings-section" style="animation-delay: 0.05s;">
+                    <div class="section-header">
+                        <div class="section-icon section-icon-blue">
+                            <i class="bi bi-cloud-arrow-down"></i>
+                        </div>
+                        <div>
+                            <h5 class="section-title">Data Synchronization</h5>
+                            <p class="section-desc">Manually refresh cached data from SAP. Use when data has changed in the source system.</p>
+                        </div>
+                    </div>
+
+                    <div class="sync-grid">
+                        <!-- Products -->
+                        <div class="sync-card">
+                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);">
+                                <i class="bi bi-box-seam"></i>
+                            </div>
+                            <div class="sync-card-body">
+                                <h6>Products</h6>
+                                <p>Sync product catalog from SAP</p>
+                                @if (productsLastSync.HasValue)
+                                {
+                                    <span class="sync-timestamp">
+                                        <i class="bi bi-clock-history"></i> @productsLastSync.Value.ToString("dd MMM yyyy HH:mm")
+                                    </span>
+                                }
+                            </div>
+                            <button class="btn-sync" @onclick="RefreshProducts" disabled="@isRefreshingProducts">
+                                @if (isRefreshingProducts)
+                                {
+                                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-arrow-repeat"></i>
+                                }
                             </button>
-                            <button type="button"
-                                class="list-group-item list-group-item-action @(selectedCategory == UserManagementCategory ? "active" : "")"
-                                @onclick="() => SelectCategory(UserManagementCategory)">
-                                <i class="bi bi-people me-2"></i>User Management
+                        </div>
+
+                        <!-- Prices -->
+                        <div class="sync-card">
+                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #11998e, #38ef7d);">
+                                <i class="bi bi-tag"></i>
+                            </div>
+                            <div class="sync-card-body">
+                                <h6>Prices</h6>
+                                <p>Sync item prices from SAP</p>
+                                @if (pricesLastSync.HasValue)
+                                {
+                                    <span class="sync-timestamp">
+                                        <i class="bi bi-clock-history"></i> @pricesLastSync.Value.ToString("dd MMM yyyy HH:mm")
+                                    </span>
+                                }
+                            </div>
+                            <button class="btn-sync" @onclick="RefreshPrices" disabled="@isRefreshingPrices">
+                                @if (isRefreshingPrices)
+                                {
+                                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-arrow-repeat"></i>
+                                }
+                            </button>
+                        </div>
+
+                        <!-- Business Partners -->
+                        <div class="sync-card">
+                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #f093fb, #f5576c);">
+                                <i class="bi bi-people"></i>
+                            </div>
+                            <div class="sync-card-body">
+                                <h6>Business Partners</h6>
+                                <p>Sync customers and suppliers</p>
+                                @if (bpLastSync.HasValue)
+                                {
+                                    <span class="sync-timestamp">
+                                        <i class="bi bi-clock-history"></i> @bpLastSync.Value.ToString("dd MMM yyyy HH:mm")
+                                    </span>
+                                }
+                            </div>
+                            <button class="btn-sync" @onclick="RefreshBusinessPartners" disabled="@isRefreshingBP">
+                                @if (isRefreshingBP)
+                                {
+                                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-arrow-repeat"></i>
+                                }
+                            </button>
+                        </div>
+
+                        <!-- Warehouses -->
+                        <div class="sync-card">
+                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #f7971e, #ffd200);">
+                                <i class="bi bi-building"></i>
+                            </div>
+                            <div class="sync-card-body">
+                                <h6>Warehouses</h6>
+                                <p>Sync warehouse list from SAP</p>
+                                @if (warehousesLastSync.HasValue)
+                                {
+                                    <span class="sync-timestamp">
+                                        <i class="bi bi-clock-history"></i> @warehousesLastSync.Value.ToString("dd MMM yyyy HH:mm")
+                                    </span>
+                                }
+                            </div>
+                            <button class="btn-sync" @onclick="RefreshWarehouses" disabled="@isRefreshingWarehouses">
+                                @if (isRefreshingWarehouses)
+                                {
+                                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-arrow-repeat"></i>
+                                }
+                            </button>
+                        </div>
+
+                        <!-- Cost Centres -->
+                        <div class="sync-card">
+                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #4facfe, #00f2fe);">
+                                <i class="bi bi-diagram-3"></i>
+                            </div>
+                            <div class="sync-card-body">
+                                <h6>Cost Centres</h6>
+                                <p>Sync profit centers from SAP</p>
+                                @if (costCentresLastSync.HasValue)
+                                {
+                                    <span class="sync-timestamp">
+                                        <i class="bi bi-clock-history"></i> @costCentresLastSync.Value.ToString("dd MMM yyyy HH:mm")
+                                    </span>
+                                }
+                            </div>
+                            <button class="btn-sync" @onclick="RefreshCostCentres" disabled="@isRefreshingCostCentres">
+                                @if (isRefreshingCostCentres)
+                                {
+                                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-arrow-repeat"></i>
+                                }
+                            </button>
+                        </div>
+
+                        <!-- Refresh All -->
+                        <div class="sync-card sync-card-all">
+                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #1a1a2e, #16213e);">
+                                <i class="bi bi-arrow-clockwise"></i>
+                            </div>
+                            <div class="sync-card-body">
+                                <h6>Sync Everything</h6>
+                                <p>Refresh all master data in one go</p>
+                            </div>
+                            <button class="btn-sync btn-sync-all" @onclick="RefreshAllData" disabled="@isRefreshingAll">
+                                @if (isRefreshingAll)
+                                {
+                                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-arrow-repeat"></i>
+                                }
                             </button>
                         </div>
                     </div>
+
+                    @if (!string.IsNullOrEmpty(refreshMessage))
+                    {
+                        <div class="settings-alert @(refreshSuccess ? "settings-alert-success" : "settings-alert-error") mt-3">
+                            <i class="bi @(refreshSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+                            <span>@refreshMessage</span>
+                            <button class="settings-alert-close" @onclick="() => refreshMessage = null">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                    }
                 </div>
-            </div>
-
-            <!-- Settings Content -->
-            <div class="col-md-9">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">
-                            <i class="bi @GetCategoryIcon(selectedCategory) me-2"></i>@selectedCategory Settings
-                        </h5>
+            }
+            else if (selectedCategory == UserManagementCategory)
+            {
+                <!-- User Management Section -->
+                <div class="settings-section" style="animation-delay: 0.05s;">
+                    <div class="section-header">
+                        <div class="section-icon section-icon-purple">
+                            <i class="bi bi-person-plus-fill"></i>
+                        </div>
+                        <div>
+                            <h5 class="section-title">Create User Account</h5>
+                            <p class="section-desc">Add new users and assign roles. Only administrators can create accounts.</p>
+                        </div>
                     </div>
-                    <div class="card-body">
-                        @if (selectedCategory == DataManagementCategory)
-                        {
-                            <!-- Data Management Section -->
-                            <div class="mb-4">
-                                <h6 class="text-muted mb-3">Refresh Data from API</h6>
-                                <p class="text-muted small mb-4">
-                                    Use these options to manually refresh cached data from the SAP API. This is useful when you
-                                    know data has changed in SAP.
-                                </p>
 
-                                <div class="row g-3">
-                                    <div class="col-md-6">
-                                        <div class="card h-100">
-                                            <div class="card-body">
-                                                <div class="d-flex align-items-center mb-2">
-                                                    <i class="bi bi-box-seam text-primary me-2 fs-4"></i>
-                                                    <h6 class="mb-0">Products</h6>
-                                                </div>
-                                                <p class="text-muted small mb-3">
-                                                    Sync product catalog from SAP
-                                                    @if (productsLastSync.HasValue)
-                                                    {
-                                                        <br />
-                                            
-                                                        <small>Last sync: @productsLastSync.Value.ToString("dd MMM yyyy HH:mm")</small>
-                                                    }
-                                                </p>
-                                                <button class="btn btn-outline-primary btn-sm" @onclick="RefreshProducts"
-                                                    disabled="@isRefreshingProducts">
-                                                    @if (isRefreshingProducts)
-                                                    {
-                                                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <i class="bi bi-arrow-repeat me-1"></i>
-                                                    }
-                                                    Refresh Products
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
+                    <div class="user-form">
+                    <EditForm Model="newUserModel" OnValidSubmit="CreateUser">
+                        <DataAnnotationsValidator />
 
-                                    <div class="col-md-6">
-                                        <div class="card h-100">
-                                            <div class="card-body">
-                                                <div class="d-flex align-items-center mb-2">
-                                                    <i class="bi bi-currency-dollar text-success me-2 fs-4"></i>
-                                                    <h6 class="mb-0">Prices</h6>
-                                                </div>
-                                                <p class="text-muted small mb-3">
-                                                    Sync item prices from SAP
-                                                    @if (pricesLastSync.HasValue)
-                                                    {
-                                                        <br />
-                                            
-                                                        <small>Last sync: @pricesLastSync.Value.ToString("dd MMM yyyy HH:mm")</small>
-                                                    }
-                                                </p>
-                                                <button class="btn btn-outline-success btn-sm" @onclick="RefreshPrices"
-                                                    disabled="@isRefreshingPrices">
-                                                    @if (isRefreshingPrices)
-                                                    {
-                                                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <i class="bi bi-arrow-repeat me-1"></i>
-                                                    }
-                                                    Refresh Prices
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
+                        <div class="form-grid">
+                            <div class="form-field">
+                                <label class="field-label">Username <span class="required">*</span></label>
+                                <InputText @bind-Value="newUserModel.Username" class="field-input"
+                                           placeholder="e.g. john.doe" />
+                                <ValidationMessage For="() => newUserModel.Username" class="field-error" />
+                            </div>
 
-                                    <div class="col-md-6">
-                                        <div class="card h-100">
-                                            <div class="card-body">
-                                                <div class="d-flex align-items-center mb-2">
-                                                    <i class="bi bi-people text-info me-2 fs-4"></i>
-                                                    <h6 class="mb-0">Business Partners</h6>
-                                                </div>
-                                                <p class="text-muted small mb-3">
-                                                    Sync customers/suppliers from SAP
-                                                    @if (bpLastSync.HasValue)
-                                                    {
-                                                        <br />
-                                            
-                                                        <small>Last sync: @bpLastSync.Value.ToString("dd MMM yyyy HH:mm")</small>
-                                                    }
-                                                </p>
-                                                <button class="btn btn-outline-info btn-sm" @onclick="RefreshBusinessPartners"
-                                                    disabled="@isRefreshingBP">
-                                                    @if (isRefreshingBP)
-                                                    {
-                                                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <i class="bi bi-arrow-repeat me-1"></i>
-                                                    }
-                                                    Refresh Partners
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
+                            <div class="form-field">
+                                <label class="field-label">Email Address</label>
+                                <InputText @bind-Value="newUserModel.Email" class="field-input"
+                                           placeholder="email address" />
+                                <ValidationMessage For="() => newUserModel.Email" class="field-error" />
+                            </div>
 
-                                    <div class="col-md-6">
-                                        <div class="card h-100">
-                                            <div class="card-body">
-                                                <div class="d-flex align-items-center mb-2">
-                                                    <i class="bi bi-building text-warning me-2 fs-4"></i>
-                                                    <h6 class="mb-0">Warehouses</h6>
-                                                </div>
-                                                <p class="text-muted small mb-3">
-                                                    Sync warehouse list from SAP
-                                                    @if (warehousesLastSync.HasValue)
-                                                    {
-                                                        <br />
-                                            
-                                                        <small>Last sync: @warehousesLastSync.Value.ToString("dd MMM yyyy HH:mm")</small>
-                                                    }
-                                                </p>
-                                                <button class="btn btn-outline-warning btn-sm" @onclick="RefreshWarehouses"
-                                                    disabled="@isRefreshingWarehouses">
-                                                    @if (isRefreshingWarehouses)
-                                                    {
-                                                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <i class="bi bi-arrow-repeat me-1"></i>
-                                                    }
-                                                    Refresh Warehouses
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
+                            <div class="form-field">
+                                <label class="field-label">Password <span class="required">*</span></label>
+                                <InputText @bind-Value="newUserModel.Password" type="password"
+                                           class="field-input" placeholder="Minimum 6 characters" />
+                                <ValidationMessage For="() => newUserModel.Password" class="field-error" />
+                            </div>
 
-                                    <div class="col-md-6">
-                                        <div class="card h-100">
-                                            <div class="card-body">
-                                                <div class="d-flex align-items-center mb-2">
-                                                    <i class="bi bi-diagram-3 text-secondary me-2 fs-4"></i>
-                                                    <h6 class="mb-0">Cost Centres</h6>
-                                                </div>
-                                                <p class="text-muted small mb-3">
-                                                    Sync cost centres (profit centers) from SAP
-                                                    @if (costCentresLastSync.HasValue)
-                                                    {
-                                                        <br />
-                                            
-                                                        <small>Last sync: @costCentresLastSync.Value.ToString("dd MMM yyyy HH:mm")</small>
-                                                    }
-                                                </p>
-                                                <button class="btn btn-outline-secondary btn-sm" @onclick="RefreshCostCentres"
-                                                    disabled="@isRefreshingCostCentres">
-                                                    @if (isRefreshingCostCentres)
-                                                    {
-                                                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <i class="bi bi-arrow-repeat me-1"></i>
-                                                    }
-                                                    Refresh Cost Centres
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <hr class="my-4" />
-
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <h6 class="mb-1">Refresh All Data</h6>
-                                        <p class="text-muted small mb-0">Sync all master data from SAP in one operation</p>
-                                    </div>
-                                    <button class="btn btn-primary" @onclick="RefreshAllData" disabled="@isRefreshingAll">
-                                        @if (isRefreshingAll)
-                                        {
-                                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                                            <span>Refreshing...</span>
-                                        }
-                                        else
-                                        {
-                                            <i class="bi bi-arrow-clockwise me-1"></i>
-                                            <span>Refresh All Data</span>
-                                        }
-                                    </button>
-                                </div>
-
-                                @if (!string.IsNullOrEmpty(refreshMessage))
+                            <div class="form-field">
+                                <label class="field-label">Confirm Password <span class="required">*</span></label>
+                                <InputText @bind-Value="confirmPassword" type="password"
+                                           class="field-input" placeholder="Re-enter password" />
+                                @if (!string.IsNullOrEmpty(confirmPassword) && newUserModel.Password != confirmPassword)
                                 {
-                                    <div class="alert @(refreshSuccess ? "alert-success" : "alert-danger") mt-3">
-                                        <i class="bi @(refreshSuccess ? "bi-check-circle" : "bi-exclamation-triangle") me-2"></i>
-                                        @refreshMessage
-                                    </div>
+                                    <span class="field-error">Passwords do not match</span>
                                 }
                             </div>
-                        }
-                        else if (selectedCategory == UserManagementCategory)
-                        {
-                            <!-- User Management Section -->
-                            <div class="mb-4">
-                                <div class="d-flex justify-content-between align-items-center mb-4">
-                                    <div>
-                                        <h6 class="mb-1">Create New User Account</h6>
-                                        <p class="text-muted small mb-0">Add new users to the system (Admin only)</p>
-                                    </div>
-                                </div>
 
-                                <div class="card">
-                                    <div class="card-body">
-                                        <EditForm Model="newUserModel" OnValidSubmit="CreateUser">
-                                            <DataAnnotationsValidator />
-
-                                            <div class="row g-3">
-                                                <div class="col-md-6">
-                                                    <label class="form-label">Username <span
-                                                            class="text-danger">*</span></label>
-                                                    <InputText @bind-Value="newUserModel.Username" class="form-control"
-                                                        placeholder="Enter username" />
-                                                    <ValidationMessage For="() => newUserModel.Username"
-                                                        class="text-danger small" />
-                                                </div>
-
-                                                <div class="col-md-6">
-                                                    <label class="form-label">Email</label>
-                                                    <InputText @bind-Value="newUserModel.Email" class="form-control"
-                                                        placeholder="user@example.com" />
-                                                    <ValidationMessage For="() => newUserModel.Email"
-                                                        class="text-danger small" />
-                                                </div>
-
-                                                <div class="col-md-6">
-                                                    <label class="form-label">Password <span
-                                                            class="text-danger">*</span></label>
-                                                    <InputText @bind-Value="newUserModel.Password" type="password"
-                                                        class="form-control" placeholder="Enter password" />
-                                                    <ValidationMessage For="() => newUserModel.Password"
-                                                        class="text-danger small" />
-                                                    <small class="text-muted">Minimum 6 characters</small>
-                                                </div>
-
-                                                <div class="col-md-6">
-                                                    <label class="form-label">Confirm Password <span
-                                                            class="text-danger">*</span></label>
-                                                    <InputText @bind-Value="confirmPassword" type="password"
-                                                        class="form-control" placeholder="Confirm password" />
-                                                    @if (!string.IsNullOrEmpty(confirmPassword) && newUserModel.Password !=
-                                                                                                confirmPassword)
-                                                    {
-                                                        <span class="text-danger small">Passwords do not match</span>
-                                                    }
-                                                </div>
-
-                                                <div class="col-md-6">
-                                                    <label class="form-label">Role <span class="text-danger">*</span></label>
-                                                    <InputSelect @bind-Value="newUserModel.Role" class="form-select">
-                                                        <option value="User">User</option>
-                                                        <option value="Manager">Manager</option>
-                                                        <option value="Admin">Admin</option>
-                                                    </InputSelect>
-                                                    <ValidationMessage For="() => newUserModel.Role"
-                                                        class="text-danger small" />
-                                                </div>
-
-                                                <div class="col-12">
-                                                    <button type="submit" class="btn btn-primary"
-                                                        disabled="@(isCreatingUser || newUserModel.Password != confirmPassword)">
-                                                        @if (isCreatingUser)
-                                                        {
-                                                            <span class="spinner-border spinner-border-sm me-1"
-                                                                role="status"></span>
-                                                        }
-                                                        else
-                                                        {
-                                                            <i class="bi bi-person-plus me-1"></i>
-                                                        }
-                                                        Create User
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </EditForm>
-
-                                        @if (!string.IsNullOrEmpty(userMessage))
-                                        {
-                                            <div class="alert @(userSuccess ? "alert-success" : "alert-danger") mt-3">
-                                                <i
-                                                    class="bi @(userSuccess ? "bi-check-circle" : "bi-exclamation-triangle") me-2"></i>
-                                                @userMessage
-                                            </div>
-                                        }
-                                    </div>
-                                </div>
+                            <div class="form-field">
+                                <label class="field-label">Role <span class="required">*</span></label>
+                                <InputSelect @bind-Value="newUserModel.Role" class="field-input">
+                                    <option value="Cashier">Cashier</option>
+                                    <option value="StockController">Stock Controller</option>
+                                    <option value="DepotController">Depot Controller</option>
+                                    <option value="Admin">Admin</option>
+                                </InputSelect>
+                                <ValidationMessage For="() => newUserModel.Role" class="field-error" />
                             </div>
-                        }
-                        else if (categorySettings.Any())
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn-create-user"
+                                    disabled="@(isCreatingUser || (!string.IsNullOrEmpty(confirmPassword) && newUserModel.Password != confirmPassword))">
+                                @if (isCreatingUser)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-person-plus me-1"></i>
+                                }
+                                Create Account
+                            </button>
+                        </div>
+                    </EditForm>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(userMessage))
+                    {
+                        <div class="settings-alert @(userSuccess ? "settings-alert-success" : "settings-alert-error") mt-3">
+                            <i class="bi @(userSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+                            <span>@userMessage</span>
+                            <button class="settings-alert-close" @onclick="() => userMessage = null">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+            else if (categorySettings.Any())
+            {
+                <!-- Dynamic Settings -->
+                <div class="settings-section" style="animation-delay: 0.05s;">
+                    <div class="section-header">
+                        <div class="section-icon @GetSectionIconClass(selectedCategory)">
+                            <i class="bi @GetCategoryIcon(selectedCategory)"></i>
+                        </div>
+                        <div>
+                            <h5 class="section-title">@selectedCategory</h5>
+                            <p class="section-desc">@GetCategoryDescription(selectedCategory)</p>
+                        </div>
+                    </div>
+
+                    <div class="setting-items">
+                        @foreach (var setting in categorySettings)
                         {
-                            @foreach (var setting in categorySettings)
-                            {
-                                <div class="mb-4">
-                                    <label class="form-label fw-semibold">@FormatLabel(setting.Key)</label>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <label class="setting-label">@FormatLabel(setting.Key)</label>
                                     @if (!string.IsNullOrEmpty(setting.Description))
                                     {
-                                        <small class="text-muted d-block mb-2">@setting.Description</small>
+                                        <span class="setting-desc">@setting.Description</span>
                                     }
-
+                                    @if (setting.LastModifiedBy != null)
+                                    {
+                                        <span class="setting-meta">
+                                            <i class="bi bi-pencil-square"></i> @setting.LastModifiedBy &middot; @setting.LastModifiedAt.ToString("dd MMM yyyy HH:mm")
+                                        </span>
+                                    }
+                                </div>
+                                <div class="setting-control">
                                     @if (setting.DataType == "bool")
                                     {
-                                        <div class="form-check form-switch">
-                                            <input class="form-check-input" type="checkbox" role="switch" id="@setting.Key"
-                                                checked="@(GetBoolValue(setting.Key))" disabled="@(!setting.IsEditable)"
-                                                @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())" />
-                                            <label class="form-check-label" for="@setting.Key">
-                                                @(GetBoolValue(setting.Key) ? "Enabled" : "Disabled")
-                                            </label>
-                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox"
+                                                   checked="@GetBoolValue(setting.Key)"
+                                                   disabled="@(!setting.IsEditable)"
+                                                   @onchange="e => OnBoolSettingChanged(setting.Key, e)" />
+                                            <span class="toggle-slider"></span>
+                                            <span class="toggle-text">@(GetBoolValue(setting.Key) ? "On" : "Off")</span>
+                                        </label>
                                     }
                                     else if (setting.DataType == "int")
                                     {
-                                        <input type="number" class="form-control" style="max-width: 200px;"
-                                            value="@GetValue(setting.Key)" disabled="@(!setting.IsEditable)"
-                                            @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())" />
+                                        <input type="number" class="field-input field-input-sm"
+                                               value="@GetValue(setting.Key)"
+                                               disabled="@(!setting.IsEditable)"
+                                               @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())" />
                                     }
                                     else if (setting.Key == SettingKeys.Theme)
                                     {
-                                        <select class="form-select" style="max-width: 200px;" value="@GetValue(setting.Key)"
-                                            disabled="@(!setting.IsEditable)"
-                                            @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())">
+                                        <select class="field-input field-input-sm"
+                                                value="@GetValue(setting.Key)"
+                                                disabled="@(!setting.IsEditable)"
+                                                @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())">
                                             <option value="light">Light</option>
                                             <option value="dark">Dark</option>
                                         </select>
                                     }
                                     else if (setting.Key == SettingKeys.DateFormat)
                                     {
-                                        <select class="form-select" style="max-width: 250px;" value="@GetValue(setting.Key)"
-                                            disabled="@(!setting.IsEditable)"
-                                            @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())">
+                                        <select class="field-input field-input-sm"
+                                                value="@GetValue(setting.Key)"
+                                                disabled="@(!setting.IsEditable)"
+                                                @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())">
                                             <option value="dd MMM yyyy">04 Jan 2026</option>
                                             <option value="dd/MM/yyyy">04/01/2026</option>
                                             <option value="MM/dd/yyyy">01/04/2026</option>
@@ -438,27 +444,24 @@
                                     }
                                     else
                                     {
-                                        <input type="text" class="form-control" value="@GetValue(setting.Key)"
-                                            disabled="@(!setting.IsEditable)"
-                                            @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())" />
-                                    }
-
-                                    @if (setting.LastModifiedBy != null)
-                                    {
-                                        <small class="text-muted d-block mt-1">
-                                            Last modified by @setting.LastModifiedBy on @setting.LastModifiedAt.ToString("dd MMM yyyy HH:mm")
-                                        </small>
+                                        <input type="text" class="field-input field-input-sm"
+                                               value="@GetValue(setting.Key)"
+                                               disabled="@(!setting.IsEditable)"
+                                               @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())" />
                                     }
                                 </div>
-                            }
-                        }
-                        else
-                        {
-                            <p class="text-muted">No settings available for this category.</p>
+                            </div>
                         }
                     </div>
                 </div>
-            </div>
+            }
+            else
+            {
+                <div class="settings-empty">
+                    <i class="bi bi-inbox"></i>
+                    <p>No settings available for this category.</p>
+                </div>
+            }
         </div>
     }
 </div>
@@ -530,15 +533,10 @@
         isLoading = true;
         try
         {
-            // Initialize default settings if needed
             await SettingsService.InitializeDefaultSettingsAsync();
-
             allSettings = await SettingsService.GetAllSettingsAsync();
             categories = allSettings.Select(s => s.Category).Distinct().ToList();
-
-            // Initialize edited values with current values
             editedValues = allSettings.ToDictionary(s => s.Key, s => s.Value);
-
             SelectCategory(selectedCategory);
         }
         catch (Exception ex)
@@ -568,27 +566,16 @@
         return bool.TryParse(value, out var result) && result;
     }
 
+    private void OnBoolSettingChanged(string key, ChangeEventArgs e)
+    {
+        var newValue = e.Value is bool b ? b : bool.TryParse(e.Value?.ToString(), out var parsed) && parsed;
+        editedValues[key] = newValue.ToString().ToLower();
+        hasChanges = true;
+    }
+
     private void OnSettingChanged(string key, string? value)
     {
         if (value == null) return;
-
-        // For boolean switches, convert "True"/"False" or checkbox change event
-        var setting = allSettings.FirstOrDefault(s => s.Key == key);
-        if (setting?.DataType == "bool")
-        {
-            // Handle checkbox change event
-            if (value == "True" || value == "true" || value == "on")
-                value = "true";
-            else if (value == "False" || value == "false" || value == "")
-                value = "false";
-            else
-            {
-                // Toggle current value
-                var current = GetBoolValue(key);
-                value = (!current).ToString().ToLower();
-            }
-        }
-
         editedValues[key] = value;
         hasChanges = true;
     }
@@ -605,7 +592,6 @@
             await LoadSettings();
             hasChanges = false;
             successMessage = "Settings saved successfully!";
-
             await LogAudit(AuditActions.UpdateSettings, details: $"Updated {editedValues.Count} settings");
         }
         catch (Exception ex)
@@ -620,19 +606,41 @@
 
     private string GetCategoryIcon(string category) => category switch
     {
-        SettingCategories.General => "bi-gear",
-        SettingCategories.API => "bi-cloud",
-        SettingCategories.Display => "bi-display",
+        SettingCategories.General => "bi-sliders2",
+        SettingCategories.API => "bi-cloud-arrow-up",
+        SettingCategories.Display => "bi-palette",
         SettingCategories.Audit => "bi-journal-text",
         SettingCategories.Security => "bi-shield-lock",
+        SettingCategories.Printing => "bi-printer",
         "Data Management" => "bi-arrow-repeat",
-        "User Management" => "bi-people",
+        "User Management" => "bi-person-plus",
         _ => "bi-sliders"
+    };
+
+    private string GetSectionIconClass(string category) => category switch
+    {
+        SettingCategories.General => "section-icon-dark",
+        SettingCategories.API => "section-icon-blue",
+        SettingCategories.Display => "section-icon-purple",
+        SettingCategories.Audit => "section-icon-teal",
+        SettingCategories.Security => "section-icon-red",
+        SettingCategories.Printing => "section-icon-amber",
+        _ => "section-icon-dark"
+    };
+
+    private string GetCategoryDescription(string category) => category switch
+    {
+        SettingCategories.General => "Company defaults, warehouse, currency, and date formatting.",
+        SettingCategories.API => "Backend API connection, caching, and synchronization intervals.",
+        SettingCategories.Display => "Page layout preferences, theme, and display options.",
+        SettingCategories.Audit => "Audit logging configuration and retention policies.",
+        SettingCategories.Security => "Security policies and access control settings.",
+        SettingCategories.Printing => "Invoice printing preferences and printer configuration.",
+        _ => "Configure settings for this category."
     };
 
     private string FormatLabel(string key)
     {
-        // Convert CamelCase to Title Case with spaces
         return System.Text.RegularExpressions.Regex.Replace(key, "(\\B[A-Z])", " $1");
     }
 
@@ -784,34 +792,84 @@
         {
             var results = new List<string>();
 
-            var productsCount = await CacheService.SyncProductsFromApiAsync();
-            results.Add($"Products: {productsCount}");
-            productsLastSync = DateTime.Now;
+            try
+            {
+                var productsCount = await CacheService.SyncProductsFromApiAsync();
+                results.Add($"Products: {productsCount}");
+                productsLastSync = DateTime.Now;
+            }
+            catch (Exception ex)
+            {
+                var inner = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
+                results.Add($"Products: FAILED - {inner}");
+            }
 
-            var pricesCount = await CacheService.SyncPricesFromApiAsync();
-            results.Add($"Prices: {pricesCount}");
-            pricesLastSync = DateTime.Now;
+            try
+            {
+                var pricesCount = await CacheService.SyncPricesFromApiAsync();
+                results.Add($"Prices: {pricesCount}");
+                pricesLastSync = DateTime.Now;
+            }
+            catch (Exception ex)
+            {
+                var inner = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
+                results.Add($"Prices: FAILED - {inner}");
+            }
 
-            var bpCount = await CacheService.SyncBusinessPartnersFromApiAsync();
-            results.Add($"Business Partners: {bpCount}");
-            bpLastSync = DateTime.Now;
+            try
+            {
+                var bpCount = await CacheService.SyncBusinessPartnersFromApiAsync();
+                results.Add($"Business Partners: {bpCount}");
+                bpLastSync = DateTime.Now;
+            }
+            catch (Exception ex)
+            {
+                var inner = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
+                results.Add($"Business Partners: FAILED - {inner}");
+            }
 
-            var warehousesCount = await CacheService.SyncWarehousesFromApiAsync();
-            results.Add($"Warehouses: {warehousesCount}");
-            warehousesLastSync = DateTime.Now;
+            try
+            {
+                var warehousesCount = await CacheService.SyncWarehousesFromApiAsync();
+                results.Add($"Warehouses: {warehousesCount}");
+                warehousesLastSync = DateTime.Now;
+            }
+            catch (Exception ex)
+            {
+                var inner = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
+                results.Add($"Warehouses: FAILED - {inner}");
+            }
 
-            var costCentresCount = await CacheService.SyncCostCentresFromApiAsync();
-            results.Add($"Cost Centres: {costCentresCount}");
-            costCentresLastSync = DateTime.Now;
+            try
+            {
+                var costCentresCount = await CacheService.SyncCostCentresFromApiAsync();
+                results.Add($"Cost Centres: {costCentresCount}");
+                costCentresLastSync = DateTime.Now;
+            }
+            catch (Exception ex)
+            {
+                var inner = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
+                results.Add($"Cost Centres: FAILED - {inner}");
+            }
 
-            refreshSuccess = true;
-            refreshMessage = $"Successfully synced all data from SAP. {string.Join(", ", results)}";
-            await LogAudit(AuditActions.UpdateSettings, $"Refreshed all cache data: {string.Join(", ", results)}");
+            var failures = results.Where(r => r.Contains("FAILED")).ToList();
+            if (failures.Any())
+            {
+                refreshSuccess = false;
+                refreshMessage = $"Sync completed with errors: {string.Join("; ", results)}";
+            }
+            else
+            {
+                refreshSuccess = true;
+                refreshMessage = $"All data synced successfully. {string.Join(", ", results)}";
+                await LogAudit(AuditActions.UpdateSettings, $"Refreshed all cache data: {string.Join(", ", results)}");
+            }
         }
         catch (Exception ex)
         {
             refreshSuccess = false;
-            refreshMessage = $"Failed to refresh all data: {ex.Message}";
+            var innerMsg = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
+            refreshMessage = $"Failed to refresh all data: {innerMsg}";
         }
         finally
         {
@@ -865,8 +923,6 @@
                 userSuccess = true;
                 userMessage = $"User '{newUserModel.Username}' created successfully with role '{newUserModel.Role}'.";
                 await LogAudit(AuditActions.CreateUser, $"Created user: {newUserModel.Username} with role {newUserModel.Role}");
-
-                // Reset form
                 newUserModel = new NewUserModel();
                 confirmPassword = string.Empty;
             }
@@ -893,6 +949,6 @@
         public string Username { get; set; } = string.Empty;
         public string? Email { get; set; }
         public string Password { get; set; } = string.Empty;
-        public string Role { get; set; } = "User";
+        public string Role { get; set; } = "Cashier";
     }
 }

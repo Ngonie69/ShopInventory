@@ -1,0 +1,886 @@
+@page "/purchase-orders/create"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Manager")]
+@inject IPurchaseOrderService PurchaseOrderService
+@inject NavigationManager NavigationManager
+@inject ILogger<CreatePurchaseOrder> Logger
+@rendermode InteractiveServer
+
+<PageTitle>Create Purchase Order - Shop Inventory</PageTitle>
+
+<style>
+    /* ── Page ────────────────────────────────────────── */
+    .po-create-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
+    }
+
+    /* ── Breadcrumb ──────────────────────────────────── */
+    .po-breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+        font-size: .85rem;
+        color: #6b7280;
+        margin-bottom: 1.25rem;
+    }
+
+    .po-breadcrumb a {
+        color: #059669;
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .po-breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .po-breadcrumb .sep {
+        color: #d1d5db;
+    }
+
+    /* ── Header ──────────────────────────────────────── */
+    .po-create-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .po-create-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .po-create-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #059669, #0d9488);
+        box-shadow: 0 4px 14px rgba(5, 150, 105, .3);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .po-create-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+    }
+
+    .po-create-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: .88rem;
+    }
+
+    /* ── Cards ────────────────────────────────────────── */
+    .po-card {
+        background: #fff;
+        border-radius: 14px;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .06);
+        border: 1px solid #e5e7eb;
+        margin-bottom: 1.25rem;
+        overflow: hidden;
+    }
+
+    .po-card-header {
+        padding: .85rem 1.25rem;
+        border-bottom: 1px solid #f3f4f6;
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        background: #f8fafc;
+    }
+
+    .po-card-header h5 {
+        margin: 0;
+        font-weight: 600;
+        color: #1f2937;
+        font-size: .95rem;
+    }
+
+    .po-card-body {
+        padding: 1.25rem;
+    }
+
+    /* ── Form Fields ─────────────────────────────────── */
+    .form-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 1rem;
+    }
+
+    .form-grid.cols-4 {
+        grid-template-columns: repeat(4, 1fr);
+    }
+
+    .form-field {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .form-field.full {
+        grid-column: 1 / -1;
+    }
+
+    .form-field label {
+        font-size: .75rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .4px;
+        margin-bottom: .25rem;
+    }
+
+    .form-field label .req {
+        color: #dc2626;
+    }
+
+    .form-field input,
+    .form-field select,
+    .form-field textarea {
+        padding: .5rem .75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: .88rem;
+        color: #374151;
+        transition: all .15s;
+        background: #fff;
+    }
+
+    .form-field input:focus,
+    .form-field select:focus,
+    .form-field textarea:focus {
+        outline: none;
+        border-color: #059669;
+        box-shadow: 0 0 0 3px rgba(5, 150, 105, .15);
+    }
+
+    .form-field .field-error {
+        color: #dc2626;
+        font-size: .75rem;
+        margin-top: .2rem;
+    }
+
+    .form-field.has-error input,
+    .form-field.has-error select {
+        border-color: #dc2626;
+    }
+
+    /* ── Line Items Table ────────────────────────────── */
+    .line-table {
+        width: 100%;
+        font-size: .85rem;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .line-table th {
+        background: #f8fafc;
+        font-size: .72rem;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #6b7280;
+        font-weight: 600;
+        padding: .6rem .75rem;
+        border-bottom: 2px solid #e5e7eb;
+        white-space: nowrap;
+    }
+
+    .line-table td {
+        padding: .4rem .5rem;
+        border-bottom: 1px solid #f3f4f6;
+        vertical-align: middle;
+    }
+
+    .line-table input {
+        width: 100%;
+        padding: .4rem .5rem;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: .85rem;
+        color: #374151;
+        transition: all .15s;
+    }
+
+    .line-table input:focus {
+        outline: none;
+        border-color: #059669;
+        box-shadow: 0 0 0 2px rgba(5, 150, 105, .12);
+    }
+
+    .line-num {
+        color: #9ca3af;
+        font-weight: 500;
+        text-align: center;
+    }
+
+    .line-total {
+        text-align: right;
+        font-weight: 700;
+        color: #1a1a2e;
+        white-space: nowrap;
+    }
+
+    .line-error {
+        color: #dc2626;
+        font-size: .7rem;
+    }
+
+    .btn-add-line {
+        background: #f0fdf4;
+        color: #059669;
+        border: 1px dashed #6ee7b7;
+        padding: .4rem 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .82rem;
+        cursor: pointer;
+        transition: all .15s;
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+    }
+
+    .btn-add-line:hover {
+        background: #d1fae5;
+        border-color: #059669;
+    }
+
+    .btn-remove-line {
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        border: 1px solid #fecaca;
+        background: #fff;
+        color: #dc2626;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all .15s;
+        font-size: .8rem;
+    }
+
+    .btn-remove-line:hover {
+        background: #fef2f2;
+        border-color: #dc2626;
+    }
+
+    /* ── Totals ───────────────────────────────────────── */
+    .po-totals {
+        padding: 1rem 1.25rem;
+        background: #f8fafc;
+        border-top: 2px solid #e5e7eb;
+    }
+
+    .totals-grid {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: .3rem;
+    }
+
+    .totals-row {
+        display: flex;
+        gap: 2rem;
+        align-items: center;
+    }
+
+    .totals-row .t-label {
+        font-size: .85rem;
+        font-weight: 500;
+        color: #6b7280;
+        min-width: 100px;
+        text-align: right;
+    }
+
+    .totals-row .t-value {
+        font-size: .95rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        min-width: 120px;
+        text-align: right;
+    }
+
+    .totals-row.grand .t-label {
+        font-size: 1rem;
+        color: #1a1a2e;
+    }
+
+    .totals-row.grand .t-value {
+        font-size: 1.2rem;
+        color: #059669;
+    }
+
+    /* ── Action Bar ──────────────────────────────────── */
+    .action-bar {
+        display: flex;
+        justify-content: flex-end;
+        gap: .6rem;
+        margin-bottom: 2rem;
+        flex-wrap: wrap;
+    }
+
+    .btn-cancel {
+        background: #fff;
+        color: #374151;
+        border: 1px solid #d1d5db;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .15s;
+    }
+
+    .btn-cancel:hover {
+        background: #f3f4f6;
+    }
+
+    .btn-draft {
+        background: #fff;
+        color: #059669;
+        border: 2px solid #059669;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .btn-draft:hover {
+        background: #f0fdf4;
+        transform: translateY(-1px);
+    }
+
+    .btn-draft:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .btn-submit {
+        background: linear-gradient(135deg, #059669, #0d9488);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        box-shadow: 0 2px 8px rgba(5, 150, 105, .25);
+    }
+
+    .btn-submit:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(5, 150, 105, .4);
+    }
+
+    .btn-submit:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+    }
+
+    .btn-back {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        color: #374151;
+        padding: .45rem 1rem;
+        border-radius: 8px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all .15s;
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        font-size: .85rem;
+    }
+
+    .btn-back:hover {
+        background: #f3f4f6;
+    }
+
+    /* ── Alert ───────────────────────────────────────── */
+    .alert-banner {
+        border-radius: 10px;
+        padding: .75rem 1rem;
+        display: flex;
+        align-items: flex-start;
+        gap: .6rem;
+        margin-bottom: 1rem;
+        font-size: .88rem;
+        animation: slideDown .3s ease;
+    }
+
+    .alert-banner.error-alert {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #991b1b;
+    }
+
+    .alert-banner.success-alert {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        color: #166534;
+    }
+
+    @@keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-6px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @@media (max-width:768px) {
+
+        .form-grid,
+        .form-grid.cols-4 {
+            grid-template-columns: 1fr;
+        }
+
+        .form-field.full {
+            grid-column: span 1;
+        }
+
+        .po-create-header {
+            flex-direction: column;
+        }
+
+        .action-bar {
+            flex-direction: column;
+        }
+    }
+</style>
+
+<div class="po-create-page">
+    <div class="container-fluid" style="max-width: 1200px;">
+
+        <!-- Breadcrumb -->
+        <div class="po-breadcrumb">
+            <a href="/purchase-orders">Purchase Orders</a>
+            <span class="sep">/</span>
+            <span>Create New</span>
+        </div>
+
+        <!-- Header -->
+        <div class="po-create-header">
+            <div class="po-create-header-left">
+                <div class="po-create-header-icon">
+                    <i class="bi bi-bag-plus"></i>
+                </div>
+                <div>
+                    <h2>Create Purchase Order</h2>
+                    <p>Order items from suppliers</p>
+                </div>
+            </div>
+            <button class="btn-back" @onclick="GoBack">
+                <i class="bi bi-arrow-left"></i> Back to List
+            </button>
+        </div>
+
+        <!-- Alerts -->
+        @if (!string.IsNullOrEmpty(successMessage))
+        {
+            <div class="alert-banner success-alert">
+                <i class="bi bi-check-circle-fill"></i>
+                <div style="flex:1;">@successMessage</div>
+                <button style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;"
+                        @onclick="() => successMessage = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert-banner error-alert">
+                <i class="bi bi-exclamation-octagon-fill"></i>
+                <div style="flex:1;">@errorMessage</div>
+                <button style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;"
+                        @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+        }
+
+        <!-- Supplier Details Card -->
+        <div class="po-card">
+            <div class="po-card-header">
+                <i class="bi bi-building" style="color:#059669;font-size:1.1rem;"></i>
+                <h5>Supplier Details</h5>
+            </div>
+            <div class="po-card-body">
+                <div class="form-grid cols-4">
+                    <div class="form-field @(HasError("CardCode") ? "has-error" : "")">
+                        <label>Supplier Code <span class="req">*</span></label>
+                        <input type="text" @bind="purchaseOrder.CardCode" placeholder="e.g., V001" />
+                        @if (HasError("CardCode"))
+                        {
+                            <span class="field-error">@GetError("CardCode")</span>
+                        }
+                    </div>
+                    <div class="form-field">
+                        <label>Supplier Name</label>
+                        <input type="text" @bind="purchaseOrder.CardName" placeholder="Supplier name" />
+                    </div>
+                    <div class="form-field">
+                        <label>Supplier Reference</label>
+                        <input type="text" @bind="purchaseOrder.SupplierRefNo" placeholder="Quote / Ref number" />
+                    </div>
+                    <div class="form-field">
+                        <label>Delivery Date</label>
+                        <input type="date" @bind="deliveryDate" />
+                    </div>
+                    <div class="form-field">
+                        <label>Currency</label>
+                        <select @bind="purchaseOrder.Currency">
+                            <option value="USD">USD</option>
+                            <option value="ZIG">ZIG</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label>Receiving Warehouse</label>
+                        <input type="text" @bind="purchaseOrder.WarehouseCode" placeholder="e.g., WH01" />
+                    </div>
+                    <div class="form-field">
+                        <label>Discount %</label>
+                        <input type="number" @bind="purchaseOrder.DiscountPercent" min="0" max="100" step="0.5" />
+                    </div>
+                    <div class="form-field">
+                        <label>&nbsp;</label>
+                        <span style="font-size:.8rem;color:#9ca3af;padding-top:.5rem;">
+                            Applied to subtotal
+                        </span>
+                    </div>
+                    <div class="form-field full">
+                        <label>Comments / Notes</label>
+                        <textarea @bind="purchaseOrder.Comments" rows="2"
+                                  placeholder="Optional notes for this order..."></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Line Items Card -->
+        <div class="po-card">
+            <div class="po-card-header">
+                <i class="bi bi-list-ul" style="color:#059669;font-size:1.1rem;"></i>
+                <h5>Line Items</h5>
+                <div style="flex:1;"></div>
+                <button class="btn-add-line" @onclick="AddLine">
+                    <i class="bi bi-plus-lg"></i> Add Line
+                </button>
+            </div>
+            <div class="po-card-body" style="overflow-x:auto;padding:.75rem;">
+                @if (validationErrors.ContainsKey("Lines"))
+                {
+                    <div class="alert-banner error-alert" style="margin-bottom:.75rem;">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span>@validationErrors["Lines"]</span>
+                    </div>
+                }
+                <table class="line-table">
+                    <thead>
+                        <tr>
+                            <th style="width:36px;">#</th>
+                            <th style="min-width:130px;">Item Code <span style="color:#dc2626;">*</span></th>
+                            <th style="min-width:170px;">Description</th>
+                            <th style="width:90px;">Qty <span style="color:#dc2626;">*</span></th>
+                            <th style="width:110px;">Unit Price <span style="color:#dc2626;">*</span></th>
+                            <th style="width:80px;">Tax %</th>
+                            <th style="width:80px;">Disc %</th>
+                            <th style="width:110px;">Warehouse</th>
+                            <th style="width:110px;text-align:right;">Line Total</th>
+                            <th style="width:36px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (int i = 0; i < purchaseOrder.Lines.Count; i++)
+                        {
+                            var idx = i;
+                            var line = purchaseOrder.Lines[idx];
+                            var lineTotal = CalculateLineTotal(line);
+                            <tr>
+                                <td class="line-num">@(idx + 1)</td>
+                                <td>
+                                    <input type="text" @bind="line.ItemCode" placeholder="Item code"
+                                           style="@(HasError($"Line{idx}_ItemCode") ? "border-color:#dc2626;" : "")" />
+                                    @if (HasError($"Line{idx}_ItemCode"))
+                                    {
+                                        <span class="line-error">@GetError($"Line{idx}_ItemCode")</span>
+                                    }
+                                </td>
+                                <td>
+                                    <input type="text" @bind="line.ItemDescription" placeholder="Description" />
+                                </td>
+                                <td>
+                                    <input type="number" @bind="line.Quantity" min="0.0001" step="any"
+                                           style="@(HasError($"Line{idx}_Quantity") ? "border-color:#dc2626;" : "")" />
+                                    @if (HasError($"Line{idx}_Quantity"))
+                                    {
+                                        <span class="line-error">@GetError($"Line{idx}_Quantity")</span>
+                                    }
+                                </td>
+                                <td>
+                                    <input type="number" @bind="line.UnitPrice" min="0" step="any" />
+                                </td>
+                                <td>
+                                    <input type="number" @bind="line.TaxPercent" min="0" max="100" step="0.5" />
+                                </td>
+                                <td>
+                                    <input type="number" @bind="line.DiscountPercent" min="0" max="100" step="0.5" />
+                                </td>
+                                <td>
+                                    <input type="text" @bind="line.WarehouseCode"
+                                           placeholder="@(purchaseOrder.WarehouseCode ?? "WH")" />
+                                </td>
+                                <td class="line-total">@lineTotal.ToString("N2")</td>
+                                <td>
+                                    @if (purchaseOrder.Lines.Count > 1)
+                                    {
+                                        <button class="btn-remove-line" @onclick="() => RemoveLine(idx)">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Totals -->
+            <div class="po-totals">
+                <div class="totals-grid">
+                    <div class="totals-row">
+                        <span class="t-label">Subtotal:</span>
+                        <span class="t-value">@CalculateSubTotal().ToString("N2")</span>
+                    </div>
+                    @if (purchaseOrder.DiscountPercent > 0)
+                    {
+                        <div class="totals-row">
+                            <span class="t-label">Discount (@purchaseOrder.DiscountPercent%):</span>
+                            <span class="t-value" style="color:#dc2626;">-@CalculateDiscount().ToString("N2")</span>
+                        </div>
+                    }
+                    <div class="totals-row">
+                        <span class="t-label">Tax:</span>
+                        <span class="t-value">@CalculateTax().ToString("N2")</span>
+                    </div>
+                    <hr style="width:260px;margin:.3rem 0;border-color:#e5e7eb;" />
+                    <div class="totals-row grand">
+                        <span class="t-label">Grand Total:</span>
+                        <span class="t-value">@purchaseOrder.Currency @CalculateGrandTotal().ToString("N2")</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="action-bar">
+            <button class="btn-cancel" @onclick="GoBack">Cancel</button>
+            <button class="btn-draft" @onclick="SaveAsDraft" disabled="@isSubmitting">
+                @if (isSubmitting && !submitForApproval)
+                {
+                    <span class="spinner-border spinner-border-sm"></span>
+                }
+                <i class="bi bi-save"></i> Save as Draft
+            </button>
+            <button class="btn-submit" @onclick="SaveAndSubmit" disabled="@isSubmitting">
+                @if (isSubmitting && submitForApproval)
+                {
+                    <span class="spinner-border spinner-border-sm"></span>
+                }
+                <i class="bi bi-send"></i> Save & Submit for Approval
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private CreatePurchaseOrderRequest purchaseOrder = new()
+    {
+        Currency = "USD",
+        Lines = new List<CreatePurchaseOrderLineRequest>
+        {
+            new CreatePurchaseOrderLineRequest()
+        }
+    };
+
+    private DateTime? deliveryDate;
+    private bool isSubmitting = false;
+    private string? successMessage;
+    private string? errorMessage;
+    private Dictionary<string, string> validationErrors = new();
+    private bool submitForApproval = false;
+
+    private bool HasError(string key) => validationErrors.ContainsKey(key);
+    private string? GetError(string key) => validationErrors.GetValueOrDefault(key);
+
+    private void AddLine()
+    {
+        purchaseOrder.Lines.Add(new CreatePurchaseOrderLineRequest());
+    }
+
+    private void RemoveLine(int index)
+    {
+        if (purchaseOrder.Lines.Count > 1)
+        {
+            purchaseOrder.Lines.RemoveAt(index);
+        }
+    }
+
+    private decimal CalculateLineTotal(CreatePurchaseOrderLineRequest line)
+    {
+        return line.Quantity * line.UnitPrice * (1 - line.DiscountPercent / 100);
+    }
+
+    private decimal CalculateSubTotal()
+    {
+        return purchaseOrder.Lines.Sum(l => CalculateLineTotal(l));
+    }
+
+    private decimal CalculateDiscount()
+    {
+        return CalculateSubTotal() * purchaseOrder.DiscountPercent / 100;
+    }
+
+    private decimal CalculateTax()
+    {
+        return purchaseOrder.Lines.Sum(l =>
+        {
+            var lineTotal = CalculateLineTotal(l);
+            return lineTotal * l.TaxPercent / 100;
+        });
+    }
+
+    private decimal CalculateGrandTotal()
+    {
+        return CalculateSubTotal() - CalculateDiscount() + CalculateTax();
+    }
+
+    private bool ValidateForm()
+    {
+        validationErrors.Clear();
+
+        if (string.IsNullOrWhiteSpace(purchaseOrder.CardCode))
+            validationErrors["CardCode"] = "Supplier code is required";
+
+        if (purchaseOrder.Lines.Count == 0)
+            validationErrors["Lines"] = "At least one line item is required";
+
+        for (int i = 0; i < purchaseOrder.Lines.Count; i++)
+        {
+            var line = purchaseOrder.Lines[i];
+            if (string.IsNullOrWhiteSpace(line.ItemCode))
+                validationErrors[$"Line{i}_ItemCode"] = "Required";
+            if (line.Quantity <= 0)
+                validationErrors[$"Line{i}_Quantity"] = "Must be > 0";
+        }
+
+        return validationErrors.Count == 0;
+    }
+
+    private async Task SaveAsDraft()
+    {
+        submitForApproval = false;
+        await SubmitOrder();
+    }
+
+    private async Task SaveAndSubmit()
+    {
+        submitForApproval = true;
+        await SubmitOrder();
+    }
+
+    private async Task SubmitOrder()
+    {
+        if (!ValidateForm()) return;
+
+        isSubmitting = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            purchaseOrder.DeliveryDate = deliveryDate;
+
+            Logger.LogInformation("Submitting PO for supplier {CardCode} with {Lines} lines",
+                purchaseOrder.CardCode, purchaseOrder.Lines.Count);
+
+            var result = await PurchaseOrderService.CreatePurchaseOrderAsync(purchaseOrder);
+            if (result != null)
+            {
+                if (submitForApproval)
+                {
+                    try
+                    {
+                        await PurchaseOrderService.UpdateStatusAsync(result.Id, PurchaseOrderStatus.Pending, "Submitted for approval");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning(ex, "PO created but failed to submit for approval. It remains as Draft.");
+                    }
+                }
+
+                successMessage = $"Purchase order {result.OrderNumber} created successfully!";
+                Logger.LogInformation("Created purchase order {OrderNumber}", result.OrderNumber);
+
+                // Reset form
+                purchaseOrder = new CreatePurchaseOrderRequest
+                {
+                    Currency = "USD",
+                    Lines = new List<CreatePurchaseOrderLineRequest> { new() }
+                };
+                deliveryDate = null;
+                validationErrors.Clear();
+
+                // Navigate to list after brief delay
+                await Task.Delay(1500);
+                NavigationManager.NavigateTo("/purchase-orders");
+            }
+            else
+            {
+                errorMessage = "Failed to create purchase order. The API returned no result — check server logs for details.";
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            Logger.LogError(ex, "HTTP error creating purchase order");
+            errorMessage = $"Server error: {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error creating purchase order");
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private void GoBack()
+    {
+        NavigationManager.NavigateTo("/purchase-orders");
+    }
+}

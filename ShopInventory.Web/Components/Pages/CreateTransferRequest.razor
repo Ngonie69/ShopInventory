@@ -1,6 +1,6 @@
 @page "/transfer-request/create"
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize]
+@attribute [Authorize(Roles = "Admin,StockController,DepotController")]
 @inject IInventoryTransferService TransferService
 @inject IMasterDataCacheService CacheService
 @inject NavigationManager NavigationManager
@@ -428,11 +428,12 @@
 
     private async Task LoadInitialDataAsync()
     {
-        var warehouseTask = LoadWarehousesAsync();
-        var productTask = LoadProductsAsync();
-        var userTask = LoadUserInfoAsync();
-
-        await Task.WhenAll(warehouseTask, productTask, userTask);
+        // Load sequentially to avoid EF Core DbContext concurrency issues
+        // (LoadUserInfoAsync doesn't use DbContext so it could run in parallel,
+        // but sequential is safer and the perf difference is negligible)
+        await LoadWarehousesAsync();
+        await LoadProductsAsync();
+        await LoadUserInfoAsync();
     }
 
     private async Task LoadUserInfoAsync()

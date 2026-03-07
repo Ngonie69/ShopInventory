@@ -22,6 +22,14 @@ public static class Permissions
     public const string DeleteInvoices = "invoices.delete";
     public const string VoidInvoices = "invoices.void";
 
+    // Purchasing
+    public const string ViewPurchaseOrders = "purchasing.view";
+    public const string CreatePurchaseOrders = "purchasing.create";
+    public const string EditPurchaseOrders = "purchasing.edit";
+    public const string DeletePurchaseOrders = "purchasing.delete";
+    public const string ApprovePurchaseOrders = "purchasing.approve";
+    public const string ReceivePurchaseOrders = "purchasing.receive";
+
     // Payments
     public const string ViewPayments = "payments.view";
     public const string CreatePayments = "payments.create";
@@ -110,6 +118,15 @@ public static class Permissions
                 new(DeleteInvoices, "Delete Invoices", "Delete draft invoices"),
                 new(VoidInvoices, "Void Invoices", "Void posted invoices")
             },
+            ["Purchasing"] = new()
+            {
+                new(ViewPurchaseOrders, "View Purchase Orders", "View purchase order listings and details"),
+                new(CreatePurchaseOrders, "Create Purchase Orders", "Create new purchase orders"),
+                new(EditPurchaseOrders, "Edit Purchase Orders", "Modify draft purchase orders"),
+                new(DeletePurchaseOrders, "Delete Purchase Orders", "Delete draft purchase orders"),
+                new(ApprovePurchaseOrders, "Approve Purchase Orders", "Approve pending purchase orders"),
+                new(ReceivePurchaseOrders, "Receive Purchase Orders", "Record goods receipt against purchase orders")
+            },
             ["Payments"] = new()
             {
                 new(ViewPayments, "View Payments", "View payment records"),
@@ -196,6 +213,7 @@ public static class Permissions
                 ViewInvoices, CreateInvoices, EditInvoices, VoidInvoices,
                 ViewPayments, CreatePayments, RefundPayments, ProcessRefunds,
                 ViewStock, ViewInventory, TransferStock, TransferInventory, AdjustStock, AdjustInventory,
+                ViewPurchaseOrders, CreatePurchaseOrders, EditPurchaseOrders, ApprovePurchaseOrders, ReceivePurchaseOrders,
                 ViewReports, ExportReports,
                 ViewCustomers, CreateCustomers, EditCustomers,
                 ViewUsers,
@@ -242,6 +260,14 @@ public static class Permission
     public const string EditInvoices = Permissions.EditInvoices;
     public const string DeleteInvoices = Permissions.DeleteInvoices;
     public const string VoidInvoices = Permissions.VoidInvoices;
+
+    // Purchasing
+    public const string ViewPurchaseOrders = Permissions.ViewPurchaseOrders;
+    public const string CreatePurchaseOrders = Permissions.CreatePurchaseOrders;
+    public const string EditPurchaseOrders = Permissions.EditPurchaseOrders;
+    public const string DeletePurchaseOrders = Permissions.DeletePurchaseOrders;
+    public const string ApprovePurchaseOrders = Permissions.ApprovePurchaseOrders;
+    public const string ReceivePurchaseOrders = Permissions.ReceivePurchaseOrders;
 
     // Payments
     public const string ViewPayments = Permissions.ViewPayments;

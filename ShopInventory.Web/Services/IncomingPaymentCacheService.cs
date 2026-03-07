@@ -49,6 +49,7 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
     private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
     private static bool _syncInProgress;
     private static readonly object _syncLock = new();
+    private static readonly SemaphoreSlim _backgroundSyncSemaphore = new(1, 1);
     private const string CacheKey = "IncomingPayments";
 
     public event EventHandler? SyncCompleted;
@@ -98,7 +99,18 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
             // Trigger background sync if cache is stale
             if (isCacheStale)
             {
-                _ = Task.Run(async () => await SyncPaymentsInBackgroundAsync());
+                _ = Task.Run(async () =>
+                {
+                    await _backgroundSyncSemaphore.WaitAsync();
+                    try
+                    {
+                        await SyncPaymentsInBackgroundAsync();
+                    }
+                    finally
+                    {
+                        _backgroundSyncSemaphore.Release();
+                    }
+                });
             }
 
             return response;
@@ -116,7 +128,18 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
                 await SavePaymentsToCacheAsync(apiResponse.Payments);
 
                 // Start background sync for remaining items
-                _ = Task.Run(async () => await SyncRemainingPaymentsInBackgroundAsync(apiResponse.HasMore));
+                _ = Task.Run(async () =>
+                {
+                    await _backgroundSyncSemaphore.WaitAsync();
+                    try
+                    {
+                        await SyncRemainingPaymentsInBackgroundAsync(apiResponse.HasMore);
+                    }
+                    finally
+                    {
+                        _backgroundSyncSemaphore.Release();
+                    }
+                });
 
                 return apiResponse;
             }

@@ -87,6 +87,11 @@ public static class SettingKeys
 
     public const string StatementEmailsLastWeeklySentUtc = "StatementEmails.LastWeeklySentUtc";
     public const string StatementEmailsLastMonthlySentUtc = "StatementEmails.LastMonthlySentUtc";
+
+    // Printing settings
+    public const string AutoPrintInvoice = "AutoPrintInvoice";
+    public const string PrinterName = "PrinterName";
+    public const string PrintCopies = "PrintCopies";
 }
 
 /// <summary>
@@ -100,4 +105,5 @@ public static class SettingCategories
     public const string Audit = "Audit";
     public const string Security = "Security";
     public const string Notifications = "Notifications";
+    public const string Printing = "Printing";
 }

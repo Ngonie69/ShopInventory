@@ -267,3 +267,51 @@ window.printReportHtml = function (htmlContent) {
         printWindow.print();
     };
 };
+
+// Print a PDF from base64-encoded bytes using an embedded iframe
+// Opens the browser print dialog which allows the user to pick their configured printer
+window.printPdfFromBase64 = function (base64Data, copies) {
+    copies = copies || 1;
+
+    const binaryString = atob(base64Data);
+    const byteArray = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+        byteArray[i] = binaryString.charCodeAt(i);
+    }
+
+    const blob = new Blob([byteArray], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+
+    // Use a hidden iframe for printing – avoids popup blockers
+    let iframe = document.getElementById('_pdfPrintFrame');
+    if (!iframe) {
+        iframe = document.createElement('iframe');
+        iframe.id = '_pdfPrintFrame';
+        iframe.style.position = 'fixed';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = 'none';
+        document.body.appendChild(iframe);
+    }
+
+    iframe.src = url;
+
+    iframe.onload = function () {
+        try {
+            // Small delay to ensure PDF is fully rendered
+            setTimeout(function () {
+                for (let c = 0; c < copies; c++) {
+                    iframe.contentWindow.focus();
+                    iframe.contentWindow.print();
+                }
+                // Clean up blob URL after a delay
+                setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+            }, 500);
+        } catch (e) {
+            // Fallback: open in new tab if iframe print fails (e.g. cross-origin)
+            window.open(url, '_blank');
+        }
+    };
+};

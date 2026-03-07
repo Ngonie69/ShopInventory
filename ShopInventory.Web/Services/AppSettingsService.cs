@@ -262,6 +262,35 @@ public class AppSettingsService : IAppSettingsService
                 DisplayOrder = 2,
                 IsVisible = false,
                 IsEditable = false
+            },
+
+            // Printing settings
+            new()
+            {
+                Category = SettingCategories.Printing,
+                Key = SettingKeys.AutoPrintInvoice,
+                Value = "false",
+                DataType = "bool",
+                Description = "Automatically print invoice PDF after successful creation",
+                DisplayOrder = 1
+            },
+            new()
+            {
+                Category = SettingCategories.Printing,
+                Key = SettingKeys.PrinterName,
+                Value = "",
+                DataType = "string",
+                Description = "Preferred printer name (shown in print dialog, leave empty for default)",
+                DisplayOrder = 2
+            },
+            new()
+            {
+                Category = SettingCategories.Printing,
+                Key = SettingKeys.PrintCopies,
+                Value = "1",
+                DataType = "int",
+                Description = "Number of copies to print",
+                DisplayOrder = 3
             }
         };
 

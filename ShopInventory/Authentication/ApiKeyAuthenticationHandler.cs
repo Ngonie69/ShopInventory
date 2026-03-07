@@ -50,7 +50,7 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAuthentic
             return Task.FromResult(AuthenticateResult.Fail("Invalid API key"));
         }
 
-        // Create claims
+        // Create claims for API key authentication
         var claims = new List<Claim>
         {
             new(ClaimTypes.Name, keyConfig.Name),
@@ -72,6 +72,7 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAuthentic
 
         return Task.FromResult(AuthenticateResult.Success(ticket));
     }
+
 }
 
 /// <summary>

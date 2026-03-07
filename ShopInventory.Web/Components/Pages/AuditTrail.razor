@@ -280,8 +280,9 @@
     private Color GetRoleChipColor(string role) => role switch
     {
         UserRoles.Admin => Color.Error,
-        UserRoles.SalesPerson => Color.Primary,
-        UserRoles.ADR => Color.Info,
+        UserRoles.Cashier => Color.Primary,
+        UserRoles.StockController => Color.Info,
+        UserRoles.DepotController => Color.Warning,
         _ => Color.Default
     };
 
@@ -392,8 +393,9 @@
     private string GetRoleBadgeClass(string role) => role switch
     {
         UserRoles.Admin => "bg-danger",
-        UserRoles.SalesPerson => "bg-primary",
-        UserRoles.ADR => "bg-info",
+        UserRoles.Cashier => "bg-primary",
+        UserRoles.StockController => "bg-info",
+        UserRoles.DepotController => "bg-warning",
         _ => "bg-secondary"
     };
 

@@ -107,8 +107,9 @@ try
     builder.Services.AddScoped<INotificationClientService, NotificationClientService>();
     builder.Services.AddScoped<ISyncStatusClientService, SyncStatusClientService>();
 
-    // Add Sales Order and Credit Note services
+    // Add Sales Order, Purchase Order, and Credit Note services
     builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
+    builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
     builder.Services.AddScoped<ICreditNoteService, CreditNoteService>();
 
     // Add System services (Exchange Rates, Backups, Webhooks)

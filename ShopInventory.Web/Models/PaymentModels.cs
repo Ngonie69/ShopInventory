@@ -72,3 +72,59 @@ public class IncomingPaymentDateResponse
     public int Count { get; set; }
     public List<IncomingPaymentDto>? Payments { get; set; }
 }
+
+/// <summary>
+/// Request model for creating an incoming payment
+/// </summary>
+public class CreateIncomingPaymentRequest
+{
+    public string? CardCode { get; set; }
+    public string? DocDate { get; set; }
+    public string? Remarks { get; set; }
+    public decimal CashSum { get; set; }
+    public string? CashAccount { get; set; }
+    public decimal TransferSum { get; set; }
+    public string? TransferReference { get; set; }
+    public string? TransferDate { get; set; }
+    public string? TransferAccount { get; set; }
+    public decimal CheckSum { get; set; }
+    public decimal CreditSum { get; set; }
+    public List<PaymentInvoiceRequest>? PaymentInvoices { get; set; }
+    public List<PaymentCheckRequest>? PaymentChecks { get; set; }
+    public List<PaymentCreditCardRequest>? PaymentCreditCards { get; set; }
+}
+
+public class PaymentInvoiceRequest
+{
+    public int DocEntry { get; set; }
+    public decimal SumApplied { get; set; }
+    public string? InvoiceType { get; set; } = "it_Invoice";
+}
+
+public class PaymentCheckRequest
+{
+    public string? DueDate { get; set; }
+    public int CheckNumber { get; set; }
+    public string? BankCode { get; set; }
+    public string? Branch { get; set; }
+    public string? AccountNum { get; set; }
+    public decimal CheckSum { get; set; }
+}
+
+public class PaymentCreditCardRequest
+{
+    public int CreditCard { get; set; }
+    public string? CreditCardNumber { get; set; }
+    public string? CardValidUntil { get; set; }
+    public string? VoucherNum { get; set; }
+    public decimal CreditSum { get; set; }
+}
+
+/// <summary>
+/// Response after creating an incoming payment
+/// </summary>
+public class IncomingPaymentCreatedResponse
+{
+    public string? Message { get; set; }
+    public IncomingPaymentDto? Payment { get; set; }
+}

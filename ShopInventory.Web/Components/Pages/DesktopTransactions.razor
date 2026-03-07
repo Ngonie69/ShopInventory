@@ -926,7 +926,7 @@
 
     private async Task CancelQueuedInvoice(InvoiceQueueStatusDto item)
     {
-        var confirmed = await DialogService.ShowMessageBox(
+        var confirmed = await DialogService.ShowMessageBoxAsync(
         "Cancel Invoice",
         $"Are you sure you want to cancel the queued invoice '{item.ExternalReference}'? This will also release the reserved stock.",
         yesText: "Cancel Invoice",
@@ -949,7 +949,7 @@
 
     private async Task CancelReservation(StockReservationDto item)
     {
-        var confirmed = await DialogService.ShowMessageBox(
+        var confirmed = await DialogService.ShowMessageBoxAsync(
         "Cancel Reservation",
         $"Are you sure you want to cancel the reservation '{item.ExternalReferenceId}'? This will release the reserved stock.",
         yesText: "Cancel Reservation",
@@ -997,7 +997,7 @@
 
     private async Task CancelQueuedTransfer(InventoryTransferQueueStatusDto item)
     {
-        var confirmed = await DialogService.ShowMessageBox(
+        var confirmed = await DialogService.ShowMessageBoxAsync(
         "Cancel Transfer",
         $"Are you sure you want to cancel the queued transfer '{item.ExternalReference}'?",
         yesText: "Cancel Transfer",

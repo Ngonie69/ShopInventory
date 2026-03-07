@@ -233,6 +233,11 @@ public class CreateIncomingPaymentRequest
     public string? Remarks { get; set; }
 
     /// <summary>
+    /// G/L account code for cash payments (overrides SAP default)
+    /// </summary>
+    public string? CashAccount { get; set; }
+
+    /// <summary>
     /// Cash payment amount (non-negative)
     /// </summary>
     [Range(0, double.MaxValue, ErrorMessage = "Cash sum cannot be negative")]
@@ -521,6 +526,9 @@ public class StockValidationService : IStockValidationService
         }
 
         // Validate source warehouse has sufficient stock
+        // Cache stock quantities per warehouse to avoid repeated expensive SAP queries
+        var warehouseStockCache = new Dictionary<string, List<StockQuantityDto>?>(StringComparer.OrdinalIgnoreCase);
+
         for (int i = 0; i < request.Lines.Count; i++)
         {
             var line = request.Lines[i];
@@ -571,8 +579,36 @@ public class StockValidationService : IStockValidationService
             }
             else
             {
-                // Check overall item stock
-                var availableQty = await GetAvailableQuantityAsync(itemCode, fromWarehouse, cancellationToken);
+                // Check overall item stock using cached warehouse data
+                decimal availableQty;
+
+                // Try to use cached stock quantities for this warehouse
+                if (!warehouseStockCache.TryGetValue(fromWarehouse, out var cachedStock))
+                {
+                    try
+                    {
+                        cachedStock = await _sapClient.GetStockQuantitiesInWarehouseAsync(fromWarehouse, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to get stock quantities for warehouse {Warehouse}, falling back to per-item lookup", fromWarehouse);
+                        cachedStock = null;
+                    }
+                    warehouseStockCache[fromWarehouse] = cachedStock;
+                }
+
+                if (cachedStock != null)
+                {
+                    var stock = cachedStock.FirstOrDefault(s =>
+                        string.Equals(s.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
+                    availableQty = stock?.Available ?? 0;
+                }
+                else
+                {
+                    // Fallback to individual lookup if warehouse query failed
+                    availableQty = await GetAvailableQuantityAsync(itemCode, fromWarehouse, cancellationToken);
+                }
+
                 if (line.Quantity > availableQty)
                 {
                     result.Errors.Add(new StockValidationError

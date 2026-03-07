@@ -1,0 +1,1416 @@
+@page "/payments/create"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Cashier,DepotController")]
+@inject IPaymentService PaymentService
+@inject IBusinessPartnerService BusinessPartnerService
+@inject NavigationManager NavigationManager
+@inject ILogger<CreateIncomingPayment> Logger
+@rendermode InteractiveServer
+
+<PageTitle>Create Incoming Payment - Shop Inventory</PageTitle>
+
+<style>
+    /* ── Page ────────────────────────────────────────── */
+    .cp-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
+    }
+
+    /* ── Breadcrumb ──────────────────────────────────── */
+    .cp-breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+        font-size: .85rem;
+        color: #6b7280;
+        margin-bottom: 1.25rem;
+    }
+
+    .cp-breadcrumb a {
+        color: #059669;
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .cp-breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .cp-breadcrumb .sep {
+        color: #d1d5db;
+    }
+
+    /* ── Header ──────────────────────────────────────── */
+    .cp-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .cp-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .cp-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #059669, #10b981);
+        box-shadow: 0 4px 14px rgba(5, 150, 105, .3);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .cp-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+    }
+
+    .cp-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: .88rem;
+    }
+
+    /* ── Section Card ────────────────────────────────── */
+    .section-card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 14px;
+        overflow: hidden;
+        margin-bottom: 1.25rem;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .section-card .card-hdr {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: .85rem 1.25rem;
+        border-bottom: 1px solid #f3f4f6;
+    }
+
+    .section-card .card-hdr .hdr-left {
+        display: flex;
+        align-items: center;
+        gap: .65rem;
+    }
+
+    .section-card .card-hdr .header-icon {
+        width: 34px;
+        height: 34px;
+        border-radius: 9px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: .95rem;
+        flex-shrink: 0;
+    }
+
+    .section-card .card-hdr h6 {
+        margin: 0;
+        font-weight: 600;
+        color: #1a1a2e;
+        font-size: .95rem;
+    }
+
+    .section-card .card-body-inner {
+        padding: 1.25rem;
+    }
+
+    /* ── Method Tabs ─────────────────────────────────── */
+    .method-tabs {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: .6rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .method-tab {
+        cursor: pointer;
+        padding: .7rem .5rem;
+        border-radius: 10px;
+        text-align: center;
+        border: 2px solid #e5e7eb;
+        transition: all .2s;
+        background: #fff;
+    }
+
+    .method-tab:hover {
+        border-color: #059669;
+    }
+
+    .method-tab.active {
+        border-color: #059669;
+        background: rgba(5, 150, 105, .06);
+        box-shadow: 0 0 0 3px rgba(5, 150, 105, .1);
+    }
+
+    .method-tab .tab-icon {
+        font-size: 1.3rem;
+        display: block;
+        margin-bottom: .2rem;
+    }
+
+    .method-tab .tab-label {
+        font-size: .78rem;
+        font-weight: 600;
+        color: #374151;
+    }
+
+    /* ── Form Fields ─────────────────────────────────── */
+    .field-label {
+        display: block;
+        font-size: .75rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        margin-bottom: .35rem;
+    }
+
+    .field-label .required {
+        color: #ef4444;
+    }
+
+    /* ── Invoice Line Cards ──────────────────────────── */
+    .inv-card {
+        background: #f8fafc;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 1rem 1.15rem;
+        margin-bottom: .75rem;
+        transition: all .2s;
+        position: relative;
+    }
+
+    .inv-card:hover {
+        border-color: #059669;
+        box-shadow: 0 2px 10px rgba(5, 150, 105, .08);
+    }
+
+    .inv-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        background: #d1fae5;
+        color: #065f46;
+        font-size: .72rem;
+        font-weight: 600;
+        padding: .15rem .5rem;
+        border-radius: 5px;
+    }
+
+    .inv-remove {
+        position: absolute;
+        top: .75rem;
+        right: .75rem;
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #dc2626;
+        width: 28px;
+        height: 28px;
+        border-radius: 7px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all .15s;
+        font-size: .8rem;
+    }
+
+    .inv-remove:hover {
+        background: #dc2626;
+        color: #fff;
+        border-color: #dc2626;
+    }
+
+    /* ── Empty State ──────────────────────────────────── */
+    .inv-empty {
+        text-align: center;
+        padding: 2rem 1rem;
+        color: #9ca3af;
+    }
+
+    .inv-empty .empty-ico {
+        font-size: 2rem;
+        margin-bottom: .5rem;
+        display: block;
+    }
+
+    /* ── Validation ───── */
+    .validation-error {
+        border-color: #ef4444 !important;
+    }
+
+    .val-msg {
+        color: #ef4444;
+        font-size: .78rem;
+        margin-top: .2rem;
+    }
+
+    /* ── Dropdown ─────────────────────────────────────── */
+    .bp-dropdown {
+        position: absolute;
+        z-index: 1050;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        max-height: 250px;
+        overflow-y: auto;
+        width: 100%;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, .12);
+    }
+
+    .bp-item {
+        padding: .55rem 1rem;
+        cursor: pointer;
+        transition: background .12s;
+        font-size: .88rem;
+    }
+
+    .bp-item:hover {
+        background: #f0fdf4;
+    }
+
+    .bp-selected {
+        margin-top: .5rem;
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-radius: 8px;
+        padding: .5rem .75rem;
+        font-size: .85rem;
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+    }
+
+    /* ── Summary Sidebar ─────────────────────────────── */
+    .summary-section {
+        position: sticky;
+        top: 1.5rem;
+    }
+
+    .summary-card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .summary-hdr {
+        padding: .85rem 1.15rem;
+        border-bottom: 1px solid #f3f4f6;
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+    }
+
+    .summary-hdr h6 {
+        margin: 0;
+        font-weight: 600;
+        color: #1a1a2e;
+        font-size: .95rem;
+    }
+
+    .summary-body {
+        padding: 1.15rem;
+    }
+
+    /* Validation Checklist */
+    .check-list {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 1rem 0;
+    }
+
+    .check-list li {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        padding: .35rem 0;
+        font-size: .84rem;
+        color: #374151;
+    }
+
+    .check-list li .check-icon {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: .65rem;
+        flex-shrink: 0;
+    }
+
+    .check-list li .check-icon.pass {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+    .check-list li .check-icon.fail {
+        background: #fef2f2;
+        color: #ef4444;
+    }
+
+    /* Summary Lines */
+    .sum-line {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: .3rem 0;
+        font-size: .88rem;
+    }
+
+    .sum-line .sum-label {
+        color: #6b7280;
+    }
+
+    .sum-line .sum-value {
+        font-weight: 600;
+        color: #1a1a2e;
+    }
+
+    .sum-divider {
+        border: none;
+        border-top: 1px dashed #e5e7eb;
+        margin: .6rem 0;
+    }
+
+    .sum-total {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: .5rem 0;
+    }
+
+    .sum-total .total-label {
+        font-weight: 600;
+        color: #1a1a2e;
+        font-size: .95rem;
+    }
+
+    .sum-total .total-value {
+        font-weight: 700;
+        color: #059669;
+        font-size: 1.25rem;
+    }
+
+    /* Buttons */
+    .btn-execute {
+        width: 100%;
+        background: linear-gradient(135deg, #059669, #10b981);
+        border: none;
+        color: #fff;
+        padding: .65rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .92rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: .4rem;
+        box-shadow: 0 2px 8px rgba(5, 150, 105, .25);
+        margin-bottom: .6rem;
+    }
+
+    .btn-execute:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(5, 150, 105, .4);
+    }
+
+    .btn-execute:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+    }
+
+    .btn-secondary-action {
+        width: 100%;
+        background: #fff;
+        border: 1px solid #d1d5db;
+        color: #374151;
+        padding: .55rem;
+        border-radius: 10px;
+        font-weight: 500;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: .4rem;
+    }
+
+    .btn-secondary-action:hover {
+        background: #f3f4f6;
+    }
+
+    .btn-back {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        background: #fff;
+        border: 1px solid #d1d5db;
+        color: #374151;
+        padding: .45rem 1rem;
+        border-radius: 8px;
+        font-weight: 500;
+        font-size: .85rem;
+        text-decoration: none;
+        transition: all .15s;
+    }
+
+    .btn-back:hover {
+        background: #f3f4f6;
+        color: #374151;
+    }
+
+    .info-hint {
+        font-size: .78rem;
+        color: #6b7280;
+        background: #f8fafc;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: .55rem .75rem;
+        margin-top: .75rem;
+        display: flex;
+        align-items: flex-start;
+        gap: .4rem;
+    }
+
+    /* ── Alerts ───────────────────────────────────────── */
+    .alert-banner {
+        border-radius: 10px;
+        padding: .75rem 1rem;
+        display: flex;
+        align-items: flex-start;
+        gap: .6rem;
+        margin-bottom: 1rem;
+        font-size: .88rem;
+        animation: slideDown .3s ease;
+    }
+
+    .alert-banner.success-alert {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        color: #166534;
+    }
+
+    .alert-banner.error-alert {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #991b1b;
+    }
+
+    .alert-banner .alert-body {
+        flex: 1;
+    }
+
+    .alert-banner .alert-close {
+        background: none;
+        border: none;
+        color: inherit;
+        opacity: .45;
+        cursor: pointer;
+        padding: .2rem;
+        font-size: 1rem;
+    }
+
+    .alert-banner .alert-close:hover {
+        opacity: 1;
+    }
+
+    @@keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-6px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    /* ── Responsive ──────────────────────────────────── */
+    @@media (max-width:768px) {
+        .method-tabs {
+            grid-template-columns: 1fr 1fr;
+        }
+    }
+</style>
+
+<div class="cp-page">
+    <div class="container-fluid">
+
+        <!-- Breadcrumb -->
+        <div class="cp-breadcrumb">
+            <a href="/payments">Incoming Payments</a>
+            <span class="sep">/</span>
+            <span>Create New</span>
+        </div>
+
+        <!-- Header -->
+        <div class="cp-header">
+            <div class="cp-header-left">
+                <div class="cp-header-icon"><i class="bi bi-plus-circle-fill"></i></div>
+                <div>
+                    <h2>Create Incoming Payment</h2>
+                    <p>Record a new payment receipt from a customer</p>
+                </div>
+            </div>
+            <a href="/payments" class="btn-back"><i class="bi bi-arrow-left"></i> Back to Payments</a>
+        </div>
+
+        <!-- Alerts -->
+        @if (!string.IsNullOrEmpty(successMessage))
+        {
+            <div class="alert-banner success-alert">
+                <i class="bi bi-check-circle-fill"></i>
+                <div class="alert-body">@successMessage</div>
+                <button class="alert-close" @onclick="() => successMessage = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert-banner error-alert">
+                <i class="bi bi-exclamation-octagon-fill"></i>
+                <div class="alert-body">@errorMessage</div>
+                <button class="alert-close" @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+        }
+
+        <div class="row g-4">
+            <!-- ━━━ Left Column ━━━ -->
+            <div class="col-lg-8">
+
+                <!-- ── Customer Section ── -->
+                <div class="section-card">
+                    <div class="card-hdr">
+                        <div class="hdr-left">
+                            <div class="header-icon" style="background:#d1fae5; color:#059669;"><i
+                                class="bi bi-person-fill"></i></div>
+                                <h6>Customer Information</h6>
+                            </div>
+                        </div>
+                        <div class="card-body-inner">
+                            <div class="row g-3">
+                                <div class="col-md-8">
+                                    <label class="field-label">Customer <span class="required">*</span></label>
+                                    <div class="position-relative">
+                                        <input type="text"
+                                               class="form-control @(validationErrors.ContainsKey("CardCode") ? "validation-error" : "")"
+                                               placeholder="Search by code or name…" value="@bpSearchTerm"
+                                               @oninput="OnBpSearchInput" @onfocus="() => showBpDropdown = true"
+                                               @onblur="HandleBpBlur" />
+                                        @if (isBpLoading)
+                                        {
+                                            <div style="position:absolute; right:12px; top:50%; transform:translateY(-50%);">
+                                                <span class="spinner-border spinner-border-sm text-success"
+                                                      role="status"></span>
+                                            </div>
+                                        }
+                                        @if (showBpDropdown && filteredBusinessPartners?.Any() == true)
+                                        {
+                                            <div class="bp-dropdown">
+                                                @foreach (var bp in filteredBusinessPartners.Take(20))
+                                                {
+                                                    <div class="bp-item" @onmousedown="() => SelectBusinessPartner(bp)">
+                                                        <strong>@bp.CardCode</strong> — @bp.CardName
+                                                        @if (bp.Balance > 0)
+                                                        {
+                                                            <span class="badge bg-warning ms-2" style="font-size:.7rem;">Bal:
+                                                                @bp.Balance?.ToString("N2")</span>
+                                                            }
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                        @if (validationErrors.ContainsKey("CardCode"))
+                                        {
+                                            <div class="val-msg">@validationErrors["CardCode"]</div>
+                                        }
+                                        @if (selectedBusinessPartner != null)
+                                        {
+                                            <div class="bp-selected">
+                                                <i class="bi bi-check-circle-fill" style="color:#059669;"></i>
+                                                <strong>@selectedBusinessPartner.CardCode</strong> —
+                                                @selectedBusinessPartner.CardName
+                                                @if (!string.IsNullOrEmpty(selectedBusinessPartner.Currency))
+                                                {
+                                                    <span class="badge"
+                                                          style="background:#dbeafe; color:#1e40af; font-size:.7rem;">@selectedBusinessPartner.Currency</span>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="field-label">Document Date</label>
+                                        <input type="date" class="form-control" @bind="docDate" />
+                                    </div>
+                                </div>
+                                <div class="row g-3 mt-1">
+                                    <div class="col-12">
+                                        <label class="field-label">Remarks</label>
+                                        <textarea class="form-control" rows="2" placeholder="Optional payment remarks…"
+                                                  @bind="remarks"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ── Payment Method Section ── -->
+                        <div class="section-card">
+                            <div class="card-hdr">
+                                <div class="hdr-left">
+                                    <div class="header-icon" style="background:#dbeafe; color:#2563eb;"><i
+                                        class="bi bi-wallet2"></i></div>
+                                        <h6>Payment Method</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body-inner">
+                                    <div class="method-tabs">
+                                        <div class="method-tab @GetMethodTabClass("cash")"
+                                             @onclick="() => SetPaymentMethod(PaymentMethodType.Cash)">
+                                            <i class="bi bi-cash-stack tab-icon" style="color:#059669;"></i>
+                                            <span class="tab-label">Cash</span>
+                                        </div>
+                                        <div class="method-tab @GetMethodTabClass("transfer")"
+                                             @onclick="() => SetPaymentMethod(PaymentMethodType.Transfer)">
+                                            <i class="bi bi-bank tab-icon" style="color:#2563eb;"></i>
+                                            <span class="tab-label">Transfer</span>
+                                        </div>
+                                        <div class="method-tab @GetMethodTabClass("check")"
+                                             @onclick="() => SetPaymentMethod(PaymentMethodType.Check)">
+                                            <i class="bi bi-journal-check tab-icon" style="color:#d97706;"></i>
+                                            <span class="tab-label">Check</span>
+                                        </div>
+                                        <div class="method-tab @GetMethodTabClass("credit")"
+                                             @onclick="() => SetPaymentMethod(PaymentMethodType.Credit)">
+                                            <i class="bi bi-credit-card tab-icon" style="color:#7c3aed;"></i>
+                                            <span class="tab-label">Credit Card</span>
+                                        </div>
+                                    </div>
+
+                                    @if (validationErrors.ContainsKey("PaymentAmount"))
+                                    {
+                                        <div class="alert-banner error-alert" style="margin-bottom:.75rem;">
+                                            <i class="bi bi-exclamation-circle-fill"></i>
+                                            <div class="alert-body">@validationErrors["PaymentAmount"]</div>
+                                        </div>
+                                    }
+
+                                    <!-- Cash -->
+                                    @if (activePaymentMethod == "cash")
+                                    {
+                                        <div class="row g-3">
+                                            <div class="col-md-6">
+                                                <label class="field-label">Cash Amount</label>
+                                                <div class="input-group">
+                                                    <span class="input-group-text"><i class="bi bi-cash"></i></span>
+                                                    <input type="number" class="form-control" step="0.01" min="0" placeholder="0.00"
+                                                           @bind="cashSum" />
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="field-label">Cash G/L Account</label>
+                                                <input type="text" class="form-control" placeholder="e.g. 110101" @bind="cashAccount" />
+                                                <small style="color:#6b7280; font-size:.75rem;">Leave blank to use SAP default</small>
+                                            </div>
+                                        </div>
+                                    }
+
+                                    <!-- Transfer -->
+                                    @if (activePaymentMethod == "transfer")
+                                    {
+                                        <div class="row g-3">
+                                            <div class="col-md-4">
+                                                <label class="field-label">Transfer Amount</label>
+                                                <div class="input-group">
+                                                    <span class="input-group-text"><i class="bi bi-bank"></i></span>
+                                                    <input type="number" class="form-control" step="0.01" min="0" placeholder="0.00"
+                                                           @bind="transferSum" />
+                                                </div>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="field-label">Reference Number</label>
+                                                <input type="text" class="form-control" placeholder="Transfer reference"
+                                                       @bind="transferReference" />
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="field-label">Transfer Date</label>
+                                                <input type="date" class="form-control" @bind="transferDate" />
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="field-label">Transfer Account</label>
+                                                <input type="text" class="form-control" placeholder="Bank account"
+                                                       @bind="transferAccount" />
+                                            </div>
+                                        </div>
+                                    }
+
+                                    <!-- Check -->
+                                    @if (activePaymentMethod == "check")
+                                    {
+                                        <div class="row g-3">
+                                            <div class="col-md-4">
+                                                <label class="field-label">Check Amount</label>
+                                                <div class="input-group">
+                                                    <span class="input-group-text"><i class="bi bi-journal-check"></i></span>
+                                                    <input type="number" class="form-control" step="0.01" min="0" placeholder="0.00"
+                                                           @bind="checkSum" />
+                                                </div>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="field-label">Check Number</label>
+                                                <input type="number" class="form-control" placeholder="Check #" @bind="checkNumber" />
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="field-label">Due Date</label>
+                                                <input type="date" class="form-control" @bind="checkDueDate" />
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="field-label">Bank Code</label>
+                                                <input type="text" class="form-control" placeholder="Bank code" @bind="checkBankCode" />
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="field-label">Branch</label>
+                                                <input type="text" class="form-control" placeholder="Branch" @bind="checkBranch" />
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="field-label">Account Number</label>
+                                                <input type="text" class="form-control" placeholder="Account #"
+                                                       @bind="checkAccountNum" />
+                                            </div>
+                                        </div>
+                                    }
+
+                                    <!-- Credit Card -->
+                                    @if (activePaymentMethod == "credit")
+                                    {
+                                        <div class="row g-3">
+                                            <div class="col-md-4">
+                                                <label class="field-label">Credit Amount</label>
+                                                <div class="input-group">
+                                                    <span class="input-group-text"><i class="bi bi-credit-card"></i></span>
+                                                    <input type="number" class="form-control" step="0.01" min="0" placeholder="0.00"
+                                                           @bind="creditSum" />
+                                                </div>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="field-label">Card Number (last 4)</label>
+                                                <input type="text" class="form-control" maxlength="4" placeholder="XXXX"
+                                                       @bind="creditCardNumber" />
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="field-label">Valid Until</label>
+                                                <input type="text" class="form-control" placeholder="MM/YY"
+                                                       @bind="creditCardValidUntil" />
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="field-label">Voucher Number</label>
+                                                <input type="text" class="form-control" placeholder="Voucher #"
+                                                       @bind="creditVoucherNum" />
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+
+                            <!-- ── Applied Invoices Section ── -->
+                            <div class="section-card">
+                                <div class="card-hdr">
+                                    <div class="hdr-left">
+                                        <div class="header-icon" style="background:#fef3c7; color:#d97706;"><i
+                                            class="bi bi-receipt"></i></div>
+                                            <h6>Apply to Invoices <span
+                                                style="font-weight:400; color:#9ca3af; font-size:.82rem;">(Optional)</span></h6>
+                                            </div>
+                                            <button class="btn btn-sm"
+                                                    style="background:#d1fae5; color:#059669; border:none; border-radius:7px; font-weight:600; font-size:.8rem; padding:.3rem .7rem;"
+                                                    @onclick="AddInvoiceLine">
+                                                <i class="bi bi-plus-lg me-1"></i>Add Invoice
+                                            </button>
+                                        </div>
+                                        <div class="card-body-inner">
+                                            @if (invoiceLines.Count == 0)
+                                            {
+                                                <div class="inv-empty">
+                                                    <span class="empty-ico"><i class="bi bi-receipt-cutoff"></i></span>
+                                                    <p style="margin:0;">No invoices added. Click <strong>"Add Invoice"</strong> to apply this
+                                                        payment to specific invoices.</p>
+                                                        <p style="margin:.25rem 0 0; font-size:.8rem;">If no invoices are specified, the payment
+                                                            will be recorded as on-account.</p>
+                                                        </div>
+                                                    }
+                        else
+                                                    {
+                                                        @for (int i = 0; i < invoiceLines.Count; i++)
+                                                        {
+                                                            var index = i;
+                                                            <div class="inv-card">
+                                                                <button class="inv-remove" @onclick="() => RemoveInvoiceLine(index)" title="Remove"><i
+                                                                    class="bi bi-x"></i></button>
+                                                                    <div style="margin-bottom:.6rem;">
+                                                                        <span class="inv-badge"><i class="bi bi-receipt"></i> Invoice @(index + 1)</span>
+                                                                    </div>
+                                                                    <div class="row g-3">
+                                                                        <div class="col-md-4">
+                                                                            <label class="field-label">Doc Entry <span class="required">*</span></label>
+                                                                            <input type="number"
+                                                                                   class="form-control form-control-sm @(invoiceValidationErrors.ContainsKey(index) && invoiceValidationErrors[index].ContainsKey("DocEntry") ? "validation-error" : "")"
+                                                                                   placeholder="DocEntry" @bind="invoiceLines[index].DocEntry" />
+                                                                            @if (invoiceValidationErrors.ContainsKey(index) &&
+                                                                                                                                                                                                invoiceValidationErrors[index].ContainsKey("DocEntry"))
+                                                                            {
+                                                                                <div class="val-msg">@invoiceValidationErrors[index]["DocEntry"]</div>
+                                                                            }
+                                                                        </div>
+                                                                        <div class="col-md-4">
+                                                                            <label class="field-label">Amount Applied <span class="required">*</span></label>
+                                                                            <input type="number"
+                                                                                   class="form-control form-control-sm @(invoiceValidationErrors.ContainsKey(index) && invoiceValidationErrors[index].ContainsKey("SumApplied") ? "validation-error" : "")"
+                                                                                   step="0.01" min="0" placeholder="0.00" @bind="invoiceLines[index].SumApplied" />
+                                                                            @if (invoiceValidationErrors.ContainsKey(index) &&
+                                                                                                                                                                                                invoiceValidationErrors[index].ContainsKey("SumApplied"))
+                                                                            {
+                                                                                <div class="val-msg">@invoiceValidationErrors[index]["SumApplied"]</div>
+                                                                            }
+                                                                        </div>
+                                                                        <div class="col-md-4">
+                                                                            <label class="field-label">Invoice Type</label>
+                                                                            <select class="form-select form-select-sm" @bind="invoiceLines[index].InvoiceType">
+                                                                                <option value="it_Invoice">Invoice</option>
+                                                                                <option value="it_DownPayment">Down Payment</option>
+                                                                            </select>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            }
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- ━━━ Right Column: Summary Sidebar ━━━ -->
+                                            <div class="col-lg-4">
+                                                <div class="summary-section">
+                                                    <div class="summary-card">
+                                                        <!-- Validation Checklist -->
+                                                        <div class="summary-hdr">
+                                                            <i class="bi bi-shield-check" style="color:#059669;"></i>
+                                                            <h6>Validation Checklist</h6>
+                                                        </div>
+                                                        <div style="padding:.85rem 1.15rem; border-bottom:1px solid #f3f4f6;">
+                                                            <ul class="check-list">
+                                                                <li>
+                                                                    <span
+                                                                        class="check-icon @(selectedBusinessPartner != null || !string.IsNullOrWhiteSpace(bpSearchTerm) ? "pass" : "fail")">
+                                                                        <i
+                                                                        class="bi @(selectedBusinessPartner != null || !string.IsNullOrWhiteSpace(bpSearchTerm) ? "bi-check" : "bi-x")"></i>
+                                                                    </span>
+                                                                    Customer selected
+                                                                </li>
+                                                                <li>
+                                                                    <span class="check-icon @(TotalPayment > 0 ? "pass" : "fail")">
+                                                                        <i class="bi @(TotalPayment > 0 ? "bi-check" : "bi-x")"></i>
+                                                                    </span>
+                                                                    Payment amount entered
+                                                                </li>
+                                                                <li>
+                                                                    <span
+                                                                        class="check-icon @(activePaymentMethod == "transfer" && string.IsNullOrWhiteSpace(transferReference) ? "fail" : "pass")">
+                                                                        <i
+                                                                        class="bi @(activePaymentMethod == "transfer" && string.IsNullOrWhiteSpace(transferReference) ? "bi-x" : "bi-check")"></i>
+                                                                    </span>
+                                                                    Method details filled
+                                                                </li>
+                                                            </ul>
+                                                        </div>
+
+                                                        <!-- Summary -->
+                                                        <div class="summary-hdr" style="border-bottom:none;">
+                                                            <i class="bi bi-calculator" style="color:#059669;"></i>
+                                                            <h6>Payment Summary</h6>
+                                                        </div>
+                                                        <div class="summary-body" style="padding-top:0;">
+                                                            <div class="sum-line">
+                                                                <span class="sum-label"><i class="bi bi-cash me-1"
+                                                                                               style="color:#059669;"></i>Cash</span>
+                                                                    <span class="sum-value">@cashSum.ToString("N2")</span>
+                                                                </div>
+                                                                <div class="sum-line">
+                                                                    <span class="sum-label"><i class="bi bi-bank me-1"
+                                                                                                   style="color:#2563eb;"></i>Transfer</span>
+                                                                        <span class="sum-value">@transferSum.ToString("N2")</span>
+                                                                    </div>
+                                                                    <div class="sum-line">
+                                                                        <span class="sum-label"><i class="bi bi-journal-check me-1"
+                                                                                                       style="color:#d97706;"></i>Check</span>
+                                                                            <span class="sum-value">@checkSum.ToString("N2")</span>
+                                                                        </div>
+                                                                        <div class="sum-line">
+                                                                            <span class="sum-label"><i class="bi bi-credit-card me-1"
+                                                                                                           style="color:#7c3aed;"></i>Credit</span>
+                                                                                <span class="sum-value">@creditSum.ToString("N2")</span>
+                                                                            </div>
+
+                                                                            @if (invoiceLines.Any(l => l.SumApplied > 0))
+                                                                            {
+                                                                                <hr class="sum-divider" />
+                                                                                <div class="sum-line">
+                                                                                    <span class="sum-label">Applied to Invoices</span>
+                                                                                    <span class="sum-value">@invoiceLines.Sum(l => l.SumApplied).ToString("N2")</span>
+                                                                                </div>
+                                                                                <div style="font-size:.78rem; color:#6b7280; text-align:right;">@invoiceLines.Count(l =>
+                                                                                                                                                                                                            l.DocEntry > 0) invoice(s)</div>
+                                                                                }
+
+                                                                                <hr class="sum-divider" />
+                                                                                <div class="sum-total">
+                                                                                    <span class="total-label">Total Payment</span>
+                                                                                    <span class="total-value">@TotalPayment.ToString("N2")</span>
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <!-- Actions -->
+                                                                            <div style="padding:0 1.15rem 1.15rem;">
+                                                                                <button class="btn-execute" @onclick="SubmitPayment" disabled="@isSubmitting">
+                                                                                    @if (isSubmitting)
+                                                                                    {
+                                                                                        <span class="spinner-border spinner-border-sm"></span>
+                                                                                        <span>Creating…</span>
+                                                                                    }
+                                                                                    else
+                                                                                    {
+                                                                                        <i class="bi bi-check-circle-fill"></i>
+                                                                                        <span>Create Payment</span>
+                                                                                    }
+                                                                                </button>
+                                                                                <button class="btn-secondary-action" @onclick="ClearForm" disabled="@isSubmitting">
+                                                                                    <i class="bi bi-arrow-counterclockwise"></i> Clear Form
+                                                                                </button>
+                                                                                <div class="info-hint">
+                                                                                    <i class="bi bi-info-circle" style="flex-shrink:0; margin-top:1px;"></i>
+                                                                                    <span>Payments are posted directly to SAP Business One. Ensure all details are correct
+                                                                                        before submitting.</span>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                }
+                                                            </div>
+                                                        </div>
+
+@code {
+    // State
+    private bool isSubmitting = false;
+    private string? successMessage;
+    private string? errorMessage;
+
+    // Business partner
+    private List<BusinessPartnerDto> allBusinessPartners = new();
+    private BusinessPartnerDto? selectedBusinessPartner;
+    private string bpSearchTerm = "";
+    private bool showBpDropdown = false;
+    private bool isBpLoading = false;
+    private bool bpLoadedFromCache = false;
+    private CancellationTokenSource? _searchCts;
+
+    // Payment fields
+    private DateTime docDate = DateTime.Today;
+    private string? remarks;
+    private string activePaymentMethod = "cash";
+
+    private enum PaymentMethodType { Cash, Transfer, Check, Credit }
+
+    private void SetPaymentMethod(PaymentMethodType method) => activePaymentMethod = method switch
+    {
+        PaymentMethodType.Cash => "cash",
+        PaymentMethodType.Transfer => "transfer",
+        PaymentMethodType.Check => "check",
+        PaymentMethodType.Credit => "credit",
+        _ => "cash"
+    };
+
+    private string GetMethodTabClass(string method) => activePaymentMethod == method ? "active" : "";
+
+    // Cash
+    private decimal cashSum;
+    private string? cashAccount;
+
+    // Transfer
+    private decimal transferSum;
+    private string? transferReference;
+    private DateTime? transferDate;
+    private string? transferAccount;
+
+    // Check
+    private decimal checkSum;
+    private int checkNumber;
+    private DateTime? checkDueDate;
+    private string? checkBankCode;
+    private string? checkBranch;
+    private string? checkAccountNum;
+
+    // Credit card
+    private decimal creditSum;
+    private string? creditCardNumber;
+    private string? creditCardValidUntil;
+    private string? creditVoucherNum;
+
+    // Invoice lines
+    private List<InvoiceLineModel> invoiceLines = new();
+
+    // Validation
+    private Dictionary<string, string> validationErrors = new();
+    private Dictionary<int, Dictionary<string, string>> invoiceValidationErrors = new();
+
+    private decimal TotalPayment => cashSum + transferSum + checkSum + creditSum;
+
+    private IEnumerable<BusinessPartnerDto>? filteredBusinessPartners =>
+    string.IsNullOrWhiteSpace(bpSearchTerm) ? allBusinessPartners :
+    allBusinessPartners.Where(bp =>
+    (bp.CardCode?.Contains(bpSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
+    (bp.CardName?.Contains(bpSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Load cached business partners in the background (non-blocking)
+        _ = LoadBusinessPartnersInBackground();
+    }
+
+    private async Task LoadBusinessPartnersInBackground()
+    {
+        try
+        {
+            isBpLoading = true;
+
+            // Try cached (local DB) first — fast
+            var cached = await BusinessPartnerService.GetCachedBusinessPartnersAsync();
+            if (cached?.BusinessPartners?.Any() == true)
+            {
+                allBusinessPartners = cached.BusinessPartners
+                    .Where(bp => bp.CardType == "cCustomer" || bp.CardType == "C")
+                    .ToList();
+
+                if (!allBusinessPartners.Any())
+                    allBusinessPartners = cached.BusinessPartners;
+
+                bpLoadedFromCache = true;
+                isBpLoading = false;
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
+
+            // Fall back to API if cache is empty
+            var response = await BusinessPartnerService.GetBusinessPartnersAsync();
+            if (response?.BusinessPartners != null)
+            {
+                allBusinessPartners = response.BusinessPartners
+                    .Where(bp => bp.CardType == "cCustomer" || bp.CardType == "C")
+                    .ToList();
+
+                if (!allBusinessPartners.Any() && response.BusinessPartners.Any())
+                    allBusinessPartners = response.BusinessPartners;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading business partners");
+            // Non-fatal: the user can still type customer codes manually
+        }
+        finally
+        {
+            isBpLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task OnBpSearchInput(ChangeEventArgs e)
+    {
+        bpSearchTerm = e.Value?.ToString() ?? "";
+        showBpDropdown = true;
+
+        // If partners not yet loaded, do a debounced search
+        if (!allBusinessPartners.Any() && bpSearchTerm.Length >= 2)
+        {
+            _searchCts?.Cancel();
+            _searchCts = new CancellationTokenSource();
+            var token = _searchCts.Token;
+
+            try
+            {
+                isBpLoading = true;
+                StateHasChanged();
+
+                await Task.Delay(300, token); // debounce
+                if (token.IsCancellationRequested) return;
+
+                var result = await BusinessPartnerService.SearchCachedBusinessPartnersAsync(bpSearchTerm);
+                if (result?.BusinessPartners?.Any() != true)
+                    result = await BusinessPartnerService.SearchBusinessPartnersAsync(bpSearchTerm);
+
+                if (!token.IsCancellationRequested && result?.BusinessPartners != null)
+                {
+                    allBusinessPartners = result.BusinessPartners;
+                }
+            }
+            catch (TaskCanceledException) { /* expected on re-type */ }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error searching business partners");
+            }
+            finally
+            {
+                isBpLoading = false;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private void SelectBusinessPartner(BusinessPartnerDto bp)
+    {
+        selectedBusinessPartner = bp;
+        bpSearchTerm = bp.DisplayName;
+        showBpDropdown = false;
+    }
+
+    private async Task HandleBpBlur()
+    {
+        // Small delay to allow click events on dropdown items
+        await Task.Delay(200);
+        showBpDropdown = false;
+    }
+
+    private void AddInvoiceLine()
+    {
+        invoiceLines.Add(new InvoiceLineModel());
+    }
+
+    private void RemoveInvoiceLine(int index)
+    {
+        if (index >= 0 && index < invoiceLines.Count)
+        {
+            invoiceLines.RemoveAt(index);
+            invoiceValidationErrors.Remove(index);
+        }
+    }
+
+    private bool ValidateForm()
+    {
+        validationErrors.Clear();
+        invoiceValidationErrors.Clear();
+
+        // Customer validation
+        if (selectedBusinessPartner == null && string.IsNullOrWhiteSpace(bpSearchTerm))
+        {
+            validationErrors["CardCode"] = "Please select a customer";
+        }
+
+        // Payment amount validation
+        if (TotalPayment <= 0)
+        {
+            validationErrors["PaymentAmount"] = "At least one payment amount must be greater than zero";
+        }
+
+        // Validate negative amounts
+        if (cashSum < 0) validationErrors["PaymentAmount"] = "Cash amount cannot be negative";
+        if (transferSum < 0) validationErrors["PaymentAmount"] = "Transfer amount cannot be negative";
+        if (checkSum < 0) validationErrors["PaymentAmount"] = "Check amount cannot be negative";
+        if (creditSum < 0) validationErrors["PaymentAmount"] = "Credit card amount cannot be negative";
+
+        // Validate invoice lines
+        for (int i = 0; i < invoiceLines.Count; i++)
+        {
+            var errors = new Dictionary<string, string>();
+            if (invoiceLines[i].DocEntry <= 0)
+            {
+                errors["DocEntry"] = "Invoice DocEntry is required";
+            }
+            if (invoiceLines[i].SumApplied <= 0)
+            {
+                errors["SumApplied"] = "Amount applied must be greater than zero";
+            }
+            if (errors.Count > 0)
+            {
+                invoiceValidationErrors[i] = errors;
+            }
+        }
+
+        StateHasChanged();
+        return validationErrors.Count == 0 && invoiceValidationErrors.Count == 0;
+    }
+
+    private async Task SubmitPayment()
+    {
+        errorMessage = null;
+        successMessage = null;
+
+        if (!ValidateForm())
+        {
+            errorMessage = "Please fix the validation errors before submitting.";
+            return;
+        }
+
+        isSubmitting = true;
+
+        try
+        {
+            var cardCode = selectedBusinessPartner?.CardCode ?? bpSearchTerm?.Trim();
+
+            var request = new CreateIncomingPaymentRequest
+            {
+                CardCode = cardCode,
+                DocDate = docDate.ToString("yyyy-MM-dd"),
+                Remarks = remarks,
+                CashSum = cashSum,
+                CashAccount = cashAccount,
+                TransferSum = transferSum,
+                TransferReference = transferReference,
+                TransferDate = transferDate?.ToString("yyyy-MM-dd"),
+                TransferAccount = transferAccount,
+                CheckSum = checkSum,
+                CreditSum = creditSum
+            };
+
+            // Add invoice lines if any
+            if (invoiceLines.Any(l => l.DocEntry > 0))
+            {
+                request.PaymentInvoices = invoiceLines
+                .Where(l => l.DocEntry > 0)
+                .Select(l => new PaymentInvoiceRequest
+                {
+                    DocEntry = l.DocEntry,
+                    SumApplied = l.SumApplied,
+                    InvoiceType = l.InvoiceType
+                }).ToList();
+            }
+
+            // Add check details if paying by check
+            if (checkSum > 0 && checkNumber > 0)
+            {
+                request.PaymentChecks = new List<PaymentCheckRequest>
+{
+new PaymentCheckRequest
+{
+CheckNumber = checkNumber,
+CheckSum = checkSum,
+DueDate = checkDueDate?.ToString("yyyy-MM-dd"),
+BankCode = checkBankCode,
+Branch = checkBranch,
+AccountNum = checkAccountNum
+}
+};
+            }
+
+            // Add credit card details if paying by credit card
+            if (creditSum > 0)
+            {
+                request.PaymentCreditCards = new List<PaymentCreditCardRequest>
+{
+new PaymentCreditCardRequest
+{
+CreditSum = creditSum,
+CreditCardNumber = creditCardNumber,
+CardValidUntil = creditCardValidUntil,
+VoucherNum = creditVoucherNum
+}
+};
+            }
+
+            Logger.LogInformation("Creating incoming payment for customer {CardCode}, Total: {Total}",
+            cardCode, TotalPayment);
+
+            var (success, message, payment) = await PaymentService.CreatePaymentAsync(request);
+
+            if (success)
+            {
+                Logger.LogInformation("Incoming payment #{DocNum} (DocEntry: {DocEntry}) created successfully",
+                payment?.DocNum, payment?.DocEntry);
+                successMessage = $"Payment #{payment?.DocNum} created successfully! Total: {payment?.DocTotal:N2}";
+                ClearForm();
+            }
+            else
+            {
+                Logger.LogError("Failed to create incoming payment. Error: {Error}", message);
+                errorMessage = message;
+            }
+        }
+        catch (HttpRequestException httpEx)
+        {
+            Logger.LogError(httpEx, "HTTP error creating incoming payment");
+            errorMessage = $"Network error: {httpEx.Message}. Please check if the API is running.";
+        }
+        catch (TaskCanceledException tcEx) when (tcEx.InnerException is TimeoutException)
+        {
+            Logger.LogError(tcEx, "Timeout creating incoming payment");
+            errorMessage = "Request timed out. The server may be busy, please try again.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Unexpected error creating incoming payment");
+            errorMessage = $"Error creating payment: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private void ClearForm()
+    {
+        selectedBusinessPartner = null;
+        bpSearchTerm = "";
+        docDate = DateTime.Today;
+        remarks = null;
+        activePaymentMethod = "cash";
+
+        cashSum = 0;
+        cashAccount = null;
+        transferSum = 0;
+        transferReference = null;
+        transferDate = null;
+        transferAccount = null;
+
+        checkSum = 0;
+        checkNumber = 0;
+        checkDueDate = null;
+        checkBankCode = null;
+        checkBranch = null;
+        checkAccountNum = null;
+
+        creditSum = 0;
+        creditCardNumber = null;
+        creditCardValidUntil = null;
+        creditVoucherNum = null;
+
+        invoiceLines.Clear();
+        validationErrors.Clear();
+        invoiceValidationErrors.Clear();
+    }
+
+    private class InvoiceLineModel
+    {
+        public int DocEntry { get; set; }
+        public decimal SumApplied { get; set; }
+        public string InvoiceType { get; set; } = "it_Invoice";
+    }
+}

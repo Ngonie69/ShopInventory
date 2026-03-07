@@ -50,6 +50,11 @@ public class MasterDataCacheService : IMasterDataCacheService
 
     private static readonly TimeSpan SyncInterval = TimeSpan.FromHours(1);
 
+    // Global semaphore to serialize ALL background sync operations.
+    // This prevents "A second operation was started on this context instance"
+    // errors caused by concurrent Task.Run background syncs overlapping DB access.
+    private static readonly SemaphoreSlim _backgroundSyncSemaphore = new(1, 1);
+
     // Static in-memory cache that persists across all Blazor circuits
     private static readonly ConcurrentDictionary<string, object> _staticCache = new();
     private static readonly ConcurrentDictionary<string, DateTime> _lastRefreshTimes = new();
@@ -134,14 +139,17 @@ public class MasterDataCacheService : IMasterDataCacheService
 
         try
         {
-            var warehousesTask = GetWarehousesAsync(false);
-            var partnersTask = GetBusinessPartnersAsync(false);
-            var productsTask = GetProductsAsync(false);
-            var pricesTask = GetItemPricesAsync(false);
-            var costCentresTask = GetCostCentresAsync(false);
-            var glAccountsTask = GetGLAccountsAsync(false);
+            // Load sequentially to avoid EF Core DbContext concurrency issues.
+            // Each getter creates its own DbContext, but their background sync
+            // Task.Run callbacks can overlap and cause "second operation on this
+            // context instance" errors when run in parallel.
+            await GetWarehousesAsync(false);
+            await GetCostCentresAsync(false);
+            await GetBusinessPartnersAsync(false);
+            await GetProductsAsync(false);
+            await GetItemPricesAsync(false);
+            await GetGLAccountsAsync(false);
 
-            await Task.WhenAll(warehousesTask, partnersTask, productsTask, pricesTask, costCentresTask, glAccountsTask);
             _isPreloaded = true;
             _logger.LogInformation("Master data cache preloaded successfully");
         }
@@ -210,9 +218,13 @@ public class MasterDataCacheService : IMasterDataCacheService
                 .Select(p => p.ItemCode)
                 .ToHashSetAsync();
 
+            // Track inserted codes to avoid duplicate Add for same key
+            var processedCodes = new HashSet<string>();
+
             foreach (var apiProduct in apiProducts)
             {
                 if (string.IsNullOrEmpty(apiProduct.ItemCode)) continue;
+                if (!processedCodes.Add(apiProduct.ItemCode)) continue; // skip duplicates from API
 
                 var price = priceDict.TryGetValue(apiProduct.ItemCode, out var p) ? p : 0;
 
@@ -346,6 +358,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                     // We have data - sync in background without blocking
                     _ = Task.Run(async () =>
                     {
+                        await _backgroundSyncSemaphore.WaitAsync();
                         try
                         {
                             await SyncProductsFromApiAsync();
@@ -374,6 +387,10 @@ public class MasterDataCacheService : IMasterDataCacheService
                         {
                             _logger.LogError(ex, "Background sync of products failed");
                         }
+                        finally
+                        {
+                            _backgroundSyncSemaphore.Release();
+                        }
                     });
                 }
                 else
@@ -383,6 +400,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                     _logger.LogInformation("No products in database, triggering background sync...");
                     _ = Task.Run(async () =>
                     {
+                        await _backgroundSyncSemaphore.WaitAsync();
                         try
                         {
                             await SyncProductsFromApiAsync();
@@ -410,6 +428,10 @@ public class MasterDataCacheService : IMasterDataCacheService
                         catch (Exception ex)
                         {
                             _logger.LogError(ex, "Initial background sync of products failed");
+                        }
+                        finally
+                        {
+                            _backgroundSyncSemaphore.Release();
                         }
                     });
                 }
@@ -526,16 +548,24 @@ public class MasterDataCacheService : IMasterDataCacheService
 
         var syncTime = DateTime.UtcNow;
 
+        // Deduplicate by (ItemCode, Currency) - keep the last occurrence (latest price)
+        var uniquePrices = apiPrices
+            .Where(p => !string.IsNullOrEmpty(p.ItemCode))
+            .GroupBy(p => new { p.ItemCode, p.Currency })
+            .Select(g => g.Last())
+            .ToList();
+
+        _logger.LogInformation("Deduped {Original} prices to {Unique} unique (ItemCode,Currency) entries",
+            apiPrices.Count, uniquePrices.Count);
+
         // Clear existing prices and insert new ones (simpler than upsert for prices)
         await db.CachedPrices.ExecuteDeleteAsync();
 
-        foreach (var apiPrice in apiPrices)
+        foreach (var apiPrice in uniquePrices)
         {
-            if (string.IsNullOrEmpty(apiPrice.ItemCode)) continue;
-
             db.CachedPrices.Add(new CachedPrice
             {
-                ItemCode = apiPrice.ItemCode,
+                ItemCode = apiPrice.ItemCode!,
                 ItemName = apiPrice.ItemName,
                 Price = apiPrice.Price,
                 Currency = apiPrice.Currency,
@@ -544,11 +574,11 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
 
         await db.SaveChangesAsync();
-        await UpdateSyncInfoAsync(db, ItemPricesCacheKey, apiPrices.Count, true, null);
+        await UpdateSyncInfoAsync(db, ItemPricesCacheKey, uniquePrices.Count, true, null);
         _lastRefreshTimes[ItemPricesCacheKey] = DateTime.Now;
 
-        _logger.LogInformation("Prices sync completed: {Count} prices saved", apiPrices.Count);
-        return apiPrices.Count;
+        _logger.LogInformation("Prices sync completed: {Count} prices saved", uniquePrices.Count);
+        return uniquePrices.Count;
     }
 
     public async Task<List<ItemPriceDto>> GetItemPricesAsync(bool forceRefresh = false)
@@ -606,6 +636,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                     // We have data - sync in background without blocking
                     _ = Task.Run(async () =>
                     {
+                        await _backgroundSyncSemaphore.WaitAsync();
                         try
                         {
                             await SyncPricesFromApiInternalAsync();
@@ -631,6 +662,10 @@ public class MasterDataCacheService : IMasterDataCacheService
                         catch (Exception ex)
                         {
                             _logger.LogError(ex, "Background sync of prices failed");
+                        }
+                        finally
+                        {
+                            _backgroundSyncSemaphore.Release();
                         }
                     });
                 }
@@ -722,9 +757,13 @@ public class MasterDataCacheService : IMasterDataCacheService
                 .Select(p => p.CardCode)
                 .ToHashSetAsync();
 
+            // Track processed codes to avoid duplicate Add for same key
+            var processedCodes = new HashSet<string>();
+
             foreach (var partner in apiPartners)
             {
                 if (string.IsNullOrEmpty(partner.CardCode)) continue;
+                if (!processedCodes.Add(partner.CardCode)) continue; // skip duplicates from API
 
                 if (existingCardCodes.Contains(partner.CardCode))
                 {
@@ -853,6 +892,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                     // We have data - sync in background without blocking
                     _ = Task.Run(async () =>
                     {
+                        await _backgroundSyncSemaphore.WaitAsync();
                         try
                         {
                             await SyncBusinessPartnersFromApiAsync();
@@ -886,6 +926,10 @@ public class MasterDataCacheService : IMasterDataCacheService
                         {
                             _logger.LogError(ex, "Background sync of business partners failed");
                         }
+                        finally
+                        {
+                            _backgroundSyncSemaphore.Release();
+                        }
                     });
                 }
                 else
@@ -895,6 +939,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                     _logger.LogInformation("No business partners in database, triggering background sync...");
                     _ = Task.Run(async () =>
                     {
+                        await _backgroundSyncSemaphore.WaitAsync();
                         try
                         {
                             await SyncBusinessPartnersFromApiAsync();
@@ -927,6 +972,10 @@ public class MasterDataCacheService : IMasterDataCacheService
                         catch (Exception ex)
                         {
                             _logger.LogError(ex, "Initial background sync of business partners failed");
+                        }
+                        finally
+                        {
+                            _backgroundSyncSemaphore.Release();
                         }
                     });
                 }
@@ -978,9 +1027,13 @@ public class MasterDataCacheService : IMasterDataCacheService
                 .Select(p => p.WarehouseCode)
                 .ToHashSetAsync();
 
+            // Track processed codes to avoid duplicate Add for same key
+            var processedCodes = new HashSet<string>();
+
             foreach (var warehouse in apiWarehouses)
             {
                 if (string.IsNullOrEmpty(warehouse.WarehouseCode)) continue;
+                if (!processedCodes.Add(warehouse.WarehouseCode)) continue; // skip duplicates from API
 
                 if (existingCodes.Contains(warehouse.WarehouseCode))
                 {
@@ -1091,6 +1144,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                     // We have data - sync in background without blocking
                     _ = Task.Run(async () =>
                     {
+                        await _backgroundSyncSemaphore.WaitAsync();
                         try
                         {
                             await SyncWarehousesFromApiAsync();
@@ -1118,6 +1172,10 @@ public class MasterDataCacheService : IMasterDataCacheService
                         {
                             _logger.LogError(ex, "Background sync of warehouses failed");
                         }
+                        finally
+                        {
+                            _backgroundSyncSemaphore.Release();
+                        }
                     });
                 }
                 else
@@ -1127,6 +1185,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                     _logger.LogInformation("No warehouses in database, triggering background sync...");
                     _ = Task.Run(async () =>
                     {
+                        await _backgroundSyncSemaphore.WaitAsync();
                         try
                         {
                             await SyncWarehousesFromApiAsync();
@@ -1153,6 +1212,10 @@ public class MasterDataCacheService : IMasterDataCacheService
                         catch (Exception ex)
                         {
                             _logger.LogError(ex, "Initial background sync of warehouses failed");
+                        }
+                        finally
+                        {
+                            _backgroundSyncSemaphore.Release();
                         }
                     });
                 }
@@ -1313,6 +1376,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                 _logger.LogInformation("G/L accounts need sync, triggering background sync...");
                 _ = Task.Run(async () =>
                 {
+                    await _backgroundSyncSemaphore.WaitAsync();
                     try
                     {
                         await SyncGLAccountsFromApiAsync();
@@ -1338,6 +1402,10 @@ public class MasterDataCacheService : IMasterDataCacheService
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Background sync of G/L accounts failed");
+                    }
+                    finally
+                    {
+                        _backgroundSyncSemaphore.Release();
                     }
                 });
             }
@@ -1425,9 +1493,13 @@ public class MasterDataCacheService : IMasterDataCacheService
                 .Select(p => p.CenterCode)
                 .ToHashSetAsync();
 
+            // Track processed codes to avoid duplicate Add for same key
+            var processedCodes = new HashSet<string>();
+
             foreach (var costCentre in apiCostCentres)
             {
                 if (string.IsNullOrEmpty(costCentre.CenterCode)) continue;
+                if (!processedCodes.Add(costCentre.CenterCode)) continue; // skip duplicates from API
 
                 DateTime? validFrom = null;
                 DateTime? validTo = null;
@@ -1599,6 +1671,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                     _logger.LogInformation("Cost centres need refresh, triggering background sync...");
                     _ = Task.Run(async () =>
                     {
+                        await _backgroundSyncSemaphore.WaitAsync();
                         try
                         {
                             // Background task can use public method (gets its own lock)
@@ -1625,6 +1698,10 @@ public class MasterDataCacheService : IMasterDataCacheService
                         catch (Exception ex)
                         {
                             _logger.LogError(ex, "Background sync of cost centres failed");
+                        }
+                        finally
+                        {
+                            _backgroundSyncSemaphore.Release();
                         }
                     });
                 }

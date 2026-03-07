@@ -22,6 +22,24 @@ public interface ISalesOrderService
 }
 
 /// <summary>
+/// Service interface for Purchase Order operations
+/// </summary>
+public interface IPurchaseOrderService
+{
+    Task<PurchaseOrderDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
+    Task<PurchaseOrderDto?> GetByOrderNumberAsync(string orderNumber, CancellationToken cancellationToken = default);
+    Task<PurchaseOrderListResponseDto> GetAllAsync(int page, int pageSize, PurchaseOrderStatus? status = null,
+        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+    Task<PurchaseOrderDto> CreateAsync(CreatePurchaseOrderRequest request, Guid? userId, CancellationToken cancellationToken = default);
+    Task<PurchaseOrderDto> UpdateAsync(int id, CreatePurchaseOrderRequest request, CancellationToken cancellationToken = default);
+    Task<PurchaseOrderDto> UpdateStatusAsync(int id, PurchaseOrderStatus status, Guid? userId, string? comments = null, CancellationToken cancellationToken = default);
+    Task<bool> DeleteAsync(int id, CancellationToken cancellationToken = default);
+    Task<PurchaseOrderDto> ApproveAsync(int id, Guid? userId, CancellationToken cancellationToken = default);
+    Task<PurchaseOrderDto> ReceiveItemsAsync(int id, ReceivePurchaseOrderRequest request, Guid? userId, CancellationToken cancellationToken = default);
+    Task<string> GenerateOrderNumberAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// Service interface for Credit Note operations
 /// </summary>
 public interface ICreditNoteService

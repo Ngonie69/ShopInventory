@@ -305,7 +305,7 @@
             </div>
             <div class="card-body">
                 <div class="row">
-                    @foreach (var role in new[] { "Admin", "Manager", "User", "ReadOnly" })
+                    @foreach (var role in new[] { "Admin", "Cashier", "StockController", "DepotController" })
                     {
                         <div class="col-md-6 col-lg-3 mb-3">
                             <div class="card h-100">
@@ -316,19 +316,19 @@
                                     <small class="text-muted">
                                         @if (role == "Admin")
                                         {
-                                            <text>Full system access including all permissions</text>
+                                            <text>Full system access including user management and all permissions</text>
                                         }
-                                        else if (role == "Manager")
+                                        else if (role == "Cashier")
                                         {
-                                            <text>Can manage products, invoices, payments, inventory, and view reports</text>
+                                            <text>Access to incoming payments, invoicing, sales orders, and credit notes</text>
                                         }
-                                        else if (role == "User")
+                                        else if (role == "StockController")
                                         {
-                                            <text>Standard user with basic CRUD operations</text>
+                                            <text>Access to inventory transfers only</text>
                                         }
                                         else
                                         {
-                                            <text>View-only access to dashboard and data</text>
+                                            <text>Access to incoming payments and inventory transfers</text>
                                         }
                                     </small>
                                 </div>
@@ -614,7 +614,7 @@
     private string activeTab = "users";
     private string _searchString = string.Empty;
 
-    private List<string> availableRoles = new() { "Admin", "Manager", "User", "ReadOnly" };
+    private List<string> availableRoles = new() { "Admin", "Cashier", "StockController", "DepotController" };
     private Dictionary<string, List<PermissionModel>>? permissionCategories;
 
     private bool showUserModal = false;
@@ -658,9 +658,9 @@
     private Color GetRoleChipColor(string role) => role switch
     {
         "Admin" => Color.Error,
-        "Manager" => Color.Primary,
-        "User" => Color.Info,
-        "ReadOnly" => Color.Default,
+        "Cashier" => Color.Primary,
+        "StockController" => Color.Info,
+        "DepotController" => Color.Warning,
         _ => Color.Default
     };
 
@@ -967,9 +967,9 @@
     private string GetRoleBadgeClass(string role) => role switch
     {
         "Admin" => "bg-danger",
-        "Manager" => "bg-primary",
-        "User" => "bg-success",
-        "ReadOnly" => "bg-secondary",
+        "Cashier" => "bg-primary",
+        "StockController" => "bg-success",
+        "DepotController" => "bg-warning",
         _ => "bg-info"
     };
 

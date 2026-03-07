@@ -120,7 +120,7 @@ public class AuthController : ControllerBase
         return Ok(new UserInfo
         {
             Username = username,
-            Role = role ?? "User"
+            Role = role ?? "Cashier"
         });
     }
 
@@ -141,7 +141,7 @@ public class AuthController : ControllerBase
             User.Identity?.Name, request.Username);
 
         // Validate role
-        var validRoles = new[] { "Admin", "User", "Manager" };
+        var validRoles = new[] { "Admin", "Cashier", "StockController", "DepotController" };
         if (!validRoles.Contains(request.Role, StringComparer.OrdinalIgnoreCase))
         {
             return BadRequest(new ErrorResponseDto

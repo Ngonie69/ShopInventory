@@ -11,6 +11,7 @@ public interface IPaymentService
     Task<IncomingPaymentDateResponse?> GetPaymentsByDateAsync(DateTime date);
     Task<IncomingPaymentDateResponse?> GetPaymentsByDateRangeAsync(DateTime fromDate, DateTime toDate);
     Task<IncomingPaymentDateResponse?> GetPaymentsByCustomerAsync(string cardCode);
+    Task<(bool Success, string Message, IncomingPaymentDto? Payment)> CreatePaymentAsync(CreateIncomingPaymentRequest request);
 }
 
 public class PaymentService : IPaymentService
@@ -141,6 +142,63 @@ public class PaymentService : IPaymentService
         catch
         {
             return null;
+        }
+    }
+
+    public async Task<(bool Success, string Message, IncomingPaymentDto? Payment)> CreatePaymentAsync(CreateIncomingPaymentRequest request)
+    {
+        try
+        {
+            _logger.LogInformation("Sending incoming payment creation request for customer {CardCode}", request.CardCode);
+
+            var response = await _httpClient.PostAsJsonAsync("api/incomingpayment", request);
+
+            _logger.LogInformation("Incoming payment API response: {StatusCode}", response.StatusCode);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<IncomingPaymentCreatedResponse>();
+                _logger.LogInformation("Incoming payment created successfully: DocNum={DocNum}, DocEntry={DocEntry}",
+                    result?.Payment?.DocNum, result?.Payment?.DocEntry);
+                return (true, result?.Message ?? "Incoming payment created successfully", result?.Payment);
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Incoming payment creation failed. Status: {StatusCode}, Response: {ErrorContent}",
+                response.StatusCode, errorContent);
+
+            try
+            {
+                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                var errorMessage = errorResponse?.Message ?? "Failed to create incoming payment";
+                if (errorResponse?.Errors?.Any() == true)
+                {
+                    errorMessage = string.Join("; ", errorResponse.Errors);
+                }
+
+                return (false, errorMessage, null);
+            }
+            catch
+            {
+                return (false, $"Failed to create incoming payment. Status: {response.StatusCode}", null);
+            }
+        }
+        catch (HttpRequestException httpEx)
+        {
+            _logger.LogError(httpEx, "HTTP error creating incoming payment");
+            throw;
+        }
+        catch (TaskCanceledException tcEx) when (tcEx.InnerException is TimeoutException)
+        {
+            _logger.LogError(tcEx, "Timeout creating incoming payment");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error creating incoming payment");
+            throw;
         }
     }
 }

@@ -282,14 +282,16 @@ builder.Services.AddScoped<IUserActivityService, UserActivityService>();
 
 // Register statement service for PDF generation
 builder.Services.AddScoped<IStatementService, StatementService>();
+builder.Services.AddScoped<IInvoicePdfService, InvoicePdfService>();
 builder.Services.AddScoped<IIncomingPaymentService, IncomingPaymentService>();
 builder.Services.AddScoped<IInvoiceService, InvoiceService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IBusinessPartnerService, BusinessPartnerService>();
 // Register email queue service for password reset
 builder.Services.AddScoped<IEmailQueueService, EmailQueueService>();
-// Register sales order and credit note services
+// Register sales order, purchase order, and credit note services
 builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
+builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
 builder.Services.AddScoped<ICreditNoteService, CreditNoteService>();
 
 // Register backup service

@@ -94,8 +94,23 @@
                 downloadLink.download = fileName;
                 downloadLink.click();
             };
+
+            // Print HTML content in a new window (for PDF export via browser print)
+            window.printReportHtml = function (htmlContent) {
+                const printWindow = window.open('', '_blank', 'width=900,height=700');
+                if (!printWindow) {
+                    alert('Please allow pop-ups to export PDF reports.');
+                    return;
+                }
+                printWindow.document.write(htmlContent);
+                printWindow.document.close();
+                printWindow.onload = function () {
+                    printWindow.focus();
+                    printWindow.print();
+                };
+            };
     </script>
-    <script src="js/app.js?v=4"></script>
+    <script src="js/app.js?v=5"></script>
     <script src="js/signature-pad.js"></script>
 
     <!-- Loading screen shown while Blazor connects -->

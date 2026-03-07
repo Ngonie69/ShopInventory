@@ -65,6 +65,10 @@ public class ApplicationDbContext : DbContext
   public DbSet<SalesOrderEntity> SalesOrders { get; set; }
   public DbSet<SalesOrderLineEntity> SalesOrderLines { get; set; }
 
+  // Purchase Order tables
+  public DbSet<PurchaseOrderEntity> PurchaseOrders { get; set; }
+  public DbSet<PurchaseOrderLineEntity> PurchaseOrderLines { get; set; }
+
   // Credit Note tables
   public DbSet<CreditNoteEntity> CreditNotes { get; set; }
   public DbSet<CreditNoteLineEntity> CreditNoteLines { get; set; }
@@ -561,6 +565,48 @@ public class ApplicationDbContext : DbContext
     modelBuilder.Entity<SalesOrderLineEntity>(entity =>
     {
       entity.ToTable("SalesOrderLines");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.ItemCode);
+
+      entity.HasOne(e => e.Product)
+            .WithMany()
+            .HasForeignKey(e => e.ProductId)
+            .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // Purchase Order configuration
+    modelBuilder.Entity<PurchaseOrderEntity>(entity =>
+    {
+      entity.ToTable("PurchaseOrders");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.OrderNumber).IsUnique();
+      entity.HasIndex(e => e.CardCode);
+      entity.HasIndex(e => e.Status);
+      entity.HasIndex(e => e.OrderDate);
+      entity.HasIndex(e => e.SAPDocEntry);
+
+      entity.HasMany(e => e.Lines)
+            .WithOne(l => l.PurchaseOrder)
+            .HasForeignKey(l => l.PurchaseOrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasOne(e => e.ApprovedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.ApprovedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // Purchase Order Line configuration
+    modelBuilder.Entity<PurchaseOrderLineEntity>(entity =>
+    {
+      entity.ToTable("PurchaseOrderLines");
       entity.HasKey(e => e.Id);
 
       entity.HasIndex(e => e.ItemCode);

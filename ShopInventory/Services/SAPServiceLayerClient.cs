@@ -3596,6 +3596,9 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         // Validate the request
         ValidateInventoryTransferRequest(request);
 
+        // Cache item metadata across lines to avoid repeated SAP lookups
+        var itemMetadataCache = new Dictionary<string, Item?>(StringComparer.OrdinalIgnoreCase);
+
         // Build the SAP payload
         var lines = new List<object>();
         for (int i = 0; i < request.Lines!.Count; i++)
@@ -3662,9 +3665,19 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 // Auto-allocate batch/serial numbers if not explicitly provided
                 // Check if item is batch or serial managed
+                // Use a per-item timeout to prevent the entire transfer from hanging
+                using var allocationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                allocationCts.CancelAfter(TimeSpan.FromSeconds(30)); // 30s timeout per line
+                var allocationToken = allocationCts.Token;
                 try
                 {
-                    var item = await GetItemByCodeAsync(line.ItemCode!, cancellationToken);
+                    // Use cached item lookup to avoid repeated SAP calls
+                    if (!itemMetadataCache.TryGetValue(line.ItemCode!, out var item))
+                    {
+                        item = await GetItemByCodeAsync(line.ItemCode!, allocationToken);
+                        itemMetadataCache[line.ItemCode!] = item;
+                    }
+
                     if (item != null)
                     {
                         if (item.ManageBatchNumbers == "tYES")
@@ -3673,7 +3686,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                             _logger.LogInformation("Auto-allocating batch numbers for batch-managed item {ItemCode} in warehouse {Warehouse}",
                                 line.ItemCode, fromWarehouse);
 
-                            var batches = await GetBatchNumbersForItemInWarehouseAsync(line.ItemCode!, fromWarehouse, cancellationToken);
+                            var batches = await GetBatchNumbersForItemInWarehouseAsync(line.ItemCode!, fromWarehouse, allocationToken);
                             if (batches.Any())
                             {
                                 var batchAllocations = new List<object>();
@@ -3726,7 +3739,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                             _logger.LogInformation("Auto-allocating serial numbers for serial-managed item {ItemCode} in warehouse {Warehouse}",
                                 line.ItemCode, fromWarehouse);
 
-                            var serials = await GetSerialNumbersForItemInWarehouseAsync(line.ItemCode!, fromWarehouse, cancellationToken);
+                            var serials = await GetSerialNumbersForItemInWarehouseAsync(line.ItemCode!, fromWarehouse, allocationToken);
                             if (serials.Any())
                             {
                                 var serialAllocations = new List<object>();
@@ -3778,6 +3791,21 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                             }
                         }
                     }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    // Client disconnected or request was cancelled - stop immediately
+                    throw;
+                }
+                catch (OperationCanceledException)
+                {
+                    // Per-item allocation timeout - log and continue without allocation
+                    _logger.LogWarning("Auto-allocation timed out for item {ItemCode} (30s limit), proceeding without allocation. SAP will validate.", line.ItemCode);
+                }
+                catch (ArgumentException)
+                {
+                    // Validation errors (insufficient stock, no batches) - propagate
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -4061,6 +4089,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
         httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
         httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
@@ -4136,6 +4165,8 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         }
 
         // Build the transfer lines from the request with batch allocation
+        // Cache item metadata across lines to avoid repeated SAP lookups
+        var itemMetadataCache = new Dictionary<string, Item?>(StringComparer.OrdinalIgnoreCase);
         var transferLines = new List<CreateInventoryTransferLineRequest>();
         if (transferRequest.StockTransferLines != null)
         {
@@ -4155,14 +4186,22 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                 // Auto-allocate batches/serials for batch/serial-managed items
                 if (!string.IsNullOrEmpty(requestLine.ItemCode))
                 {
+                    // Use a per-item timeout to prevent the entire conversion from hanging
+                    using var allocationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    allocationCts.CancelAfter(TimeSpan.FromSeconds(30));
+                    var allocationToken = allocationCts.Token;
                     try
                     {
-                        // Check item management type
-                        var item = await GetItemByCodeAsync(requestLine.ItemCode, cancellationToken);
+                        // Use cached item lookup to avoid repeated SAP calls
+                        if (!itemMetadataCache.TryGetValue(requestLine.ItemCode, out var item))
+                        {
+                            item = await GetItemByCodeAsync(requestLine.ItemCode, allocationToken);
+                            itemMetadataCache[requestLine.ItemCode] = item;
+                        }
 
                         if (item != null && item.ManageBatchNumbers == "tYES")
                         {
-                            var batches = await GetBatchNumbersForItemInWarehouseAsync(requestLine.ItemCode, fromWarehouse, cancellationToken);
+                            var batches = await GetBatchNumbersForItemInWarehouseAsync(requestLine.ItemCode, fromWarehouse, allocationToken);
                             if (batches.Any())
                             {
                                 _logger.LogInformation("Found {BatchCount} batches for item {ItemCode} in warehouse {Warehouse}",
@@ -4209,7 +4248,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                         }
                         else if (item != null && item.ManageSerialNumbers == "tYES")
                         {
-                            var serials = await GetSerialNumbersForItemInWarehouseAsync(requestLine.ItemCode, fromWarehouse, cancellationToken);
+                            var serials = await GetSerialNumbersForItemInWarehouseAsync(requestLine.ItemCode, fromWarehouse, allocationToken);
                             if (serials.Any())
                             {
                                 _logger.LogInformation("Found {SerialCount} serial numbers for item {ItemCode} in warehouse {Warehouse}",
@@ -4252,6 +4291,21 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                                 }
                             }
                         }
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        // Client disconnected or request was cancelled - stop immediately
+                        throw;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Per-item allocation timeout
+                        _logger.LogWarning("Auto-allocation timed out for item {ItemCode} (30s limit), proceeding without allocation", requestLine.ItemCode);
+                    }
+                    catch (ArgumentException)
+                    {
+                        // Validation errors (insufficient stock) - propagate
+                        throw;
                     }
                     catch (Exception ex)
                     {
@@ -4317,6 +4371,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         if (request.CashSum > 0)
         {
             payload["CashSum"] = request.CashSum;
+            if (!string.IsNullOrWhiteSpace(request.CashAccount))
+            {
+                payload["CashAccount"] = request.CashAccount;
+            }
         }
 
         if (request.TransferSum > 0)

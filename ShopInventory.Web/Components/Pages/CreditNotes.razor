@@ -1,6 +1,6 @@
 @page "/credit-notes"
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize]
+@attribute [Authorize(Roles = "Admin,Cashier")]
 @inject ICreditNoteService CreditNoteService
 @inject NavigationManager NavigationManager
 @implements IDisposable
@@ -8,215 +8,1087 @@
 
 <PageTitle>Credit Notes - Shop Inventory</PageTitle>
 
-<div class="page-shell">
+<style>
+    /* ── Page ────────────────────────────────────────── */
+    .cn-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
+    }
+
+    /* ── Header ──────────────────────────────────────── */
+    .cn-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .cn-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .cn-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .cn-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+        letter-spacing: -.3px;
+    }
+
+    .cn-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: .88rem;
+    }
+
+    .btn-cn-gradient {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        text-decoration: none;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
+        cursor: pointer;
+    }
+
+    .btn-cn-gradient:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .4);
+        color: #fff;
+    }
+
+    /* ── Filter Bar ──────────────────────────────────── */
+    .filter-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .75rem;
+        align-items: flex-end;
+        padding: 1rem 1.25rem;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        margin-bottom: 1.25rem;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .filter-bar .filter-field {
+        flex: 1;
+        min-width: 140px;
+    }
+
+    .filter-bar .filter-field label {
+        display: block;
+        font-size: .72rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        margin-bottom: .3rem;
+    }
+
+    .filter-bar .filter-field input,
+    .filter-bar .filter-field select {
+        width: 100%;
+        padding: .5rem .75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: .88rem;
+        color: #374151;
+        background: #fff;
+        transition: all .15s;
+    }
+
+    .filter-bar .filter-field input:focus,
+    .filter-bar .filter-field select:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
+    }
+
+    .filter-actions-row {
+        display: flex;
+        gap: .5rem;
+        align-items: flex-end;
+    }
+
+    .btn-search {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        border: none;
+        padding: .5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .btn-search:hover {
+        opacity: .92;
+        transform: translateY(-1px);
+    }
+
+    .btn-clear {
+        background: #fff;
+        color: #6b7280;
+        border: 1px solid #d1d5db;
+        padding: .5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .15s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .btn-clear:hover {
+        background: #f3f4f6;
+    }
+
+    /* ── Table ───────────────────────────────────────── */
+    .cn-table-wrap {
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        overflow: hidden;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .cn-table-header {
+        padding: .85rem 1.25rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #e5e7eb;
+        background: #f8fafc;
+    }
+
+    .cn-table-header h6 {
+        margin: 0;
+        font-weight: 600;
+        color: #1a1a2e;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+        font-size: .92rem;
+    }
+
+    .cn-count-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .25rem;
+        padding: .2rem .6rem;
+        border-radius: 6px;
+        font-size: .75rem;
+        font-weight: 600;
+        background: #f3f4f6;
+        color: #374151;
+    }
+
+    /* ── Status & Type Badges ────────────────────────── */
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        padding: .2rem .6rem;
+        border-radius: 6px;
+        font-size: .73rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .status-badge.draft {
+        background: #f3f4f6;
+        color: #6b7280;
+    }
+
+    .status-badge.pending {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .status-badge.approved {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .status-badge.applied {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    .status-badge.partial {
+        background: #e0e7ff;
+        color: #3730a3;
+    }
+
+    .status-badge.cancelled {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+
+    .status-badge.voided {
+        background: #f3f4f6;
+        color: #374151;
+    }
+
+    .type-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: .15rem .55rem;
+        border-radius: 6px;
+        font-size: .75rem;
+        font-weight: 600;
+    }
+
+    .type-badge.return {
+        background: #e0e7ff;
+        color: #3730a3;
+    }
+
+    .type-badge.refund {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .type-badge.adjustment {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .type-badge.cancellation {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+
+    /* ── Cell Styles ─────────────────────────────────── */
+    .cn-number {
+        font-weight: 700;
+        color: #667eea;
+        font-family: 'Space Grotesk', monospace;
+        font-size: .88rem;
+    }
+
+    .customer-info .name {
+        font-weight: 600;
+        font-size: .85rem;
+        color: #1a1a2e;
+    }
+
+    .customer-info .code {
+        font-size: .75rem;
+        color: #9ca3af;
+        font-family: 'Space Grotesk', monospace;
+    }
+
+    .amount-cell {
+        font-weight: 700;
+        color: #1a1a2e;
+        font-family: 'Space Grotesk', monospace;
+        font-size: .88rem;
+    }
+
+    .balance-cell {
+        font-weight: 700;
+        font-family: 'Space Grotesk', monospace;
+        font-size: .88rem;
+    }
+
+    .balance-cell.has-balance {
+        color: #d97706;
+    }
+
+    .balance-cell.zero {
+        color: #059669;
+    }
+
+    /* ── Action Buttons ──────────────────────────────── */
+    .action-btn {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        color: #6b7280;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all .15s;
+        font-size: .85rem;
+    }
+
+    .action-btn:hover {
+        background: #f3f4f6;
+        color: #374151;
+        border-color: #d1d5db;
+    }
+
+    .action-btn.view:hover {
+        background: #ede9fe;
+        color: #667eea;
+        border-color: #c4b5fd;
+    }
+
+    .action-btn.approve:hover {
+        background: #d1fae5;
+        color: #059669;
+        border-color: #6ee7b7;
+    }
+
+    .action-btn.delete:hover {
+        background: #fee2e2;
+        color: #dc2626;
+        border-color: #fca5a5;
+    }
+
+    /* ── Drawer ──────────────────────────────────────── */
+    .modal-backdrop-custom {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, .45);
+        z-index: 9998;
+        animation: fadeIn .2s ease;
+    }
+
+    .detail-drawer {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: min(640px, 95vw);
+        height: 100vh;
+        background: #fff;
+        z-index: 9999;
+        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
+        display: flex;
+        flex-direction: column;
+        animation: slideInRight .25s ease;
+    }
+
+    .drawer-header {
+        padding: 1.15rem 1.5rem;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-shrink: 0;
+    }
+
+    .drawer-header h5 {
+        margin: 0;
+        font-weight: 600;
+        font-size: 1.05rem;
+    }
+
+    .drawer-header .btn-close-drawer {
+        background: rgba(255, 255, 255, .15);
+        border: none;
+        color: #fff;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background .15s;
+        font-size: 1rem;
+    }
+
+    .drawer-header .btn-close-drawer:hover {
+        background: rgba(255, 255, 255, .25);
+    }
+
+    .drawer-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.5rem;
+    }
+
+    .drawer-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        gap: .5rem;
+        justify-content: flex-end;
+        flex-shrink: 0;
+    }
+
+    .detail-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .85rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .detail-item .detail-label {
+        font-size: .72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #9ca3af;
+        margin-bottom: .15rem;
+    }
+
+    .detail-item .detail-value {
+        font-size: .92rem;
+        font-weight: 600;
+        color: #1a1a2e;
+    }
+
+    .detail-section-title {
+        font-weight: 600;
+        color: #1a1a2e;
+        font-size: .9rem;
+        margin-bottom: .75rem;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    /* ── Lines Table ─────────────────────────────────── */
+    .lines-table {
+        width: 100%;
+        font-size: .85rem;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .lines-table th {
+        background: #f8fafc;
+        font-size: .72rem;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #6b7280;
+        font-weight: 600;
+        padding: .6rem .75rem;
+        border-bottom: 2px solid #e5e7eb;
+    }
+
+    .lines-table td {
+        padding: .55rem .75rem;
+        border-bottom: 1px solid #f3f4f6;
+        color: #374151;
+    }
+
+    .lines-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .lines-table tfoot td {
+        border-top: 2px solid #e5e7eb;
+        background: #f8fafc;
+    }
+
+    /* Total Banner */
+    .total-banner {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 1.25rem;
+    }
+
+    .total-banner .total-label {
+        font-size: .9rem;
+        font-weight: 500;
+    }
+
+    .total-banner .total-value {
+        font-size: 1.4rem;
+        font-weight: 700;
+    }
+
+    /* ── Create Modal ────────────────────────────────── */
+    .create-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, .5);
+        z-index: 10000;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        animation: fadeIn .2s ease;
+        padding: 1rem;
+    }
+
+    .create-modal {
+        background: #fff;
+        border-radius: 14px;
+        width: min(600px, 95vw);
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, .2);
+        animation: scaleIn .25s ease;
+    }
+
+    .create-modal-header {
+        padding: 1.15rem 1.5rem;
+        border-bottom: 1px solid #e5e7eb;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .create-modal-header h5 {
+        margin: 0;
+        font-weight: 600;
+        font-size: 1rem;
+        color: #1a1a2e;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .create-modal-header .btn-close-modal {
+        background: #f3f4f6;
+        border: none;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        color: #6b7280;
+        transition: all .15s;
+        font-size: .9rem;
+    }
+
+    .create-modal-header .btn-close-modal:hover {
+        background: #e5e7eb;
+        color: #374151;
+    }
+
+    .create-modal-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.5rem;
+    }
+
+    .create-modal-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        gap: .5rem;
+        justify-content: flex-end;
+    }
+
+    .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .85rem;
+    }
+
+    .form-field {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .form-field.full {
+        grid-column: span 2;
+    }
+
+    .form-field label {
+        font-size: .75rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .4px;
+        margin-bottom: .25rem;
+    }
+
+    .form-field input,
+    .form-field select,
+    .form-field textarea {
+        padding: .5rem .75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: .88rem;
+        color: #374151;
+        transition: all .15s;
+    }
+
+    .form-field input:focus,
+    .form-field select:focus,
+    .form-field textarea:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
+    }
+
+    .form-field .checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        padding: .5rem 0;
+    }
+
+    .btn-create {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .btn-create:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
+    }
+
+    .btn-create:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .btn-secondary-action {
+        background: #fff;
+        color: #374151;
+        border: 1px solid #d1d5db;
+        padding: .55rem 1.35rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .15s;
+    }
+
+    .btn-secondary-action:hover {
+        background: #f9fafb;
+    }
+
+    /* Reason highlight */
+    .reason-box {
+        background: #f8fafc;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: .75rem 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .reason-box strong {
+        color: #374151;
+        font-size: .82rem;
+    }
+
+    .reason-box p {
+        margin: 0;
+        color: #1a1a2e;
+        font-size: .88rem;
+    }
+
+    /* ── Empty / Loading ─────────────────────────────── */
+    .empty-state {
+        text-align: center;
+        padding: 3rem 1.5rem;
+        background: #fff;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+    }
+
+    .empty-icon {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: #f3f4f6;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 1rem;
+        font-size: 1.8rem;
+        color: #9ca3af;
+    }
+
+    .empty-state h6 {
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: .35rem;
+    }
+
+    .empty-state p {
+        color: #9ca3af;
+        font-size: .88rem;
+    }
+
+    .loading-state {
+        text-align: center;
+        padding: 3rem;
+        background: #fff;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+    }
+
+    /* ── Alert ───────────────────────────────────────── */
+    .alert-banner {
+        border-radius: 10px;
+        padding: .75rem 1rem;
+        display: flex;
+        align-items: flex-start;
+        gap: .6rem;
+        margin-bottom: 1rem;
+        font-size: .88rem;
+        animation: slideDown .3s ease;
+    }
+
+    .alert-banner.error-alert {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #991b1b;
+    }
+
+    /* ── Animations ──────────────────────────────────── */
+    @@keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+
+        to {
+            opacity: 1;
+        }
+    }
+
+    @@keyframes slideInRight {
+        from {
+            transform: translateX(100%);
+        }
+
+        to {
+            transform: translateX(0);
+        }
+    }
+
+    @@keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-6px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @@keyframes scaleIn {
+        from {
+            opacity: 0;
+            transform: scale(.95);
+        }
+
+        to {
+            opacity: 1;
+            transform: scale(1);
+        }
+    }
+
+    @@media (max-width:768px) {
+        .cn-header {
+            flex-direction: column;
+        }
+
+        .filter-bar {
+            flex-direction: column;
+        }
+
+        .detail-grid,
+        .form-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .form-field.full {
+            grid-column: span 1;
+        }
+    }
+</style>
+
+<div class="cn-page">
     <div class="container-fluid">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div class="d-flex align-items-center gap-3">
-                <div class="page-header-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.NoteAlt" />
-                </div>
+
+        <!-- ━━━ Header ━━━ -->
+        <div class="cn-header">
+            <div class="cn-header-left">
+                <div class="cn-header-icon"><i class="bi bi-file-earmark-minus"></i></div>
                 <div>
-                    <MudText Typo="Typo.h4" Class="fw-bold" Style="letter-spacing: -0.5px;">Credit Notes</MudText>
-                    <MudText Typo="Typo.body2" Color="Color.Secondary">Manage customer credits and adjustments</MudText>
+                    <h2>Credit Notes</h2>
+                    <p>Manage customer credits and adjustments</p>
                 </div>
             </div>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
-                       OnClick="@(() => showCreateModal = true)" Style="border-radius: 12px; text-transform: none; font-weight: 600; padding: 8px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                New Credit Note
-            </MudButton>
+            <button class="btn-cn-gradient" @onclick="@(() => showCreateModal = true)">
+                <i class="bi bi-plus-lg"></i> New Credit Note
+            </button>
         </div>
 
-        <!-- Filters -->
-        <div class="filter-panel">
-            <div class="filter-panel-header">
-                <MudIcon Icon="@Icons.Material.Filled.Tune" />
-                <MudText Typo="Typo.subtitle2" Style="color: white; font-weight: 600;">Search & Filter</MudText>
-            </div>
-            <div class="filter-panel-body">
-                <MudGrid Spacing="3">
-                    <MudItem xs="12" md="2">
-                        <MudTextField T="string" @bind-Value="creditNoteNumberFilter" @bind-Value:after="OnFilterChanged"
-                                      Label="Credit Note #" Variant="Variant.Filled" Margin="Margin.Dense"
-                                      Placeholder="e.g., CN-001" Immediate="true" Clearable="true"
-                                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Tag" />
-                    </MudItem>
-                    <MudItem xs="12" md="2">
-                        <MudTextField T="string" @bind-Value="customerFilter" @bind-Value:after="OnFilterChanged"
-                                      Label="Customer" Variant="Variant.Filled" Margin="Margin.Dense"
-                                      Placeholder="Customer code" Immediate="true" Clearable="true"
-                                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Person" />
-                    </MudItem>
-                    <MudItem xs="12" md="2">
-                        <MudSelect T="string" @bind-Value="statusFilter" @bind-Value:after="OnFilterChanged" Label="Status"
-                                   Variant="Variant.Filled" Margin="Margin.Dense" AnchorOrigin="Origin.BottomCenter"
-                                   AdornmentIcon="@Icons.Material.Filled.Flag">
-                            <MudSelectItem T="string" Value="@("")">All Statuses</MudSelectItem>
-                            @foreach (CreditNoteStatus status in Enum.GetValues(typeof(CreditNoteStatus)))
-                            {
-                                <MudSelectItem T="string" Value="@(((int)status).ToString())">@status</MudSelectItem>
-                            }
-                        </MudSelect>
-                    </MudItem>
-                    <MudItem xs="12" md="2">
-                        <FlexibleDatePicker Label="From Date" Date="fromDate" DateChanged="OnFromDateChanged" Variant="Variant.Filled" Class="w-100" />
-                    </MudItem>
-                    <MudItem xs="12" md="2">
-                        <FlexibleDatePicker Label="To Date" Date="toDate" DateChanged="OnToDateChanged" Variant="Variant.Filled" Class="w-100" />
-                    </MudItem>
-                    <MudItem xs="12" md="2" Class="d-flex align-items-end filter-actions">
-                        <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Clear"
-                                   OnClick="ClearFilter">Clear</MudButton>
-                    </MudItem>
-                </MudGrid>
-            </div>
-        </div>
-
-        @if (isLoading)
+        <!-- ━━━ Alerts ━━━ -->
+        @if (!string.IsNullOrEmpty(errorMessage))
         {
-            <div class="d-flex flex-column align-items-center py-5">
-                <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
-                <MudText Typo="Typo.body2" Class="mt-2">Loading credit notes...</MudText>
+            <div class="alert-banner error-alert">
+                <i class="bi bi-exclamation-octagon-fill"></i>
+                <div style="flex:1;">@errorMessage</div>
+                <button style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;"
+                        @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
             </div>
         }
-        else if (errorMessage != null)
+
+        <!-- ━━━ Filter Bar ━━━ -->
+        <div class="filter-bar">
+            <div class="filter-field">
+                <label>Credit Note #</label>
+                <input type="text" @bind="creditNoteNumberFilter" @bind:event="oninput" @bind:after="OnFilterChanged"
+                       placeholder="e.g., CN-001" />
+            </div>
+            <div class="filter-field">
+                <label>Customer</label>
+                <input type="text" @bind="customerFilter" @bind:event="oninput" @bind:after="OnFilterChanged"
+                       placeholder="Customer code" />
+            </div>
+            <div class="filter-field">
+                <label>Status</label>
+                <select @bind="statusFilter" @bind:after="OnFilterChanged">
+                    <option value="">All Statuses</option>
+                    @foreach (CreditNoteStatus status in Enum.GetValues(typeof(CreditNoteStatus)))
+                    {
+                        <option value="@(((int)status).ToString())">@status</option>
+                    }
+                </select>
+            </div>
+            <div class="filter-field">
+                <label>From Date</label>
+                <input type="date" @bind="fromDate" @bind:after="OnFilterChanged" />
+            </div>
+            <div class="filter-field">
+                <label>To Date</label>
+                <input type="date" @bind="toDate" @bind:after="OnFilterChanged" />
+            </div>
+            <div class="filter-actions-row">
+                <button class="btn-clear" @onclick="ClearFilter">
+                    <i class="bi bi-x-circle"></i> Clear
+                </button>
+            </div>
+        </div>
+
+        <!-- ━━━ Content ━━━ -->
+        @if (isLoading)
         {
-            <MudAlert Severity="Severity.Error" Class="mb-4">@errorMessage</MudAlert>
+            <div class="loading-state">
+                <div class="spinner-border" style="color:#667eea;width:2.5rem;height:2.5rem;" role="status"></div>
+                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading credit notes...</p>
+            </div>
         }
         else if (creditNotes?.Any() == true)
         {
-            <MudTable Items="@creditNotes" Hover="true" Striped="true" Dense="true"
-                      Filter="new Func<CreditNoteDto, bool>(_quickFilter)"      Breakpoint="Breakpoint.Sm" Loading="@isLoading"
-                      LoadingProgressColor="Color.Primary">
-                <HeaderContent>
-                    <MudTh>Credit Note #</MudTh>
-                    <MudTh>Customer</MudTh>
-                    <MudTh>Date</MudTh>
-                    <MudTh>Type</MudTh>
-                    <MudTh>Status</MudTh>
-                    <MudTh>Reason</MudTh>
-                    <MudTh Style="text-align:right">Total</MudTh>
-                    <MudTh Style="text-align:right">Balance</MudTh>
-                    <MudTh>Actions</MudTh>
-                </HeaderContent>
-                <RowTemplate>
-                    <MudTd DataLabel="Credit Note #"><strong>@FormatCreditNoteNumber(context.CreditNoteNumber)</strong>
-                    </MudTd>
-                    <MudTd DataLabel="Customer">
-                        <MudChip T="string" Size="Size.Small" Color="Color.Default">@context.CardCode</MudChip>
-                        <small class="d-block text-muted">@context.CardName</small>
-                    </MudTd>
-                    <MudTd DataLabel="Date">@context.CreditNoteDate.ToString("dd MMM yyyy")</MudTd>
-                    <MudTd DataLabel="Type">
-                        <span class="badge @GetTypeBadgeClass(context.Type)">@context.TypeName</span>
-                    </MudTd>
-                    <MudTd DataLabel="Status">
-                        <span class="badge @GetStatusBadgeClass(context.Status)">@context.StatusName</span>
-                    </MudTd>
-                    <MudTd DataLabel="Reason">
-                        <span title="@context.Reason">@TruncateText(context.Reason, 30)</span>
-                    </MudTd>
-                    <MudTd DataLabel="Total" Style="text-align:right"><strong>@context.DocTotal.ToString("N2")</strong>
-                    </MudTd>
-                    <MudTd DataLabel="Balance"
-                           Style="@($"text-align:right; color: {(context.Balance > 0 ? "var(--mud-palette-warning)" : "var(--mud-palette-success)")}")">
-                        @context.Balance.ToString("N2")
-                    </MudTd>
-                    <MudTd DataLabel="Actions">
-                        <MudIconButton Icon="@Icons.Material.Filled.Visibility" Color="Color.Primary" Size="Size.Small"
-                                       OnClick="() => ViewCreditNote(context)" Title="View Details" />
-                        @if (context.Status == CreditNoteStatus.Pending)
-                        {
-                            <MudIconButton Icon="@Icons.Material.Filled.Check" Color="Color.Success" Size="Size.Small"
-                                           OnClick="() => ApproveCreditNote(context.Id)" Title="Approve" />
-                        }
-                        @if (context.Status == CreditNoteStatus.Draft || context.Status == CreditNoteStatus.Cancelled)
-                        {
-                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
-                                           OnClick="() => DeleteCreditNote(context.Id)" Title="Delete" />
-                        }
-                    </MudTd>
-                </RowTemplate>
-                <PagerContent>
-                    <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
-                </PagerContent>
-            </MudTable>
-        }
-        else
-        {
-            <MudAlert Severity="Severity.Info" Class="mb-4">No credit notes found.</MudAlert>
-        }
-    </div>
-</div>
-
-<!-- View Credit Note Modal -->
-@if (selectedCreditNote != null)
-{
-    <div class="modal-backdrop fade show" @onclick="() => selectedCreditNote = null"></div>
-    <div class="modal fade show d-block" tabindex="-1" style="z-index: 1055;">
-        <div class="modal-dialog modal-lg modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">
-                        <i class="bi bi-file-earmark-minus me-2"></i>Credit Note: @selectedCreditNote.CreditNoteNumber
-                    </h5>
-                    <button type="button" class="btn-close" @onclick="() => selectedCreditNote = null"></button>
+            <div class="cn-table-wrap">
+                <div class="cn-table-header">
+                    <h6><i class="bi bi-table"></i> Credit Notes</h6>
+                    <span class="cn-count-badge">@totalCount total</span>
                 </div>
-                <div class="modal-body">
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <p><strong>Customer:</strong> @selectedCreditNote.CardCode - @selectedCreditNote.CardName</p>
-                            <p><strong>Date:</strong> @selectedCreditNote.CreditNoteDate.ToString("dd MMM yyyy")</p>
-                            <p><strong>Type:</strong> <span
-                                class="badge @GetTypeBadgeClass(selectedCreditNote.Type)">@selectedCreditNote.TypeName</span>
-                            </p>
+                <MudTable @ref="@_table" Items="@creditNotes" RowsPerPage="10" Hover="true" Striped="true" Dense="true"
+                          Filter="new Func<CreditNoteDto, bool>(_quickFilter)" Breakpoint="Breakpoint.Sm" Loading="@isLoading"
+                          LoadingProgressColor="Color.Primary" T="CreditNoteDto" Elevation="0" Style="background:transparent;">
+                    <HeaderContent>
+                        <MudTh>Credit Note #</MudTh>
+                        <MudTh>Customer</MudTh>
+                        <MudTh>Date</MudTh>
+                        <MudTh>Type</MudTh>
+                        <MudTh>Status</MudTh>
+                        <MudTh>Reason</MudTh>
+                        <MudTh Style="text-align:right">Total</MudTh>
+                        <MudTh Style="text-align:right">Balance</MudTh>
+                        <MudTh Style="width:100px">Actions</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Credit Note #"><span
+                            class="cn-number">@FormatCreditNoteNumber(context.CreditNoteNumber)</span></MudTd>
+                            <MudTd DataLabel="Customer">
+                                <div class="customer-info">
+                                    <span class="name">@context.CardName</span>
+                                    <span class="code">@context.CardCode</span>
+                                </div>
+                            </MudTd>
+                            <MudTd DataLabel="Date"><span
+                                style="font-size:.85rem;color:#374151;">@context.CreditNoteDate.ToString("dd MMM yyyy")</span></MudTd>
+                                <MudTd DataLabel="Type">
+                                    <span class="type-badge @GetTypeCssClass(context.Type)">@context.TypeName</span>
+                                </MudTd>
+                                <MudTd DataLabel="Status">
+                                    <span class="status-badge @GetStatusCssClass(context.Status)">@context.StatusName</span>
+                                </MudTd>
+                                <MudTd DataLabel="Reason">
+                                    <span title="@context.Reason"
+                                          style="font-size:.85rem;color:#6b7280;">@TruncateText(context.Reason, 30)</span>
+                                </MudTd>
+                                <MudTd DataLabel="Total" Style="text-align:right">
+                                    <span class="amount-cell">@context.DocTotal.ToString("N2")</span>
+                                </MudTd>
+                                <MudTd DataLabel="Balance" Style="text-align:right">
+                                    <span
+                                    class="balance-cell @(context.Balance > 0 ? "has-balance" : "zero")">@context.Balance.ToString("N2")</span>
+                                </MudTd>
+                                <MudTd DataLabel="Actions">
+                                    <div style="display:flex;gap:.3rem;">
+                                        <button class="action-btn view" @onclick="() => ViewCreditNote(context)"
+                                                title="View Details">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                        @if (context.Status == CreditNoteStatus.Pending)
+                                        {
+                                            <button class="action-btn approve" @onclick="() => ApproveCreditNote(context.Id)"
+                                                    title="Approve">
+                                                <i class="bi bi-check-lg"></i>
+                                            </button>
+                                        }
+                                        @if (context.Status == CreditNoteStatus.Draft || context.Status ==
+                                                                    CreditNoteStatus.Cancelled)
+                                        {
+                                            <button class="action-btn delete" @onclick="() => DeleteCreditNote(context.Id)"
+                                                    title="Delete">
+                                                <i class="bi bi-trash3"></i>
+                                            </button>
+                                        }
+                                    </div>
+                                </MudTd>
+                            </RowTemplate>
+                            <PagerContent>
+                                <MudPagination SelectedChanged="PageChanged"
+                                               Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
+                                               Class="pa-4" />
+                            </PagerContent>
+                        </MudTable>
+                    </div>
+                }
+        else
+                {
+                    <div class="empty-state">
+                        <div class="empty-icon"><i class="bi bi-file-earmark-minus"></i></div>
+                        <h6>No credit notes found</h6>
+                        <p>Create a new credit note or adjust your filters.</p>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- ━━━ View Credit Note Drawer ━━━ -->
+        @if (selectedCreditNote != null)
+        {
+            <div class="modal-backdrop-custom" @onclick="() => selectedCreditNote = null"></div>
+            <div class="detail-drawer">
+                <div class="drawer-header">
+                    <h5><i class="bi bi-file-earmark-minus me-2"></i>Credit Note: @selectedCreditNote.CreditNoteNumber</h5>
+                    <button class="btn-close-drawer" @onclick="() => selectedCreditNote = null"><i class="bi bi-x-lg"></i></button>
+                </div>
+                <div class="drawer-body">
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <div class="detail-label">Customer</div>
+                            <div class="detail-value">@selectedCreditNote.CardCode — @selectedCreditNote.CardName</div>
                         </div>
-                        <div class="col-md-6">
-                            <p><strong>Status:</strong> <span
-                                class="badge @GetStatusBadgeClass(selectedCreditNote.Status)">@selectedCreditNote.StatusName</span>
-                            </p>
-                            <p><strong>Currency:</strong> @selectedCreditNote.Currency</p>
-                            <p><strong>Restock Items:</strong> @(selectedCreditNote.RestockItems ? "Yes" : "No")</p>
+                        <div class="detail-item">
+                            <div class="detail-label">Date</div>
+                            <div class="detail-value">@selectedCreditNote.CreditNoteDate.ToString("dd MMM yyyy")</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Type</div>
+                            <div class="detail-value"><span
+                                class="type-badge @GetTypeCssClass(selectedCreditNote.Type)">@selectedCreditNote.TypeName</span>
+                            </div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Status</div>
+                            <div class="detail-value"><span
+                                class="status-badge @GetStatusCssClass(selectedCreditNote.Status)">@selectedCreditNote.StatusName</span>
+                            </div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Currency</div>
+                            <div class="detail-value">@selectedCreditNote.Currency</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Restock Items</div>
+                            <div class="detail-value">@(selectedCreditNote.RestockItems ? "Yes" : "No")</div>
                         </div>
                     </div>
 
                     @if (!string.IsNullOrEmpty(selectedCreditNote.Reason))
                     {
-                        <div class="alert alert-secondary">
-                            <strong>Reason:</strong> @selectedCreditNote.Reason
+                        <div class="reason-box">
+                            <strong>Reason</strong>
+                            <p>@selectedCreditNote.Reason</p>
                         </div>
                     }
 
                     @if (selectedCreditNote.Lines?.Any() == true)
                     {
-                        <h6>Credit Note Lines</h6>
-                        <table class="table table-sm">
+                        <div class="detail-section-title"><i class="bi bi-list-ul"></i> Credit Note Lines</div>
+                        <table class="lines-table">
                             <thead>
                                 <tr>
                                     <th>Item</th>
                                     <th>Description</th>
-                                    <th class="text-end">Qty</th>
-                                    <th class="text-end">Unit Price</th>
-                                    <th class="text-end">Total</th>
-                                    <th>Restocked</th>
+                                    <th style="text-align:right">Qty</th>
+                                    <th style="text-align:right">Unit Price</th>
+                                    <th style="text-align:right">Total</th>
+                                    <th style="text-align:center">Restocked</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach (var line in selectedCreditNote.Lines)
                                 {
                                     <tr>
-                                        <td>@line.ItemCode</td>
+                                        <td><span style="font-weight:600;color:#667eea;">@line.ItemCode</span></td>
                                         <td>@line.ItemDescription</td>
-                                        <td class="text-end">@line.Quantity</td>
-                                        <td class="text-end">@line.UnitPrice.ToString("N2")</td>
-                                        <td class="text-end">@line.LineTotal.ToString("N2")</td>
-                                        <td>
+                                        <td style="text-align:right;font-weight:600;">@line.Quantity</td>
+                                        <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
+                                        <td style="text-align:right;font-weight:600;">@line.LineTotal.ToString("N2")</td>
+                                        <td style="text-align:center;">
                                             @if (line.IsRestocked)
                                             {
-                                                <i class="bi bi-check-circle text-success"></i>
+                                                <i class="bi bi-check-circle-fill" style="color:#059669;"></i>
                                             }
                                             else
                                             {
-                                                <i class="bi bi-x-circle text-muted"></i>
+                                                <i class="bi bi-dash-circle" style="color:#d1d5db;"></i>
                                             }
                                         </td>
                                     </tr>
@@ -224,108 +1096,99 @@
                             </tbody>
                             <tfoot>
                                 <tr>
-                                    <td colspan="4" class="text-end"><strong>Subtotal:</strong></td>
-                                    <td class="text-end">@selectedCreditNote.SubTotal.ToString("N2")</td>
+                                    <td colspan="4" style="text-align:right;font-weight:600;">Subtotal:</td>
+                                    <td style="text-align:right;font-weight:600;">@selectedCreditNote.SubTotal.ToString("N2")</td>
                                     <td></td>
                                 </tr>
                                 <tr>
-                                    <td colspan="4" class="text-end"><strong>Tax:</strong></td>
-                                    <td class="text-end">@selectedCreditNote.TaxAmount.ToString("N2")</td>
-                                    <td></td>
-                                </tr>
-                                <tr>
-                                    <td colspan="4" class="text-end"><strong>Total:</strong></td>
-                                    <td class="text-end"><strong>@selectedCreditNote.DocTotal.ToString("N2")</strong></td>
+                                    <td colspan="4" style="text-align:right;font-weight:600;">Tax:</td>
+                                    <td style="text-align:right;">@selectedCreditNote.TaxAmount.ToString("N2")</td>
                                     <td></td>
                                 </tr>
                             </tfoot>
                         </table>
+
+                        <div class="total-banner">
+                            <span class="total-label">Total</span>
+                            <span class="total-value">@selectedCreditNote.DocTotal.ToString("N2")</span>
+                        </div>
                     }
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary"
-                            @onclick="() => selectedCreditNote = null">Close</button>
+                <div class="drawer-footer">
+                    <button class="btn-secondary-action" @onclick="() => selectedCreditNote = null">Close</button>
                 </div>
             </div>
-        </div>
-    </div>
-}
+        }
 
-<!-- Create Credit Note Modal -->
-@if (showCreateModal)
-{
-    <div class="modal-backdrop fade show" @onclick="() => showCreateModal = false"></div>
-    <div class="modal fade show d-block" tabindex="-1" style="z-index: 1055;">
-        <div class="modal-dialog modal-lg modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>New Credit Note</h5>
-                    <button type="button" class="btn-close" @onclick="() => showCreateModal = false"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Customer Code *</label>
-                            <input type="text" class="form-control" @bind="newCreditNote.CardCode"
-                                   placeholder="e.g., C001" />
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Customer Name</label>
-                            <input type="text" class="form-control" @bind="newCreditNote.CardName" />
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Type</label>
-                            <select class="form-select" @bind="newCreditNote.Type">
-                                @foreach (CreditNoteType type in Enum.GetValues(typeof(CreditNoteType)))
-                                {
-                                    <option value="@type">@type</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Currency</label>
-                            <select class="form-select" @bind="newCreditNote.Currency">
-                                <option value="USD">USD</option>
-                                <option value="ZIG">ZIG</option>
-                            </select>
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label">Reason *</label>
-                            <textarea class="form-control" @bind="newCreditNote.Reason" rows="2"
-                                      placeholder="Reason for credit note"></textarea>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" @bind="newCreditNote.RestockItems"
-                                       id="restockCheck">
-                                    <label class="form-check-label" for="restockCheck">
-                                        Restock Items
-                                    </label>
+        <!-- ━━━ Create Credit Note Modal ━━━ -->
+        @if (showCreateModal)
+        {
+            <div class="create-modal-overlay" @onclick="() => showCreateModal = false">
+                <div class="create-modal" @onclick:stopPropagation="true">
+                    <div class="create-modal-header">
+                        <h5><i class="bi bi-plus-circle"></i> New Credit Note</h5>
+                        <button class="btn-close-modal" @onclick="() => showCreateModal = false"><i class="bi bi-x-lg"></i></button>
+                    </div>
+                    <div class="create-modal-body">
+                        <div class="form-grid">
+                            <div class="form-field">
+                                <label>Customer Code *</label>
+                                <input type="text" @bind="newCreditNote.CardCode" placeholder="e.g., C001" />
+                            </div>
+                            <div class="form-field">
+                                <label>Customer Name</label>
+                                <input type="text" @bind="newCreditNote.CardName" />
+                            </div>
+                            <div class="form-field">
+                                <label>Type</label>
+                                <select @bind="newCreditNote.Type">
+                                    @foreach (CreditNoteType type in Enum.GetValues(typeof(CreditNoteType)))
+                                    {
+                                        <option value="@type">@type</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="form-field">
+                                <label>Currency</label>
+                                <select @bind="newCreditNote.Currency">
+                                    <option value="USD">USD</option>
+                                    <option value="ZIG">ZIG</option>
+                                </select>
+                            </div>
+                            <div class="form-field full">
+                                <label>Reason *</label>
+                                <textarea @bind="newCreditNote.Reason" rows="2" placeholder="Reason for credit note"></textarea>
+                            </div>
+                            <div class="form-field">
+                                <label>Options</label>
+                                <div class="checkbox-row">
+                                    <input type="checkbox" @bind="newCreditNote.RestockItems" id="restockCheck" />
+                                    <label for="restockCheck" style="text-transform:none;font-size:.88rem;color:#374151;">Restock
+                                        Items</label>
+                                    </div>
+                                </div>
+                                <div class="form-field">
+                                    <label>Restock Warehouse</label>
+                                    <input type="text" @bind="newCreditNote.RestockWarehouseCode" placeholder="Warehouse code" />
                                 </div>
                             </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Restock Warehouse</label>
-                                <input type="text" class="form-control" @bind="newCreditNote.RestockWarehouseCode"
-                                       placeholder="Warehouse code" />
-                            </div>
+                        </div>
+                        <div class="create-modal-footer">
+                            <button class="btn-secondary-action" @onclick="() => showCreateModal = false">Cancel</button>
+                            <button class="btn-create" @onclick="CreateCreditNote" disabled="@isCreating">
+                                @if (isCreating)
+                                {
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                }
+                                <span>Create Credit Note</span>
+                            </button>
                         </div>
                     </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" @onclick="() => showCreateModal = false">Cancel</button>
-                        <button type="button" class="btn btn-primary" @onclick="CreateCreditNote" disabled="@isCreating">
-                            @if (isCreating)
-                            {
-                                <span class="spinner-border spinner-border-sm me-1"></span>
-                            }
-                            Create Credit Note
-                        </button>
-                    </div>
                 </div>
-            </div>
-        </div>
-    }
+            }
 
 @code {
+    private MudTable<CreditNoteDto>? _table;
     private List<CreditNoteDto>? creditNotes;
     private CreditNoteDto? selectedCreditNote;
     private bool isLoading = true;
@@ -340,7 +1203,7 @@
     private DateTime? fromDate;
     private DateTime? toDate;
 
-    // Debounce timer for real-time filtering
+    // Debounce timer
     private System.Timers.Timer? debounceTimer;
     private const int DebounceDelay = 400;
 
@@ -353,13 +1216,17 @@
     // New credit note
     private CreateCreditNoteRequest newCreditNote = new();
 
-    // Quick filter for MudTable
     private bool _quickFilter(CreditNoteDto note)
     {
         if (!string.IsNullOrWhiteSpace(creditNoteNumberFilter)
-            && !(note.CreditNoteNumber?.Contains(creditNoteNumberFilter, StringComparison.OrdinalIgnoreCase) == true))
+        && !(note.CreditNoteNumber?.Contains(creditNoteNumberFilter, StringComparison.OrdinalIgnoreCase) == true))
             return false;
         return true;
+    }
+
+    private void PageChanged(int i)
+    {
+        _table.NavigateTo(i - 1);
     }
 
     protected override async Task OnInitializedAsync()
@@ -414,31 +1281,13 @@
             debounceTimer?.Stop();
             await InvokeAsync(async () =>
     {
-        currentPage = 1;
-        await LoadCreditNotes();
-        StateHasChanged();
-    });
+            currentPage = 1;
+            await LoadCreditNotes();
+            StateHasChanged();
+        });
         };
         debounceTimer.AutoReset = false;
         debounceTimer.Start();
-    }
-
-    private void OnFromDateChanged(DateTime? date)
-    {
-        fromDate = date;
-        OnFilterChanged();
-    }
-
-    private void OnToDateChanged(DateTime? date)
-    {
-        toDate = date;
-        OnFilterChanged();
-    }
-
-    private async Task OnPageSizeChanged()
-    {
-        currentPage = 1;
-        await LoadCreditNotes();
     }
 
     private async Task ClearFilter()
@@ -450,20 +1299,6 @@
         toDate = null;
         currentPage = 1;
         await LoadCreditNotes();
-    }
-
-    private async Task OnPageChanged(int page)
-    {
-        await GoToPage(page);
-    }
-
-    private async Task GoToPage(int page)
-    {
-        if (page >= 1 && page <= totalPages)
-        {
-            currentPage = page;
-            await LoadCreditNotes();
-        }
     }
 
     private void ViewCreditNote(CreditNoteDto note)
@@ -513,37 +1348,36 @@
         }
     }
 
-    private string GetStatusBadgeClass(CreditNoteStatus status) => status switch
+    private string GetStatusCssClass(CreditNoteStatus status) => status switch
     {
-        CreditNoteStatus.Draft => "bg-secondary",
-        CreditNoteStatus.Pending => "bg-warning text-dark",
-        CreditNoteStatus.Approved => "bg-success",
-        CreditNoteStatus.Applied => "bg-primary",
-        CreditNoteStatus.PartiallyApplied => "bg-info",
-        CreditNoteStatus.Cancelled => "bg-danger",
-        CreditNoteStatus.Voided => "bg-dark",
-        _ => "bg-secondary"
+        CreditNoteStatus.Draft => "draft",
+        CreditNoteStatus.Pending => "pending",
+        CreditNoteStatus.Approved => "approved",
+        CreditNoteStatus.Applied => "applied",
+        CreditNoteStatus.PartiallyApplied => "partial",
+        CreditNoteStatus.Cancelled => "cancelled",
+        CreditNoteStatus.Voided => "voided",
+        _ => "draft"
     };
 
-    private string GetTypeBadgeClass(CreditNoteType type) => type switch
+    private string GetTypeCssClass(CreditNoteType type) => type switch
     {
-        CreditNoteType.Return => "bg-info",
-        CreditNoteType.Refund => "bg-success",
-        CreditNoteType.Adjustment => "bg-warning text-dark",
-        CreditNoteType.Cancellation => "bg-danger",
-        _ => "bg-secondary"
+        CreditNoteType.Return => "return",
+        CreditNoteType.Refund => "refund",
+        CreditNoteType.Adjustment => "adjustment",
+        CreditNoteType.Cancellation => "cancellation",
+        _ => ""
     };
 
     private string TruncateText(string? text, int maxLength)
     {
-        if (string.IsNullOrEmpty(text)) return "-";
+        if (string.IsNullOrEmpty(text)) return "—";
         return text.Length <= maxLength ? text : text.Substring(0, maxLength) + "...";
     }
 
     private string FormatCreditNoteNumber(string? creditNoteNumber)
     {
-        if (string.IsNullOrEmpty(creditNoteNumber)) return "-";
-        // Remove SAP-CN prefix if present
+        if (string.IsNullOrEmpty(creditNoteNumber)) return "—";
         if (creditNoteNumber.StartsWith("SAP-CN", StringComparison.OrdinalIgnoreCase))
         {
             return creditNoteNumber.Substring(6).TrimStart('-', ' ');

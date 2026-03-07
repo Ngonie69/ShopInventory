@@ -46,6 +46,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
     private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
     private static readonly HashSet<string> _syncInProgress = new();
     private static readonly object _syncLock = new();
+    private static readonly SemaphoreSlim _backgroundSyncSemaphore = new(1, 1);
 
     public event EventHandler<string>? SyncCompleted;
 
@@ -108,7 +109,18 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                 // Trigger background sync if cache is stale
                 if (isCacheStale)
                 {
-                    _ = Task.Run(async () => await SyncWarehouseStockInBackgroundAsync(warehouseCode));
+                    _ = Task.Run(async () =>
+                    {
+                        await _backgroundSyncSemaphore.WaitAsync();
+                        try
+                        {
+                            await SyncWarehouseStockInBackgroundAsync(warehouseCode);
+                        }
+                        finally
+                        {
+                            _backgroundSyncSemaphore.Release();
+                        }
+                    });
                 }
 
                 return response;
@@ -140,7 +152,18 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                 await SaveStockToCacheAsync(warehouseCode, apiResponse.Items);
 
                 // Start background sync for remaining items
-                _ = Task.Run(async () => await SyncRemainingStockInBackgroundAsync(warehouseCode, apiResponse.HasMore));
+                _ = Task.Run(async () =>
+                {
+                    await _backgroundSyncSemaphore.WaitAsync();
+                    try
+                    {
+                        await SyncRemainingStockInBackgroundAsync(warehouseCode, apiResponse.HasMore);
+                    }
+                    finally
+                    {
+                        _backgroundSyncSemaphore.Release();
+                    }
+                });
 
                 return new WarehouseProductsPagedResponse
                 {
@@ -188,7 +211,18 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                 // Trigger background sync if cache is stale
                 if (isCacheStale)
                 {
-                    _ = Task.Run(async () => await SyncWarehouseStockInBackgroundAsync(warehouseCode));
+                    _ = Task.Run(async () =>
+                    {
+                        await _backgroundSyncSemaphore.WaitAsync();
+                        try
+                        {
+                            await SyncWarehouseStockInBackgroundAsync(warehouseCode);
+                        }
+                        finally
+                        {
+                            _backgroundSyncSemaphore.Release();
+                        }
+                    });
                 }
 
                 return new WarehouseProductsResponse
@@ -218,7 +252,18 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                 await SaveStockToCacheAsync(warehouseCode, firstPage.Items);
 
                 // Start background sync for remaining items
-                _ = Task.Run(async () => await SyncRemainingStockInBackgroundAsync(warehouseCode, firstPage.HasMore));
+                _ = Task.Run(async () =>
+                {
+                    await _backgroundSyncSemaphore.WaitAsync();
+                    try
+                    {
+                        await SyncRemainingStockInBackgroundAsync(warehouseCode, firstPage.HasMore);
+                    }
+                    finally
+                    {
+                        _backgroundSyncSemaphore.Release();
+                    }
+                });
 
                 var products = firstPage.Items.Select(MapStockToProduct).ToList();
                 return new WarehouseProductsResponse
