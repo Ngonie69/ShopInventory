@@ -846,7 +846,7 @@
                         <i class="bi bi-clock-history"></i> Synced @lastSyncTime.Value.ToLocalTime().ToString("g")
                     </span>
                 }
-                <button class="btn-cust-outline" @onclick="RefreshFromApi" disabled="@isSyncing">
+                <MudButton Class="btn-cust-outline" OnClick="RefreshFromApi" Disabled="@isSyncing">
                     @if (isSyncing)
                     {
                         <span class="spinner-border spinner-border-sm"></span>
@@ -857,335 +857,336 @@
                         <i class="bi bi-arrow-clockwise"></i>
                         <span>Refresh</span>
                     }
-                </button>
+                </MudButton>
                 <div class="type-toggle">
-                    <button class="@(selectedType == "C" ? "active" : "")"
-                            @onclick='() => FilterByType("C")'>Customers</button>
-                    <button class="@(selectedType == "S" ? "active" : "")"
-                            @onclick='() => FilterByType("S")'>Suppliers</button>
-                    <button class="@(selectedType == "" ? "active" : "")" @onclick='() => FilterByType("")'>All</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- ━━━ Alerts ━━━ -->
-        @if (!string.IsNullOrEmpty(errorMessage))
-        {
-            <div class="alert-banner error-alert">
-                <i class="bi bi-exclamation-octagon-fill"></i>
-                <div style="flex:1;">@errorMessage</div>
-                <button style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;"
-                        @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
-            </div>
-        }
-
-        <!-- ━━━ Stat Cards ━━━ -->
-        @if (customers?.Any() == true)
-        {
-            <div class="stat-row">
-                <div class="stat-card">
-                    <div class="stat-icon purple"><i class="bi bi-people-fill"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@customers.Count(c => c.CardType == "C")</div>
-                        <div class="stat-label">Customers</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon blue"><i class="bi bi-truck"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@customers.Count(c => c.CardType == "S")</div>
-                        <div class="stat-label">Suppliers</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon green"><i class="bi bi-check-circle-fill"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@customers.Count(c => c.IsActive)</div>
-                        <div class="stat-label">Active</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon amber"><i class="bi bi-cash-coin"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@customers.Where(c => c.Balance > 0).Sum(c => c.Balance ?? 0).ToString("N0")
+                    <MudButton Class="@(selectedType == "C" ? "active" : "")"                               OnClick='() => FilterByType("C")'>
+                        Customers</MudButton>
+                        <MudButton Class="@(selectedType == "S" ? "active" : "")"                               OnClick='() => FilterByType("S")'>
+                            Suppliers</MudButton>
+                            <MudButton Class="@(selectedType == "" ? "active" : "")" OnClick='() => FilterByType("")'>All
+                            </MudButton>
                         </div>
-                        <div class="stat-label">Total Outstanding</div>
                     </div>
                 </div>
-            </div>
-        }
 
-        <!-- ━━━ Filter Bar ━━━ -->
-        <div class="filter-bar">
-            <div class="filter-field">
-                <label>Search</label>
-                <input type="text" @bind="searchTerm" @bind:event="oninput" @onkeyup="OnSearchKeyUp"
-                       placeholder="Search by code, name, or email..." />
-            </div>
-            <div class="filter-actions-row">
-                <button class="btn-search" @onclick="SearchCustomers">
-                    <i class="bi bi-search"></i> Search
-                </button>
-                @if (!string.IsNullOrEmpty(searchTerm))
+                <!-- ━━━ Alerts ━━━ -->
+                @if (!string.IsNullOrEmpty(errorMessage))
                 {
-                    <button class="btn-clear" @onclick="ClearSearch">
-                        <i class="bi bi-x-circle"></i> Clear
-                    </button>
+                    <div class="alert-banner error-alert">
+                        <i class="bi bi-exclamation-octagon-fill"></i>
+                        <div style="flex:1;">@errorMessage</div>
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" Style="color:inherit;opacity:.45;font-size:1rem;"
+                                       OnClick="() => errorMessage = null" />
+                    </div>
                 }
-            </div>
-        </div>
 
-        <!-- ━━━ Content ━━━ -->
-        @if (isLoading)
-        {
-            <div class="loading-state">
-                <div class="spinner-border" style="color:#667eea;width:2.5rem;height:2.5rem;" role="status"></div>
-                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading customers...</p>
-            </div>
-        }
-        else if (customers?.Any() == true)
-        {
-            <div class="cust-table-wrap">
-                <div class="cust-table-header">
-                    <h6><i class="bi bi-table"></i> Business Partners</h6>
-                    <div style="display:flex;align-items:center;gap:.75rem;">
-                        <span class="cust-count-badge">@totalCount total</span>
-                        <input type="text" class="table-quick-filter" @bind="_searchString" @bind:event="oninput"
-                               placeholder="Quick filter..." />
-                    </div>
-                </div>
-                <MudTable @ref="@_table" Items="@customers" RowsPerPage="10" Dense="true" Hover="true" Striped="true"
-                          Filter="new Func<BusinessPartnerDto, bool>(_quickFilter)" OnRowClick="@OnCustomerRowClicked"
-                          T="BusinessPartnerDto" Elevation="0" Style="background:transparent;">
-                    <HeaderContent>
-                        <MudTh>Code</MudTh>
-                        <MudTh>Name</MudTh>
-                        <MudTh>Type</MudTh>
-                        <MudTh>Contact</MudTh>
-                        <MudTh>Location</MudTh>
-                        <MudTh>Currency</MudTh>
-                        <MudTh Style="text-align:right">Balance</MudTh>
-                        <MudTh>Status</MudTh>
-                        <MudTh Style="width:80px">Actions</MudTh>
-                    </HeaderContent>
-                    <RowTemplate>
-                        <MudTd DataLabel="Code"><span class="customer-code">@context.CardCode</span></MudTd>
-                        <MudTd DataLabel="Name"><span class="customer-name">@context.CardName</span></MudTd>
-                        <MudTd DataLabel="Type">
-                            <span class="type-badge @GetTypeClass(context.CardType)">@GetTypeLabel(context.CardType)</span>
-                        </MudTd>
-                        <MudTd DataLabel="Contact">
-                            <div class="contact-cell">
-                                @if (!string.IsNullOrEmpty(context.Email))
-                                {
-                                    <a href="mailto:@context.Email">@context.Email</a>
-                                }
-                                @if (!string.IsNullOrEmpty(context.Phone1))
-                                {
-                                    <div class="phone"><i class="bi bi-telephone me-1"></i>@context.Phone1</div>
-                                }
+                <!-- ━━━ Stat Cards ━━━ -->
+                @if (customers?.Any() == true)
+                {
+                    <div class="stat-row">
+                        <div class="stat-card">
+                            <div class="stat-icon purple"><i class="bi bi-people-fill"></i></div>
+                            <div class="stat-info">
+                                <div class="stat-value">@customers.Count(c => c.CardType == "C")</div>
+                                <div class="stat-label">Customers</div>
                             </div>
-                        </MudTd>
-                        <MudTd DataLabel="Location">
-                            @if (!string.IsNullOrEmpty(context.City) || !string.IsNullOrEmpty(context.Country))
-                            {
-                                <span style="font-size:.85rem;">@context.City @context.Country</span>
-                            }
-                            else
-                            {
-                                <span style="color:#d1d5db;">—</span>
-                            }
-                        </MudTd>
-                        <MudTd DataLabel="Currency">
-                            <span
-                                style="font-size:.82rem;padding:.15rem .45rem;border-radius:4px;background:#f3f4f6;color:#374151;font-weight:600;">@(context.Currency
-                                                            ?? "USD")</span>
-                            </MudTd>
-                            <MudTd DataLabel="Balance" Style="text-align:right">
-                                <span class="@(context.Balance > 0 ? "balance-positive" : "balance-zero")">
-                                    @((context.Balance ?? 0).ToString("N2"))
-                                </span>
-                            </MudTd>
-                            <MudTd DataLabel="Status">
-                                @if (context.IsActive)
-                                {
-                                    <span class="status-badge active"><i class="bi bi-check-circle-fill"></i> Active</span>
-                                }
-                                else
-                                {
-                                    <span class="status-badge inactive">Inactive</span>
-                                }
-                            </MudTd>
-                            <MudTd DataLabel="Actions">
-                                <div style="display:flex;gap:.3rem;">
-                                    <button class="action-btn primary" @onclick="@(() => ViewCustomer(context))"
-                                            title="View Details">
-                                        <i class="bi bi-eye"></i>
-                                    </button>
-                                    <button class="action-btn info"
-                                            @onclick="@(() => NavigateToInvoices(context.CardCode ?? string.Empty))"
-                                            title="View Invoices">
-                                        <i class="bi bi-receipt"></i>
-                                    </button>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon blue"><i class="bi bi-truck"></i></div>
+                            <div class="stat-info">
+                                <div class="stat-value">@customers.Count(c => c.CardType == "S")</div>
+                                <div class="stat-label">Suppliers</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon green"><i class="bi bi-check-circle-fill"></i></div>
+                            <div class="stat-info">
+                                <div class="stat-value">@customers.Count(c => c.IsActive)</div>
+                                <div class="stat-label">Active</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon amber"><i class="bi bi-cash-coin"></i></div>
+                            <div class="stat-info">
+                                <div class="stat-value">@customers.Where(c => c.Balance > 0).Sum(c => c.Balance ?? 0).ToString("N0")
                                 </div>
-                            </MudTd>
-                        </RowTemplate>
-                        <PagerContent>
-                            <MudPagination SelectedChanged="PageChanged"
-                                           Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
-                                           Class="pa-4" />
-                        </PagerContent>
-                    </MudTable>
+                                <div class="stat-label">Total Outstanding</div>
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                <!-- ━━━ Filter Bar ━━━ -->
+                <div class="filter-bar">
+                    <div class="filter-field">
+                        <label>Search</label>
+                        <input type="text" @bind="searchTerm" @bind:event="oninput" @onkeyup="OnSearchKeyUp"
+                               placeholder="Search by code, name, or email..." />
+                    </div>
+                    <div class="filter-actions-row">
+                        <MudButton Class="btn-search" OnClick="SearchCustomers">
+                            <i class="bi bi-search"></i> Search
+                        </MudButton>
+                        @if (!string.IsNullOrEmpty(searchTerm))
+                        {
+                            <MudButton Class="btn-clear" OnClick="ClearSearch">
+                                <i class="bi bi-x-circle"></i> Clear
+                            </MudButton>
+                        }
+                    </div>
                 </div>
-            }
+
+                <!-- ━━━ Content ━━━ -->
+                @if (isLoading)
+                {
+                    <div class="loading-state">
+                        <div class="spinner-border" style="color:#667eea;width:2.5rem;height:2.5rem;" role="status"></div>
+                        <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading customers...</p>
+                    </div>
+                }
+                else if (customers?.Any() == true)
+                {
+                    <div class="cust-table-wrap">
+                        <div class="cust-table-header">
+                            <h6><i class="bi bi-table"></i> Business Partners</h6>
+                            <div style="display:flex;align-items:center;gap:.75rem;">
+                                <span class="cust-count-badge">@totalCount total</span>
+                                <input type="text" class="table-quick-filter" @bind="_searchString" @bind:event="oninput"
+                                       placeholder="Quick filter..." />
+                            </div>
+                        </div>
+                        <MudTable @ref="@_table" Items="@customers" RowsPerPage="10" Dense="true" Hover="true" Striped="true"
+                                  Filter="new Func<BusinessPartnerDto, bool>(_quickFilter)" OnRowClick="@OnCustomerRowClicked"
+                                  T="BusinessPartnerDto" Elevation="0" Style="background:transparent;">
+                            <HeaderContent>
+                                <MudTh>Code</MudTh>
+                                <MudTh>Name</MudTh>
+                                <MudTh>Type</MudTh>
+                                <MudTh>Contact</MudTh>
+                                <MudTh>Location</MudTh>
+                                <MudTh>Currency</MudTh>
+                                <MudTh Style="text-align:right">Balance</MudTh>
+                                <MudTh>Status</MudTh>
+                                <MudTh Style="width:80px">Actions</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Code"><span class="customer-code">@context.CardCode</span></MudTd>
+                                <MudTd DataLabel="Name"><span class="customer-name">@context.CardName</span></MudTd>
+                                <MudTd DataLabel="Type">
+                                    <span class="type-badge @GetTypeClass(context.CardType)">@GetTypeLabel(context.CardType)</span>
+                                </MudTd>
+                                <MudTd DataLabel="Contact">
+                                    <div class="contact-cell">
+                                        @if (!string.IsNullOrEmpty(context.Email))
+                                        {
+                                            <a href="mailto:@context.Email">@context.Email</a>
+                                        }
+                                        @if (!string.IsNullOrEmpty(context.Phone1))
+                                        {
+                                            <div class="phone"><i class="bi bi-telephone me-1"></i>@context.Phone1</div>
+                                        }
+                                    </div>
+                                </MudTd>
+                                <MudTd DataLabel="Location">
+                                    @if (!string.IsNullOrEmpty(context.City) || !string.IsNullOrEmpty(context.Country))
+                                    {
+                                        <span style="font-size:.85rem;">@context.City @context.Country</span>
+                                    }
+                                    else
+                                    {
+                                        <span style="color:#d1d5db;">—</span>
+                                    }
+                                </MudTd>
+                                <MudTd DataLabel="Currency">
+                                    <span
+                                        style="font-size:.82rem;padding:.15rem .45rem;border-radius:4px;background:#f3f4f6;color:#374151;font-weight:600;">@(context.Currency
+                                                                                                    ?? "USD")</span>
+                                    </MudTd>
+                                    <MudTd DataLabel="Balance" Style="text-align:right">
+                                        <span class="@(context.Balance > 0 ? "balance-positive" : "balance-zero")">
+                                            @((context.Balance ?? 0).ToString("N2"))
+                                        </span>
+                                    </MudTd>
+                                    <MudTd DataLabel="Status">
+                                        @if (context.IsActive)
+                                        {
+                                            <span class="status-badge active"><i class="bi bi-check-circle-fill"></i> Active</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="status-badge inactive">Inactive</span>
+                                        }
+                                    </MudTd>
+                                    <MudTd DataLabel="Actions">
+                                        <div style="display:flex;gap:.3rem;">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Visibility" Class="action-btn primary"
+                                                           OnClick="@(() => ViewCustomer(context))"                                           Title="View Details" />
+                                            <MudIconButton Icon="@Icons.Material.Filled.Receipt" Class="action-btn info"
+                                                           OnClick="@(() => NavigateToInvoices(context.CardCode ?? string.Empty))"
+                                                           Title="View Invoices" />
+                                        </div>
+                                    </MudTd>
+                                </RowTemplate>
+                                <PagerContent>
+                                    <MudPagination SelectedChanged="PageChanged"
+                                                   Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
+                                                   Class="pa-4" />
+                                </PagerContent>
+                            </MudTable>
+                        </div>
+                    }
         else
+                    {
+                        <div class="empty-state">
+                            <div class="empty-icon"><i class="bi bi-people"></i></div>
+                            <h6>No customers found</h6>
+                            <p>Try adjusting your search criteria or click Refresh to sync from server.</p>
+                            <MudButton Class="btn-search" OnClick="RefreshFromApi"><i class="bi bi-arrow-clockwise"></i> Refresh
+                            </MudButton>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- ━━━ Customer Detail Drawer ━━━ -->
+            @if (selectedCustomer != null)
             {
-                <div class="empty-state">
-                    <div class="empty-icon"><i class="bi bi-people"></i></div>
-                    <h6>No customers found</h6>
-                    <p>Try adjusting your search criteria or click Refresh to sync from server.</p>
-                    <button class="btn-search" @onclick="RefreshFromApi"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
-                </div>
-            }
-        </div>
-    </div>
-
-    <!-- ━━━ Customer Detail Drawer ━━━ -->
-    @if (selectedCustomer != null)
-    {
-        <div class="modal-backdrop-custom" @onclick="() => selectedCustomer = null"></div>
-        <div class="detail-drawer">
-            <div class="drawer-header">
-                <h5><i class="bi bi-person-badge"></i> @selectedCustomer.CardName</h5>
-                <button class="btn-close-drawer" @onclick="() => selectedCustomer = null"><i class="bi bi-x-lg"></i></button>
-            </div>
-            <div class="drawer-body">
-                <!-- Statement Generator -->
-                <div class="stmt-row">
-                    <div class="stmt-field">
-                        <label>Statement From</label>
-                        <input type="date" @bind="statementFromDate" />
+                <div class="modal-backdrop-custom" @onclick="() => selectedCustomer = null"></div>
+                <div class="detail-drawer">
+                    <div class="drawer-header">
+                        <h5><i class="bi bi-person-badge"></i> @selectedCustomer.CardName</h5>
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer"
+                                       OnClick="() => selectedCustomer = null" />
                     </div>
-                    <div class="stmt-field">
-                        <label>Statement To</label>
-                        <input type="date" @bind="statementToDate" />
-                    </div>
-                    <button class="btn-drawer-warning" style="align-self:flex-end;"
-                            @onclick="() => GenerateStatement(selectedCustomer.CardCode ?? string.Empty)"
-                            disabled="@isGeneratingStatement">
-                        @if (isGeneratingStatement)
-                        {
-                            <span class="spinner-border spinner-border-sm"></span>
-                            <span>Generating...</span>
-                        }
-                        else
-                        {
-                            <i class="bi bi-file-pdf"></i>
-                            <span>Generate Statement</span>
-                        }
-                    </button>
-                </div>
-
-                <!-- General Information -->
-                <div class="detail-section-title"><i class="bi bi-info-circle"></i> General Information</div>
-                <div class="detail-grid">
-                    <div class="detail-item">
-                        <div class="detail-label">Code</div>
-                        <div class="detail-value" style="font-family:'Space Grotesk',monospace;color:#667eea;">
-                            @selectedCustomer.CardCode</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Name</div>
-                            <div class="detail-value">@selectedCustomer.CardName</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Type</div>
-                            <div class="detail-value">
-                                <span
-                                class="type-badge @GetTypeClass(selectedCustomer.CardType)">@GetTypeLabel(selectedCustomer.CardType)</span>
+                    <div class="drawer-body">
+                        <!-- Statement Generator -->
+                        <div class="stmt-row">
+                            <div class="stmt-field">
+                                <label>Statement From</label>
+                                <MudDatePicker @bind-Date="statementFromDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                               DateFormat="dd.MM.yyyy" Editable="true" />
                             </div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Group Code</div>
-                            <div class="detail-value">@(selectedCustomer.GroupCode ?? "—")</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Status</div>
-                            <div class="detail-value">
-                                @if (selectedCustomer.IsActive)
+                            <div class="stmt-field">
+                                <label>Statement To</label>
+                                <MudDatePicker @bind-Date="statementToDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                               DateFormat="dd.MM.yyyy" Editable="true" />
+                            </div>
+                            <MudButton Class="btn-drawer-warning" Style="align-self:flex-end;"
+                                       OnClick="() => GenerateStatement(selectedCustomer.CardCode ?? string.Empty)"
+                                       Disabled="@isGeneratingStatement">
+                                @if (isGeneratingStatement)
                                 {
-                                    <span class="status-badge active"><i class="bi bi-check-circle-fill"></i> Active</span>
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                    <span>Generating...</span>
                                 }
                                 else
                                 {
-                                    <span class="status-badge inactive">Inactive</span>
+                                    <i class="bi bi-file-pdf"></i>
+                                    <span>Generate Statement</span>
                                 }
+                            </MudButton>
+                        </div>
+
+                        <!-- General Information -->
+                        <div class="detail-section-title"><i class="bi bi-info-circle"></i> General Information</div>
+                        <div class="detail-grid">
+                            <div class="detail-item">
+                                <div class="detail-label">Code</div>
+                                <div class="detail-value" style="font-family:'Space Grotesk',monospace;color:#667eea;">
+                                    @selectedCustomer.CardCode</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Name</div>
+                                    <div class="detail-value">@selectedCustomer.CardName</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Type</div>
+                                    <div class="detail-value">
+                                        <span
+                                        class="type-badge @GetTypeClass(selectedCustomer.CardType)">@GetTypeLabel(selectedCustomer.CardType)</span>
+                                    </div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Group Code</div>
+                                    <div class="detail-value">@(selectedCustomer.GroupCode ?? "—")</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Status</div>
+                                    <div class="detail-value">
+                                        @if (selectedCustomer.IsActive)
+                                        {
+                                            <span class="status-badge active"><i class="bi bi-check-circle-fill"></i> Active</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="status-badge inactive">Inactive</span>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Contact Information -->
+                            <div class="detail-section-title"><i class="bi bi-telephone"></i> Contact Information</div>
+                            <div class="detail-grid">
+                                <div class="detail-item">
+                                    <div class="detail-label">Email</div>
+                                    <div class="detail-value">
+                                        @if (!string.IsNullOrEmpty(selectedCustomer.Email))
+                                        {
+                                            <a href="mailto:@selectedCustomer.Email"
+                                               style="color:#667eea;text-decoration:none;">@selectedCustomer.Email</a>
+                                        }
+                                        else
+                                        {
+
+                                            <span style="color:#d1d5db;">—</span>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Phone 1</div>
+                                    <div class="detail-value">@(selectedCustomer.Phone1 ?? "—")</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Phone 2</div>
+                                    <div class="detail-value">@(selectedCustomer.Phone2 ?? "—")</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Address</div>
+                                    <div class="detail-value">@(selectedCustomer.Address ?? "—")</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">City / Country</div>
+                                    <div class="detail-value">@selectedCustomer.City @selectedCustomer.Country</div>
+                                </div>
+                            </div>
+
+                            <!-- Financial Information -->
+                            <div class="detail-section-title"><i class="bi bi-cash-coin"></i> Financial Information</div>
+                            <div class="detail-grid">
+                                <div class="detail-item">
+                                    <div class="detail-label">Currency</div>
+                                    <div class="detail-value">@(selectedCustomer.Currency ?? "USD")</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Balance</div>
+                                    <div class="detail-value">
+                                        <span class="@(selectedCustomer.Balance > 0 ? "balance-positive" : "balance-zero")"
+                                              style="font-size:1.1rem;">
+                                            @((selectedCustomer.Balance ?? 0).ToString("N2"))
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                    </div>
-
-                    <!-- Contact Information -->
-                    <div class="detail-section-title"><i class="bi bi-telephone"></i> Contact Information</div>
-                    <div class="detail-grid">
-                        <div class="detail-item">
-                            <div class="detail-label">Email</div>
-                            <div class="detail-value">
-                                @if (!string.IsNullOrEmpty(selectedCustomer.Email))
-                                {
-                                    <a href="mailto:@selectedCustomer.Email"
-                                       style="color:#667eea;text-decoration:none;">@selectedCustomer.Email</a>
-                                }
-                                else
-                                {
-
-                                    <span style="color:#d1d5db;">—</span>
-                                }
-                            </div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Phone 1</div>
-                            <div class="detail-value">@(selectedCustomer.Phone1 ?? "—")</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Phone 2</div>
-                            <div class="detail-value">@(selectedCustomer.Phone2 ?? "—")</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Address</div>
-                            <div class="detail-value">@(selectedCustomer.Address ?? "—")</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">City / Country</div>
-                            <div class="detail-value">@selectedCustomer.City @selectedCustomer.Country</div>
+                        <div class="drawer-footer">
+                            <MudButton Class="btn-drawer-primary" OnClick='() => NavigateToInvoices(selectedCustomer.CardCode ?? "")'>
+                                <i class="bi bi-receipt"></i> View Invoices
+                            </MudButton>
+                            <MudButton Class="btn-drawer-secondary" OnClick="() => selectedCustomer = null">Close</MudButton>
                         </div>
                     </div>
-
-                    <!-- Financial Information -->
-                    <div class="detail-section-title"><i class="bi bi-cash-coin"></i> Financial Information</div>
-                    <div class="detail-grid">
-                        <div class="detail-item">
-                            <div class="detail-label">Currency</div>
-                            <div class="detail-value">@(selectedCustomer.Currency ?? "USD")</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Balance</div>
-                            <div class="detail-value">
-                                <span class="@(selectedCustomer.Balance > 0 ? "balance-positive" : "balance-zero")"
-                                      style="font-size:1.1rem;">
-                                    @((selectedCustomer.Balance ?? 0).ToString("N2"))
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="drawer-footer">
-                    <button class="btn-drawer-primary" @onclick='() => NavigateToInvoices(selectedCustomer.CardCode ?? "")'>
-                        <i class="bi bi-receipt"></i> View Invoices
-                    </button>
-                    <button class="btn-drawer-secondary" @onclick="() => selectedCustomer = null">Close</button>
-                </div>
-            </div>
-        }
+                }
 
 @code {
     private MudTable<BusinessPartnerDto>? _table;
@@ -1198,8 +1199,8 @@
     private string searchTerm = "";
     private string selectedType = "";
     private int totalCount = 0;
-    private DateTime statementFromDate = DateTime.Now.AddMonths(-3);
-    private DateTime statementToDate = DateTime.Now;
+    private DateTime? statementFromDate = DateTime.Now.AddMonths(-3);
+    private DateTime? statementToDate = DateTime.Now;
     private DateTime? lastSyncTime;
     private string _searchString = string.Empty;
 
@@ -1377,8 +1378,8 @@
         isGeneratingStatement = true;
         try
         {
-            var fromDate = statementFromDate.ToString("yyyy-MM-dd");
-            var toDate = statementToDate.ToString("yyyy-MM-dd");
+            var fromDate = (statementFromDate ?? DateTime.Now.AddMonths(-3)).ToString("yyyy-MM-dd");
+            var toDate = (statementToDate ?? DateTime.Now).ToString("yyyy-MM-dd");
             var response = await Http.GetAsync($"api/statement/generate/{cardCode}?fromDate={fromDate}&toDate={toDate}");
             if (response.IsSuccessStatusCode)
             {

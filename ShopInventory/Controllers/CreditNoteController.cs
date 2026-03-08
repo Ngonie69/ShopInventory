@@ -152,7 +152,8 @@ public class CreditNoteController : ControllerBase
                 DiscountPercent = l.DiscountPercent,
                 TaxPercent = l.TaxPercent,
                 WarehouseCode = l.WarehouseCode,
-                ReturnReason = l.ReturnReason
+                ReturnReason = l.ReturnReason,
+                OriginalInvoiceLineId = l.OriginalInvoiceLineId
             }).ToList() ?? new List<CreateCreditNoteLineRequest>();
 
             var creditNote = await _creditNoteService.CreateFromInvoiceAsync(invoiceId, lines, request.Reason ?? "", userId.Value, cancellationToken);
@@ -270,6 +271,7 @@ public class CreditNoteLineApiRequest
     public decimal TaxPercent { get; set; }
     public string? WarehouseCode { get; set; }
     public string? ReturnReason { get; set; }
+    public int? OriginalInvoiceLineId { get; set; }
 }
 
 /// <summary>

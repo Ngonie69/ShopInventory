@@ -8,9 +8,9 @@
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2><i class="bi bi-cloud-arrow-up me-2"></i>Database Backups</h2>
-        <button class="btn btn-primary" @onclick="() => showCreateModal = true" disabled="@isCreating">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => showCreateModal = true" Disabled="@isCreating">
             <i class="bi bi-plus-circle me-2"></i>Create Backup
-        </button>
+        </MudButton>
     </div>
 
     <!-- Stats Cards -->
@@ -175,19 +175,19 @@
                                         <div class="btn-group btn-group-sm">
                                             @if (backup.Status == "Completed")
                                             {
-                                                <button class="btn btn-outline-primary" @onclick="() => DownloadBackup(backup.Id)"
+                                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="() => DownloadBackup(backup.Id)"
                                                     title="Download">
                                                     <i class="bi bi-download"></i>
-                                                </button>
-                                                <button class="btn btn-outline-warning" @onclick="() => ConfirmRestore(backup)"
+                                                </MudButton>
+                                                <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="() => ConfirmRestore(backup)"
                                                     title="Restore">
                                                     <i class="bi bi-arrow-counterclockwise"></i>
-                                                </button>
+                                                </MudButton>
                                             }
-                                            <button class="btn btn-outline-danger" @onclick="() => ConfirmDelete(backup)"
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="() => ConfirmDelete(backup)"
                                                 title="Delete">
                                                 <i class="bi bi-trash"></i>
-                                            </button>
+                                            </MudButton>
                                         </div>
                                     </td>
                                 </tr>
@@ -214,7 +214,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Create Backup</h5>
-                    <button type="button" class="btn-close" @onclick="() => showCreateModal = false"></button>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => showCreateModal = false" Size="Size.Small" />
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
@@ -238,14 +238,14 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="() => showCreateModal = false">Cancel</button>
-                    <button type="button" class="btn btn-primary" @onclick="CreateBackup" disabled="@isCreating">
+                    <MudButton Variant="Variant.Filled" Color="Color.Default" OnClick="() => showCreateModal = false">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateBackup" Disabled="@isCreating">
                         @if (isCreating)
                         {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
                         }
                         Start Backup
-                    </button>
+                    </MudButton>
                 </div>
             </div>
         </div>
@@ -260,7 +260,7 @@
             <div class="modal-content">
                 <div class="modal-header bg-warning">
                     <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>Confirm Restore</h5>
-                    <button type="button" class="btn-close" @onclick="() => showRestoreModal = false"></button>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => showRestoreModal = false" Size="Size.Small" />
                 </div>
                 <div class="modal-body">
                     <div class="alert alert-danger">
@@ -275,15 +275,15 @@
                     </ul>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary"
-                        @onclick="() => showRestoreModal = false">Cancel</button>
-                    <button type="button" class="btn btn-danger" @onclick="RestoreBackup" disabled="@isRestoring">
+                    <MudButton Variant="Variant.Filled" Color="Color.Default"
+                        OnClick="() => showRestoreModal = false">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="RestoreBackup" Disabled="@isRestoring">
                         @if (isRestoring)
                         {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
                         }
                         Restore Database
-                    </button>
+                    </MudButton>
                 </div>
             </div>
         </div>
@@ -298,15 +298,15 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title"><i class="bi bi-trash me-2"></i>Delete Backup</h5>
-                    <button type="button" class="btn-close" @onclick="() => showDeleteModal = false"></button>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => showDeleteModal = false" Size="Size.Small" />
                 </div>
                 <div class="modal-body">
                     <p>Are you sure you want to delete this backup?</p>
                     <p><strong>@backupToDelete.FileName</strong></p>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="() => showDeleteModal = false">Cancel</button>
-                    <button type="button" class="btn btn-danger" @onclick="DeleteBackup">Delete</button>
+                    <MudButton Variant="Variant.Filled" Color="Color.Default" OnClick="() => showDeleteModal = false">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="DeleteBackup">Delete</MudButton>
                 </div>
             </div>
         </div>

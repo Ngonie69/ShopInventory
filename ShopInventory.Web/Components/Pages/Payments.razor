@@ -608,13 +608,14 @@
                     @errorMessage
                     @if (isTimeoutError)
                     {
-                        <button class="btn-search btn-sm ms-2" style="padding:.3rem .75rem;font-size:.8rem;"
-                                @onclick="RetryLoad">
+                        <MudButton Class="btn-search btn-sm ms-2" Style="padding:.3rem .75rem;font-size:.8rem;"
+                                   OnClick="RetryLoad">
                             <i class="bi bi-arrow-clockwise me-1"></i>Retry
-                        </button>
+                        </MudButton>
                     }
                 </div>
-                <button class="alert-close" @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="alert-close" OnClick="() => errorMessage = null"
+                               Size="Size.Small" />
             </div>
         }
 
@@ -671,7 +672,7 @@
                 <FlexibleDatePicker Label="To" @bind-Date="toDate" Variant="Variant.Outlined" />
             </div>
             <div class="filter-actions-row">
-                <button class="btn-search" @onclick="ApplyFilter" disabled="@isLoading">
+                <MudButton Class="btn-search" OnClick="ApplyFilter" Disabled="@isLoading">
                     @if (isLoading)
                     {
                         <span class="spinner-border spinner-border-sm"></span>
@@ -681,8 +682,8 @@
                         <i class="bi bi-search"></i>
                     }
                     Search
-                </button>
-                <button class="btn-clear" @onclick="ClearFilter"><i class="bi bi-x-lg"></i> Clear</button>
+                </MudButton>
+                <MudButton Class="btn-clear" OnClick="ClearFilter"><i class="bi bi-x-lg"></i> Clear</MudButton>
             </div>
         </div>
 
@@ -739,13 +740,13 @@
                                     }
                                     @if (context.CheckSum > 0)
                                     {
-                                        <span class="method-badge check"><i
-                                            class="bi bi-journal-check"></i> @context.CheckSum.ToString("N0")</span>
+                                        <span class="method-badge check"><i                       class="bi bi-journal-check"></i>
+                                            @context.CheckSum.ToString("N0")</span>
                                         }
                                         @if (context.CreditSum > 0)
                                         {
-                                            <span class="method-badge credit"><i
-                                                class="bi bi-credit-card"></i> @context.CreditSum.ToString("N0")</span>
+                                            <span class="method-badge credit"><i                     class="bi bi-credit-card"></i>
+                                                @context.CreditSum.ToString("N0")</span>
                                             }
                                         </MudTd>
                                         <MudTd DataLabel="Total" Style="text-align:right">
@@ -783,7 +784,8 @@
                     <div class="detail-drawer">
                         <div class="drawer-header">
                             <h5><i class="bi bi-receipt me-2"></i>Payment #@selectedPayment.DocNum</h5>
-                            <button class="btn-close-drawer" @onclick="CloseModal"><i class="bi bi-x-lg"></i></button>
+                            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer" OnClick="CloseModal"
+                                           Size="Size.Small" />
                         </div>
                         <div class="drawer-body">
                             <!-- Details Grid -->
@@ -911,7 +913,7 @@
                                 </div>
                             </div>
                             <div class="drawer-footer">
-                                <button class="btn-clear" @onclick="CloseModal"><i class="bi bi-x-lg me-1"></i>Close</button>
+                                <MudButton Class="btn-clear" OnClick="CloseModal"><i class="bi bi-x-lg me-1"></i>Close</MudButton>
                             </div>
                         </div>
                     }

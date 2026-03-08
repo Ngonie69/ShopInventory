@@ -582,7 +582,8 @@
             <div class="alert-banner success-alert">
                 <i class="bi bi-check-circle-fill"></i>
                 <div class="alert-body">@successMessage</div>
-                <button class="alert-close" @onclick="() => successMessage = null"><i class="bi bi-x-lg"></i></button>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => successMessage = null" Size="Size.Small"
+                               Class="alert-close" />
             </div>
         }
         @if (!string.IsNullOrEmpty(errorMessage))
@@ -590,7 +591,8 @@
             <div class="alert-banner error-alert">
                 <i class="bi bi-exclamation-octagon-fill"></i>
                 <div class="alert-body">@errorMessage</div>
-                <button class="alert-close" @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => errorMessage = null" Size="Size.Small"
+                               Class="alert-close" />
             </div>
         }
 
@@ -661,7 +663,8 @@
                                     </div>
                                     <div class="col-md-4">
                                         <label class="field-label">Document Date</label>
-                                        <input type="date" class="form-control" @bind="docDate" />
+                                        <MudDatePicker @bind-Date="docDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                       DateFormat="dd.MM.yyyy" Editable="true" />
                                     </div>
                                 </div>
                                 <div class="row g-3 mt-1">
@@ -754,7 +757,8 @@
                                             </div>
                                             <div class="col-md-4">
                                                 <label class="field-label">Transfer Date</label>
-                                                <input type="date" class="form-control" @bind="transferDate" />
+                                                <MudDatePicker @bind-Date="transferDate" Variant="Variant.Outlined"
+                                                               Margin="Margin.Dense" DateFormat="dd.MM.yyyy" Editable="true" />
                                             </div>
                                             <div class="col-md-6">
                                                 <label class="field-label">Transfer Account</label>
@@ -782,7 +786,8 @@
                                             </div>
                                             <div class="col-md-4">
                                                 <label class="field-label">Due Date</label>
-                                                <input type="date" class="form-control" @bind="checkDueDate" />
+                                                <MudDatePicker @bind-Date="checkDueDate" Variant="Variant.Outlined"
+                                                               Margin="Margin.Dense" DateFormat="dd.MM.yyyy" Editable="true" />
                                             </div>
                                             <div class="col-md-4">
                                                 <label class="field-label">Bank Code</label>
@@ -841,11 +846,11 @@
                                             <h6>Apply to Invoices <span
                                                 style="font-weight:400; color:#9ca3af; font-size:.82rem;">(Optional)</span></h6>
                                             </div>
-                                            <button class="btn btn-sm"
-                                                    style="background:#d1fae5; color:#059669; border:none; border-radius:7px; font-weight:600; font-size:.8rem; padding:.3rem .7rem;"
-                                                    @onclick="AddInvoiceLine">
+                                            <MudButton Class="btn btn-sm"
+                                                       Style="background:#d1fae5; color:#059669; border:none; border-radius:7px; font-weight:600; font-size:.8rem; padding:.3rem .7rem;"
+                                                       OnClick="AddInvoiceLine">
                                                 <i class="bi bi-plus-lg me-1"></i>Add Invoice
-                                            </button>
+                                            </MudButton>
                                         </div>
                                         <div class="card-body-inner">
                                             @if (invoiceLines.Count == 0)
@@ -864,8 +869,8 @@
                                                         {
                                                             var index = i;
                                                             <div class="inv-card">
-                                                                <button class="inv-remove" @onclick="() => RemoveInvoiceLine(index)" title="Remove"><i
-                                                                    class="bi bi-x"></i></button>
+                                                                <MudButton Class="inv-remove" OnClick="() => RemoveInvoiceLine(index)" title="Remove"><i
+                                                                    class="bi bi-x"></i></MudButton>
                                                                     <div style="margin-bottom:.6rem;">
                                                                         <span class="inv-badge"><i class="bi bi-receipt"></i> Invoice @(index + 1)</span>
                                                                     </div>
@@ -876,7 +881,7 @@
                                                                                    class="form-control form-control-sm @(invoiceValidationErrors.ContainsKey(index) && invoiceValidationErrors[index].ContainsKey("DocEntry") ? "validation-error" : "")"
                                                                                    placeholder="DocEntry" @bind="invoiceLines[index].DocEntry" />
                                                                             @if (invoiceValidationErrors.ContainsKey(index) &&
-                                                                                                                                                                                                invoiceValidationErrors[index].ContainsKey("DocEntry"))
+                                                                                                                invoiceValidationErrors[index].ContainsKey("DocEntry"))
                                                                             {
                                                                                 <div class="val-msg">@invoiceValidationErrors[index]["DocEntry"]</div>
                                                                             }
@@ -887,7 +892,7 @@
                                                                                    class="form-control form-control-sm @(invoiceValidationErrors.ContainsKey(index) && invoiceValidationErrors[index].ContainsKey("SumApplied") ? "validation-error" : "")"
                                                                                    step="0.01" min="0" placeholder="0.00" @bind="invoiceLines[index].SumApplied" />
                                                                             @if (invoiceValidationErrors.ContainsKey(index) &&
-                                                                                                                                                                                                invoiceValidationErrors[index].ContainsKey("SumApplied"))
+                                                                                                                invoiceValidationErrors[index].ContainsKey("SumApplied"))
                                                                             {
                                                                                 <div class="val-msg">@invoiceValidationErrors[index]["SumApplied"]</div>
                                                                             }
@@ -978,7 +983,7 @@
                                                                                     <span class="sum-value">@invoiceLines.Sum(l => l.SumApplied).ToString("N2")</span>
                                                                                 </div>
                                                                                 <div style="font-size:.78rem; color:#6b7280; text-align:right;">@invoiceLines.Count(l =>
-                                                                                                                                                                                                            l.DocEntry > 0) invoice(s)</div>
+                                                                                                                    l.DocEntry > 0) invoice(s)</div>
                                                                                 }
 
                                                                                 <hr class="sum-divider" />
@@ -990,7 +995,7 @@
 
                                                                             <!-- Actions -->
                                                                             <div style="padding:0 1.15rem 1.15rem;">
-                                                                                <button class="btn-execute" @onclick="SubmitPayment" disabled="@isSubmitting">
+                                                                                <MudButton Class="btn-execute" OnClick="SubmitPayment" Disabled="@isSubmitting">
                                                                                     @if (isSubmitting)
                                                                                     {
                                                                                         <span class="spinner-border spinner-border-sm"></span>
@@ -1001,10 +1006,10 @@
                                                                                         <i class="bi bi-check-circle-fill"></i>
                                                                                         <span>Create Payment</span>
                                                                                     }
-                                                                                </button>
-                                                                                <button class="btn-secondary-action" @onclick="ClearForm" disabled="@isSubmitting">
+                                                                                </MudButton>
+                                                                                <MudButton Class="btn-secondary-action" OnClick="ClearForm" Disabled="@isSubmitting">
                                                                                     <i class="bi bi-arrow-counterclockwise"></i> Clear Form
-                                                                                </button>
+                                                                                </MudButton>
                                                                                 <div class="info-hint">
                                                                                     <i class="bi bi-info-circle" style="flex-shrink:0; margin-top:1px;"></i>
                                                                                     <span>Payments are posted directly to SAP Business One. Ensure all details are correct
@@ -1035,7 +1040,7 @@
     private CancellationTokenSource? _searchCts;
 
     // Payment fields
-    private DateTime docDate = DateTime.Today;
+    private DateTime? docDate = DateTime.Today;
     private string? remarks;
     private string activePaymentMethod = "cash";
 
@@ -1108,8 +1113,8 @@
             if (cached?.BusinessPartners?.Any() == true)
             {
                 allBusinessPartners = cached.BusinessPartners
-                    .Where(bp => bp.CardType == "cCustomer" || bp.CardType == "C")
-                    .ToList();
+                .Where(bp => bp.CardType == "cCustomer" || bp.CardType == "C")
+                .ToList();
 
                 if (!allBusinessPartners.Any())
                     allBusinessPartners = cached.BusinessPartners;
@@ -1125,8 +1130,8 @@
             if (response?.BusinessPartners != null)
             {
                 allBusinessPartners = response.BusinessPartners
-                    .Where(bp => bp.CardType == "cCustomer" || bp.CardType == "C")
-                    .ToList();
+                .Where(bp => bp.CardType == "cCustomer" || bp.CardType == "C")
+                .ToList();
 
                 if (!allBusinessPartners.Any() && response.BusinessPartners.Any())
                     allBusinessPartners = response.BusinessPartners;
@@ -1279,7 +1284,7 @@
             var request = new CreateIncomingPaymentRequest
             {
                 CardCode = cardCode,
-                DocDate = docDate.ToString("yyyy-MM-dd"),
+                DocDate = docDate?.ToString("yyyy-MM-dd"),
                 Remarks = remarks,
                 CashSum = cashSum,
                 CashAccount = cashAccount,

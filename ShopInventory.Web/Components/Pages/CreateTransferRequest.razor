@@ -149,7 +149,7 @@
         {
             <div class="alert alert-danger alert-dismissible fade show" role="alert">
                 <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
-                <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => errorMessage = null" Size="Size.Small" />
             </div>
         }
 
@@ -157,7 +157,8 @@
         {
             <div class="alert alert-success alert-dismissible fade show" role="alert">
                 <i class="bi bi-check-circle me-2"></i>@successMessage
-                <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => successMessage = null"
+                               Size="Size.Small" />
             </div>
         }
 
@@ -225,11 +226,13 @@
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Document Date</label>
-                                <input type="date" class="form-control" @bind="docDate" />
+                                <MudDatePicker @bind-Date="docDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                               DateFormat="dd.MM.yyyy" Editable="true" />
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Due Date</label>
-                                <input type="date" class="form-control" @bind="dueDate" />
+                                <MudDatePicker @bind-Date="dueDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                               DateFormat="dd.MM.yyyy" Editable="true" />
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Requester Name</label>
@@ -275,10 +278,10 @@
                                             <div class="line-number me-2">@(index + 1)</div>
                                             <span class="text-muted small">Line Item</span>
                                         </div>
-                                        <button class="btn-remove-line" @onclick="() => RemoveLine(line)"
-                                                title="Remove line item">
+                                        <MudButton Class="btn-remove-line" OnClick="() => RemoveLine(line)"
+                                                   title="Remove line item">
                                             <i class="bi bi-trash me-1"></i>Remove
-                                        </button>
+                                        </MudButton>
                                     </div>
                                     <div class="row g-3">
                                         <div class="col-md-8">
@@ -313,9 +316,9 @@
                                 }
 
                                 <div class="text-center mt-3">
-                                    <button class="btn-add-line" @onclick="AddLine">
+                                    <MudButton Class="btn-add-line" OnClick="AddLine">
                                         <i class="bi bi-plus-lg me-1"></i>Add Item
-                                    </button>
+                                    </MudButton>
                                 </div>
                             }
                         </div>
@@ -353,8 +356,8 @@
                     <!-- Actions Card -->
                     <div class="card action-card">
                         <div class="card-body">
-                            <button class="btn btn-create-transfer w-100 text-white mb-3" @onclick="SubmitTransferRequest"
-                                    disabled="@(isSubmitting || !IsFormValid())">
+                            <MudButton Class="btn-create-transfer w-100 text-white mb-3" OnClick="SubmitTransferRequest"
+                                       Disabled="@(isSubmitting || !IsFormValid())">
                                 @if (isSubmitting)
                                 {
                                     <span class="spinner-border spinner-border-sm me-2"></span>
@@ -365,10 +368,11 @@
                                     <i class="bi bi-send me-2"></i>
                                     <span>Create Transfer Request</span>
                                 }
-                            </button>
-                            <button class="btn btn-outline-secondary w-100" @onclick="ClearForm" disabled="@isSubmitting">
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Class="w-100" OnClick="ClearForm"
+                                       Disabled="@isSubmitting">
                                 <i class="bi bi-x-circle me-1"></i>Clear Form
-                            </button>
+                            </MudButton>
                         </div>
                     </div>
 
@@ -405,7 +409,7 @@
     private List<ProductDto> cachedProducts = new();
 
     // Form fields
-    private DateTime docDate = DateTime.Today;
+    private DateTime? docDate = DateTime.Today;
     private DateTime? dueDate;
     private string? comments;
     private string? requesterName;
@@ -563,7 +567,7 @@
             {
                 FromWarehouse = selectedFromWarehouse!.WarehouseCode,
                 ToWarehouse = selectedToWarehouse!.WarehouseCode,
-                DocDate = docDate.ToString("yyyy-MM-dd"),
+                DocDate = (docDate ?? DateTime.Today).ToString("yyyy-MM-dd"),
                 DueDate = dueDate?.ToString("yyyy-MM-dd"),
                 Comments = comments,
                 RequesterName = requesterName,

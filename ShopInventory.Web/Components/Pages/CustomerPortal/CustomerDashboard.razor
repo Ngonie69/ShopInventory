@@ -67,7 +67,7 @@
                         @(lastUpdated.HasValue ? $"Updated {lastUpdated.Value:MMM dd, yyyy 'at' HH:mm} UTC" : "Updated on refresh")
                     </span>
                     <div class="d-flex flex-wrap gap-2 mt-2">
-                        <button class="btn btn-outline-primary btn-sm" @onclick="RefreshData">Refresh</button>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" OnClick="RefreshData">Refresh</MudButton>
                         <a href="/customer-portal/statements" class="btn btn-primary btn-sm">View Statement</a>
                     </div>
                 </div>

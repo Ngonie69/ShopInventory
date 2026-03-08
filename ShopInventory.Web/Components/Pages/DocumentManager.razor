@@ -18,9 +18,9 @@
                 </h2>
                 <span class="text-muted">@EntityType #@EntityId</span>
             </div>
-            <button class="btn btn-secondary" @onclick="GoBack">
+            <MudButton Variant="Variant.Filled" Color="Color.Default" OnClick="GoBack">
                 <i class="bi bi-arrow-left me-2"></i>Back
-            </button>
+            </MudButton>
         </div>
     </div>
 
@@ -51,13 +51,14 @@
                         <div class="col-md-6">
                             <label class="form-label">&nbsp;</label>
                             <div class="d-grid gap-2">
-                                <button class="btn btn-primary" @onclick="GenerateDocument" disabled="@isGenerating">
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GenerateDocument"
+                                           Disabled="@isGenerating">
                                     @if (isGenerating)
                                     {
-                                        <span class="spinner-border spinner-border-sm me-2"></span>
+                                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
                                     }
                                     <i class="bi bi-file-earmark-pdf me-2"></i>Generate PDF
-                                </button>
+                                </MudButton>
                             </div>
                         </div>
                     </div>
@@ -82,7 +83,7 @@
                         <div class="col-md-6">
                             <label class="form-label">Recipient Email *</label>
                             <input type="email" class="form-control" @bind="recipientEmail"
-                                placeholder="customer@example.com" />
+                                   placeholder="customer@example.com" />
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Recipient Name</label>
@@ -95,221 +96,222 @@
                         <div class="col-12">
                             <label class="form-label">Message</label>
                             <textarea class="form-control" @bind="emailBody" rows="4"
-                                placeholder="Dear customer..."></textarea>
+                                      placeholder="Dear customer..."></textarea>
                         </div>
                         <div class="col-12">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" @bind="includeAttachments"
-                                    id="includeAttachments">
-                                <label class="form-check-label" for="includeAttachments">
-                                    Include all attachments
-                                </label>
+                                       id="includeAttachments">
+                                    <label class="form-check-label" for="includeAttachments">
+                                        Include all attachments
+                                    </label>
+                                </div>
                             </div>
-                        </div>
-                        <div class="col-12">
-                            <button class="btn btn-success" @onclick="EmailDocument"
-                                disabled="@isEmailing || string.IsNullOrEmpty(recipientEmail)">
-                                @if (isEmailing)
-                                {
-                                    <span class="spinner-border spinner-border-sm me-2"></span>
-                                }
-                                <i class="bi bi-send me-2"></i>Send Email
-                            </button>
-                        </div>
-                    </div>
-                    @if (emailError != null)
-                    {
-                        <div class="alert alert-danger mt-3">@emailError</div>
-                    }
-                    @if (emailSuccess != null)
-                    {
-                        <div class="alert alert-success mt-3">@emailSuccess</div>
-                    }
-                </div>
-            </div>
-
-            <!-- Digital Signature -->
-            <div class="card mb-4">
-                <div class="card-header bg-warning text-dark">
-                    <h5 class="mb-0"><i class="bi bi-pen me-2"></i>Digital Signature</h5>
-                </div>
-                <div class="card-body">
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Signer Name *</label>
-                            <input type="text" class="form-control" @bind="signerName" placeholder="John Doe" />
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Signer Email</label>
-                            <input type="email" class="form-control" @bind="signerEmail"
-                                placeholder="signer@example.com" />
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Role</label>
-                            <select class="form-select" @bind="signerRole">
-                                <option value="Customer">Customer</option>
-                                <option value="Supplier">Supplier</option>
-                                <option value="Manager">Manager</option>
-                                <option value="Accountant">Accountant</option>
-                            </select>
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label">Signature Pad</label>
-                            <div class="border rounded p-2 bg-white" style="height: 200px;">
-                                <canvas id="signaturePad" width="700" height="180"
-                                    style="border: 1px dashed #ccc; cursor: crosshair;"></canvas>
-                            </div>
-                            <div class="mt-2">
-                                <button class="btn btn-sm btn-outline-secondary" @onclick="ClearSignature">
-                                    <i class="bi bi-eraser"></i> Clear
-                                </button>
-                                <button class="btn btn-sm btn-primary ms-2" @onclick="SaveSignature"
-                                    disabled="@isSavingSignature">
-                                    @if (isSavingSignature)
+                            <div class="col-12">
+                                <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="EmailDocument"
+                                           Disabled="@(isEmailing || string.IsNullOrEmpty(recipientEmail))">
+                                    @if (isEmailing)
                                     {
-                                        <span class="spinner-border spinner-border-sm me-2"></span>
+                                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
                                     }
-                                    <i class="bi bi-check2"></i> Save Signature
-                                </button>
+                                    <i class="bi bi-send me-2"></i>Send Email
+                                </MudButton>
                             </div>
                         </div>
-                    </div>
-                    @if (signatureError != null)
-                    {
-                        <div class="alert alert-danger mt-3">@signatureError</div>
-                    }
-                    @if (signatureSuccess != null)
-                    {
-                        <div class="alert alert-success mt-3">@signatureSuccess</div>
-                    }
-                </div>
-            </div>
-        </div>
-
-        <!-- Right Column: Attachments & History -->
-        <div class="col-lg-4">
-            <!-- Attachments -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-paperclip me-2"></i>Attachments</h5>
-                </div>
-                <div class="card-body">
-                    <div class="mb-3">
-                        <label class="form-label">Upload File</label>
-                        <InputFile OnChange="HandleFileSelected" class="form-control" />
-                        @if (isUploading)
+                        @if (emailError != null)
                         {
-                            <div class="mt-2">
-                                <div class="spinner-border spinner-border-sm me-2"></div>
-                                Uploading...
-                            </div>
+                            <div class="alert alert-danger mt-3">@emailError</div>
+                        }
+                        @if (emailSuccess != null)
+                        {
+                            <div class="alert alert-success mt-3">@emailSuccess</div>
                         }
                     </div>
-                    @if (attachments?.Any() == true)
-                    {
-                        <div class="list-group">
-                            @foreach (var attachment in attachments)
-                            {
-                                <div class="list-group-item">
-                                    <div class="d-flex justify-content-between align-items-start">
-                                        <div class="flex-grow-1">
-                                            <h6 class="mb-1">@attachment.FileName</h6>
-                                            <small class="text-muted">@attachment.FileSizeFormatted</small>
-                                            @if (!string.IsNullOrEmpty(attachment.Description))
-                                            {
-                                                <p class="mb-1"><small>@attachment.Description</small></p>
-                                            }
-                                        </div>
-                                        <div class="btn-group-vertical btn-group-sm">
-                                            <button class="btn btn-outline-primary"
-                                                @onclick="() => DownloadAttachment(attachment.Id)">
-                                                <i class="bi bi-download"></i>
-                                            </button>
-                                            <button class="btn btn-outline-danger"
-                                                @onclick="() => DeleteAttachment(attachment.Id)">
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            }
-                        </div>
-                    }
-                    else
-                    {
-                        <p class="text-muted">No attachments</p>
-                    }
                 </div>
-            </div>
 
-            <!-- Document History -->
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>History</h5>
-                </div>
-                <div class="card-body">
-                    @if (history?.Any() == true)
-                    {
-                        <div class="timeline">
-                            @foreach (var item in history)
-                            {
-                                <div class="timeline-item mb-3">
-                                    <div class="d-flex">
-                                        <div class="flex-shrink-0">
-                                            <i class="bi @GetHistoryIcon(item.Action) text-primary"></i>
-                                        </div>
-                                        <div class="flex-grow-1 ms-3">
-                                            <h6 class="mb-0">@item.Action</h6>
-                                            <small class="text-muted">@item.GeneratedAt.ToLocalTime().ToString("g")</small>
-                                            @if (!string.IsNullOrEmpty(item.RecipientEmail))
-                                            {
-                                                <p class="mb-0"><small>To: @item.RecipientEmail</small></p>
-                                            }
-                                        </div>
-                                    </div>
-                                </div>
-                            }
-                        </div>
-                    }
-                    else
-                    {
-                        <p class="text-muted">No history</p>
-                    }
-                </div>
-            </div>
-
-            <!-- Signatures -->
-            @if (signatures?.Any() == true)
-            {
-                <div class="card mt-4">
-                    <div class="card-header">
-                        <h5 class="mb-0"><i class="bi bi-pen me-2"></i>Signatures</h5>
+                <!-- Digital Signature -->
+                <div class="card mb-4">
+                    <div class="card-header bg-warning text-dark">
+                        <h5 class="mb-0"><i class="bi bi-pen me-2"></i>Digital Signature</h5>
                     </div>
                     <div class="card-body">
-                        @foreach (var sig in signatures)
-                        {
-                            <div class="mb-3 p-2 border rounded">
-                                <div class="d-flex justify-content-between align-items-start">
-                                    <div>
-                                        <h6 class="mb-0">@sig.SignerName</h6>
-                                        <small class="text-muted">@sig.SignerRole</small>
-                                        <p class="mb-0"><small>@sig.SignedAt.ToLocalTime().ToString("g")</small></p>
-                                    </div>
-                                    @if (sig.IsVerified)
-                                    {
-                                        <span class="badge bg-success">Verified</span>
-                                    }
-                                </div>
-                                <img src="@sig.SignatureData" alt="Signature" class="img-fluid mt-2"
-                                    style="max-height: 80px;" />
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Signer Name *</label>
+                                <input type="text" class="form-control" @bind="signerName" placeholder="John Doe" />
                             </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Signer Email</label>
+                                <input type="email" class="form-control" @bind="signerEmail"
+                                       placeholder="signer@example.com" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Role</label>
+                                <select class="form-select" @bind="signerRole">
+                                    <option value="Customer">Customer</option>
+                                    <option value="Supplier">Supplier</option>
+                                    <option value="Manager">Manager</option>
+                                    <option value="Accountant">Accountant</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Signature Pad</label>
+                                <div class="border rounded p-2 bg-white" style="height: 200px;">
+                                    <canvas id="signaturePad" width="700" height="180"
+                                            style="border: 1px dashed #ccc; cursor: crosshair;"></canvas>
+                                </div>
+                                <div class="mt-2">
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                               OnClick="ClearSignature">
+                                        <i class="bi bi-eraser"></i> Clear
+                                    </MudButton>
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Class="ms-2"
+                                               OnClick="SaveSignature" Disabled="@isSavingSignature">
+                                        @if (isSavingSignature)
+                                        {
+                                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                                        }
+                                        <i class="bi bi-check2"></i> Save Signature
+                                    </MudButton>
+                                </div>
+                            </div>
+                        </div>
+                        @if (signatureError != null)
+                        {
+                            <div class="alert alert-danger mt-3">@signatureError</div>
+                        }
+                        @if (signatureSuccess != null)
+                        {
+                            <div class="alert alert-success mt-3">@signatureSuccess</div>
                         }
                     </div>
                 </div>
-            }
+            </div>
+
+            <!-- Right Column: Attachments & History -->
+            <div class="col-lg-4">
+                <!-- Attachments -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-paperclip me-2"></i>Attachments</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Upload File</label>
+                            <InputFile OnChange="HandleFileSelected" class="form-control" />
+                            @if (isUploading)
+                            {
+                                <div class="mt-2">
+                                    <div class="spinner-border spinner-border-sm me-2"></div>
+                                    Uploading...
+                                </div>
+                            }
+                        </div>
+                        @if (attachments?.Any() == true)
+                        {
+                            <div class="list-group">
+                                @foreach (var attachment in attachments)
+                                {
+                                    <div class="list-group-item">
+                                        <div class="d-flex justify-content-between align-items-start">
+                                            <div class="flex-grow-1">
+                                                <h6 class="mb-1">@attachment.FileName</h6>
+                                                <small class="text-muted">@attachment.FileSizeFormatted</small>
+                                                @if (!string.IsNullOrEmpty(attachment.Description))
+                                                {
+                                                    <p class="mb-1"><small>@attachment.Description</small></p>
+                                                }
+                                            </div>
+                                            <div class="btn-group-vertical btn-group-sm">
+                                                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                                                           OnClick="() => DownloadAttachment(attachment.Id)">
+                                                    <i class="bi bi-download"></i>
+                                                </MudButton>
+                                                <MudButton Variant="Variant.Outlined" Color="Color.Error"
+                                                           OnClick="() => DeleteAttachment(attachment.Id)">
+                                                    <i class="bi bi-trash"></i>
+                                                </MudButton>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted">No attachments</p>
+                        }
+                    </div>
+                </div>
+
+                <!-- Document History -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>History</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (history?.Any() == true)
+                        {
+                            <div class="timeline">
+                                @foreach (var item in history)
+                                {
+                                    <div class="timeline-item mb-3">
+                                        <div class="d-flex">
+                                            <div class="flex-shrink-0">
+                                                <i class="bi @GetHistoryIcon(item.Action) text-primary"></i>
+                                            </div>
+                                            <div class="flex-grow-1 ms-3">
+                                                <h6 class="mb-0">@item.Action</h6>
+                                                <small class="text-muted">@item.GeneratedAt.ToLocalTime().ToString("g")</small>
+                                                @if (!string.IsNullOrEmpty(item.RecipientEmail))
+                                                {
+                                                    <p class="mb-0"><small>To: @item.RecipientEmail</small></p>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted">No history</p>
+                        }
+                    </div>
+                </div>
+
+                <!-- Signatures -->
+                @if (signatures?.Any() == true)
+                {
+                    <div class="card mt-4">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="bi bi-pen me-2"></i>Signatures</h5>
+                        </div>
+                        <div class="card-body">
+                            @foreach (var sig in signatures)
+                            {
+                                <div class="mb-3 p-2 border rounded">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <div>
+                                            <h6 class="mb-0">@sig.SignerName</h6>
+                                            <small class="text-muted">@sig.SignerRole</small>
+                                            <p class="mb-0"><small>@sig.SignedAt.ToLocalTime().ToString("g")</small></p>
+                                        </div>
+                                        @if (sig.IsVerified)
+                                        {
+                                            <span class="badge bg-success">Verified</span>
+                                        }
+                                    </div>
+                                    <img src="@sig.SignatureData" alt="Signature" class="img-fluid mt-2"
+                                         style="max-height: 80px;" />
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
         </div>
     </div>
-</div>
 
 @code {
     [Parameter] public string EntityType { get; set; } = "";

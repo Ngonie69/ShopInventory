@@ -997,7 +997,8 @@
             <div class="alert-banner error-alert">
                 <i class="bi bi-exclamation-octagon-fill"></i>
                 <div class="alert-body">@errorMessage</div>
-                <button class="alert-close" @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="alert-close" OnClick="() => errorMessage = null"
+                               Size="Size.Small" />
             </div>
         }
 
@@ -1056,7 +1057,7 @@
                 <FlexibleDatePicker Label="To" @bind-Date="toDate" Variant="Variant.Outlined" />
             </div>
             <div class="filter-actions-row">
-                <button class="btn-search" @onclick="ApplyFilter" disabled="@isLoading">
+                <MudButton Class="btn-search" OnClick="ApplyFilter" Disabled="@isLoading">
                     @if (isLoading)
                     {
                         <span class="spinner-border spinner-border-sm"></span>
@@ -1066,8 +1067,8 @@
                         <i class="bi bi-search"></i>
                     }
                     Search
-                </button>
-                <button class="btn-clear" @onclick="ClearFilter"><i class="bi bi-x-lg"></i> Clear</button>
+                </MudButton>
+                <MudButton Class="btn-clear" OnClick="ClearFilter"><i class="bi bi-x-lg"></i> Clear</MudButton>
             </div>
         </div>
 
@@ -1155,7 +1156,8 @@
             <div class="detail-drawer">
                 <div class="drawer-header">
                     <h5><i class="bi bi-receipt me-2"></i>Invoice #@selectedInvoice.DocNum</h5>
-                    <button class="btn-close-drawer" @onclick="CloseModal"><i class="bi bi-x-lg"></i></button>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer" OnClick="CloseModal"
+                                   Size="Size.Small" />
                 </div>
                 <div class="drawer-body">
                     <!-- Credit Note Warning -->
@@ -1167,7 +1169,7 @@
                                 <strong>@existingCreditNotes.CreditNotes.Count credit note(s)</strong> totaling
                                 <strong>@existingCreditNotes.TotalCreditedAmount.ToString("N2") @selectedInvoice.DocCurrency</strong>
                                 already exist for this invoice.
-                                <button class="cn-view-link" @onclick="ShowExistingCreditNotes">View Details</button>
+                                <MudButton Class="cn-view-link" OnClick="ShowExistingCreditNotes">View Details</MudButton>
                             </div>
                         </div>
                     }
@@ -1264,10 +1266,10 @@
                     </div>
                 </div>
                 <div class="drawer-footer">
-                    <button class="btn-warning-action" @onclick="OpenCreateCreditNoteModal">
+                    <MudButton Class="btn-warning-action" OnClick="OpenCreateCreditNoteModal">
                         <i class="bi bi-file-earmark-minus"></i> Create Credit Note
-                    </button>
-                    <button class="btn-secondary-action" @onclick="CloseModal"><i class="bi bi-x-lg me-1"></i>Close</button>
+                    </MudButton>
+                    <MudButton Class="btn-secondary-action" OnClick="CloseModal"><i class="bi bi-x-lg me-1"></i>Close</MudButton>
                 </div>
             </div>
         }
@@ -1280,198 +1282,198 @@
                     <div class="cn-modal-header">
                         <h5><i class="bi bi-file-earmark-minus" style="color:#d97706;"></i> Credit Notes — Invoice
                             #@selectedInvoice?.DocNum</h5>
-                            <button class="btn-close-modal" @onclick="() => showExistingCreditNotesModal = false"><i
-                                class="bi bi-x-lg"></i></button>
-                            </div>
-                            <div class="cn-modal-body">
-                                <div class="alert-banner info-alert" style="margin-bottom:1rem;">
-                                    <i class="bi bi-info-circle-fill"></i>
-                                    <div class="alert-body">
-                                        <strong>Total Credited:</strong> @existingCreditNotes.TotalCreditedAmount.ToString("N2")
-                                        @selectedInvoice?.DocCurrency
-                                    </div>
+                            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-modal"
+                                           OnClick="() => showExistingCreditNotesModal = false" Size="Size.Small" />
+                        </div>
+                        <div class="cn-modal-body">
+                            <div class="alert-banner info-alert" style="margin-bottom:1rem;">
+                                <i class="bi bi-info-circle-fill"></i>
+                                <div class="alert-body">
+                                    <strong>Total Credited:</strong> @existingCreditNotes.TotalCreditedAmount.ToString("N2")
+                                    @selectedInvoice?.DocCurrency
                                 </div>
-                                <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden;">
-                                    <table class="lines-table">
-                                        <thead>
+                            </div>
+                            <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden;">
+                                <table class="lines-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Credit Note #</th>
+                                            <th>Date</th>
+                                            <th>Type</th>
+                                            <th>Status</th>
+                                            <th>Reason</th>
+                                            <th style="text-align:right;">Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var cn in existingCreditNotes.CreditNotes)
+                                        {
                                             <tr>
-                                                <th>Credit Note #</th>
-                                                <th>Date</th>
-                                                <th>Type</th>
-                                                <th>Status</th>
-                                                <th>Reason</th>
-                                                <th style="text-align:right;">Amount</th>
+                                                <td><strong>@cn.CreditNoteNumber</strong></td>
+                                                <td>@cn.CreditNoteDate.ToString("dd MMM yyyy")</td>
+                                                <td><span class="status-badge open">@cn.TypeName</span></td>
+                                                <td><span class="status-badge @GetCreditNoteStatusClass(cn.Status)">@cn.StatusName</span>
+                                                </td>
+                                                <td>@TruncateText(cn.Reason, 30)</td>
+                                                <td style="text-align:right; font-weight:600;">@cn.DocTotal.ToString("N2")</td>
                                             </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach (var cn in existingCreditNotes.CreditNotes)
-                                            {
-                                                <tr>
-                                                    <td><strong>@cn.CreditNoteNumber</strong></td>
-                                                    <td>@cn.CreditNoteDate.ToString("dd MMM yyyy")</td>
-                                                    <td><span class="status-badge open">@cn.TypeName</span></td>
-                                                    <td><span class="status-badge @GetCreditNoteStatusClass(cn.Status)">@cn.StatusName</span>
-                                                    </td>
-                                                    <td>@TruncateText(cn.Reason, 30)</td>
-                                                    <td style="text-align:right; font-weight:600;">@cn.DocTotal.ToString("N2")</td>
-                                                </tr>
-                                            }
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                            <div class="cn-modal-footer">
-                                <button class="btn-secondary-action" @onclick="() => showExistingCreditNotesModal = false">Close</button>
+                                        }
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
+                        <div class="cn-modal-footer">
+                            <MudButton Class="btn-secondary-action" OnClick="() => showExistingCreditNotesModal = false">Close
+                            </MudButton>
+                        </div>
                     </div>
-                }
+                </div>
+            }
 
-                <!-- ━━━ Create Credit Note Modal ━━━ -->
-                @if (showCreateCreditNoteModal && selectedInvoice != null)
-                {
-                    <div class="cn-modal-overlay">
-                        <div class="cn-modal" style="position:relative;" @onclick:stopPropagation="true">
-                            @if (isCreatingCreditNote)
-                            {
-                                <div class="cn-progress-overlay">
-                                    <div class="progress-dots">
-                                        <div class="dot"></div>
-                                        <div class="dot"></div>
-                                        <div class="dot"></div>
-                                    </div>
-                                    <div class="progress-ring-wrap">
-                                        <svg width="100" height="100" viewBox="0 0 100 100">
-                                            <circle cx="50" cy="50" r="42" fill="none" stroke="#e9ecef" stroke-width="7" />
-                                            <circle cx="50" cy="50" r="42" fill="none" stroke="#f59e0b" stroke-width="7" stroke-linecap="round"
-                                                    stroke-dasharray="@(264 * creditNoteProgress / 100) 264"
-                                                    style="transform:rotate(-90deg);transform-origin:center;transition:stroke-dasharray .3s ease;" />
-                                        </svg>
-                                        <span class="ring-label">@creditNoteProgress%</span>
-                                    </div>
-                                    <h6 style="color:#d97706; font-weight:600; margin-bottom:.3rem;">
-                                        <i class="bi bi-cloud-upload me-1"></i>Posting to SAP
-                                    </h6>
-                                    <p style="color:#6b7280; font-size:.88rem; margin-bottom:.15rem;">@creditNoteProgressMessage</p>
-                                    <small style="color:#9ca3af;">Please wait while the credit note is being created…</small>
-                                </div>
-                            }
-
-                            <div class="cn-modal-header">
-                                <h5><i class="bi bi-file-earmark-minus" style="color:#d97706;"></i> Create Credit Note — Invoice
-                                    #@selectedInvoice.DocNum</h5>
-                                    <button class="btn-close-modal" @onclick="() => showCreateCreditNoteModal = false"
-                                            disabled="@isCreatingCreditNote">
-                                        <i class="bi bi-x-lg"></i>
-                                    </button>
-                                </div>
-                                <div class="cn-modal-body">
-                                    @if (existingCreditNotes?.HasExistingCreditNotes == true)
-                                    {
-                                        <div class="alert-banner warn-alert" style="margin-bottom:1rem;">
-                                            <i class="bi bi-exclamation-triangle-fill"></i>
-                                            <div class="alert-body">
-                                                <strong>Warning:</strong> This invoice already has @existingCreditNotes.CreditNotes.Count credit
-                                                note(s)
-                                                totaling @existingCreditNotes.TotalCreditedAmount.ToString("N2") @selectedInvoice.DocCurrency.
-                                            </div>
-                                        </div>
-                                    }
-
-                                    <div style="margin-bottom:1.25rem;">
-                                        <label
-                                            style="display:block;font-size:.75rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:.4rem;">
-                                            Reason for Credit Note *
-                                        </label>
-                                        <textarea
-                                        style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:.6rem .85rem;font-size:.9rem;resize:vertical;min-height:80px;"
-                                        @bind="creditNoteReason" placeholder="Enter the reason for creating this credit note…"
-                                        disabled="@isCreatingCreditNote"></textarea>
-                                    </div>
-
-                                    <div class="detail-section-title"><i class="bi bi-list-check" style="color:#d97706;"></i> Select Items to
-                                        Credit</div>
-                                        <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden;">
-                                            <table class="cn-lines-table">
-                                                <thead>
-                                                    <tr>
-                                                        <th style="width:36px;">
-                                                            <input type="checkbox" @bind="selectAllLines" @bind:after="ToggleAllLines"
-                                                                   disabled="@isCreatingCreditNote" style="cursor:pointer;" />
-                                                        </th>
-                                                        <th>Item</th>
-                                                        <th>Description</th>
-                                                        <th style="text-align:right;">Qty</th>
-                                                        <th style="text-align:right;">Credit Qty</th>
-                                                        <th style="text-align:right;">Price</th>
-                                                        <th style="text-align:right;">Total</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    @if (creditNoteLines != null)
-                                                    {
-                                                        @foreach (var line in creditNoteLines)
-                                                        {
-                                                            <tr class="@(line.IsSelected ? "selected-row" : "")">
-                                                                <td>
-                                                                    <input type="checkbox" @bind="line.IsSelected" disabled="@isCreatingCreditNote"
-                                                                           style="cursor:pointer;" />
-                                                                </td>
-                                                                <td><strong>@line.ItemCode</strong></td>
-                                                                <td>@line.ItemDescription</td>
-                                                                <td style="text-align:right;">@line.OriginalQuantity</td>
-                                                                <td style="text-align:right;">
-                                                                    <input type="number" class="cn-qty-input" @bind="line.CreditQuantity" min="0"
-                                                                           max="@line.OriginalQuantity" step="0.01"
-                                                                           disabled="@(!line.IsSelected || isCreatingCreditNote)" />
-                                                                </td>
-                                                                <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
-                                                                <td style="text-align:right; font-weight:600;">
-                                                                    @((line.IsSelected ? line.CreditQuantity * line.UnitPrice : 0).ToString("N2"))
-                                                                </td>
-                                                            </tr>
-                                                        }
-                                                    }
-                                                </tbody>
-                                                <tfoot>
-                                                    <tr>
-                                                        <td colspan="6" style="text-align:right;">Credit Note Total:</td>
-                                                        <td style="text-align:right;">@CalculateCreditNoteTotal().ToString("N2")</td>
-                                                    </tr>
-                                                </tfoot>
-                                            </table>
-                                        </div>
-                                    </div>
-                                    <div class="cn-modal-footer">
-                                        <button class="btn-secondary-action" @onclick="() => showCreateCreditNoteModal = false"
-                                                disabled="@isCreatingCreditNote">Cancel</button>
-                                        <button class="btn-warning-action" @onclick="CreateCreditNote"
-                                                disabled="@(isCreatingCreditNote || string.IsNullOrWhiteSpace(creditNoteReason) || !HasSelectedLines())">
-                                            @if (isCreatingCreditNote)
-                                            {
-                                                <span class="spinner-border spinner-border-sm"></span>
-                                                <span>Posting…</span>
-                                            }
-                                            else
-                                            {
-                                                <i class="bi bi-check-lg"></i>
-                                                <span>Create Credit Note</span>
-                                            }
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        }
-
-                        <!-- ━━━ Toast Notification ━━━ -->
-                        @if (!string.IsNullOrEmpty(creditNoteMessage))
+            <!-- ━━━ Create Credit Note Modal ━━━ -->
+            @if (showCreateCreditNoteModal && selectedInvoice != null)
+            {
+                <div class="cn-modal-overlay">
+                    <div class="cn-modal" style="position:relative;" @onclick:stopPropagation="true">
+                        @if (isCreatingCreditNote)
                         {
-                            <div class="toast-banner @(creditNoteSuccess ? "success" : "error")">
-                                <i class="bi @(creditNoteSuccess ? "bi-check-circle-fill" : "bi-exclamation-circle-fill") toast-icon"></i>
-                                <div class="toast-body">@creditNoteMessage</div>
-                                <button class="toast-close" @onclick="() => creditNoteMessage = null"><i class="bi bi-x-lg"></i></button>
+                            <div class="cn-progress-overlay">
+                                <div class="progress-dots">
+                                    <div class="dot"></div>
+                                    <div class="dot"></div>
+                                    <div class="dot"></div>
+                                </div>
+                                <div class="progress-ring-wrap">
+                                    <svg width="100" height="100" viewBox="0 0 100 100">
+                                        <circle cx="50" cy="50" r="42" fill="none" stroke="#e9ecef" stroke-width="7" />
+                                        <circle cx="50" cy="50" r="42" fill="none" stroke="#f59e0b" stroke-width="7" stroke-linecap="round"
+                                                stroke-dasharray="@(264 * creditNoteProgress / 100) 264"
+                                                style="transform:rotate(-90deg);transform-origin:center;transition:stroke-dasharray .3s ease;" />
+                                    </svg>
+                                    <span class="ring-label">@creditNoteProgress%</span>
+                                </div>
+                                <h6 style="color:#d97706; font-weight:600; margin-bottom:.3rem;">
+                                    <i class="bi bi-cloud-upload me-1"></i>Posting to SAP
+                                </h6>
+                                <p style="color:#6b7280; font-size:.88rem; margin-bottom:.15rem;">@creditNoteProgressMessage</p>
+                                <small style="color:#9ca3af;">Please wait while the credit note is being created…</small>
                             </div>
                         }
+
+                        <div class="cn-modal-header">
+                            <h5><i class="bi bi-file-earmark-minus" style="color:#d97706;"></i> Create Credit Note — Invoice
+                                #@selectedInvoice.DocNum</h5>
+                                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-modal"
+                                               OnClick="() => showCreateCreditNoteModal = false" Disabled="@isCreatingCreditNote" Size="Size.Small" />
+                            </div>
+                            <div class="cn-modal-body">
+                                @if (existingCreditNotes?.HasExistingCreditNotes == true)
+                                {
+                                    <div class="alert-banner warn-alert" style="margin-bottom:1rem;">
+                                        <i class="bi bi-exclamation-triangle-fill"></i>
+                                        <div class="alert-body">
+                                            <strong>Warning:</strong> This invoice already has @existingCreditNotes.CreditNotes.Count credit
+                                            note(s)
+                                            totaling @existingCreditNotes.TotalCreditedAmount.ToString("N2") @selectedInvoice.DocCurrency.
+                                        </div>
+                                    </div>
+                                }
+
+                                <div style="margin-bottom:1.25rem;">
+                                    <label
+                                        style="display:block;font-size:.75rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:.4rem;">
+                                        Reason for Credit Note *
+                                    </label>
+                                    <textarea
+                                    style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:.6rem .85rem;font-size:.9rem;resize:vertical;min-height:80px;"
+                                    @bind="creditNoteReason" placeholder="Enter the reason for creating this credit note…"
+                                    disabled="@isCreatingCreditNote"></textarea>
+                                </div>
+
+                                <div class="detail-section-title"><i class="bi bi-list-check" style="color:#d97706;"></i> Select Items to
+                                    Credit</div>
+                                    <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden;">
+                                        <table class="cn-lines-table">
+                                            <thead>
+                                                <tr>
+                                                    <th style="width:36px;">
+                                                        <input type="checkbox" @bind="selectAllLines" @bind:after="ToggleAllLines"
+                                                               disabled="@isCreatingCreditNote" style="cursor:pointer;" />
+                                                    </th>
+                                                    <th>Item</th>
+                                                    <th>Description</th>
+                                                    <th style="text-align:right;">Qty</th>
+                                                    <th style="text-align:right;">Credit Qty</th>
+                                                    <th style="text-align:right;">Price</th>
+                                                    <th style="text-align:right;">Total</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @if (creditNoteLines != null)
+                                                {
+                                                    @foreach (var line in creditNoteLines)
+                                                    {
+                                                        <tr class="@(line.IsSelected ? "selected-row" : "")">
+                                                            <td>
+                                                                <input type="checkbox" @bind="line.IsSelected" disabled="@isCreatingCreditNote"
+                                                                       style="cursor:pointer;" />
+                                                            </td>
+                                                            <td><strong>@line.ItemCode</strong></td>
+                                                            <td>@line.ItemDescription</td>
+                                                            <td style="text-align:right;">@line.OriginalQuantity</td>
+                                                            <td style="text-align:right;">
+                                                                <input type="number" class="cn-qty-input" @bind="line.CreditQuantity" min="0"
+                                                                       max="@line.OriginalQuantity" step="0.01"
+                                                                       disabled="@(!line.IsSelected || isCreatingCreditNote)" />
+                                                            </td>
+                                                            <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
+                                                            <td style="text-align:right; font-weight:600;">
+                                                                @((line.IsSelected ? line.CreditQuantity * line.UnitPrice : 0).ToString("N2"))
+                                                            </td>
+                                                        </tr>
+                                                    }
+                                                }
+                                            </tbody>
+                                            <tfoot>
+                                                <tr>
+                                                    <td colspan="6" style="text-align:right;">Credit Note Total:</td>
+                                                    <td style="text-align:right;">@CalculateCreditNoteTotal().ToString("N2")</td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="cn-modal-footer">
+                                    <MudButton Class="btn-secondary-action" OnClick="() => showCreateCreditNoteModal = false"
+                                               Disabled="@isCreatingCreditNote">Cancel</MudButton>
+                                    <MudButton Class="btn-warning-action" OnClick="CreateCreditNote"
+                                               Disabled="@(isCreatingCreditNote || string.IsNullOrWhiteSpace(creditNoteReason) || !HasSelectedLines())">
+                                        @if (isCreatingCreditNote)
+                                        {
+                                            <span class="spinner-border spinner-border-sm"></span>
+                                            <span>Posting…</span>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-check-lg"></i>
+                                            <span>Create Credit Note</span>
+                                        }
+                                    </MudButton>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- ━━━ Toast Notification ━━━ -->
+                    @if (!string.IsNullOrEmpty(creditNoteMessage))
+                    {
+                        <div class="toast-banner @(creditNoteSuccess ? "success" : "error")">
+                            <i class="bi @(creditNoteSuccess ? "bi-check-circle-fill" : "bi-exclamation-circle-fill") toast-icon"></i>
+                            <div class="toast-body">@creditNoteMessage</div>
+                            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="toast-close" OnClick="() => creditNoteMessage = null"
+                                           Size="Size.Small" />
+                        </div>
+                    }
 
 @code {
     private MudTable<InvoiceDto>? _table;

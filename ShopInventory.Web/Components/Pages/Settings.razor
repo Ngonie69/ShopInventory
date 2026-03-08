@@ -24,7 +24,7 @@
                 <p class="settings-subtitle">Manage application configuration, data sync, and user accounts</p>
             </div>
         </div>
-        <button class="btn-settings-save" @onclick="SaveSettings" disabled="@(!hasChanges || isSaving)">
+        <MudButton Class="btn-settings-save" OnClick="SaveSettings" Disabled="@(!hasChanges || isSaving)">
             @if (isSaving)
             {
                 <span class="spinner-border spinner-border-sm me-2" role="status"></span>
@@ -34,7 +34,7 @@
                 <i class="bi bi-check2-circle me-1"></i>
             }
             Save Changes
-        </button>
+        </MudButton>
     </div>
 
     <!-- Alerts -->
@@ -43,9 +43,8 @@
         <div class="settings-alert settings-alert-success">
             <i class="bi bi-check-circle-fill"></i>
             <span>@successMessage</span>
-            <button class="settings-alert-close" @onclick="() => successMessage = null">
-                <i class="bi bi-x-lg"></i>
-            </button>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="settings-alert-close"
+                           OnClick="() => successMessage = null" Size="Size.Small" />
         </div>
     }
     @if (!string.IsNullOrEmpty(errorMessage))
@@ -53,9 +52,8 @@
         <div class="settings-alert settings-alert-error">
             <i class="bi bi-exclamation-triangle-fill"></i>
             <span>@errorMessage</span>
-            <button class="settings-alert-close" @onclick="() => errorMessage = null">
-                <i class="bi bi-x-lg"></i>
-            </button>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="settings-alert-close"
+                           OnClick="() => errorMessage = null" Size="Size.Small" />
         </div>
     }
 
@@ -74,22 +72,22 @@
         <div class="settings-tabs">
             @foreach (var category in categories)
             {
-                <button class="settings-tab @(selectedCategory == category ? "active" : "")"
-                        @onclick="() => SelectCategory(category)">
+                <MudButton Class="@($"settings-tab {(selectedCategory == category ? "active" : "")}")"
+                           OnClick="() => SelectCategory(category)">
                     <i class="bi @GetCategoryIcon(category)"></i>
                     <span>@category</span>
-                </button>
+                </MudButton>
             }
-            <button class="settings-tab @(selectedCategory == DataManagementCategory ? "active" : "")"
-                    @onclick="() => SelectCategory(DataManagementCategory)">
+            <MudButton Class="@($"settings-tab {(selectedCategory == DataManagementCategory ? "active" : "")}")"
+                       OnClick="() => SelectCategory(DataManagementCategory)">
                 <i class="bi bi-arrow-repeat"></i>
                 <span>Data Sync</span>
-            </button>
-            <button class="settings-tab @(selectedCategory == UserManagementCategory ? "active" : "")"
-                    @onclick="() => SelectCategory(UserManagementCategory)">
+            </MudButton>
+            <MudButton Class="@($"settings-tab {(selectedCategory == UserManagementCategory ? "active" : "")}")"
+                       OnClick="() => SelectCategory(UserManagementCategory)">
                 <i class="bi bi-person-plus"></i>
                 <span>Users</span>
-            </button>
+            </MudButton>
         </div>
 
         <!-- Tab Content -->
@@ -105,366 +103,361 @@
                         </div>
                         <div>
                             <h5 class="section-title">Data Synchronization</h5>
-                            <p class="section-desc">Manually refresh cached data from SAP. Use when data has changed in the source system.</p>
-                        </div>
-                    </div>
-
-                    <div class="sync-grid">
-                        <!-- Products -->
-                        <div class="sync-card">
-                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);">
-                                <i class="bi bi-box-seam"></i>
-                            </div>
-                            <div class="sync-card-body">
-                                <h6>Products</h6>
-                                <p>Sync product catalog from SAP</p>
-                                @if (productsLastSync.HasValue)
-                                {
-                                    <span class="sync-timestamp">
-                                        <i class="bi bi-clock-history"></i> @productsLastSync.Value.ToString("dd MMM yyyy HH:mm")
-                                    </span>
-                                }
-                            </div>
-                            <button class="btn-sync" @onclick="RefreshProducts" disabled="@isRefreshingProducts">
-                                @if (isRefreshingProducts)
-                                {
-                                    <span class="spinner-border spinner-border-sm" role="status"></span>
-                                }
-                                else
-                                {
-                                    <i class="bi bi-arrow-repeat"></i>
-                                }
-                            </button>
-                        </div>
-
-                        <!-- Prices -->
-                        <div class="sync-card">
-                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #11998e, #38ef7d);">
-                                <i class="bi bi-tag"></i>
-                            </div>
-                            <div class="sync-card-body">
-                                <h6>Prices</h6>
-                                <p>Sync item prices from SAP</p>
-                                @if (pricesLastSync.HasValue)
-                                {
-                                    <span class="sync-timestamp">
-                                        <i class="bi bi-clock-history"></i> @pricesLastSync.Value.ToString("dd MMM yyyy HH:mm")
-                                    </span>
-                                }
-                            </div>
-                            <button class="btn-sync" @onclick="RefreshPrices" disabled="@isRefreshingPrices">
-                                @if (isRefreshingPrices)
-                                {
-                                    <span class="spinner-border spinner-border-sm" role="status"></span>
-                                }
-                                else
-                                {
-                                    <i class="bi bi-arrow-repeat"></i>
-                                }
-                            </button>
-                        </div>
-
-                        <!-- Business Partners -->
-                        <div class="sync-card">
-                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #f093fb, #f5576c);">
-                                <i class="bi bi-people"></i>
-                            </div>
-                            <div class="sync-card-body">
-                                <h6>Business Partners</h6>
-                                <p>Sync customers and suppliers</p>
-                                @if (bpLastSync.HasValue)
-                                {
-                                    <span class="sync-timestamp">
-                                        <i class="bi bi-clock-history"></i> @bpLastSync.Value.ToString("dd MMM yyyy HH:mm")
-                                    </span>
-                                }
-                            </div>
-                            <button class="btn-sync" @onclick="RefreshBusinessPartners" disabled="@isRefreshingBP">
-                                @if (isRefreshingBP)
-                                {
-                                    <span class="spinner-border spinner-border-sm" role="status"></span>
-                                }
-                                else
-                                {
-                                    <i class="bi bi-arrow-repeat"></i>
-                                }
-                            </button>
-                        </div>
-
-                        <!-- Warehouses -->
-                        <div class="sync-card">
-                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #f7971e, #ffd200);">
-                                <i class="bi bi-building"></i>
-                            </div>
-                            <div class="sync-card-body">
-                                <h6>Warehouses</h6>
-                                <p>Sync warehouse list from SAP</p>
-                                @if (warehousesLastSync.HasValue)
-                                {
-                                    <span class="sync-timestamp">
-                                        <i class="bi bi-clock-history"></i> @warehousesLastSync.Value.ToString("dd MMM yyyy HH:mm")
-                                    </span>
-                                }
-                            </div>
-                            <button class="btn-sync" @onclick="RefreshWarehouses" disabled="@isRefreshingWarehouses">
-                                @if (isRefreshingWarehouses)
-                                {
-                                    <span class="spinner-border spinner-border-sm" role="status"></span>
-                                }
-                                else
-                                {
-                                    <i class="bi bi-arrow-repeat"></i>
-                                }
-                            </button>
-                        </div>
-
-                        <!-- Cost Centres -->
-                        <div class="sync-card">
-                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #4facfe, #00f2fe);">
-                                <i class="bi bi-diagram-3"></i>
-                            </div>
-                            <div class="sync-card-body">
-                                <h6>Cost Centres</h6>
-                                <p>Sync profit centers from SAP</p>
-                                @if (costCentresLastSync.HasValue)
-                                {
-                                    <span class="sync-timestamp">
-                                        <i class="bi bi-clock-history"></i> @costCentresLastSync.Value.ToString("dd MMM yyyy HH:mm")
-                                    </span>
-                                }
-                            </div>
-                            <button class="btn-sync" @onclick="RefreshCostCentres" disabled="@isRefreshingCostCentres">
-                                @if (isRefreshingCostCentres)
-                                {
-                                    <span class="spinner-border spinner-border-sm" role="status"></span>
-                                }
-                                else
-                                {
-                                    <i class="bi bi-arrow-repeat"></i>
-                                }
-                            </button>
-                        </div>
-
-                        <!-- Refresh All -->
-                        <div class="sync-card sync-card-all">
-                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #1a1a2e, #16213e);">
-                                <i class="bi bi-arrow-clockwise"></i>
-                            </div>
-                            <div class="sync-card-body">
-                                <h6>Sync Everything</h6>
-                                <p>Refresh all master data in one go</p>
-                            </div>
-                            <button class="btn-sync btn-sync-all" @onclick="RefreshAllData" disabled="@isRefreshingAll">
-                                @if (isRefreshingAll)
-                                {
-                                    <span class="spinner-border spinner-border-sm" role="status"></span>
-                                }
-                                else
-                                {
-                                    <i class="bi bi-arrow-repeat"></i>
-                                }
-                            </button>
-                        </div>
-                    </div>
-
-                    @if (!string.IsNullOrEmpty(refreshMessage))
-                    {
-                        <div class="settings-alert @(refreshSuccess ? "settings-alert-success" : "settings-alert-error") mt-3">
-                            <i class="bi @(refreshSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
-                            <span>@refreshMessage</span>
-                            <button class="settings-alert-close" @onclick="() => refreshMessage = null">
-                                <i class="bi bi-x-lg"></i>
-                            </button>
-                        </div>
-                    }
-                </div>
-            }
-            else if (selectedCategory == UserManagementCategory)
-            {
-                <!-- User Management Section -->
-                <div class="settings-section" style="animation-delay: 0.05s;">
-                    <div class="section-header">
-                        <div class="section-icon section-icon-purple">
-                            <i class="bi bi-person-plus-fill"></i>
-                        </div>
-                        <div>
-                            <h5 class="section-title">Create User Account</h5>
-                            <p class="section-desc">Add new users and assign roles. Only administrators can create accounts.</p>
-                        </div>
-                    </div>
-
-                    <div class="user-form">
-                    <EditForm Model="newUserModel" OnValidSubmit="CreateUser">
-                        <DataAnnotationsValidator />
-
-                        <div class="form-grid">
-                            <div class="form-field">
-                                <label class="field-label">Username <span class="required">*</span></label>
-                                <InputText @bind-Value="newUserModel.Username" class="field-input"
-                                           placeholder="e.g. john.doe" />
-                                <ValidationMessage For="() => newUserModel.Username" class="field-error" />
-                            </div>
-
-                            <div class="form-field">
-                                <label class="field-label">Email Address</label>
-                                <InputText @bind-Value="newUserModel.Email" class="field-input"
-                                           placeholder="email address" />
-                                <ValidationMessage For="() => newUserModel.Email" class="field-error" />
-                            </div>
-
-                            <div class="form-field">
-                                <label class="field-label">Password <span class="required">*</span></label>
-                                <InputText @bind-Value="newUserModel.Password" type="password"
-                                           class="field-input" placeholder="Minimum 6 characters" />
-                                <ValidationMessage For="() => newUserModel.Password" class="field-error" />
-                            </div>
-
-                            <div class="form-field">
-                                <label class="field-label">Confirm Password <span class="required">*</span></label>
-                                <InputText @bind-Value="confirmPassword" type="password"
-                                           class="field-input" placeholder="Re-enter password" />
-                                @if (!string.IsNullOrEmpty(confirmPassword) && newUserModel.Password != confirmPassword)
-                                {
-                                    <span class="field-error">Passwords do not match</span>
-                                }
-                            </div>
-
-                            <div class="form-field">
-                                <label class="field-label">Role <span class="required">*</span></label>
-                                <InputSelect @bind-Value="newUserModel.Role" class="field-input">
-                                    <option value="Cashier">Cashier</option>
-                                    <option value="StockController">Stock Controller</option>
-                                    <option value="DepotController">Depot Controller</option>
-                                    <option value="Admin">Admin</option>
-                                </InputSelect>
-                                <ValidationMessage For="() => newUserModel.Role" class="field-error" />
+                            <p class="section-desc">Manually refresh cached data from SAP. Use when data has changed in the
+                                source system.</p>
                             </div>
                         </div>
 
-                        <div class="form-actions">
-                            <button type="submit" class="btn-create-user"
-                                    disabled="@(isCreatingUser || (!string.IsNullOrEmpty(confirmPassword) && newUserModel.Password != confirmPassword))">
-                                @if (isCreatingUser)
-                                {
-                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                                }
-                                else
-                                {
-                                    <i class="bi bi-person-plus me-1"></i>
-                                }
-                                Create Account
-                            </button>
-                        </div>
-                    </EditForm>
-                    </div>
-
-                    @if (!string.IsNullOrEmpty(userMessage))
-                    {
-                        <div class="settings-alert @(userSuccess ? "settings-alert-success" : "settings-alert-error") mt-3">
-                            <i class="bi @(userSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
-                            <span>@userMessage</span>
-                            <button class="settings-alert-close" @onclick="() => userMessage = null">
-                                <i class="bi bi-x-lg"></i>
-                            </button>
-                        </div>
-                    }
-                </div>
-            }
-            else if (categorySettings.Any())
-            {
-                <!-- Dynamic Settings -->
-                <div class="settings-section" style="animation-delay: 0.05s;">
-                    <div class="section-header">
-                        <div class="section-icon @GetSectionIconClass(selectedCategory)">
-                            <i class="bi @GetCategoryIcon(selectedCategory)"></i>
-                        </div>
-                        <div>
-                            <h5 class="section-title">@selectedCategory</h5>
-                            <p class="section-desc">@GetCategoryDescription(selectedCategory)</p>
-                        </div>
-                    </div>
-
-                    <div class="setting-items">
-                        @foreach (var setting in categorySettings)
-                        {
-                            <div class="setting-item">
-                                <div class="setting-info">
-                                    <label class="setting-label">@FormatLabel(setting.Key)</label>
-                                    @if (!string.IsNullOrEmpty(setting.Description))
+                        <div class="sync-grid">
+                            <!-- Products -->
+                            <div class="sync-card">
+                                <div class="sync-card-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);">
+                                    <i class="bi bi-box-seam"></i>
+                                </div>
+                                <div class="sync-card-body">
+                                    <h6>Products</h6>
+                                    <p>Sync product catalog from SAP</p>
+                                    @if (productsLastSync.HasValue)
                                     {
-                                        <span class="setting-desc">@setting.Description</span>
-                                    }
-                                    @if (setting.LastModifiedBy != null)
-                                    {
-                                        <span class="setting-meta">
-                                            <i class="bi bi-pencil-square"></i> @setting.LastModifiedBy &middot; @setting.LastModifiedAt.ToString("dd MMM yyyy HH:mm")
+                                        <span class="sync-timestamp">
+                                            <i class="bi bi-clock-history"></i> @productsLastSync.Value.ToString("dd MMM yyyy HH:mm")
                                         </span>
                                     }
                                 </div>
-                                <div class="setting-control">
-                                    @if (setting.DataType == "bool")
+                                <MudButton Class="btn-sync" OnClick="RefreshProducts" Disabled="@isRefreshingProducts">
+                                    @if (isRefreshingProducts)
                                     {
-                                        <label class="toggle-switch">
-                                            <input type="checkbox"
-                                                   checked="@GetBoolValue(setting.Key)"
-                                                   disabled="@(!setting.IsEditable)"
-                                                   @onchange="e => OnBoolSettingChanged(setting.Key, e)" />
-                                            <span class="toggle-slider"></span>
-                                            <span class="toggle-text">@(GetBoolValue(setting.Key) ? "On" : "Off")</span>
-                                        </label>
-                                    }
-                                    else if (setting.DataType == "int")
-                                    {
-                                        <input type="number" class="field-input field-input-sm"
-                                               value="@GetValue(setting.Key)"
-                                               disabled="@(!setting.IsEditable)"
-                                               @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())" />
-                                    }
-                                    else if (setting.Key == SettingKeys.Theme)
-                                    {
-                                        <select class="field-input field-input-sm"
-                                                value="@GetValue(setting.Key)"
-                                                disabled="@(!setting.IsEditable)"
-                                                @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())">
-                                            <option value="light">Light</option>
-                                            <option value="dark">Dark</option>
-                                        </select>
-                                    }
-                                    else if (setting.Key == SettingKeys.DateFormat)
-                                    {
-                                        <select class="field-input field-input-sm"
-                                                value="@GetValue(setting.Key)"
-                                                disabled="@(!setting.IsEditable)"
-                                                @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())">
-                                            <option value="dd MMM yyyy">04 Jan 2026</option>
-                                            <option value="dd/MM/yyyy">04/01/2026</option>
-                                            <option value="MM/dd/yyyy">01/04/2026</option>
-                                            <option value="yyyy-MM-dd">2026-01-04</option>
-                                        </select>
+                                        <span class="spinner-border spinner-border-sm" role="status"></span>
                                     }
                                     else
                                     {
-                                        <input type="text" class="field-input field-input-sm"
-                                               value="@GetValue(setting.Key)"
-                                               disabled="@(!setting.IsEditable)"
-                                               @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())" />
+                                        <i class="bi bi-arrow-repeat"></i>
+                                    }
+                                </MudButton>
+                            </div>
+
+                            <!-- Prices -->
+                            <div class="sync-card">
+                                <div class="sync-card-icon" style="background: linear-gradient(135deg, #11998e, #38ef7d);">
+                                    <i class="bi bi-tag"></i>
+                                </div>
+                                <div class="sync-card-body">
+                                    <h6>Prices</h6>
+                                    <p>Sync item prices from SAP</p>
+                                    @if (pricesLastSync.HasValue)
+                                    {
+                                        <span class="sync-timestamp">
+                                            <i class="bi bi-clock-history"></i> @pricesLastSync.Value.ToString("dd MMM yyyy HH:mm")
+                                        </span>
                                     }
                                 </div>
+                                <MudButton Class="btn-sync" OnClick="RefreshPrices" Disabled="@isRefreshingPrices">
+                                    @if (isRefreshingPrices)
+                                    {
+                                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-arrow-repeat"></i>
+                                    }
+                                </MudButton>
+                            </div>
+
+                            <!-- Business Partners -->
+                            <div class="sync-card">
+                                <div class="sync-card-icon" style="background: linear-gradient(135deg, #f093fb, #f5576c);">
+                                    <i class="bi bi-people"></i>
+                                </div>
+                                <div class="sync-card-body">
+                                    <h6>Business Partners</h6>
+                                    <p>Sync customers and suppliers</p>
+                                    @if (bpLastSync.HasValue)
+                                    {
+                                        <span class="sync-timestamp">
+                                            <i class="bi bi-clock-history"></i> @bpLastSync.Value.ToString("dd MMM yyyy HH:mm")
+                                        </span>
+                                    }
+                                </div>
+                                <MudButton Class="btn-sync" OnClick="RefreshBusinessPartners" Disabled="@isRefreshingBP">
+                                    @if (isRefreshingBP)
+                                    {
+                                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-arrow-repeat"></i>
+                                    }
+                                </MudButton>
+                            </div>
+
+                            <!-- Warehouses -->
+                            <div class="sync-card">
+                                <div class="sync-card-icon" style="background: linear-gradient(135deg, #f7971e, #ffd200);">
+                                    <i class="bi bi-building"></i>
+                                </div>
+                                <div class="sync-card-body">
+                                    <h6>Warehouses</h6>
+                                    <p>Sync warehouse list from SAP</p>
+                                    @if (warehousesLastSync.HasValue)
+                                    {
+                                        <span class="sync-timestamp">
+                                            <i class="bi bi-clock-history"></i> @warehousesLastSync.Value.ToString("dd MMM yyyy HH:mm")
+                                        </span>
+                                    }
+                                </div>
+                                <MudButton Class="btn-sync" OnClick="RefreshWarehouses" Disabled="@isRefreshingWarehouses">
+                                    @if (isRefreshingWarehouses)
+                                    {
+                                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-arrow-repeat"></i>
+                                    }
+                                </MudButton>
+                            </div>
+
+                            <!-- Cost Centres -->
+                            <div class="sync-card">
+                                <div class="sync-card-icon" style="background: linear-gradient(135deg, #4facfe, #00f2fe);">
+                                    <i class="bi bi-diagram-3"></i>
+                                </div>
+                                <div class="sync-card-body">
+                                    <h6>Cost Centres</h6>
+                                    <p>Sync profit centers from SAP</p>
+                                    @if (costCentresLastSync.HasValue)
+                                    {
+                                        <span class="sync-timestamp">
+                                            <i class="bi bi-clock-history"></i> @costCentresLastSync.Value.ToString("dd MMM yyyy HH:mm")
+                                        </span>
+                                    }
+                                </div>
+                                <MudButton Class="btn-sync" OnClick="RefreshCostCentres" Disabled="@isRefreshingCostCentres">
+                                    @if (isRefreshingCostCentres)
+                                    {
+                                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-arrow-repeat"></i>
+                                    }
+                                </MudButton>
+                            </div>
+
+                            <!-- Refresh All -->
+                            <div class="sync-card sync-card-all">
+                                <div class="sync-card-icon" style="background: linear-gradient(135deg, #1a1a2e, #16213e);">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </div>
+                                <div class="sync-card-body">
+                                    <h6>Sync Everything</h6>
+                                    <p>Refresh all master data in one go</p>
+                                </div>
+                                <MudButton Class="btn-sync btn-sync-all" OnClick="RefreshAllData" Disabled="@isRefreshingAll">
+                                    @if (isRefreshingAll)
+                                    {
+                                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-arrow-repeat"></i>
+                                    }
+                                </MudButton>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(refreshMessage))
+                        {
+                            <div class="settings-alert @(refreshSuccess ? "settings-alert-success" : "settings-alert-error") mt-3">
+                                <i class="bi @(refreshSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+                                <span>@refreshMessage</span>
+                                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="settings-alert-close"
+                                               OnClick="() => refreshMessage = null" Size="Size.Small" />
                             </div>
                         }
                     </div>
-                </div>
-            }
-            else
-            {
-                <div class="settings-empty">
-                    <i class="bi bi-inbox"></i>
-                    <p>No settings available for this category.</p>
-                </div>
-            }
-        </div>
-    }
-</div>
+                }
+        else if (selectedCategory == UserManagementCategory)
+                {
+                    <!-- User Management Section -->
+                    <div class="settings-section" style="animation-delay: 0.05s;">
+                        <div class="section-header">
+                            <div class="section-icon section-icon-purple">
+                                <i class="bi bi-person-plus-fill"></i>
+                            </div>
+                            <div>
+                                <h5 class="section-title">Create User Account</h5>
+                                <p class="section-desc">Add new users and assign roles. Only administrators can create accounts.</p>
+                            </div>
+                        </div>
+
+                        <div class="user-form">
+                            <EditForm Model="newUserModel" OnValidSubmit="CreateUser">
+                                <DataAnnotationsValidator />
+
+                                <div class="form-grid">
+                                    <div class="form-field">
+                                        <label class="field-label">Username <span class="required">*</span></label>
+                                        <InputText @bind-Value="newUserModel.Username" class="field-input"
+                                                   placeholder="e.g. john.doe" />
+                                        <ValidationMessage For="() => newUserModel.Username" class="field-error" />
+                                    </div>
+
+                                    <div class="form-field">
+                                        <label class="field-label">Email Address</label>
+                                        <InputText @bind-Value="newUserModel.Email" class="field-input"
+                                                   placeholder="email address" />
+                                        <ValidationMessage For="() => newUserModel.Email" class="field-error" />
+                                    </div>
+
+                                    <div class="form-field">
+                                        <label class="field-label">Password <span class="required">*</span></label>
+                                        <InputText @bind-Value="newUserModel.Password" type="password" class="field-input"
+                                                   placeholder="Minimum 6 characters" />
+                                        <ValidationMessage For="() => newUserModel.Password" class="field-error" />
+                                    </div>
+
+                                    <div class="form-field">
+                                        <label class="field-label">Confirm Password <span class="required">*</span></label>
+                                        <InputText @bind-Value="confirmPassword" type="password" class="field-input"
+                                                   placeholder="Re-enter password" />
+                                        @if (!string.IsNullOrEmpty(confirmPassword) && newUserModel.Password != confirmPassword)
+                                        {
+                                            <span class="field-error">Passwords do not match</span>
+                                        }
+                                    </div>
+
+                                    <div class="form-field">
+                                        <label class="field-label">Role <span class="required">*</span></label>
+                                        <InputSelect @bind-Value="newUserModel.Role" class="field-input">
+                                            <option value="Cashier">Cashier</option>
+                                            <option value="StockController">Stock Controller</option>
+                                            <option value="DepotController">Depot Controller</option>
+                                            <option value="Admin">Admin</option>
+                                        </InputSelect>
+                                        <ValidationMessage For="() => newUserModel.Role" class="field-error" />
+                                    </div>
+                                </div>
+
+                                <div class="form-actions">
+                                    <MudButton ButtonType="ButtonType.Submit" Class="btn-create-user"
+                                               Disabled="@(isCreatingUser || (!string.IsNullOrEmpty(confirmPassword) && newUserModel.Password != confirmPassword))">
+                                        @if (isCreatingUser)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-person-plus me-1"></i>
+                                        }
+                                        Create Account
+                                    </MudButton>
+                                </div>
+                            </EditForm>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(userMessage))
+                        {
+                            <div class="settings-alert @(userSuccess ? "settings-alert-success" : "settings-alert-error") mt-3">
+                                <i class="bi @(userSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+                                <span>@userMessage</span>
+                                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="settings-alert-close"
+                                               OnClick="() => userMessage = null" Size="Size.Small" />
+                            </div>
+                        }
+                    </div>
+                }
+                else if (categorySettings.Any())
+                {
+                    <!-- Dynamic Settings -->
+                    <div class="settings-section" style="animation-delay: 0.05s;">
+                        <div class="section-header">
+                            <div class="section-icon @GetSectionIconClass(selectedCategory)">
+                                <i class="bi @GetCategoryIcon(selectedCategory)"></i>
+                            </div>
+                            <div>
+                                <h5 class="section-title">@selectedCategory</h5>
+                                <p class="section-desc">@GetCategoryDescription(selectedCategory)</p>
+                            </div>
+                        </div>
+
+                        <div class="setting-items">
+                            @foreach (var setting in categorySettings)
+                            {
+                                <div class="setting-item">
+                                    <div class="setting-info">
+                                        <label class="setting-label">@FormatLabel(setting.Key)</label>
+                                        @if (!string.IsNullOrEmpty(setting.Description))
+                                        {
+                                            <span class="setting-desc">@setting.Description</span>
+                                        }
+                                        @if (setting.LastModifiedBy != null)
+                                        {
+                                            <span class="setting-meta">
+                                                <i class="bi bi-pencil-square"></i> @setting.LastModifiedBy &middot;
+                                                @setting.LastModifiedAt.ToString("dd MMM yyyy HH:mm")
+                                            </span>
+                                        }
+                                    </div>
+                                    <div class="setting-control">
+                                        @if (setting.DataType == "bool")
+                                        {
+                                            <label class="toggle-switch">
+                                                <input type="checkbox" checked="@GetBoolValue(setting.Key)"
+                                                       disabled="@(!setting.IsEditable)"
+                                                       @onchange="e => OnBoolSettingChanged(setting.Key, e)" />
+                                                <span class="toggle-slider"></span>
+                                                <span class="toggle-text">@(GetBoolValue(setting.Key) ? "On" : "Off")</span>
+                                            </label>
+                                        }
+                                        else if (setting.DataType == "int")
+                                        {
+                                            <input type="number" class="field-input field-input-sm" value="@GetValue(setting.Key)"
+                                                   disabled="@(!setting.IsEditable)"
+                                                   @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())" />
+                                        }
+                                        else if (setting.Key == SettingKeys.Theme)
+                                        {
+                                            <select class="field-input field-input-sm" value="@GetValue(setting.Key)"
+                                                    disabled="@(!setting.IsEditable)"
+                                                    @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())">
+                                                <option value="light">Light</option>
+                                                <option value="dark">Dark</option>
+                                            </select>
+                                        }
+                                        else if (setting.Key == SettingKeys.DateFormat)
+                                        {
+                                            <select class="field-input field-input-sm" value="@GetValue(setting.Key)"
+                                                    disabled="@(!setting.IsEditable)"
+                                                    @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())">
+                                                <option value="dd MMM yyyy">04 Jan 2026</option>
+                                                <option value="dd/MM/yyyy">04/01/2026</option>
+                                                <option value="MM/dd/yyyy">01/04/2026</option>
+                                                <option value="yyyy-MM-dd">2026-01-04</option>
+                                            </select>
+                                        }
+                                        else
+                                        {
+                                            <input type="text" class="field-input field-input-sm" value="@GetValue(setting.Key)"
+                                                   disabled="@(!setting.IsEditable)"
+                                                   @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())" />
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="settings-empty">
+                        <i class="bi bi-inbox"></i>
+                        <p>No settings available for this category.</p>
+                    </div>
+                }
+            </div>
+        }
+    </div>
 
 @code {
     private const string DataManagementCategory = "Data Management";

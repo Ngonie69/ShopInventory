@@ -1,113 +1,458 @@
 ﻿@using MudBlazor
 
-<MudNavMenu Dense="true" Bordered="true" Class="mud-width-full staff-nav-menu">
+<style>
+    /* ── Modern Sidebar Navigation ────────────────── */
+    .nav-sidebar {
+        display: flex;
+        flex-direction: column;
+        padding: 0.5rem 0.75rem 1rem;
+        gap: 1px;
+    }
+
+    /* ── Section Labels ── */
+    .nav-section-label {
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.2px;
+        color: rgba(148, 163, 184, 0.55);
+        padding: 1.25rem 0.75rem 0.4rem;
+        margin: 0;
+        user-select: none;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .nav-section-label:first-child {
+        padding-top: 0.5rem;
+    }
+
+    .nav-section-label.admin-label {
+        color: rgba(251, 191, 36, 0.55);
+        border-top: 1px solid rgba(251, 191, 36, 0.1);
+        margin-top: 0.5rem;
+        padding-top: 1rem;
+    }
+
+    /* ── Nav Items ── */
+    .snav-link {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.55rem 0.75rem;
+        border-radius: 0.5rem;
+        color: rgba(203, 213, 225, 0.85);
+        text-decoration: none !important;
+        font-size: 0.825rem;
+        font-weight: 500;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        cursor: pointer;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin: 1px 0;
+    }
+
+    .snav-link:hover {
+        background: rgba(255, 255, 255, 0.06);
+        color: #f1f5f9;
+        text-decoration: none !important;
+    }
+
+    .snav-link:hover .snav-icon {
+        color: #a5b4fc;
+        transform: scale(1.1);
+    }
+
+    /* Active state */
+    .snav-link.active {
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.15));
+        color: #e0e7ff;
+        font-weight: 600;
+        box-shadow: inset 3px 0 0 0 #818cf8;
+    }
+
+    .snav-link.active .snav-icon {
+        color: #a5b4fc;
+    }
+
+    /* Sub-items (Create actions) */
+    .snav-link.sub-link {
+        padding-left: 2.25rem;
+        font-size: 0.785rem;
+        color: rgba(203, 213, 225, 0.6);
+    }
+
+    .snav-link.sub-link .snav-icon .mud-icon-root {
+        font-size: 0.95rem !important;
+    }
+
+    .snav-link.sub-link:hover {
+        color: #e0e7ff;
+    }
+
+    .snav-link.sub-link.active {
+        color: #c7d2fe;
+        box-shadow: inset 3px 0 0 0 #6366f1;
+        background: rgba(99, 102, 241, 0.12);
+    }
+
+    /* ── Icons ── */
+    .snav-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.25rem;
+        height: 1.25rem;
+        flex-shrink: 0;
+        color: rgba(148, 163, 184, 0.65);
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .snav-icon .mud-icon-root {
+        font-size: 1.15rem !important;
+        color: inherit !important;
+    }
+
+    /* ── Text ── */
+    .snav-text {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* ── Bottom spacer ── */
+    .nav-bottom-spacer {
+        height: 2rem;
+        flex-shrink: 0;
+    }
+
+    /* ── Focus visible for keyboard nav ── */
+    .snav-link:focus-visible {
+        outline: 2px solid #818cf8;
+        outline-offset: -2px;
+    }
+
+    /* ── Mini Drawer (collapsed) state ── */
+    .mud-drawer--closed .nav-sidebar {
+        padding: 0.5rem 0.15rem 1rem;
+    }
+
+    .mud-drawer--closed .nav-section-label {
+        opacity: 0;
+        max-height: 0;
+        padding-top: 0;
+        padding-bottom: 0;
+        margin: 0;
+        pointer-events: none;
+        overflow: hidden;
+    }
+
+    .mud-drawer--closed .snav-link {
+        justify-content: center;
+        gap: 0;
+        padding: 0.6rem 0;
+        border-radius: 0.5rem;
+    }
+
+    .mud-drawer--closed .snav-link.sub-link {
+        padding-left: 0;
+    }
+
+    .mud-drawer--closed .snav-text {
+        opacity: 0;
+        max-width: 0;
+        overflow: hidden;
+        pointer-events: none;
+    }
+
+    .mud-drawer--closed .snav-link.active {
+        box-shadow: none;
+        background: rgba(99, 102, 241, 0.2);
+    }
+
+    /* Smooth transitions when drawer opens/closes */
+    .nav-section-label {
+        transition: opacity 0.15s ease, max-height 0.15s ease, padding 0.15s ease;
+        max-height: 3rem;
+    }
+
+    .snav-text {
+        transition: opacity 0.15s ease 0.05s, max-width 0.2s ease;
+        max-width: 200px;
+    }
+
+    .nav-sidebar {
+        transition: padding 0.2s ease;
+    }
+
+    /* ── Scrollbar ── */
+    .nav-sidebar::-webkit-scrollbar {
+        width: 3px;
+    }
+
+    .nav-sidebar::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .nav-sidebar::-webkit-scrollbar-thumb {
+        background: rgba(148, 163, 184, 0.2);
+        border-radius: 10px;
+    }
+
+    .nav-sidebar::-webkit-scrollbar-thumb:hover {
+        background: rgba(148, 163, 184, 0.35);
+    }
+
+    /* ── Responsive ── */
+    @@media (max-width: 640px) {
+        .nav-sidebar {
+            padding: 0.5rem;
+        }
+
+        .nav-section-label {
+            font-size: 0.6rem;
+            padding: 1rem 0.5rem 0.35rem;
+        }
+
+        .snav-link {
+            padding: 0.5rem 0.6rem;
+            font-size: 0.8rem;
+        }
+    }
+</style>
+
+<div class="nav-sidebar">
     <AuthorizeView>
         <Authorized>
-            <MudNavLink Href="/dashboard" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Dashboard
-            </MudNavLink>
+            @* ── Overview ── *@
+            <div class="nav-section-label">Overview</div>
+            <NavLink class="snav-link" href="/dashboard" Match="NavLinkMatch.All">
+                <span class="snav-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.Dashboard" />
+                </span>
+                <span class="snav-text">Dashboard</span>
+            </NavLink>
 
-            <!-- Invoicing: Admin, Cashier -->
+            @* ── Sales & Billing ── *@
             <AuthorizeView Roles="Admin,Cashier" Context="invoiceCtx">
                 <Authorized>
-                    <MudNavLink Href="/invoices" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Receipt">
-                        Invoices
-                    </MudNavLink>
-                    <MudNavLink Href="/invoices/create" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.AddBox">
-                        Create
-                        Invoice</MudNavLink>
-                        <MudNavLink Href="/sales-orders" Match="NavLinkMatch.Prefix"
-                                    Icon="@Icons.Material.Filled.ShoppingCart">
-                            Sales Orders</MudNavLink>
-                            <MudNavLink Href="/credit-notes" Match="NavLinkMatch.Prefix"
-                                        Icon="@Icons.Material.Filled.RemoveCircle">
-                                Credit Notes</MudNavLink>
-                            </Authorized>
-                        </AuthorizeView>
+                    <div class="nav-section-label">Sales & Billing</div>
+                    <NavLink class="snav-link" href="/invoices" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Receipt" />
+                        </span>
+                        <span class="snav-text">Invoices</span>
+                    </NavLink>
+                    <NavLink class="snav-link sub-link" href="/invoices/create" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.AddCircle" />
+                        </span>
+                        <span class="snav-text">Create Invoice</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/sales-orders" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.ShoppingCartCheckout" />
+                        </span>
+                        <span class="snav-text">Sales Orders</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/credit-notes" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.NoteAlt" />
+                        </span>
+                        <span class="snav-text">Credit Notes</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
 
-                        <!-- Inventory Transfers: Admin, StockController, DepotController -->
-                        <AuthorizeView Roles="Admin,StockController,DepotController" Context="transferCtx">
-                            <Authorized>
-                                <MudNavLink Href="/inventory-transfers" Match="NavLinkMatch.Prefix"
-                                            Icon="@Icons.Material.Filled.SwapHoriz">
-                                    Inventory Transfers</MudNavLink>
-                                </Authorized>
-                            </AuthorizeView>
+            @* ── Inventory ── *@
+            <AuthorizeView Roles="Admin,StockController,DepotController" Context="transferCtx">
+                <Authorized>
+                    <div class="nav-section-label">Inventory</div>
+                    <NavLink class="snav-link" href="/inventory-transfers" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" />
+                        </span>
+                        <span class="snav-text">Transfers</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
 
-                            <!-- Purchasing: Admin, Manager -->
-                            <AuthorizeView Roles="Admin,Manager" Context="purchasingCtx">
-                                <Authorized>
-                                    <MudNavLink Href="/purchase-orders" Match="NavLinkMatch.Prefix"
-                                                Icon="@Icons.Material.Filled.ShoppingBasket">
-                                        Purchase Orders</MudNavLink>
-                                        <MudNavLink Href="/purchase-orders/create" Match="NavLinkMatch.All"
-                                                    Icon="@Icons.Material.Filled.NoteAdd">
-                                            Create Purchase Order</MudNavLink>
-                                        </Authorized>
-                                    </AuthorizeView>
+            @* ── Purchasing ── *@
+            <AuthorizeView Roles="Admin,Manager" Context="purchasingCtx">
+                <Authorized>
+                    <div class="nav-section-label">Purchasing</div>
+                    <NavLink class="snav-link" href="/purchase-orders" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.ShoppingBag" />
+                        </span>
+                        <span class="snav-text">Purchase Orders</span>
+                    </NavLink>
+                    <NavLink class="snav-link sub-link" href="/purchase-orders/create" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.AddCircle" />
+                        </span>
+                        <span class="snav-text">Create PO</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
 
-                                    <!-- Payments: Admin, Cashier, DepotController -->
-                                    <AuthorizeView Roles="Admin,Cashier,DepotController" Context="paymentCtx">
-                                        <Authorized>
-                                            <MudNavLink Href="/payments" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Payment">
-                                                Payments
-                                            </MudNavLink>
-                                            <MudNavLink Href="/payments/create" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.AddCard">
-                                                Create
-                                                Payment</MudNavLink>
-                                            </Authorized>
-                                        </AuthorizeView>
+            @* ── Payments ── *@
+            <AuthorizeView Roles="Admin,Cashier,DepotController" Context="paymentCtx">
+                <Authorized>
+                    <div class="nav-section-label">Payments</div>
+                    <NavLink class="snav-link" href="/payments" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Payment" />
+                        </span>
+                        <span class="snav-text">Payments</span>
+                    </NavLink>
+                    <NavLink class="snav-link sub-link" href="/payments/create" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.AddCircle" />
+                        </span>
+                        <span class="snav-text">Create Payment</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
 
-                                        <MudNavLink Href="/products" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Inventory2">Products
-                                        </MudNavLink>
-                                        <MudNavLink Href="/stock" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Analytics">Stock
-                                            Monitoring</MudNavLink>
-                                            <MudNavLink Href="/customers" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.People">Customers
-                                            </MudNavLink>
-                                            <MudNavLink Href="/reports" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Assessment">Reports
-                                            </MudNavLink>
-                                            <MudNavLink Href="/document-templates" Match="NavLinkMatch.Prefix"
-                                                        Icon="@Icons.Material.Filled.Description">Document Templates</MudNavLink>
-                                            <MudNavLink Href="/ai-assistant" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.SmartToy">AI
-                                                Assistant</MudNavLink>
-                                                <MudNavLink Href="/sync-status" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Sync">Sync Status
-                                                </MudNavLink>
-                                                <MudNavLink Href="/notifications" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Notifications">
-                                                    Notifications</MudNavLink>
-                                                    <MudNavLink Href="/security" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Security">Security
-                                                    </MudNavLink>
+            @* ── Catalogue ── *@
+            <div class="nav-section-label">Catalogue</div>
+            <NavLink class="snav-link" href="/products" Match="NavLinkMatch.Prefix">
+                <span class="snav-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.Inventory2" />
+                </span>
+                <span class="snav-text">Products</span>
+            </NavLink>
+            <NavLink class="snav-link" href="/stock" Match="NavLinkMatch.Prefix">
+                <span class="snav-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.BarChart" />
+                </span>
+                <span class="snav-text">Stock Monitoring</span>
+            </NavLink>
+            <NavLink class="snav-link" href="/customers" Match="NavLinkMatch.Prefix">
+                <span class="snav-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.People" />
+                </span>
+                <span class="snav-text">Customers</span>
+            </NavLink>
 
-                                                    <!-- Admin Only Section -->
-                                                    <AuthorizeView Roles="Admin" Context="adminContext">
-                                                        <Authorized>
-                                                            <MudDivider Class="my-2" />
-                                                            <MudNavGroup Title="Administration" Icon="@Icons.Material.Filled.AdminPanelSettings"
-                                                                         Expanded="false" Class="staff-nav-group">
-                                                                <MudNavLink Href="/desktop-transactions" Match="NavLinkMatch.Prefix"
-                                                                            Icon="@Icons.Material.Filled.DesktopWindows">Desktop Transactions</MudNavLink>
-                                                                <MudNavLink Href="/users" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Group">Users
-                                                                </MudNavLink>
-                                                                <MudNavLink Href="/user-management" Match="NavLinkMatch.Prefix"
-                                                                            Icon="@Icons.Material.Filled.Lock">Permissions & Security</MudNavLink>
-                                                                <MudNavLink Href="/user-activity" Match="NavLinkMatch.Prefix"
-                                                                            Icon="@Icons.Material.Filled.Timeline">User Activity</MudNavLink>
-                                                                <MudNavLink Href="/customer-portal-management" Match="NavLinkMatch.Prefix"
-                                                                            Icon="@Icons.Material.Filled.Badge">Customer Portal</MudNavLink>
-                                                                <MudNavLink Href="/audit-trail" Match="NavLinkMatch.Prefix"
-                                                                            Icon="@Icons.Material.Filled.History">Audit Trail</MudNavLink>
-                                                                <MudNavLink Href="/backups" Match="NavLinkMatch.Prefix"
-                                                                            Icon="@Icons.Material.Filled.CloudUpload">Backups</MudNavLink>
-                                                                <MudNavLink Href="/webhooks" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Webhook">
-                                                                    Webhooks</MudNavLink>
-                                                                    <MudNavLink Href="/swagger" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Api">
-                                                                        Swagger API</MudNavLink>
-                                                                        <MudNavLink Href="/settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Settings">
-                                                                            Settings</MudNavLink>
-                                                                        </MudNavGroup>
-                                                                    </Authorized>
-                                                                </AuthorizeView>
-                                                            </Authorized>
-                                                            <NotAuthorized>
-                                                                <MudNavLink Href="/login" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Login">Login</MudNavLink>
-                                                            </NotAuthorized>
-                                                        </AuthorizeView>
-                                                    </MudNavMenu>
+            @* ── Insights ── *@
+            <div class="nav-section-label">Insights</div>
+            <NavLink class="snav-link" href="/reports" Match="NavLinkMatch.Prefix">
+                <span class="snav-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.TrendingUp" />
+                </span>
+                <span class="snav-text">Reports</span>
+            </NavLink>
+            <NavLink class="snav-link" href="/document-templates" Match="NavLinkMatch.Prefix">
+                <span class="snav-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.Description" />
+                </span>
+                <span class="snav-text">Templates</span>
+            </NavLink>
+            <NavLink class="snav-link" href="/ai-assistant" Match="NavLinkMatch.Prefix">
+                <span class="snav-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.SmartToy" />
+                </span>
+                <span class="snav-text">AI Assistant</span>
+            </NavLink>
+
+            @* ── System ── *@
+            <div class="nav-section-label">System</div>
+            <NavLink class="snav-link" href="/sync-status" Match="NavLinkMatch.Prefix">
+                <span class="snav-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.Sync" />
+                </span>
+                <span class="snav-text">Sync Status</span>
+            </NavLink>
+            <NavLink class="snav-link" href="/notifications" Match="NavLinkMatch.Prefix">
+                <span class="snav-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.Notifications" />
+                </span>
+                <span class="snav-text">Notifications</span>
+            </NavLink>
+            <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
+                <span class="snav-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.Security" />
+                </span>
+                <span class="snav-text">Security</span>
+            </NavLink>
+
+            @* ── Administration (Admin only) ── *@
+            <AuthorizeView Roles="Admin" Context="adminContext">
+                <Authorized>
+                    <div class="nav-section-label admin-label">Administration</div>
+                    <NavLink class="snav-link" href="/desktop-transactions" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.DesktopWindows" />
+                        </span>
+                        <span class="snav-text">Desktop Txns</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/user-management" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.ManageAccounts" />
+                        </span>
+                        <span class="snav-text">User Management</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/user-activity" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Timeline" />
+                        </span>
+                        <span class="snav-text">Activity Log</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/customer-portal-management" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.ContactPage" />
+                        </span>
+                        <span class="snav-text">Portal Mgmt</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/audit-trail" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.History" />
+                        </span>
+                        <span class="snav-text">Audit Trail</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/backups" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.CloudUpload" />
+                        </span>
+                        <span class="snav-text">Backups</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/webhooks" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.CellTower" />
+                        </span>
+                        <span class="snav-text">Webhooks</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/swagger" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Api" />
+                        </span>
+                        <span class="snav-text">API Docs</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/settings" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Settings" />
+                        </span>
+                        <span class="snav-text">Settings</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
+
+            <div class="nav-bottom-spacer"></div>
+        </Authorized>
+        <NotAuthorized>
+            <div class="nav-section-label">Account</div>
+            <NavLink class="snav-link" href="/login" Match="NavLinkMatch.All">
+                <span class="snav-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.Login" />
+                </span>
+                <span class="snav-text">Login</span>
+            </NavLink>
+        </NotAuthorized>
+    </AuthorizeView>
+</div>

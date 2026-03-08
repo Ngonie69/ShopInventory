@@ -497,7 +497,7 @@
                     <div class="alert-title">Transfer Failed</div>
                     <div>@errorMessage</div>
                 </div>
-                <button class="alert-close" @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => errorMessage = null" Size="Size.Small" Class="alert-close" />
             </div>
         }
         @if (!string.IsNullOrEmpty(successMessage))
@@ -508,7 +508,7 @@
                     <div class="alert-title">Success</div>
                     <div>@successMessage</div>
                 </div>
-                <button class="alert-close" @onclick="() => successMessage = null"><i class="bi bi-x-lg"></i></button>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => successMessage = null" Size="Size.Small" Class="alert-close" />
             </div>
         }
 
@@ -651,11 +651,11 @@
                             <div class="row g-3">
                                 <div class="col-md-6">
                                     <label class="form-label fw-semibold small">Document Date</label>
-                                    <input type="date" class="form-control form-control-sm" @bind="docDate" />
+                                    <MudDatePicker @bind-Date="docDate" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd.MM.yyyy" Editable="true" />
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label fw-semibold small">Due Date</label>
-                                    <input type="date" class="form-control form-control-sm" @bind="dueDate" />
+                                    <MudDatePicker @bind-Date="dueDate" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd.MM.yyyy" Editable="true" />
                                 </div>
                                 <div class="col-12">
                                     <label class="form-label fw-semibold small">Comments / Notes</label>
@@ -693,10 +693,8 @@
                                 <div @key="currentLine.Id" class="line-item-card @(currentLine.SelectedProduct != null ? "has-product" : "")">
                                     <div class="line-item-header">
                                         <span class="line-badge">Item @(index + 1)</span>
-                                        <button class="btn-remove-line" @onclick="() => RemoveLine(currentLine)"
-                                                disabled="@(lines.Count <= 1)" title="Remove item">
-                                            <i class="bi bi-trash3"></i>
-                                        </button>
+                                        <MudIconButton Icon="@Icons.Material.Filled.Delete" OnClick="() => RemoveLine(currentLine)"
+                                                Disabled="@(lines.Count <= 1)" title="Remove item" Size="Size.Small" Class="btn-remove-line" />
                                     </div>
 
                                     <div class="row g-3 align-items-end">
@@ -777,9 +775,9 @@
                                 </div>
                             }
 
-                            <button class="btn-add-item" @onclick="AddLine">
+                            <MudButton Class="btn-add-item" OnClick="AddLine">
                                 <i class="bi bi-plus-circle me-2"></i>Add Another Item
-                            </button>
+                            </MudButton>
                         }
                     </div>
                 </div>
@@ -865,7 +863,7 @@
                             </div>
                             <div class="summary-stat">
                                 <span class="stat-label">Doc Date</span>
-                                <span class="stat-value">@docDate.ToString("dd MMM yyyy")</span>
+                                <span class="stat-value">@((docDate ?? DateTime.Today).ToString("dd MMM yyyy"))</span>
                             </div>
                         </div>
                     </div>
@@ -873,8 +871,8 @@
                     <!-- Actions -->
                     <div class="section-card">
                         <div class="card-body">
-                            <button class="btn-execute" @onclick="SubmitTransfer"
-                                    disabled="@(isSubmitting || !IsFormValid())">
+                            <MudButton Class="btn-execute" OnClick="SubmitTransfer"
+                                    Disabled="@(isSubmitting || !IsFormValid())">
                                 @if (isSubmitting)
                                 {
                                     <span class="spinner-border spinner-border-sm me-2"></span>
@@ -885,12 +883,12 @@
                                     <i class="bi bi-send-fill me-2"></i>
                                     <span>Execute Transfer</span>
                                 }
-                            </button>
+                            </MudButton>
 
-                            <button class="btn btn-outline-secondary w-100 mt-2 btn-sm" @onclick="ClearForm"
-                                    disabled="@isSubmitting">
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Class="w-100 mt-2" Size="Size.Small" OnClick="ClearForm"
+                                    Disabled="@isSubmitting">
                                 <i class="bi bi-arrow-counterclockwise me-1"></i>Reset Form
-                            </button>
+                            </MudButton>
 
                             <div class="info-hint mt-3">
                                 <i class="bi bi-info-circle-fill flex-shrink-0"></i>
@@ -930,7 +928,7 @@
     private List<ProductDto> cachedProducts = new();
 
     // ── Form ────────────────────────────────────────────
-    private DateTime docDate = DateTime.Today;
+    private DateTime? docDate = DateTime.Today;
     private DateTime? dueDate;
     private string? comments;
 
@@ -1099,7 +1097,7 @@
                 {
                     FromWarehouse = selectedFromWarehouse!.WarehouseCode,
                     ToWarehouse = selectedToWarehouse!.WarehouseCode,
-                    DocDate = docDate.ToString("yyyy-MM-dd"),
+                    DocDate = (docDate ?? DateTime.Today).ToString("yyyy-MM-dd"),
                     DueDate = dueDate?.ToString("yyyy-MM-dd"),
                     Comments = comments,
                     Lines = lines.Select(l => new CreateInventoryTransferLineDto

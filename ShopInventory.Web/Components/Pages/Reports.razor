@@ -27,8 +27,8 @@
             @if (HasActiveData())
             {
                 <div class="dropdown">
-                    <button class="btn btn-outline-success dropdown-toggle" data-bs-toggle="dropdown"
-                            disabled="@isExporting">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Success" Class="dropdown-toggle" data-bs-toggle="dropdown"
+                            Disabled="@isExporting">
                         @if (isExporting)
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
@@ -38,56 +38,56 @@
                             <i class="bi bi-file-earmark-excel me-1"></i>
                         }
                         Excel
-                    </button>
+                    </MudButton>
                     <ul class="dropdown-menu dropdown-menu-end">
                         <li>
-                            <button class="dropdown-item" @onclick="() => ExportToExcel(activeTab)">
+                            <MudButton Class="dropdown-item" OnClick="() => ExportToExcel(activeTab)">
                                 <i class="bi bi-download me-2"></i>Export Current Tab
-                            </button>
+                            </MudButton>
                         </li>
                         <li>
                             <hr class="dropdown-divider" />
                         </li>
                         @if (salesReport != null)
                         {
-                            <li><button class="dropdown-item" @onclick='() => ExportToExcel("sales")'><i
-                                class="bi bi-graph-up me-2"></i>Sales Summary</button></li>
+                            <li><MudButton Class="dropdown-item" OnClick='() => ExportToExcel("sales")'><i
+                                class="bi bi-graph-up me-2"></i>Sales Summary</MudButton></li>
                             }
                             @if (topProductsReport != null)
                             {
-                                <li><button class="dropdown-item" @onclick='() => ExportToExcel("products")'><i
-                                    class="bi bi-box-seam me-2"></i>Top Products</button></li>
+                                <li><MudButton Class="dropdown-item" OnClick='() => ExportToExcel("products")'><i
+                                    class="bi bi-box-seam me-2"></i>Top Products</MudButton></li>
                                 }
                                 @if (stockReport != null)
                                 {
-                                    <li><button class="dropdown-item" @onclick='() => ExportToExcel("stock")'><i
-                                        class="bi bi-boxes me-2"></i>Stock Summary</button></li>
+                                    <li><MudButton Class="dropdown-item" OnClick='() => ExportToExcel("stock")'><i
+                                        class="bi bi-boxes me-2"></i>Stock Summary</MudButton></li>
                                     }
                                     @if (paymentReport != null)
                                     {
-                                        <li><button class="dropdown-item" @onclick='() => ExportToExcel("payments")'><i
-                                            class="bi bi-cash-stack me-2"></i>Payments</button></li>
+                                        <li><MudButton Class="dropdown-item" OnClick='() => ExportToExcel("payments")'><i
+                                            class="bi bi-cash-stack me-2"></i>Payments</MudButton></li>
                                         }
                                         @if (topCustomersReport != null)
                                         {
-                                            <li><button class="dropdown-item" @onclick='() => ExportToExcel("customers")'><i
-                                                class="bi bi-people me-2"></i>Top Customers</button></li>
+                                            <li><MudButton Class="dropdown-item" OnClick='() => ExportToExcel("customers")'><i
+                                                class="bi bi-people me-2"></i>Top Customers</MudButton></li>
                                             }
                                             @if (lowStockReport != null)
                                             {
-                                                <li><button class="dropdown-item" @onclick='() => ExportToExcel("alerts")'><i
-                                                    class="bi bi-exclamation-triangle me-2"></i>Low Stock Alerts</button></li>
+                                                <li><MudButton Class="dropdown-item" OnClick='() => ExportToExcel("alerts")'><i
+                                                    class="bi bi-exclamation-triangle me-2"></i>Low Stock Alerts</MudButton></li>
                                                 }
                                                 @if (fulfillmentReport != null)
                                                 {
-                                                    <li><button class="dropdown-item" @onclick='() => ExportToExcel("fulfillment")'><i
-                                                        class="bi bi-truck me-2"></i>Order Fulfillment</button></li>
+                                                    <li><MudButton Class="dropdown-item" OnClick='() => ExportToExcel("fulfillment")'><i
+                                                        class="bi bi-truck me-2"></i>Order Fulfillment</MudButton></li>
                                                     }
                                                 </ul>
                                             </div>
-                                            <button class="btn btn-outline-danger" @onclick="() => ExportToPdf(activeTab)" disabled="@isExporting">
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="() => ExportToPdf(activeTab)" Disabled="@isExporting">
                                                 <i class="bi bi-file-earmark-pdf me-1"></i>PDF
-                                            </button>
+                                            </MudButton>
                                         }
                                     </div>
                                 </div>
@@ -97,11 +97,11 @@
                                         <div class="row g-3 align-items-end">
                                             <div class="col-md-3">
                                                 <label class="form-label small fw-semibold text-uppercase text-muted">From Date</label>
-                                                <input type="date" class="form-control" @bind="fromDate" style="border-radius: 8px;" />
+                                                <MudDatePicker @bind-Date="fromDatePicker" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd.MM.yyyy" Editable="true" />
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label small fw-semibold text-uppercase text-muted">To Date</label>
-                                                <input type="date" class="form-control" @bind="toDate" style="border-radius: 8px;" />
+                                                <MudDatePicker @bind-Date="toDatePicker" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd.MM.yyyy" Editable="true" />
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label small fw-semibold text-uppercase text-muted">Quick Select</label>
@@ -114,8 +114,8 @@
                                                 </select>
                                             </div>
                                             <div class="col-md-3">
-                                                <button class="btn btn-primary w-100 fw-semibold" @onclick="LoadReports" disabled="@isLoading"
-                                                        style="border-radius: 8px; background: linear-gradient(135deg, #1a237e, #3949ab); border: none; padding: 0.5rem;">
+                                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100 fw-semibold" OnClick="LoadReports" Disabled="@isLoading"
+                                                        Style="border-radius: 8px; background: linear-gradient(135deg, #1a237e, #3949ab); border: none; padding: 0.5rem;">
                                                     @if (isLoading)
                                                     {
                                                         <span class="spinner-border spinner-border-sm me-2"></span>
@@ -126,7 +126,7 @@
                                                         <i class="bi bi-lightning-charge me-2"></i>
                                                         <span>Generate Reports</span>
                                                     }
-                                                </button>
+                                                </MudButton>
                                             </div>
                                         </div>
                                     </div>
@@ -136,7 +136,7 @@
                                 {
                                     <div class="alert alert-warning alert-dismissible fade show" role="alert" style="border-radius: 10px;">
                                         <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
-                                        <button type="button" class="btn-close" @onclick='() => errorMessage = ""'></button>
+                                        <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick='() => errorMessage = ""' Size="Size.Small" />
                                     </div>
                                 }
 
@@ -146,15 +146,15 @@
                                             @foreach (var tab in tabs)
                                             {
                                                 <li class="nav-item">
-                                                    <button class="nav-link px-3 py-2 @(activeTab == tab.Key ? "active" : "")"
-                                                            style="border-radius: 8px 8px 0 0; @(activeTab == tab.Key ? "background: linear-gradient(135deg, #1a237e, #3949ab); color: white;" : "color: #555;")"
-                                                            @onclick="() => SetActiveTab(tab.Key)">
+                                                    <MudButton Class="@($"nav-link px-3 py-2 {(activeTab == tab.Key ? "active" : "")}")"
+                                                            Style="@($"border-radius: 8px 8px 0 0; {(activeTab == tab.Key ? "background: linear-gradient(135deg, #1a237e, #3949ab); color: white;" : "color: #555;")}")"
+                                                            OnClick="() => SetActiveTab(tab.Key)">
                                                         <i class="bi @tab.Icon me-1"></i>@tab.Label
                                                         @if (tab.Key == "alerts" && lowStockReport?.TotalAlerts > 0)
                                                         {
                                                             <span class="badge bg-danger ms-1 rounded-pill">@lowStockReport.TotalAlerts</span>
                                                         }
-                                                    </button>
+                                                    </MudButton>
                                                 </li>
                                             }
                                         </ul>
@@ -905,6 +905,18 @@ new("fulfillment", "Fulfillment", "bi-truck")
     private string errorMessage = "";
     private DateTime fromDate = DateTime.UtcNow.AddDays(-30);
     private DateTime toDate = DateTime.UtcNow;
+
+    private DateTime? fromDatePicker
+    {
+        get => fromDate;
+        set => fromDate = value ?? DateTime.UtcNow.AddDays(-30);
+    }
+
+    private DateTime? toDatePicker
+    {
+        get => toDate;
+        set => toDate = value ?? DateTime.UtcNow;
+    }
     private int topProductsCount = 10;
     private string currentUsername = "Unknown";
     private string currentUserRole = "User";

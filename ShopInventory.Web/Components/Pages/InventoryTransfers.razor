@@ -844,7 +844,8 @@
             <div class="alert-banner success-alert">
                 <i class="bi bi-check-circle-fill"></i>
                 <div class="alert-body">@successMessage</div>
-                <button class="alert-close" @onclick="() => successMessage = null"><i class="bi bi-x-lg"></i></button>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="alert-close" OnClick="() => successMessage = null"
+                               Size="Size.Small" />
             </div>
         }
         @if (!string.IsNullOrEmpty(errorMessage))
@@ -852,7 +853,8 @@
             <div class="alert-banner error-alert">
                 <i class="bi bi-exclamation-octagon-fill"></i>
                 <div class="alert-body">@errorMessage</div>
-                <button class="alert-close" @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="alert-close" OnClick="() => errorMessage = null"
+                               Size="Size.Small" />
             </div>
         }
 
@@ -890,22 +892,22 @@
 
         <!-- ━━━ Tabs ━━━ -->
         <div class="it-tabs">
-            <button class="it-tab @(activeTabIndex == 0 ? "active" : "")" @onclick="() => SwitchTab(0)">
+            <MudButton Class="@($"it-tab {(activeTabIndex == 0 ? "active" : "")}")" OnClick="() => SwitchTab(0)">
                 <i class="bi bi-arrow-left-right"></i>
                 Completed Transfers
                 @if (totalCount > 0)
                 {
                     <span class="tab-badge">@totalCount</span>
                 }
-            </button>
-            <button class="it-tab @(activeTabIndex == 1 ? "active" : "")" @onclick="() => SwitchTab(1)">
+            </MudButton>
+            <MudButton Class="@($"it-tab {(activeTabIndex == 1 ? "active" : "")}")" OnClick="() => SwitchTab(1)">
                 <i class="bi bi-file-earmark-text"></i>
                 Transfer Requests
                 @if (transferRequestCount > 0)
                 {
                     <span class="tab-badge">@transferRequestCount</span>
                 }
-            </button>
+            </MudButton>
         </div>
 
         <div class="it-tab-body">
@@ -953,8 +955,8 @@
                         <FlexibleDatePicker Label="To" @bind-Date="toDate" Variant="Variant.Outlined" />
                     </div>
                     <div class="filter-actions-row">
-                        <button class="btn-search" @onclick="LoadTransfers"
-                                disabled="@(selectedWarehouse == null || isLoading)">
+                        <MudButton Class="btn-search" OnClick="LoadTransfers"
+                                   Disabled="@(selectedWarehouse == null || isLoading)">
                             @if (isLoading)
                             {
                                 <span class="spinner-border spinner-border-sm"></span>
@@ -964,8 +966,8 @@
                                 <i class="bi bi-search"></i>
                             }
                             Search
-                        </button>
-                        <button class="btn-clear" @onclick="ClearFilter"><i class="bi bi-x-lg"></i> Clear</button>
+                        </MudButton>
+                        <MudButton Class="btn-clear" OnClick="ClearFilter"><i class="bi bi-x-lg"></i> Clear</MudButton>
                     </div>
                 </div>
 
@@ -1031,7 +1033,8 @@
                         <p>No inventory transfers found for warehouse
                             <strong>@selectedWarehouse.WarehouseCode</strong>.<br />Try adjusting the date range or warehouse.
                         </p>
-                        <button class="btn-search" @onclick="LoadTransfers"><i class="bi bi-arrow-clockwise"></i> Retry</button>
+                        <MudButton Class="btn-search" OnClick="LoadTransfers"><i class="bi bi-arrow-clockwise"></i> Retry
+                        </MudButton>
                     </div>
                 }
                 else
@@ -1052,9 +1055,9 @@
                         <i class="bi bi-file-earmark-text me-2 text-primary"></i>Transfer Requests
                     </h6>
                     <div class="d-flex gap-2">
-                        <button class="btn-clear" @onclick="RefreshTransferRequests" disabled="@isLoadingRequests">
+                        <MudButton Class="btn-clear" OnClick="RefreshTransferRequests" Disabled="@isLoadingRequests">
                             <i class="bi bi-arrow-clockwise"></i> Refresh
-                        </button>
+                        </MudButton>
                         <a href="/transfer-request/create" class="btn-search" style="text-decoration:none;">
                             <i class="bi bi-plus-lg"></i> New Request
                         </a>
@@ -1151,7 +1154,8 @@
     <div class="detail-drawer">
         <div class="drawer-header">
             <h5><i class="bi bi-arrow-left-right me-2"></i>Transfer #@selectedTransfer.DocNum</h5>
-            <button class="btn-close-drawer" @onclick="CloseModal"><i class="bi bi-x-lg"></i></button>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer" OnClick="CloseModal"
+                           Size="Size.Small" />
         </div>
         <div class="drawer-body">
             <!-- Route visual -->
@@ -1232,7 +1236,7 @@
                             <tr style="background:#f8fafc;">
                                 <td colspan="4" style="text-align:right;font-weight:600;color:#6b7280;">Total</td>
                                 <td style="text-align:right;font-weight:700;color:#2563eb;">@selectedTransfer.Lines.Sum(l =>
-                                                                                                                                                                                                                l.Quantity)</td>
+                                                                l.Quantity)</td>
                                     <td></td>
                                 </tr>
                             </tfoot>
@@ -1241,7 +1245,7 @@
                 }
             </div>
             <div class="drawer-footer">
-                <button class="btn-clear" @onclick="CloseModal">Close</button>
+                <MudButton Class="btn-clear" OnClick="CloseModal">Close</MudButton>
             </div>
         </div>
     }
@@ -1253,7 +1257,8 @@
         <div class="detail-drawer">
             <div class="drawer-header" style="background: linear-gradient(135deg, #7c3aed, #a855f7);">
                 <h5><i class="bi bi-file-earmark-text me-2"></i>Transfer Request #@selectedTransferRequest.DocNum</h5>
-                <button class="btn-close-drawer" @onclick="CloseRequestModal"><i class="bi bi-x-lg"></i></button>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer" OnClick="CloseRequestModal"
+                               Size="Size.Small" />
             </div>
             <div class="drawer-body">
                 <!-- Route visual -->
@@ -1348,7 +1353,7 @@
                                 <tr style="background:#f8fafc;">
                                     <td colspan="4" style="text-align:right;font-weight:600;color:#6b7280;">Total</td>
                                     <td style="text-align:right;font-weight:700;color:#7c3aed;">@selectedTransferRequest.Lines.Sum(l
-                                                                                                                                                                                                                                    => l.Quantity)</td>
+                                                                    => l.Quantity)</td>
                                         <td></td>
                                     </tr>
                                 </tfoot>
@@ -1359,8 +1364,8 @@
                 <div class="drawer-footer">
                     @if (IsRequestConvertible(selectedTransferRequest))
                     {
-                        <button class="btn-gradient" @onclick="() => ConvertRequest(selectedTransferRequest)" disabled="@isConverting"
-                                style="@(isConverting ? "opacity:0.5;" : "")">
+                        <MudButton Class="btn-gradient" OnClick="() => ConvertRequest(selectedTransferRequest)" Disabled="@isConverting"
+                                   Style="@(isConverting ? "opacity:0.5;" : "")">
                             @if (isConverting)
                             {
                                 <span class="spinner-border spinner-border-sm"></span>
@@ -1371,9 +1376,9 @@
                                 <i class="bi bi-arrow-left-right"></i>
                                 <span>Convert to Transfer</span>
                             }
-                        </button>
+                        </MudButton>
                     }
-                    <button class="btn-clear" @onclick="CloseRequestModal">Close</button>
+                    <MudButton Class="btn-clear" OnClick="CloseRequestModal">Close</MudButton>
                 </div>
             </div>
         }
@@ -1628,8 +1633,8 @@
                 transferRequestCount = response.Count > 0 ? response.Count : response.TransferRequests.Count;
                 hasMoreRequests = response.HasMore;
                 requestTotalPages = requestPageSize > 0
-                    ? (int)Math.Ceiling((double)transferRequestCount / requestPageSize)
-                    : 1;
+                ? (int)Math.Ceiling((double)transferRequestCount / requestPageSize)
+                : 1;
             }
             else
             {

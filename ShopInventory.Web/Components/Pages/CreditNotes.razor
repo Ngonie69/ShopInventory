@@ -856,9 +856,9 @@
                     <p>Manage customer credits and adjustments</p>
                 </div>
             </div>
-            <button class="btn-cn-gradient" @onclick="@(() => showCreateModal = true)">
+            <MudButton Class="btn-cn-gradient" OnClick="@(() => showCreateModal = true)">
                 <i class="bi bi-plus-lg"></i> New Credit Note
-            </button>
+            </MudButton>
         </div>
 
         <!-- ━━━ Alerts ━━━ -->
@@ -867,8 +867,7 @@
             <div class="alert-banner error-alert">
                 <i class="bi bi-exclamation-octagon-fill"></i>
                 <div style="flex:1;">@errorMessage</div>
-                <button style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;"
-                        @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => errorMessage = null" Size="Size.Small" Style="color:inherit;opacity:.45;" />
             </div>
         }
 
@@ -896,16 +895,16 @@
             </div>
             <div class="filter-field">
                 <label>From Date</label>
-                <input type="date" @bind="fromDate" @bind:after="OnFilterChanged" />
+                <MudDatePicker Date="fromDate" DateChanged="@((DateTime? d) => { fromDate = d; OnFilterChanged(); })" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd.MM.yyyy" Editable="true" />
             </div>
             <div class="filter-field">
                 <label>To Date</label>
-                <input type="date" @bind="toDate" @bind:after="OnFilterChanged" />
+                <MudDatePicker Date="toDate" DateChanged="@((DateTime? d) => { toDate = d; OnFilterChanged(); })" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd.MM.yyyy" Editable="true" />
             </div>
             <div class="filter-actions-row">
-                <button class="btn-clear" @onclick="ClearFilter">
+                <MudButton Class="btn-clear" OnClick="ClearFilter">
                     <i class="bi bi-x-circle"></i> Clear
-                </button>
+                </MudButton>
             </div>
         </div>
 
@@ -968,24 +967,15 @@
                                 </MudTd>
                                 <MudTd DataLabel="Actions">
                                     <div style="display:flex;gap:.3rem;">
-                                        <button class="action-btn view" @onclick="() => ViewCreditNote(context)"
-                                                title="View Details">
-                                            <i class="bi bi-eye"></i>
-                                        </button>
+                                        <MudIconButton Icon="@Icons.Material.Filled.Visibility" OnClick="() => ViewCreditNote(context)" Title="View Details" Class="action-btn view" Size="Size.Small" />
                                         @if (context.Status == CreditNoteStatus.Pending)
                                         {
-                                            <button class="action-btn approve" @onclick="() => ApproveCreditNote(context.Id)"
-                                                    title="Approve">
-                                                <i class="bi bi-check-lg"></i>
-                                            </button>
+                                            <MudIconButton Icon="@Icons.Material.Filled.Check" OnClick="() => ApproveCreditNote(context.Id)" Title="Approve" Class="action-btn approve" Size="Size.Small" />
                                         }
                                         @if (context.Status == CreditNoteStatus.Draft || context.Status ==
                                                                     CreditNoteStatus.Cancelled)
                                         {
-                                            <button class="action-btn delete" @onclick="() => DeleteCreditNote(context.Id)"
-                                                    title="Delete">
-                                                <i class="bi bi-trash3"></i>
-                                            </button>
+                                            <MudIconButton Icon="@Icons.Material.Filled.Delete" OnClick="() => DeleteCreditNote(context.Id)" Title="Delete" Class="action-btn delete" Size="Size.Small" />
                                         }
                                     </div>
                                 </MudTd>
@@ -1016,7 +1006,7 @@
             <div class="detail-drawer">
                 <div class="drawer-header">
                     <h5><i class="bi bi-file-earmark-minus me-2"></i>Credit Note: @selectedCreditNote.CreditNoteNumber</h5>
-                    <button class="btn-close-drawer" @onclick="() => selectedCreditNote = null"><i class="bi bi-x-lg"></i></button>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => selectedCreditNote = null" Class="btn-close-drawer" Size="Size.Small" />
                 </div>
                 <div class="drawer-body">
                     <div class="detail-grid">
@@ -1115,7 +1105,7 @@
                     }
                 </div>
                 <div class="drawer-footer">
-                    <button class="btn-secondary-action" @onclick="() => selectedCreditNote = null">Close</button>
+                    <MudButton Class="btn-secondary-action" OnClick="() => selectedCreditNote = null">Close</MudButton>
                 </div>
             </div>
         }
@@ -1127,7 +1117,7 @@
                 <div class="create-modal" @onclick:stopPropagation="true">
                     <div class="create-modal-header">
                         <h5><i class="bi bi-plus-circle"></i> New Credit Note</h5>
-                        <button class="btn-close-modal" @onclick="() => showCreateModal = false"><i class="bi bi-x-lg"></i></button>
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => showCreateModal = false" Class="btn-close-modal" Size="Size.Small" />
                     </div>
                     <div class="create-modal-body">
                         <div class="form-grid">
@@ -1174,14 +1164,14 @@
                             </div>
                         </div>
                         <div class="create-modal-footer">
-                            <button class="btn-secondary-action" @onclick="() => showCreateModal = false">Cancel</button>
-                            <button class="btn-create" @onclick="CreateCreditNote" disabled="@isCreating">
+                            <MudButton Class="btn-secondary-action" OnClick="() => showCreateModal = false">Cancel</MudButton>
+                            <MudButton Class="btn-create" OnClick="CreateCreditNote" Disabled="@isCreating">
                                 @if (isCreating)
                                 {
                                     <span class="spinner-border spinner-border-sm"></span>
                                 }
                                 <span>Create Credit Note</span>
-                            </button>
+                            </MudButton>
                         </div>
                     </div>
                 </div>

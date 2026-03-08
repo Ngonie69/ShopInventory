@@ -24,7 +24,7 @@
         <div class="auth-required">
             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" viewBox="0 0 16 16">
                 <path
-                    d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+                d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
             </svg>
             <h2>Authentication Required</h2>
             <p>Please login to view your statements</p>
@@ -38,7 +38,7 @@
                 <a href="/customer-portal/dashboard" class="back-link">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
                         <path fill-rule="evenodd"
-                            d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z" />
+                              d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z" />
                     </svg>
                     Back to Dashboard
                 </a>
@@ -51,13 +51,13 @@
             <div class="filter-row">
                 <div class="filter-group">
                     <MudDatePicker Label="From Date" Editable="true" Date="request.FromDate" ImmediateText="true"
-                        Placeholder="dd.MM.yyyy" DateFormat="dd.MM.yyyy" TextChanged="FromDateTextChanged" Clearable="true"
-                        Variant="Variant.Outlined" Class="date-picker-statement" />
+                                   Placeholder="dd.MM.yyyy" DateFormat="dd.MM.yyyy" TextChanged="FromDateTextChanged" Clearable="true"
+                                   Variant="Variant.Outlined" Class="date-picker-statement" />
                 </div>
                 <div class="filter-group">
                     <MudDatePicker Label="To Date" Editable="true" Date="request.ToDate" ImmediateText="true"
-                        Placeholder="dd.MM.yyyy" DateFormat="dd.MM.yyyy" TextChanged="ToDateTextChanged" Clearable="true"
-                        Variant="Variant.Outlined" Class="date-picker-statement" />
+                                   Placeholder="dd.MM.yyyy" DateFormat="dd.MM.yyyy" TextChanged="ToDateTextChanged" Clearable="true"
+                                   Variant="Variant.Outlined" Class="date-picker-statement" />
                 </div>
                 <div class="filter-group checkbox-group">
                     <label>
@@ -66,7 +66,7 @@
                     </label>
                 </div>
                 <div class="filter-actions">
-                    <button class="btn-primary" @onclick="GenerateStatement" disabled="@isLoading">
+                    <MudButton Class="btn-primary" OnClick="GenerateStatement" Disabled="@isLoading">
                         @if (isLoading)
                         {
                             <span class="spinner"></span>
@@ -75,14 +75,14 @@
                         else
                         {
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-                                viewBox="0 0 16 16">
+                                 viewBox="0 0 16 16">
                                 <path
-                                    d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z" />
+                                d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z" />
                             </svg>
                             <span>Generate</span>
                         }
-                    </button>
-                    <button class="btn-secondary" @onclick="DownloadPdf" disabled="@(isDownloading || statement == null)">
+                    </MudButton>
+                    <MudButton Class="btn-secondary" OnClick="DownloadPdf" Disabled="@(isDownloading || statement == null)">
                         @if (isDownloading)
                         {
                             <span class="spinner"></span>
@@ -91,15 +91,15 @@
                         else
                         {
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-                                viewBox="0 0 16 16">
+                                 viewBox="0 0 16 16">
                                 <path
-                                    d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
+                                d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
                                 <path
-                                    d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z" />
+                                d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z" />
                             </svg>
                             <span>Download PDF</span>
                         }
-                    </button>
+                    </MudButton>
                 </div>
             </div>
         </div>

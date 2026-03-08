@@ -90,8 +90,8 @@
                         <FlexibleDatePicker Label="To" @bind-Date="toDate" />
                     </div>
                     <div class="col-md-4">
-                        <button class="btn btn-primary w-100" @onclick="ApplyFilters" disabled="@isLoading">Apply
-                            Filters</button>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="ApplyFilters" Disabled="@isLoading">Apply
+                            Filters</MudButton>
                     </div>
                 </div>
 

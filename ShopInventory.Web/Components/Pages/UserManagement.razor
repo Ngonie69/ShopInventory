@@ -16,36 +16,38 @@
         <div>
             <h2>
                 <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16"
-                    style="color: var(--primary-color);">
+                     style="color: var(--primary-color);">
                     <path
-                        d="M15 14s1 0 1-1-1-4-5-4-5 3-5 4 1 1 1 1h8Zm-7.978-1A.261.261 0 0 1 7 12.996c.001-.264.167-1.03.76-1.72C8.312 10.629 9.282 10 11 10c1.717 0 2.687.63 3.24 1.276.593.69.758 1.457.76 1.72l-.008.002a.274.274 0 0 1-.014.002H7.022ZM11 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm3-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM6.936 9.28a5.88 5.88 0 0 0-1.23-.247A7.35 7.35 0 0 0 5 9c-4 0-5 3-5 4 0 .667.333 1 1 1h4.216A2.238 2.238 0 0 1 5 13c0-1.01.377-2.042 1.09-2.904.243-.294.526-.569.846-.816ZM4.92 10A5.493 5.493 0 0 0 4 13H1c0-.26.164-1.03.76-1.724.545-.636 1.492-1.256 3.16-1.275ZM1.5 5.5a3 3 0 1 1 6 0 3 3 0 0 1-6 0Zm3-2a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z" />
+                    d="M15 14s1 0 1-1-1-4-5-4-5 3-5 4 1 1 1 1h8Zm-7.978-1A.261.261 0 0 1 7 12.996c.001-.264.167-1.03.76-1.72C8.312 10.629 9.282 10 11 10c1.717 0 2.687.63 3.24 1.276.593.69.758 1.457.76 1.72l-.008.002a.274.274 0 0 1-.014.002H7.022ZM11 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm3-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM6.936 9.28a5.88 5.88 0 0 0-1.23-.247A7.35 7.35 0 0 0 5 9c-4 0-5 3-5 4 0 .667.333 1 1 1h4.216A2.238 2.238 0 0 1 5 13c0-1.01.377-2.042 1.09-2.904.243-.294.526-.569.846-.816ZM4.92 10A5.493 5.493 0 0 0 4 13H1c0-.26.164-1.03.76-1.724.545-.636 1.492-1.256 3.16-1.275ZM1.5 5.5a3 3 0 1 1 6 0 3 3 0 0 1-6 0Zm3-2a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z" />
                 </svg>
                 Enhanced User Management
             </h2>
             <span class="text-muted">Manage users, permissions, and security settings</span>
         </div>
-        <button class="btn btn-primary" @onclick="ShowCreateModal">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ShowCreateModal">
             <i class="bi bi-plus-circle me-2"></i>Add User
-        </button>
+        </MudButton>
     </div>
 
     <!-- Tabs -->
     <ul class="nav nav-tabs mb-4" role="tablist">
         <li class="nav-item">
-            <button class="nav-link @(activeTab == "users" ? "active" : "")" @onclick="@(() => SetTab("users"))">
+            <MudButton Class="@($"nav-link {(activeTab == "users" ? "active" : "")}")"
+                       OnClick="@(() => SetTab("users"))">
                 <i class="bi bi-people me-1"></i>Users
-            </button>
+            </MudButton>
         </li>
         <li class="nav-item">
-            <button class="nav-link @(activeTab == "permissions" ? "active" : "")"
-                @onclick="@(() => SetTab("permissions"))">
+            <MudButton Class="@($"nav-link {(activeTab == "permissions" ? "active" : "")}")"
+                       OnClick="@(() => SetTab("permissions"))">
                 <i class="bi bi-shield-lock me-1"></i>Permissions
-            </button>
+            </MudButton>
         </li>
         <li class="nav-item">
-            <button class="nav-link @(activeTab == "security" ? "active" : "")" @onclick="@(() => SetTab("security"))">
+            <MudButton Class="@($"nav-link {(activeTab == "security" ? "active" : "")}")"
+                       OnClick="@(() => SetTab("security"))">
                 <i class="bi bi-key me-1"></i>Security
-            </button>
+            </MudButton>
         </li>
     </ul>
 
@@ -59,7 +61,7 @@
                         <div class="input-group">
                             <span class="input-group-text"><i class="bi bi-search"></i></span>
                             <input type="text" class="form-control" placeholder="Search users..." @bind="searchTerm"
-                                @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
+                                   @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
                         </div>
                     </div>
                     <div class="col-md-3">
@@ -80,9 +82,9 @@
                         </select>
                     </div>
                     <div class="col-md-2">
-                        <button class="btn btn-outline-secondary w-100" @onclick="ResetFilters">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" OnClick="ResetFilters">
                             <i class="bi bi-arrow-clockwise me-1"></i>Reset
-                        </button>
+                        </MudButton>
                     </div>
                 </div>
                 <div class="row mt-3">
@@ -113,13 +115,13 @@
                 else if (users.Any())
                 {
                     <MudDataGrid T="UserDisplayModel" Items="@users" SortMode="SortMode.Multiple" Filterable="true"
-                        QuickFilter="@_quickFilter" Hideable="true" Dense="true" Hover="true" Striped="true">
+                                 QuickFilter="@_quickFilter" Hideable="true" Dense="true" Hover="true" Striped="true">
                         <ToolBarContent>
                             <MudText Typo="Typo.h6">Users</MudText>
                             <MudSpacer />
                             <MudTextField @bind-Value="_searchString" Placeholder="Search" Adornment="Adornment.Start"
-                                Immediate="true" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium"
-                                Class="mt-0"></MudTextField>
+                                          Immediate="true" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium"
+                                          Class="mt-0"></MudTextField>
                         </ToolBarContent>
                         <Columns>
                             <PropertyColumn Property="x => x.Username" Title="User">
@@ -141,465 +143,469 @@
                                 <CellTemplate>
                                     <MudChip T="string" Color="@GetRoleChipColor(context.Item.Role)" Size="Size.Small">
                                         @context.Item.Role</MudChip>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.IsActive" Title="Status">
-                                <CellTemplate>
-                                    @if (context.Item.IsLocked)
-                                    {
-                                        <MudChip T="string" Color="Color.Error" Size="Size.Small">Locked</MudChip>
-                                    }
-                                    else if (context.Item.IsActive)
-                                    {
-                                        <MudChip T="string" Color="Color.Success" Size="Size.Small">Active</MudChip>
-                                    }
-                                    else
-                                    {
-                                        <MudChip T="string" Color="Color.Default" Size="Size.Small">Inactive</MudChip>
-                                    }
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.TwoFactorEnabled" Title="2FA">
-                                <CellTemplate>
-                                    @if (context.Item.TwoFactorEnabled)
-                                    {
-                                        <MudChip T="string" Color="Color.Success" Size="Size.Small">
-                                            <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small" Class="me-1" />Enabled
-                                        </MudChip>
-                                    }
-                                    else
-                                    {
-                                        <MudChip T="string" Color="Color.Warning" Size="Size.Small">
-                                            <MudIcon Icon="@Icons.Material.Filled.ShieldMoon" Size="Size.Small" Class="me-1" />
-                                            Disabled
-                                        </MudChip>
-                                    }
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <TemplateColumn Title="Permissions" Sortable="false" Filterable="false">
-                                <CellTemplate>
-                                    <MudChip T="string" Color="Color.Info" Size="Size.Small">@(context.Item.Permissions?.Count
-                                                                        ?? 0) permissions</MudChip>
-                                </CellTemplate>
-                            </TemplateColumn>
-                            <PropertyColumn Property="x => x.LastLoginAt" Title="Last Login">
-                                <CellTemplate>
-                                    @if (context.Item.LastLoginAt.HasValue)
-                                    {
-                                        <MudTooltip Text="@context.Item.LastLoginAt.Value.ToString("dd MMM yyyy HH:mm")">
-                                            <span>@GetRelativeTime(context.Item.LastLoginAt.Value)</span>
-                                        </MudTooltip>
-                                    }
-                                    else
-                                    {
-                                        <span class="text-muted">Never</span>
-                                    }
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
-                                <CellTemplate>
-                                    <MudButtonGroup Size="Size.Small" Variant="Variant.Outlined">
-                                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary"
-                                            Size="Size.Small" OnClick="@(() => ShowEditModal(context.Item))"
-                                            Title="Edit User" />
-                                        <MudIconButton Icon="@Icons.Material.Filled.Security" Color="Color.Info"
-                                            Size="Size.Small" OnClick="@(() => ShowPermissionsModal(context.Item))"
-                                            Title="Manage Permissions" />
+                                    </CellTemplate>
+                                </PropertyColumn>
+                                <PropertyColumn Property="x => x.IsActive" Title="Status">
+                                    <CellTemplate>
                                         @if (context.Item.IsLocked)
                                         {
-                                            <MudIconButton Icon="@Icons.Material.Filled.LockOpen" Color="Color.Warning"
-                                                Size="Size.Small" OnClick="@(() => UnlockUser(context.Item))"
-                                                Title="Unlock Account" />
+                                            <MudChip T="string" Color="Color.Error" Size="Size.Small">Locked</MudChip>
                                         }
-                                        @if (context.Item.TwoFactorEnabled)
+                                        else if (context.Item.IsActive)
                                         {
-                                            <MudIconButton Icon="@Icons.Material.Filled.ShieldMoon" Color="Color.Default"
-                                                Size="Size.Small" OnClick="@(() => ResetTwoFactor(context.Item))"
-                                                Title="Reset 2FA" />
-                                        }
-                                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
-                                            Size="Size.Small" OnClick="@(() => ConfirmDelete(context.Item))"
-                                            Title="Deactivate" />
-                                    </MudButtonGroup>
-                                </CellTemplate>
-                            </TemplateColumn>
-                        </Columns>
-                        <PagerContent>
-                            <div class="d-flex flex-column align-items-center px-4 py-2">
-                                <MudPagination Color="Color.Primary" Count="totalPages" Selected="currentPage"
-                                    SelectedChanged="OnPageChanged" ShowFirstButton="true" ShowLastButton="true" />
-                                <MudText Typo="Typo.caption" Class="text-muted mt-2">
-                                    Page @currentPage of @totalPages
-                                </MudText>
-                            </div>
-                        </PagerContent>
-                    </MudDataGrid>
-                }
-                else
-                {
-                    <div class="text-center py-5">
-                        <i class="bi bi-people display-1 text-muted"></i>
-                        <p class="text-muted mt-3">No users found</p>
-                    </div>
-                }
-            </div>
-        </div>
-    }
-    else if (activeTab == "permissions")
-    {
-        <!-- Permissions Reference -->
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">Available Permissions</h5>
-            </div>
-            <div class="card-body">
-                @if (permissionCategories != null)
-                {
-                    <div class="accordion" id="permissionsAccordion">
-                        @foreach (var category in permissionCategories)
-                        {
-                            <div class="accordion-item">
-                                <h2 class="accordion-header">
-                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
-                                        data-bs-target="#collapse-@category.Key.Replace(" ", "-")">
-                                        @category.Key (@category.Value.Count permissions)
-                                    </button>
-                                </h2>
-                                <div id="collapse-@category.Key.Replace(" ", "-")" class="accordion-collapse collapse"
-                                    data-bs-parent="#permissionsAccordion">
-                                    <div class="accordion-body">
-                                        <div class="table-responsive">
-                                            <table class="table table-sm">
-                                                <thead>
-                                                    <tr>
-                                                        <th>Code</th>
-                                                        <th>Name</th>
-                                                        <th>Description</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    @foreach (var perm in category.Value)
-                                                    {
-                                                        <tr>
-                                                            <td><code>@perm.Code</code></td>
-                                                            <td>@perm.Name</td>
-                                                            <td class="text-muted">@perm.Description</td>
-                                                        </tr>
-                                                    }
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        }
-                    </div>
-                }
-            </div>
-        </div>
-
-        <!-- Role Default Permissions -->
-        <div class="card mt-4">
-            <div class="card-header">
-                <h5 class="mb-0">Default Role Permissions</h5>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    @foreach (var role in new[] { "Admin", "Cashier", "StockController", "DepotController" })
-                    {
-                        <div class="col-md-6 col-lg-3 mb-3">
-                            <div class="card h-100">
-                                <div class="card-header bg-light">
-                                    <strong>@role</strong>
-                                </div>
-                                <div class="card-body">
-                                    <small class="text-muted">
-                                        @if (role == "Admin")
-                                        {
-                                            <text>Full system access including user management and all permissions</text>
-                                        }
-                                        else if (role == "Cashier")
-                                        {
-                                            <text>Access to incoming payments, invoicing, sales orders, and credit notes</text>
-                                        }
-                                        else if (role == "StockController")
-                                        {
-                                            <text>Access to inventory transfers only</text>
+                                            <MudChip T="string" Color="Color.Success" Size="Size.Small">Active</MudChip>
                                         }
                                         else
                                         {
-                                            <text>Access to incoming payments and inventory transfers</text>
+                                            <MudChip T="string" Color="Color.Default" Size="Size.Small">Inactive</MudChip>
                                         }
-                                    </small>
-                                </div>
-                            </div>
-                        </div>
-                    }
-                </div>
-            </div>
-        </div>
-    }
-    else if (activeTab == "security")
-    {
-        <!-- Security Overview -->
-        <div class="row">
-            <div class="col-md-4">
-                <div class="card bg-success text-white mb-4">
-                    <div class="card-body">
-                        <h5 class="card-title"><i class="bi bi-shield-check me-2"></i>2FA Enabled</h5>
-                        <h2>@usersWithTwoFactor</h2>
-                        <small>users with two-factor authentication</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="card bg-warning text-dark mb-4">
-                    <div class="card-body">
-                        <h5 class="card-title"><i class="bi bi-shield-x me-2"></i>2FA Disabled</h5>
-                        <h2>@usersWithoutTwoFactor</h2>
-                        <small>users without two-factor authentication</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="card bg-danger text-white mb-4">
-                    <div class="card-body">
-                        <h5 class="card-title"><i class="bi bi-lock me-2"></i>Locked Accounts</h5>
-                        <h2>@lockedUsers</h2>
-                        <small>users currently locked out</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Recent Security Events -->
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">Recent Security Events</h5>
-            </div>
-            <div class="card-body">
-                @if (securityEvents.Any())
-                {
-                    <div class="list-group list-group-flush">
-                        @foreach (var evt in securityEvents)
+                                    </CellTemplate>
+                                </PropertyColumn>
+                                <PropertyColumn Property="x => x.TwoFactorEnabled" Title="2FA">
+                                    <CellTemplate>
+                                        @if (context.Item.TwoFactorEnabled)
+                                        {
+                                            <MudChip T="string" Color="Color.Success" Size="Size.Small">
+                                                <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small" Class="me-1" />Enabled
+                                            </MudChip>
+                                        }
+                                        else
+                                        {
+                                            <MudChip T="string" Color="Color.Warning" Size="Size.Small">
+                                                <MudIcon Icon="@Icons.Material.Filled.ShieldMoon" Size="Size.Small" Class="me-1" />
+                                                Disabled
+                                            </MudChip>
+                                        }
+                                    </CellTemplate>
+                                </PropertyColumn>
+                                <TemplateColumn Title="Permissions" Sortable="false" Filterable="false">
+                                    <CellTemplate>
+                                        <MudChip T="string" Color="Color.Info" Size="Size.Small">@(context.Item.Permissions?.Count
+                                                                                                                        ?? 0) permissions</MudChip>
+                                        </CellTemplate>
+                                    </TemplateColumn>
+                                    <PropertyColumn Property="x => x.LastLoginAt" Title="Last Login">
+                                        <CellTemplate>
+                                            @if (context.Item.LastLoginAt.HasValue)
+                                            {
+                                                <MudTooltip Text="@context.Item.LastLoginAt.Value.ToString("dd MMM yyyy HH:mm")">
+                                                    <span>@GetRelativeTime(context.Item.LastLoginAt.Value)</span>
+                                                </MudTooltip>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">Never</span>
+                                            }
+                                        </CellTemplate>
+                                    </PropertyColumn>
+                                    <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
+                                        <CellTemplate>
+                                            <MudButtonGroup Size="Size.Small" Variant="Variant.Outlined">
+                                                <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary"
+                                                               Size="Size.Small" OnClick="@(() => ShowEditModal(context.Item))"
+                                                               Title="Edit User" />
+                                                <MudIconButton Icon="@Icons.Material.Filled.Security" Color="Color.Info"
+                                                               Size="Size.Small" OnClick="@(() => ShowPermissionsModal(context.Item))"
+                                                               Title="Manage Permissions" />
+                                                @if (context.Item.IsLocked)
+                                                {
+                                                    <MudIconButton Icon="@Icons.Material.Filled.LockOpen" Color="Color.Warning"
+                                                                   Size="Size.Small" OnClick="@(() => UnlockUser(context.Item))"
+                                                                   Title="Unlock Account" />
+                                                }
+                                                @if (context.Item.TwoFactorEnabled)
+                                                {
+                                                    <MudIconButton Icon="@Icons.Material.Filled.ShieldMoon" Color="Color.Default"
+                                                                   Size="Size.Small" OnClick="@(() => ResetTwoFactor(context.Item))"
+                                                                   Title="Reset 2FA" />
+                                                }
+                                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                                                               Size="Size.Small" OnClick="@(() => ConfirmDelete(context.Item))"
+                                                               Title="Deactivate" />
+                                            </MudButtonGroup>
+                                        </CellTemplate>
+                                    </TemplateColumn>
+                                </Columns>
+                                <PagerContent>
+                                    <div class="d-flex flex-column align-items-center px-4 py-2">
+                                        <MudPagination Color="Color.Primary" Count="totalPages" Selected="currentPage"
+                                                       SelectedChanged="OnPageChanged" ShowFirstButton="true" ShowLastButton="true" />
+                                        <MudText Typo="Typo.caption" Class="text-muted mt-2">
+                                            Page @currentPage of @totalPages
+                                        </MudText>
+                                    </div>
+                                </PagerContent>
+                            </MudDataGrid>
+                        }
+            else
                         {
-                            <div class="list-group-item d-flex justify-content-between align-items-center">
-                                <div>
-                                    <i class="bi @GetSecurityEventIcon(evt.EventType) me-2"></i>
-                                    <strong>@evt.Username</strong> - @evt.Description
-                                </div>
-                                <small class="text-muted">@evt.Timestamp.ToString("dd MMM yyyy HH:mm")</small>
+                            <div class="text-center py-5">
+                                <i class="bi bi-people display-1 text-muted"></i>
+                                <p class="text-muted mt-3">No users found</p>
                             </div>
                         }
                     </div>
-                }
-                else
-                {
-                    <div class="text-center py-4">
-                        <i class="bi bi-shield-check display-4 text-success"></i>
-                        <p class="text-muted mt-2">No recent security events</p>
+                </div>
+            }
+    else if (activeTab == "permissions")
+            {
+                <!-- Permissions Reference -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Available Permissions</h5>
                     </div>
-                }
-            </div>
-        </div>
-    }
-</div>
-
-<!-- Create/Edit User Modal -->
-@if (showUserModal)
-{
-    <div class="modal show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">@(editingUser == null ? "Create New User" : "Edit User")</h5>
-                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
-                </div>
-                <div class="modal-body">
-                    <EditForm Model="userModel" OnValidSubmit="SaveUser">
-                        <DataAnnotationsValidator />
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label">Username *</label>
-                                <InputText class="form-control" @bind-Value="userModel.Username"
-                                    disabled="@(editingUser != null)" />
-                                <ValidationMessage For="@(() => userModel.Username)" />
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Email *</label>
-                                <InputText class="form-control" @bind-Value="userModel.Email" />
-                                <ValidationMessage For="@(() => userModel.Email)" />
-                            </div>
-                            @if (editingUser == null)
-                            {
-                                <div class="col-md-6">
-                                    <label class="form-label">Password *</label>
-                                    <InputText type="password" class="form-control" @bind-Value="userModel.Password" />
-                                    <ValidationMessage For="@(() => userModel.Password)" />
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Confirm Password *</label>
-                                    <InputText type="password" class="form-control" @bind-Value="userModel.ConfirmPassword" />
-                                    <ValidationMessage For="@(() => userModel.ConfirmPassword)" />
-                                </div>
-                            }
-                            <div class="col-md-6">
-                                <label class="form-label">First Name</label>
-                                <InputText class="form-control" @bind-Value="userModel.FirstName" />
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Last Name</label>
-                                <InputText class="form-control" @bind-Value="userModel.LastName" />
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Role *</label>
-                                <InputSelect class="form-select" @bind-Value="userModel.Role">
-                                    @foreach (var role in availableRoles)
-                                    {
-                                        <option value="@role">@role</option>
-                                    }
-                                </InputSelect>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Status</label>
-                                <div class="form-check form-switch mt-2">
-                                    <InputCheckbox class="form-check-input" @bind-Value="userModel.IsActive" />
-                                    <label class="form-check-label">Active</label>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="modal-footer mt-4">
-                            <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
-                            <button type="submit" class="btn btn-primary" disabled="@isSaving">
-                                @if (isSaving)
-                                {
-                                    <span class="spinner-border spinner-border-sm me-1"></span>
-                                }
-                                @(editingUser == null ? "Create User" : "Save Changes")
-                            </button>
-                        </div>
-                    </EditForm>
-                </div>
-            </div>
-        </div>
-    </div>
-}
-
-<!-- Permissions Modal -->
-@if (showPermissionsModal && selectedUserForPermissions != null)
-{
-    <div class="modal show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-xl">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Manage Permissions - @selectedUserForPermissions.Username</h5>
-                    <button type="button" class="btn-close" @onclick="ClosePermissionsModal"></button>
-                </div>
-                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
-                    <div class="mb-3">
-                        <div class="form-check">
-                            <input type="checkbox" class="form-check-input" id="useRoleDefaults" @bind="useRoleDefaults" />
-                            <label class="form-check-label" for="useRoleDefaults">Use default permissions for role
-                                (@selectedUserForPermissions.Role)</label>
-                        </div>
-                    </div>
-
-                    @if (!useRoleDefaults && permissionCategories != null)
-                    {
-                        @foreach (var category in permissionCategories)
+                    <div class="card-body">
+                        @if (permissionCategories != null)
                         {
-                            <div class="card mb-3">
-                                <div class="card-header d-flex justify-content-between align-items-center">
-                                    <strong>@category.Key</strong>
-                                    <div>
-                                        <button class="btn btn-sm btn-outline-success me-1"
-                                            @onclick="() => SelectAllInCategory(category.Key)">Select All</button>
-                                        <button class="btn btn-sm btn-outline-secondary"
-                                            @onclick="() => DeselectAllInCategory(category.Key)">Deselect All</button>
-                                    </div>
-                                </div>
-                                <div class="card-body">
-                                    <div class="row">
-                                        @foreach (var perm in category.Value)
-                                        {
-                                            <div class="col-md-4 mb-2">
-                                                <div class="form-check">
-                                                    <input type="checkbox" class="form-check-input" id="perm-@perm.Code"
-                                                        checked="@selectedPermissions.Contains(perm.Code)"
-                                                        @onchange="(e) => TogglePermission(perm.Code, (bool)e.Value!)" />
-                                                    <label class="form-check-label" for="perm-@perm.Code">
-                                                        @perm.Name
-                                                        <small class="d-block text-muted">@perm.Description</small>
-                                                    </label>
+                            <div class="accordion" id="permissionsAccordion">
+                                @foreach (var category in permissionCategories)
+                                {
+                                    <div class="accordion-item">
+                                        <h2 class="accordion-header">
+                                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                                    data-bs-target="#collapse-@category.Key.Replace(" ", "-")">
+                                                @category.Key (@category.Value.Count permissions)
+                                            </button>
+                                        </h2>
+                                        <div id="collapse-@category.Key.Replace(" ", "-")" class="accordion-collapse collapse"
+                                             data-bs-parent="#permissionsAccordion">
+                                            <div class="accordion-body">
+                                                <div class="table-responsive">
+                                                    <table class="table table-sm">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>Code</th>
+                                                                <th>Name</th>
+                                                                <th>Description</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            @foreach (var perm in category.Value)
+                                                            {
+                                                                <tr>
+                                                                    <td><code>@perm.Code</code></td>
+                                                                    <td>@perm.Name</td>
+                                                                    <td class="text-muted">@perm.Description</td>
+                                                                </tr>
+                                                            }
+                                                        </tbody>
+                                                    </table>
                                                 </div>
                                             </div>
-                                        }
+                                        </div>
                                     </div>
-                                </div>
+                                }
                             </div>
                         }
-                    }
+                    </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="ClosePermissionsModal">Cancel</button>
-                    <button type="button" class="btn btn-primary" @onclick="SavePermissions" disabled="@isSaving">
-                        @if (isSaving)
+
+                <!-- Role Default Permissions -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Default Role Permissions</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            @foreach (var role in new[] { "Admin", "Cashier", "StockController", "DepotController" })
+                            {
+                                <div class="col-md-6 col-lg-3 mb-3">
+                                    <div class="card h-100">
+                                        <div class="card-header bg-light">
+                                            <strong>@role</strong>
+                                        </div>
+                                        <div class="card-body">
+                                            <small class="text-muted">
+                                                @if (role == "Admin")
+                                                {
+                                                    <text>Full system access including user management and all permissions</text>
+                                                }
+                                                else if (role == "Cashier")
+                                                {
+                                                    <text>Access to incoming payments, invoicing, sales orders, and credit notes</text>
+                                                }
+                                                else if (role == "StockController")
+                                                {
+                                                    <text>Access to inventory transfers only</text>
+                                                }
+                                                else
+                                                {
+                                                    <text>Access to incoming payments and inventory transfers</text>
+                                                }
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+            else if (activeTab == "security")
+            {
+                <!-- Security Overview -->
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="card bg-success text-white mb-4">
+                            <div class="card-body">
+                                <h5 class="card-title"><i class="bi bi-shield-check me-2"></i>2FA Enabled</h5>
+                                <h2>@usersWithTwoFactor</h2>
+                                <small>users with two-factor authentication</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-warning text-dark mb-4">
+                            <div class="card-body">
+                                <h5 class="card-title"><i class="bi bi-shield-x me-2"></i>2FA Disabled</h5>
+                                <h2>@usersWithoutTwoFactor</h2>
+                                <small>users without two-factor authentication</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-danger text-white mb-4">
+                            <div class="card-body">
+                                <h5 class="card-title"><i class="bi bi-lock me-2"></i>Locked Accounts</h5>
+                                <h2>@lockedUsers</h2>
+                                <small>users currently locked out</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Security Events -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Recent Security Events</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (securityEvents.Any())
                         {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <div class="list-group list-group-flush">
+                                @foreach (var evt in securityEvents)
+                                {
+                                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <i class="bi @GetSecurityEventIcon(evt.EventType) me-2"></i>
+                                            <strong>@evt.Username</strong> - @evt.Description
+                                        </div>
+                                        <small class="text-muted">@evt.Timestamp.ToString("dd MMM yyyy HH:mm")</small>
+                                    </div>
+                                }
+                            </div>
                         }
-                        Save Permissions
-                    </button>
+                        else
+                        {
+                            <div class="text-center py-4">
+                                <i class="bi bi-shield-check display-4 text-success"></i>
+                                <p class="text-muted mt-2">No recent security events</p>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Create/Edit User Modal -->
+        @if (showUserModal)
+        {
+            <div class="modal show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">@(editingUser == null ? "Create New User" : "Edit User")</h5>
+                            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CloseModal" Size="Size.Small" />
+                        </div>
+                        <div class="modal-body">
+                            <EditForm Model="userModel" OnValidSubmit="SaveUser">
+                                <DataAnnotationsValidator />
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Username *</label>
+                                        <InputText class="form-control" @bind-Value="userModel.Username"
+                                                   disabled="@(editingUser != null)" />
+                                        <ValidationMessage For="@(() => userModel.Username)" />
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Email *</label>
+                                        <InputText class="form-control" @bind-Value="userModel.Email" />
+                                        <ValidationMessage For="@(() => userModel.Email)" />
+                                    </div>
+                                    @if (editingUser == null)
+                                    {
+                                        <div class="col-md-6">
+                                            <label class="form-label">Password *</label>
+                                            <InputText type="password" class="form-control" @bind-Value="userModel.Password" />
+                                            <ValidationMessage For="@(() => userModel.Password)" />
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">Confirm Password *</label>
+                                            <InputText type="password" class="form-control" @bind-Value="userModel.ConfirmPassword" />
+                                            <ValidationMessage For="@(() => userModel.ConfirmPassword)" />
+                                        </div>
+                                    }
+                                    <div class="col-md-6">
+                                        <label class="form-label">First Name</label>
+                                        <InputText class="form-control" @bind-Value="userModel.FirstName" />
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Last Name</label>
+                                        <InputText class="form-control" @bind-Value="userModel.LastName" />
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Role *</label>
+                                        <InputSelect class="form-select" @bind-Value="userModel.Role">
+                                            @foreach (var role in availableRoles)
+                                            {
+                                                <option value="@role">@role</option>
+                                            }
+                                        </InputSelect>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Status</label>
+                                        <div class="form-check form-switch mt-2">
+                                            <InputCheckbox class="form-check-input" @bind-Value="userModel.IsActive" />
+                                            <label class="form-check-label">Active</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer mt-4">
+                                    <MudButton ButtonType="ButtonType.Button" Variant="Variant.Filled" Color="Color.Default"
+                                               OnClick="CloseModal">Cancel</MudButton>
+                                    <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary"
+                                               Disabled="@isSaving">
+                                        @if (isSaving)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-1"></span>
+                                        }
+                                        @(editingUser == null ? "Create User" : "Save Changes")
+                                    </MudButton>
+                                </div>
+                            </EditForm>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
-    </div>
-}
+        }
 
-<!-- Toast Notifications -->
-@if (!string.IsNullOrEmpty(toastMessage))
-{
-    <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1100;">
-        <div class="toast show" role="alert">
-            <div class="toast-header @(toastIsError ? "bg-danger text-white" : "bg-success text-white")">
-                <strong class="me-auto">@(toastIsError ? "Error" : "Success")</strong>
-                <button type="button" class="btn-close btn-close-white"
-                    @onclick="() => toastMessage = string.Empty"></button>
-            </div>
-            <div class="toast-body">
-                @toastMessage
-            </div>
-        </div>
-    </div>
-}
+        <!-- Permissions Modal -->
+        @if (showPermissionsModal && selectedUserForPermissions != null)
+        {
+            <div class="modal show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+                <div class="modal-dialog modal-xl">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Manage Permissions - @selectedUserForPermissions.Username</h5>
+                            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="ClosePermissionsModal" Size="Size.Small" />
+                        </div>
+                        <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="useRoleDefaults" @bind="useRoleDefaults" />
+                                    <label class="form-check-label" for="useRoleDefaults">Use default permissions for role
+                                        (@selectedUserForPermissions.Role)</label>
+                                    </div>
+                                </div>
 
-<style>
-    .avatar-circle {
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-weight: bold;
-        font-size: 1.1rem;
-    }
+                                @if (!useRoleDefaults && permissionCategories != null)
+                                {
+                                    @foreach (var category in permissionCategories)
+                                    {
+                                        <div class="card mb-3">
+                                            <div class="card-header d-flex justify-content-between align-items-center">
+                                                <strong>@category.Key</strong>
+                                                <div>
+                                                    <MudButton Variant="Variant.Outlined" Color="Color.Success" Size="Size.Small" Class="me-1"
+                                                               OnClick="() => SelectAllInCategory(category.Key)">Select All</MudButton>
+                                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                                               OnClick="() => DeselectAllInCategory(category.Key)">Deselect All</MudButton>
+                                                </div>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="row">
+                                                    @foreach (var perm in category.Value)
+                                                    {
+                                                        <div class="col-md-4 mb-2">
+                                                            <div class="form-check">
+                                                                <input type="checkbox" class="form-check-input" id="perm-@perm.Code"
+                                                                       checked="@selectedPermissions.Contains(perm.Code)"
+                                                                       @onchange="(e) => TogglePermission(perm.Code, (bool)e.Value!)" />
+                                                                <label class="form-check-label" for="perm-@perm.Code">
+                                                                    @perm.Name
+                                                                    <small class="d-block text-muted">@perm.Description</small>
+                                                                </label>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                            <div class="modal-footer">
+                                <MudButton ButtonType="ButtonType.Button" Variant="Variant.Filled" Color="Color.Default"
+                                           OnClick="ClosePermissionsModal">Cancel</MudButton>
+                                <MudButton ButtonType="ButtonType.Button" Variant="Variant.Filled" Color="Color.Primary"
+                                           OnClick="SavePermissions" Disabled="@isSaving">
+                                    @if (isSaving)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-1"></span>
+                                    }
+                                    Save Permissions
+                                </MudButton>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
 
-    .page-header {
-        margin-bottom: 1.5rem;
-        padding-bottom: 1rem;
-        border-bottom: 1px solid #dee2e6;
-    }
+            <!-- Toast Notifications -->
+            @if (!string.IsNullOrEmpty(toastMessage))
+            {
+                <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1100;">
+                    <div class="toast show" role="alert">
+                        <div class="toast-header @(toastIsError ? "bg-danger text-white" : "bg-success text-white")">
+                            <strong class="me-auto">@(toastIsError ? "Error" : "Success")</strong>
+                            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Inherit"
+                                           OnClick="() => toastMessage = string.Empty" Size="Size.Small" />
+                        </div>
+                        <div class="toast-body">
+                            @toastMessage
+                        </div>
+                    </div>
+                </div>
+            }
 
-    .nav-tabs .nav-link {
-        color: #6c757d;
-    }
+            <style>
+                .avatar-circle {
+                    width: 40px;
+                    height: 40px;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: white;
+                    font-weight: bold;
+                    font-size: 1.1rem;
+                }
 
-    .nav-tabs .nav-link.active {
-        color: var(--primary-color);
-        font-weight: 500;
-    }
-</style>
+                .page-header {
+                    margin-bottom: 1.5rem;
+                    padding-bottom: 1rem;
+                    border-bottom: 1px solid #dee2e6;
+                }
+
+                .nav-tabs .nav-link {
+                    color: #6c757d;
+                }
+
+                .nav-tabs .nav-link.active {
+                    color: var(--primary-color);
+                    font-weight: 500;
+                }
+            </style>
 
 @code {
     private List<UserDisplayModel> users = new();

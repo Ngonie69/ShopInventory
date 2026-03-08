@@ -1,9 +1,12 @@
 @page "/sales-orders"
 @using Microsoft.AspNetCore.Authorization
+@using MudBlazor
 @attribute [Authorize(Roles = "Admin,Cashier")]
 @inject ISalesOrderService SalesOrderService
 @inject IBusinessPartnerService BusinessPartnerService
 @inject NavigationManager NavigationManager
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
 @rendermode InteractiveServer
 
 <PageTitle>Sales Orders - Shop Inventory</PageTitle>
@@ -893,9 +896,9 @@
                     <p>Track order status and fulfillment</p>
                 </div>
             </div>
-            <button class="btn-so-gradient" @onclick="@(() => showCreateModal = true)">
+            <MudButton Class="btn-so-gradient" OnClick="@(() => showCreateModal = true)">
                 <i class="bi bi-plus-lg"></i> New Sales Order
-            </button>
+            </MudButton>
         </div>
 
         <!-- ━━━ Alerts ━━━ -->
@@ -904,8 +907,9 @@
             <div class="alert-banner error-alert">
                 <i class="bi bi-exclamation-octagon-fill"></i>
                 <div style="flex:1;">@errorMessage</div>
-                <button style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;"
-                        @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
+                <MudIconButton Icon="@Icons.Material.Filled.Close"
+                               Style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;"
+                               OnClick="() => errorMessage = null" />
             </div>
         }
 
@@ -967,19 +971,21 @@
                 </div>
                 <div class="filter-field">
                     <label>From Date</label>
-                    <input type="date" @bind="fromDate" />
+                    <MudDatePicker @bind-Date="fromDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   DateFormat="dd.MM.yyyy" Editable="true" />
                 </div>
                 <div class="filter-field">
                     <label>To Date</label>
-                    <input type="date" @bind="toDate" />
+                    <MudDatePicker @bind-Date="toDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   DateFormat="dd.MM.yyyy" Editable="true" />
                 </div>
                 <div class="filter-actions-row">
-                    <button class="btn-search" @onclick="ApplyFilter">
+                    <MudButton Class="btn-search" OnClick="ApplyFilter">
                         <i class="bi bi-search"></i> Search
-                    </button>
-                    <button class="btn-clear" @onclick="ClearFilter">
+                    </MudButton>
+                    <MudButton Class="btn-clear" OnClick="ClearFilter">
                         <i class="bi bi-x-circle"></i> Clear
-                    </button>
+                    </MudButton>
                 </div>
             </div>
 
@@ -1011,7 +1017,7 @@
                             <MudTh>Currency</MudTh>
                             <MudTh Style="text-align:right">Total</MudTh>
                             <MudTh>Synced</MudTh>
-                            <MudTh Style="width:120px">Actions</MudTh>
+                            <MudTh Style="width:150px">Actions</MudTh>
                         </HeaderContent>
                         <RowTemplate>
                             <MudTd DataLabel="Doc Entry"><span
@@ -1048,35 +1054,35 @@
                                         }
                                     </MudTd>
                                     <MudTd DataLabel="Actions">
-                                        <div style="display:flex;gap:.3rem;">
-                                            <button class="action-btn view" @onclick="() => ViewOrder(context)" title="View Details">
-                                                <i class="bi bi-eye"></i>
-                                            </button>
+                                        <MudStack Row="true" Spacing="1">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small"
+                                                           Variant="Variant.Outlined" Color="Color.Primary" Title="View Details"
+                                                           OnClick="() => ViewOrder(context)" />
+                                            @if (context.Status == SalesOrderStatus.Approved && context.InvoiceId == null)
+                                            {
+                                                <MudIconButton
+                                                Icon="@(convertingOrderId == context.Id ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Receipt)"
+                                                Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
+                                                Title="Convert to Invoice" Disabled="@(convertingOrderId == context.Id)"
+                                                OnClick="() => ConvertToInvoice(context)" />
+                                            }
                                             @if (!context.IsSynced)
                                             {
                                                 @if (context.Status == SalesOrderStatus.Pending)
                                                 {
-                                                    <button class="action-btn approve" @onclick="() => ApproveOrder(context.Id)"
-                                                            title="Approve">
-                                                        <i class="bi bi-check-lg"></i>
-                                                    </button>
-                                                }
-                                                @if (context.Status == SalesOrderStatus.Approved)
-                                                {
-                                                    <button class="action-btn invoice" @onclick="() => ConvertToInvoice(context.Id)"
-                                                            title="Convert to Invoice">
-                                                        <i class="bi bi-receipt"></i>
-                                                    </button>
+                                                    <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small"
+                                                                   Variant="Variant.Outlined" Color="Color.Success" Title="Approve"
+                                                                   OnClick="() => ApproveOrder(context.Id)" />
                                                 }
                                                 @if (context.Status == SalesOrderStatus.Draft || context.Status ==
                                                                             SalesOrderStatus.Cancelled)
                                                 {
-                                                    <button class="action-btn delete" @onclick="() => DeleteOrder(context.Id)" title="Delete">
-                                                        <i class="bi bi-trash3"></i>
-                                                    </button>
+                                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                                                   Variant="Variant.Outlined" Color="Color.Error" Title="Delete"
+                                                                   OnClick="() => DeleteOrder(context.Id)" />
                                                 }
                                             }
-                                        </div>
+                                        </MudStack>
                                     </MudTd>
                                 </RowTemplate>
                                 <PagerContent>
@@ -1105,7 +1111,8 @@
                 <div class="detail-drawer">
                     <div class="drawer-header">
                         <h5><i class="bi bi-cart-check me-2"></i>Sales Order: @selectedOrder.OrderNumber</h5>
-                        <button class="btn-close-drawer" @onclick="() => selectedOrder = null"><i class="bi bi-x-lg"></i></button>
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer"
+                                       OnClick="() => selectedOrder = null" />
                     </div>
                     <div class="drawer-body">
                         <div class="detail-grid">
@@ -1181,7 +1188,7 @@
                         }
                     </div>
                     <div class="drawer-footer">
-                        <button class="btn-secondary-action" @onclick="() => selectedOrder = null">Close</button>
+                        <MudButton Class="btn-secondary-action" OnClick="() => selectedOrder = null">Close</MudButton>
                     </div>
                 </div>
             }
@@ -1193,7 +1200,8 @@
                     <div class="create-modal" @onclick:stopPropagation="true">
                         <div class="create-modal-header">
                             <h5><i class="bi bi-plus-circle"></i> New Sales Order</h5>
-                            <button class="btn-close-modal" @onclick="() => showCreateModal = false"><i class="bi bi-x-lg"></i></button>
+                            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-modal"
+                                           OnClick="() => showCreateModal = false" />
                         </div>
                         <div class="create-modal-body">
                             <div class="form-grid">
@@ -1207,7 +1215,8 @@
                                 </div>
                                 <div class="form-field">
                                     <label>Delivery Date</label>
-                                    <input type="date" @bind="newOrder.DeliveryDate" />
+                                    <MudDatePicker @bind-Date="newOrder.DeliveryDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                   DateFormat="dd.MM.yyyy" Editable="true" />
                                 </div>
                                 <div class="form-field">
                                     <label>Currency</label>
@@ -1223,14 +1232,14 @@
                             </div>
                         </div>
                         <div class="create-modal-footer">
-                            <button class="btn-secondary-action" @onclick="() => showCreateModal = false">Cancel</button>
-                            <button class="btn-create" @onclick="CreateOrder" disabled="@isCreating">
+                            <MudButton Class="btn-secondary-action" OnClick="() => showCreateModal = false">Cancel</MudButton>
+                            <MudButton Class="btn-create" OnClick="CreateOrder" Disabled="@isCreating">
                                 @if (isCreating)
                                 {
                                     <span class="spinner-border spinner-border-sm"></span>
                                 }
                                 <span>Create Order</span>
-                            </button>
+                            </MudButton>
                         </div>
                     </div>
                 </div>
@@ -1244,6 +1253,7 @@
     private bool isCreating = false;
     private bool showCreateModal = false;
     private string? errorMessage;
+    private int? convertingOrderId;
 
     // Filters
     private string? orderNumberFilter;
@@ -1348,12 +1358,40 @@
         }
     }
 
-    private async Task ConvertToInvoice(int id)
+    private async Task ConvertToInvoice(SalesOrderDto order)
     {
-        var result = await SalesOrderService.ConvertToInvoiceAsync(id);
-        if (result != null)
+        var result = await DialogService.ShowMessageBoxAsync(
+        "Convert to Invoice",
+        $"Are you sure you want to convert order {order.OrderNumber} for {order.CardName ?? order.CardCode} (Total: {order.Currency} {order.DocTotal:N2}) into an invoice?",
+        yesText: "Convert",
+        cancelText: "Cancel");
+
+        if (result != true) return;
+
+        convertingOrderId = order.Id;
+        StateHasChanged();
+
+        try
         {
-            NavigationManager.NavigateTo($"/invoices");
+            var invoice = await SalesOrderService.ConvertToInvoiceAsync(order.Id);
+            if (invoice != null)
+            {
+                Snackbar.Add($"Order {order.OrderNumber} converted to Invoice #{invoice.DocNum} successfully!", Severity.Success);
+                await LoadOrders();
+            }
+            else
+            {
+                Snackbar.Add("Failed to convert sales order to invoice. Please try again.", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error converting order: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            convertingOrderId = null;
+            StateHasChanged();
         }
     }
 

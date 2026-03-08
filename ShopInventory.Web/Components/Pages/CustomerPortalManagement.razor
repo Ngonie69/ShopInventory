@@ -20,18 +20,19 @@
         <div>
             <h2>
                 <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16"
-                    style="color: #0d9488;">
+                     style="color: #0d9488;">
                     <path d="M11 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
                     <path fill-rule="evenodd"
-                        d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8zm8-7a7 7 0 0 0-5.468 11.37C3.242 11.226 4.805 10 8 10s4.757 1.225 5.468 2.37A7 7 0 0 0 8 1z" />
+                          d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8zm8-7a7 7 0 0 0-5.468 11.37C3.242 11.226 4.805 10 8 10s4.757 1.225 5.468 2.37A7 7 0 0 0 8 1z" />
                 </svg>
                 Customer Portal Management
             </h2>
             <span class="text-muted">Manage customer portal access and credentials</span>
         </div>
-        <button class="btn btn-primary" @onclick="ShowCreateModal" style="background: #0d9488; border-color: #0d9488;">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ShowCreateModal"
+                   Style="background: #0d9488; border-color: #0d9488;">
             <i class="bi bi-plus-circle me-2"></i>Add Customer Account
-        </button>
+        </MudButton>
     </div>
 
     <!-- Stats Cards -->
@@ -46,10 +47,10 @@
                         </div>
                         <div class="rounded-circle p-3" style="background: rgba(13, 148, 136, 0.1);">
                             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="#0d9488"
-                                viewBox="0 0 16 16">
+                                 viewBox="0 0 16 16">
                                 <path d="M15 14s1 0 1-1-1-4-5-4-5 3-5 4 1 1 1 1h8Z" />
                                 <path
-                                    d="M11 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-9 7s-1 0-1-1 1-4 5-4 5 3 5 4-1 1-1 1H2Zm4-8a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" />
+                                d="M11 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-9 7s-1 0-1-1 1-4 5-4 5 3 5 4-1 1-1 1H2Zm4-8a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" />
                             </svg>
                         </div>
                     </div>
@@ -66,9 +67,9 @@
                         </div>
                         <div class="rounded-circle p-3" style="background: rgba(34, 197, 94, 0.1);">
                             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="#22c55e"
-                                viewBox="0 0 16 16">
+                                 viewBox="0 0 16 16">
                                 <path
-                                    d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z" />
+                                d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z" />
                             </svg>
                         </div>
                     </div>
@@ -85,10 +86,10 @@
                         </div>
                         <div class="rounded-circle p-3" style="background: rgba(107, 114, 128, 0.1);">
                             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="#6b7280"
-                                viewBox="0 0 16 16">
+                                 viewBox="0 0 16 16">
                                 <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z" />
                                 <path
-                                    d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
+                                d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
                             </svg>
                         </div>
                     </div>
@@ -105,9 +106,9 @@
                         </div>
                         <div class="rounded-circle p-3" style="background: rgba(239, 68, 68, 0.1);">
                             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="#ef4444"
-                                viewBox="0 0 16 16">
+                                 viewBox="0 0 16 16">
                                 <path
-                                    d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+                                d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
                             </svg>
                         </div>
                     </div>
@@ -121,7 +122,7 @@
     {
         <div class="alert alert-success alert-dismissible fade show" role="alert">
             <i class="bi bi-check-circle me-2"></i>@successMessage
-            <button type="button" class="btn-close" @onclick="@(() => successMessage = null)"></button>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => successMessage = null)" Size="Size.Small" />
         </div>
     }
 
@@ -129,7 +130,7 @@
     {
         <div class="alert alert-danger alert-dismissible fade show" role="alert">
             <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
-            <button type="button" class="btn-close" @onclick="@(() => errorMessage = null)"></button>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => errorMessage = null)" Size="Size.Small" />
         </div>
     }
 
@@ -141,7 +142,7 @@
                     <div class="input-group">
                         <span class="input-group-text"><i class="bi bi-search"></i></span>
                         <input type="text" class="form-control" placeholder="Search by card code or name..."
-                            @bind="searchTerm" @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
+                               @bind="searchTerm" @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
                     </div>
                 </div>
                 <div class="col-md-3">
@@ -153,9 +154,9 @@
                     </select>
                 </div>
                 <div class="col-md-3">
-                    <button class="btn btn-outline-secondary" @onclick="LoadCustomers">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="LoadCustomers">
                         <i class="bi bi-arrow-clockwise me-1"></i>Refresh
-                    </button>
+                    </MudButton>
                 </div>
             </div>
         </div>
@@ -179,7 +180,7 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="#ccc" viewBox="0 0 16 16">
                         <path d="M11 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
                         <path fill-rule="evenodd"
-                            d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8zm8-7a7 7 0 0 0-5.468 11.37C3.242 11.226 4.805 10 8 10s4.757 1.225 5.468 2.37A7 7 0 0 0 8 1z" />
+                              d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8zm8-7a7 7 0 0 0-5.468 11.37C3.242 11.226 4.805 10 8 10s4.757 1.225 5.468 2.37A7 7 0 0 0 8 1z" />
                     </svg>
                     <h5 class="mt-3 text-muted">No Customer Accounts</h5>
                     <p class="text-muted">Click "Add Customer Account" to create a new customer portal account.</p>
@@ -209,28 +210,29 @@
                                 <tr>
                                     <td><code>@customer.CardCode</code></td>
                                     <td>@customer.CardName</td>
-                                <td>@(customer.Email ?? "-")</td>
-                                <td>
-                                    @if (customer.AccountStructure == "Multi")
-                                    {
-                                        <span class="badge bg-info" title="Multiple linked accounts (main + sub)">Multi-Account</span>
-                                        <small class="d-block text-muted">@(customer.LinkedAccounts?.Count ?? 0) linked</small>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-secondary">Single</span>
-                                    }
-                                </td>
-                                <td>
-                                    @if (customer.ReceiveStatements)
-                                    {
-                                        <span class="badge bg-success">Enabled</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-secondary">Opted out</span>
-                                    }
-                                </td>
+                                    <td>@(customer.Email ?? "-")</td>
+                                    <td>
+                                        @if (customer.AccountStructure == "Multi")
+                                        {
+                                            <span class="badge bg-info"
+                                                  title="Multiple linked accounts (main + sub)">Multi-Account</span>
+                                            <small class="d-block text-muted">@(customer.LinkedAccounts?.Count ?? 0) linked</small>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary">Single</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (customer.ReceiveStatements)
+                                        {
+                                            <span class="badge bg-success">Enabled</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary">Opted out</span>
+                                        }
+                                    </td>
                                     <td>
                                         @if (customer.LockedUntil.HasValue && customer.LockedUntil > DateTime.UtcNow)
                                         {
@@ -259,33 +261,36 @@
                                     <td>@customer.CreatedAt.ToString("MMM dd, yyyy")</td>
                                     <td class="text-end">
                                         <div class="btn-group btn-group-sm">
-                                            <button class="btn btn-outline-primary" title="Edit"
-                                                @onclick="@(() => ShowEditModal(customer))">
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" title="Edit"
+                                                       OnClick="@(() => ShowEditModal(customer))">
                                                 <i class="bi bi-pencil"></i>
-                                            </button>
-                                    <button class="btn btn-outline-warning" title="Reset Password"
-                                        @onclick="@(() => ShowResetPasswordModal(customer))">
-                                        <i class="bi bi-key"></i>
-                                    </button>
-                                    <button class="btn btn-outline-info" title="Toggle statement emails"
-                                        @onclick="@(() => ToggleStatementPreference(customer))">
-                                        <i class="@((customer.ReceiveStatements) ? "bi-bell-fill" : "bi-bell-slash")"></i>
-                                    </button>
-                                    <button class="btn btn-outline-primary" title="Manage Linked Accounts"
-                                        @onclick="@(() => ShowLinkedAccountsModal(customer))">
-                                        <i class="bi bi-diagram-3"></i>
-                                    </button>
-                                    @if (customer.LockedUntil.HasValue && customer.LockedUntil > DateTime.UtcNow)
-                                    {
-                                        <button class="btn btn-outline-success" title="Unlock Account"
-                                            @onclick="@(() => UnlockAccount(customer))">
-                                            <i class="bi bi-unlock"></i>
-                                        </button>
+                                            </MudButton>
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Warning" title="Reset Password"
+                                                       OnClick="@(() => ShowResetPasswordModal(customer))">
+                                                <i class="bi bi-key"></i>
+                                            </MudButton>
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Info"
+                                                       title="Toggle statement emails"
+                                                       OnClick="@(() => ToggleStatementPreference(customer))">
+                                                <i
+                                                class="@((customer.ReceiveStatements) ? "bi-bell-fill" : "bi-bell-slash")"></i>
+                                            </MudButton>
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                                                       title="Manage Linked Accounts"
+                                                       OnClick="@(() => ShowLinkedAccountsModal(customer))">
+                                                <i class="bi bi-diagram-3"></i>
+                                            </MudButton>
+                                            @if (customer.LockedUntil.HasValue && customer.LockedUntil > DateTime.UtcNow)
+                                            {
+                                                <MudButton Variant="Variant.Outlined" Color="Color.Success" title="Unlock Account"
+                                                           OnClick="@(() => UnlockAccount(customer))">
+                                                    <i class="bi bi-unlock"></i>
+                                                </MudButton>
                                             }
-                                            <button class="btn btn-outline-danger" title="Delete"
-                                                @onclick="@(() => ShowDeleteConfirmation(customer))">
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Error" title="Delete"
+                                                       OnClick="@(() => ShowDeleteConfirmation(customer))">
                                                 <i class="bi bi-trash"></i>
-                                            </button>
+                                            </MudButton>
                                         </div>
                                     </td>
                                 </tr>
@@ -309,7 +314,8 @@
                         <i class="bi bi-person-plus me-2"></i>
                         @(isEditing ? "Edit Customer Account" : "Create Customer Account")
                     </h5>
-                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CloseModal" Size="Size.Small"
+                                   Style="color: white;" />
                 </div>
                 <div class="modal-body">
                     <EditForm Model="@formModel" OnValidSubmit="HandleSubmit">
@@ -320,13 +326,13 @@
                             <div class="mb-3">
                                 <label class="form-label fw-bold">Select Customer</label>
                                 <MudAutocomplete T="CachedBusinessPartner" Label="Search by Card Code or Name"
-                                    @bind-Value="selectedBusinessPartner" SearchFunc="@SearchCustomersFromDbAsync"
-                                    ToStringFunc="@(bp => bp == null ? string.Empty : $"{bp.CardCode} - {bp.CardName}")"
-                                    ShowProgressIndicator="true" MinCharacters="1" Immediate="true" ResetValueOnEmptyText="true"
-                                    CoerceText="false" CoerceValue="false" Variant="Variant.Outlined" Dense="true"
-                                    Margin="Margin.Dense" Clearable="true" Style="width: 100%;" Class="customer-autocomplete"
-                                    DebounceInterval="300" MaxItems="15" AdornmentIcon="@Icons.Material.Filled.Search"
-                                    AdornmentColor="Color.Primary">
+                                                 @bind-Value="selectedBusinessPartner" SearchFunc="@SearchCustomersFromDbAsync"
+                                                 ToStringFunc="@(bp => bp == null ? string.Empty : $"{bp.CardCode} - {bp.CardName}")"
+                                                 ShowProgressIndicator="true" MinCharacters="1" Immediate="true" ResetValueOnEmptyText="true"
+                                                 CoerceText="false" CoerceValue="false" Variant="Variant.Outlined" Dense="true"
+                                                 Margin="Margin.Dense" Clearable="true" Style="width: 100%;" Class="customer-autocomplete"
+                                                 DebounceInterval="300" MaxItems="15" AdornmentIcon="@Icons.Material.Filled.Search"
+                                                 AdornmentColor="Color.Primary">
                                     <ItemTemplate Context="bp">
                                         <MudText>
                                             <b>@bp.CardCode</b> - @bp.CardName
@@ -375,11 +381,10 @@
                                     <label class="form-label">Password <span class="text-danger">*</span></label>
                                     <div class="input-group">
                                         <input type="@(showPassword ? "text" : "password")" class="form-control"
-                                            @bind="formModel.Password" />
-                                        <button class="btn btn-outline-secondary" type="button"
-                                            @onclick="@(() => showPassword = !showPassword)">
-                                            <i class="bi @(showPassword ? "bi-eye-slash" : "bi-eye")"></i>
-                                        </button>
+                                               @bind="formModel.Password" />
+                                        <MudIconButton
+                                        Icon="@(showPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                        OnClick="@(() => showPassword = !showPassword)" />
                                     </div>
                                     <ValidationMessage For="@(() => formModel.Password)" />
                                     <small class="text-muted">Min 8 chars, uppercase, lowercase, number, special char</small>
@@ -387,295 +392,310 @@
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label">Confirm Password <span class="text-danger">*</span></label>
                                     <input type="@(showPassword ? "text" : "password")" class="form-control"
-                                        @bind="formModel.ConfirmPassword" />
+                                           @bind="formModel.ConfirmPassword" />
                                     <ValidationMessage For="@(() => formModel.ConfirmPassword)" />
                                 </div>
                             </div>
                             <div class="mb-3">
-                                <button type="button" class="btn btn-sm btn-outline-secondary"
-                                    @onclick="GenerateRandomPassword">
+                                <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                           OnClick="GenerateRandomPassword">
                                     <i class="bi bi-shuffle me-1"></i>Generate Strong Password
-                                </button>
+                                </MudButton>
                             </div>
                         }
 
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" @bind="formModel.IsActive"
-                                    id="isActive" />
-                                <label class="form-check-label" for="isActive">Account Active</label>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" @bind="formModel.IsActive"
+                                           id="isActive" />
+                                    <label class="form-check-label" for="isActive">Account Active</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" @bind="formModel.TwoFactorEnabled"
+                                           id="twoFactor" />
+                                    <label class="form-check-label" for="twoFactor">Require 2FA</label>
+                                </div>
                             </div>
                         </div>
-                        <div class="col-md-6 mb-3">
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" @bind="formModel.TwoFactorEnabled"
-                                    id="twoFactor" />
-                                <label class="form-check-label" for="twoFactor">Require 2FA</label>
+                        <div class="row">
+                            <div class="col-md-12 mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" @bind="formModel.ReceiveStatements"
+                                           id="receiveStatements" />
+                                    <label class="form-check-label" for="receiveStatements">Send scheduled
+                                        statements</label>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
+                        </EditForm>
                     </div>
-                    <div class="row">
-                        <div class="col-md-12 mb-3">
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" @bind="formModel.ReceiveStatements"
-                                    id="receiveStatements" />
-                                <label class="form-check-label" for="receiveStatements">Send scheduled statements</label>
-                            </div>
-                        </div>
+                    <div class="modal-footer">
+                        <MudButton Variant="Variant.Filled" Color="Color.Default" OnClick="CloseModal">Cancel</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="HandleSubmit" Disabled="@isSaving"
+                                   Style="background: #0d9488; border-color: #0d9488;">
+                            @if (isSaving)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                            }
+                            @(isEditing ? "Update Account" : "Create Account")
+                        </MudButton>
                     </div>
-                </EditForm>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
-                    <button type="button" class="btn btn-primary" @onclick="HandleSubmit" disabled="@isSaving"
-                        style="background: #0d9488; border-color: #0d9488;">
-                        @if (isSaving)
-                        {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
-                        }
-                        @(isEditing ? "Update Account" : "Create Account")
-                    </button>
                 </div>
             </div>
         </div>
-    </div>
-}
+    }
 
-<!-- Reset Password Modal -->
-@if (showResetPasswordModal)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header bg-warning text-dark">
-                    <h5 class="modal-title"><i class="bi bi-key me-2"></i>Reset Password</h5>
-                    <button type="button" class="btn-close" @onclick="@(() => showResetPasswordModal = false)"></button>
-                </div>
-                <div class="modal-body">
-                    <p>Reset password for customer: <strong>@selectedCustomer?.CardName</strong></p>
-
-                    <div class="mb-3">
-                        <label class="form-label">New Password <span class="text-danger">*</span></label>
-                        <div class="input-group">
-                            <input type="@(showNewPassword ? "text" : "password")" class="form-control"
-                                @bind="newPassword" />
-                            <button class="btn btn-outline-secondary" type="button"
-                                @onclick="@(() => showNewPassword = !showNewPassword)">
-                                <i class="bi @(showNewPassword ? "bi-eye-slash" : "bi-eye")"></i>
-                            </button>
-                        </div>
-                        <small class="text-muted">Min 8 chars, uppercase, lowercase, number, special char</small>
+    <!-- Reset Password Modal -->
+    @if (showResetPasswordModal)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-warning text-dark">
+                        <h5 class="modal-title"><i class="bi bi-key me-2"></i>Reset Password</h5>
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => showResetPasswordModal = false)"
+                                       Size="Size.Small" />
                     </div>
+                    <div class="modal-body">
+                        <p>Reset password for customer: <strong>@selectedCustomer?.CardName</strong></p>
 
-                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="GenerateNewPassword">
-                        <i class="bi bi-shuffle me-1"></i>Generate Strong Password
-                    </button>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary"
-                        @onclick="@(() => showResetPasswordModal = false)">Cancel</button>
-                    <button type="button" class="btn btn-warning" @onclick="ResetPassword" disabled="@isSaving">
-                        @if (isSaving)
-                        {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
-                        }
-                        Reset Password
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
-
-<!-- Delete Confirmation Modal -->
-@if (showDeleteModal)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header bg-danger text-white">
-                    <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>Confirm Delete</h5>
-                    <button type="button" class="btn-close btn-close-white"
-                        @onclick="@(() => showDeleteModal = false)"></button>
-                </div>
-                <div class="modal-body">
-                    <p>Are you sure you want to delete the customer portal account for:</p>
-                    <p><strong>@selectedCustomer?.CardCode - @selectedCustomer?.CardName</strong></p>
-                    <p class="text-danger mb-0">This action cannot be undone.</p>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary"
-                        @onclick="@(() => showDeleteModal = false)">Cancel</button>
-                    <button type="button" class="btn btn-danger" @onclick="DeleteCustomer" disabled="@isSaving">
-                        @if (isSaving)
-                        {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
-                        }
-                        Delete Account
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
-
-<!-- Linked Accounts Management Modal -->
-@if (showLinkedAccountsModal && selectedCustomer != null)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-xl">
-            <div class="modal-content">
-                <div class="modal-header" style="background: linear-gradient(135deg, #6366f1, #4f46e5); color: white;">
-                    <h5 class="modal-title">
-                        <i class="bi bi-diagram-3 me-2"></i>Linked Accounts - @selectedCustomer.CardCode (@selectedCustomer.CardName)
-                    </h5>
-                    <button type="button" class="btn-close btn-close-white" @onclick="CloseLinkedAccountsModal"></button>
-                </div>
-                <div class="modal-body">
-                    @if (!string.IsNullOrEmpty(linkedAccountMessage))
-                    {
-                        <div class="alert @(linkedAccountMessageIsError ? "alert-danger" : "alert-success") alert-dismissible fade show">
-                            @linkedAccountMessage
-                            <button type="button" class="btn-close" @onclick="@(() => linkedAccountMessage = null)"></button>
-                        </div>
-                    }
-
-                    <div class="mb-3">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <div>
-                                <span class="badge @(selectedCustomer.AccountStructure == "Multi" ? "bg-info" : "bg-secondary") fs-6">
-                                    @(selectedCustomer.AccountStructure == "Multi" ? "Multi-Account Structure" : "Single Account")
-                                </span>
+                        <div class="mb-3">
+                            <label class="form-label">New Password <span class="text-danger">*</span></label>
+                            <div class="input-group">
+                                <input type="@(showNewPassword ? "text" : "password")" class="form-control"
+                                       @bind="newPassword" />
+                                <MudIconButton
+                                Icon="@(showNewPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                OnClick="@(() => showNewPassword = !showNewPassword)" />
                             </div>
-                            <div>
-                                @if (selectedCustomer.AccountStructure == "Multi")
+                            <small class="text-muted">Min 8 chars, uppercase, lowercase, number, special char</small>
+                        </div>
+
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                   OnClick="GenerateNewPassword">
+                            <i class="bi bi-shuffle me-1"></i>Generate Strong Password
+                        </MudButton>
+                    </div>
+                    <div class="modal-footer">
+                        <MudButton Variant="Variant.Filled" Color="Color.Default"
+                                   OnClick="@(() => showResetPasswordModal = false)">Cancel</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="ResetPassword" Disabled="@isSaving">
+                            @if (isSaving)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                            }
+                            Reset Password
+                        </MudButton>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Delete Confirmation Modal -->
+    @if (showDeleteModal)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-danger text-white">
+                        <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>Confirm Delete</h5>
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => showDeleteModal = false)"
+                                       Size="Size.Small" Style="color: white;" />
+                    </div>
+                    <div class="modal-body">
+                        <p>Are you sure you want to delete the customer portal account for:</p>
+                        <p><strong>@selectedCustomer?.CardCode - @selectedCustomer?.CardName</strong></p>
+                        <p class="text-danger mb-0">This action cannot be undone.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <MudButton Variant="Variant.Filled" Color="Color.Default" OnClick="@(() => showDeleteModal = false)">
+                            Cancel</MudButton>
+                            <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="DeleteCustomer" Disabled="@isSaving">
+                                @if (isSaving)
                                 {
-                                    <button class="btn btn-outline-danger btn-sm" @onclick="ConvertToSingleAccount">
-                                        <i class="bi bi-arrow-counterclockwise me-1"></i>Convert to Single Account
-                                    </button>
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
                                 }
-                            </div>
-                        </div>
-
-                        <div class="alert alert-info">
-                            <strong>Account Structure Guide:</strong>
-                            <ul class="mb-0 mt-1">
-                                <li><strong>Main Accounts</strong> - Used for <strong>invoicing</strong> and <strong>incoming payments</strong>. Typically one per currency (e.g. ZiG, USD).</li>
-                                <li><strong>Sub Accounts</strong> - Used for <strong>sales orders only</strong>. Derive from a main account.</li>
-                            </ul>
+                                Delete Account
+                            </MudButton>
                         </div>
                     </div>
+                </div>
+            </div>
+        }
 
-                    <!-- Current Linked Accounts -->
-                    @if (linkedAccounts != null && linkedAccounts.Any())
-                    {
-                        <h6 class="mb-3">Current Linked Accounts</h6>
-                        <div class="table-responsive mb-4">
-                            <table class="table table-sm table-bordered">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>Card Code</th>
-                                        <th>Name</th>
-                                        <th>Type</th>
-                                        <th>Currency</th>
-                                        <th>Parent</th>
-                                        <th>Allowed Transactions</th>
-                                        <th>Description</th>
-                                        <th></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var acct in linkedAccounts)
+        <!-- Linked Accounts Management Modal -->
+        @if (showLinkedAccountsModal && selectedCustomer != null)
+        {
+            <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+                <div class="modal-dialog modal-xl">
+                    <div class="modal-content">
+                        <div class="modal-header" style="background: linear-gradient(135deg, #6366f1, #4f46e5); color: white;">
+                            <h5 class="modal-title">
+                                <i class="bi bi-diagram-3 me-2"></i>Linked Accounts - @selectedCustomer.CardCode
+                                (@selectedCustomer.CardName)
+                            </h5>
+                            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CloseLinkedAccountsModal" Size="Size.Small"
+                                           Style="color: white;" />
+                        </div>
+                        <div class="modal-body">
+                            @if (!string.IsNullOrEmpty(linkedAccountMessage))
+                            {
+                                <div
+                                    class="alert @(linkedAccountMessageIsError ? "alert-danger" : "alert-success") alert-dismissible fade show">
+                                    @linkedAccountMessage
+                                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => linkedAccountMessage = null)"
+                                                   Size="Size.Small" />
+                                </div>
+                            }
+
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <div>
+                                        <span
+                                            class="badge @(selectedCustomer.AccountStructure == "Multi" ? "bg-info" : "bg-secondary") fs-6">
+                                            @(selectedCustomer.AccountStructure == "Multi" ? "Multi-Account Structure" : "Single Account")
+                                        </span>
+                                    </div>
+                                    <div>
+                                        @if (selectedCustomer.AccountStructure == "Multi")
+                                        {
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                                                       OnClick="ConvertToSingleAccount">
+                                                <i class="bi bi-arrow-counterclockwise me-1"></i>Convert to Single Account
+                                            </MudButton>
+                                        }
+                                    </div>
+                                </div>
+
+                                <div class="alert alert-info">
+                                    <strong>Account Structure Guide:</strong>
+                                    <ul class="mb-0 mt-1">
+                                        <li><strong>Main Accounts</strong> - Used for <strong>invoicing</strong> and
+                                            <strong>incoming payments</strong>. Typically one per currency (e.g. ZiG, USD).</li>
+                                            <li><strong>Sub Accounts</strong> - Used for <strong>sales orders only</strong>. Derive from
+                                                a main account.</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+
+                                    <!-- Current Linked Accounts -->
+                                    @if (linkedAccounts != null && linkedAccounts.Any())
                                     {
-                                        <tr>
-                                            <td><code>@acct.CardCode</code></td>
-                                            <td>@acct.CardName</td>
-                                            <td>
-                                                <span class="badge @(acct.AccountType == "Main" ? "bg-primary" : "bg-warning text-dark")">
-                                                    @acct.AccountType
-                                                </span>
-                                            </td>
-                                            <td>@(acct.Currency ?? "-")</td>
-                                            <td>@(acct.ParentCardCode ?? "-")</td>
-                                            <td>
-                                                @foreach (var tx in acct.AllowedTransactions)
+                                        <h6 class="mb-3">Current Linked Accounts</h6>
+                                        <div class="table-responsive mb-4">
+                                            <table class="table table-sm table-bordered">
+                                                <thead class="table-light">
+                                                    <tr>
+                                                        <th>Card Code</th>
+                                                        <th>Name</th>
+                                                        <th>Type</th>
+                                                        <th>Currency</th>
+                                                        <th>Parent</th>
+                                                        <th>Allowed Transactions</th>
+                                                        <th>Description</th>
+                                                        <th></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach (var acct in linkedAccounts)
+                                                    {
+                                                        <tr>
+                                                            <td><code>@acct.CardCode</code></td>
+                                                            <td>@acct.CardName</td>
+                                                            <td>
+                                                                <span
+                                                                    class="badge @(acct.AccountType == "Main" ? "bg-primary" : "bg-warning text-dark")">
+                                                                    @acct.AccountType
+                                                                </span>
+                                                            </td>
+                                                            <td>@(acct.Currency ?? "-")</td>
+                                                            <td>@(acct.ParentCardCode ?? "-")</td>
+                                                            <td>
+                                                                @foreach (var tx in acct.AllowedTransactions)
+                                                                {
+                                                                    <span class="badge bg-outline-secondary me-1"
+                                                                          style="border: 1px solid #ccc; color: #555;">@tx</span>
+                                                                }
+                                                            </td>
+                                                            <td>@(acct.Description ?? "-")</td>
+                                                            <td>
+                                                                <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                                                                           title="Remove" OnClick="@(() => RemoveLinkedAccount(acct.CardCode))">
+                                                                    <i class="bi bi-x-lg"></i>
+                                                                </MudButton>
+                                                            </td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    }
+
+                                    <!-- Add New Linked Account -->
+                                    <h6 class="mb-3">Add Linked Account</h6>
+                                    <div class="row g-3 align-items-end">
+                                        <div class="col-md-3">
+                                            <label class="form-label">Select BP</label>
+                                            <MudAutocomplete T="CachedBusinessPartner" Label="Search BP" @bind-Value="linkedAccountBP"
+                                                             SearchFunc="@SearchCustomersFromDbAsync"
+                                                             ToStringFunc="@(bp => bp == null ? string.Empty : $"{bp.CardCode} - {bp.CardName}")"
+                                                             ShowProgressIndicator="true" MinCharacters="1" Dense="true" Variant="Variant.Outlined"
+                                                             Margin="Margin.Dense" Clearable="true" />
+                                        </div>
+                                        <div class="col-md-2">
+                                            <label class="form-label">Account Type</label>
+                                            <select class="form-select form-select-sm" @bind="newLinkedAccountType">
+                                                <option value="Main">Main</option>
+                                                <option value="Sub">Sub</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-2">
+                                            <label class="form-label">Currency</label>
+                                            <select class="form-select form-select-sm" @bind="newLinkedAccountCurrency">
+                                                <option value="">-- Select --</option>
+                                                <option value="USD">USD</option>
+                                                <option value="ZiG">ZiG</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-2">
+                                            <label class="form-label">Parent (for Sub)</label>
+                                            <select class="form-select form-select-sm" @bind="newLinkedAccountParent">
+                                                <option value="">-- None --</option>
+                                                @if (linkedAccounts != null)
                                                 {
-                                                    <span class="badge bg-outline-secondary me-1" style="border: 1px solid #ccc; color: #555;">@tx</span>
+                                                    @foreach (var main in linkedAccounts.Where(a => a.AccountType == "Main"))
+                                                    {
+                                                        <option value="@main.CardCode">@main.CardCode (@main.Currency)</option>
+                                                    }
                                                 }
-                                            </td>
-                                            <td>@(acct.Description ?? "-")</td>
-                                            <td>
-                                                <button class="btn btn-outline-danger btn-sm" title="Remove"
-                                                    @onclick="@(() => RemoveLinkedAccount(acct.CardCode))">
-                                                    <i class="bi bi-x-lg"></i>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                    }
-
-                    <!-- Add New Linked Account -->
-                    <h6 class="mb-3">Add Linked Account</h6>
-                    <div class="row g-3 align-items-end">
-                        <div class="col-md-3">
-                            <label class="form-label">Select BP</label>
-                            <MudAutocomplete T="CachedBusinessPartner" Label="Search BP"
-                                @bind-Value="linkedAccountBP" SearchFunc="@SearchCustomersFromDbAsync"
-                                ToStringFunc="@(bp => bp == null ? string.Empty : $"{bp.CardCode} - {bp.CardName}")"
-                                ShowProgressIndicator="true" MinCharacters="1" Dense="true"
-                                Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" />
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">Account Type</label>
-                            <select class="form-select form-select-sm" @bind="newLinkedAccountType">
-                                <option value="Main">Main</option>
-                                <option value="Sub">Sub</option>
-                            </select>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">Currency</label>
-                            <select class="form-select form-select-sm" @bind="newLinkedAccountCurrency">
-                                <option value="">-- Select --</option>
-                                <option value="USD">USD</option>
-                                <option value="ZiG">ZiG</option>
-                            </select>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">Parent (for Sub)</label>
-                            <select class="form-select form-select-sm" @bind="newLinkedAccountParent">
-                                <option value="">-- None --</option>
-                                @if (linkedAccounts != null)
-                                {
-                                    @foreach (var main in linkedAccounts.Where(a => a.AccountType == "Main"))
-                                    {
-                                        <option value="@main.CardCode">@main.CardCode (@main.Currency)</option>
-                                    }
-                                }
-                            </select>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">Description</label>
-                            <input type="text" class="form-control form-control-sm" @bind="newLinkedAccountDesc" placeholder="e.g. ZiG Main" />
-                        </div>
-                        <div class="col-md-1">
-                            <button class="btn btn-primary btn-sm w-100" @onclick="AddLinkedAccount" disabled="@isSaving"
-                                style="background: #6366f1; border-color: #6366f1;">
-                                <i class="bi bi-plus"></i> Add
-                            </button>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-2">
+                                            <label class="form-label">Description</label>
+                                            <input type="text" class="form-control form-control-sm" @bind="newLinkedAccountDesc"
+                                                   placeholder="e.g. ZiG Main" />
+                                        </div>
+                                        <div class="col-md-1">
+                                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Class="w-100"
+                                                       OnClick="AddLinkedAccount" Disabled="@isSaving"
+                                                       Style="background: #6366f1; border-color: #6366f1;">
+                                                <i class="bi bi-plus"></i> Add
+                                            </MudButton>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <MudButton Variant="Variant.Filled" Color="Color.Default" OnClick="CloseLinkedAccountsModal">Close
+                                    </MudButton>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="CloseLinkedAccountsModal">Close</button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
+                }
 
 @code {
     private List<CustomerPortalUser>? customers;
@@ -1028,7 +1048,7 @@
         {
             await using var dbContext = await DbContextFactory.CreateDbContextAsync();
             var existing = await dbContext.Set<CustomerPortalUser>()
-                .FirstOrDefaultAsync(c => c.Id == customer.Id);
+            .FirstOrDefaultAsync(c => c.Id == customer.Id);
 
             if (existing == null)
             {
@@ -1040,8 +1060,8 @@
             await dbContext.SaveChangesAsync();
 
             successMessage = existing.ReceiveStatements
-                ? $"Statement emails enabled for {existing.CardCode}."
-                : $"Statement emails disabled for {existing.CardCode}.";
+            ? $"Statement emails enabled for {existing.CardCode}."
+            : $"Statement emails disabled for {existing.CardCode}.";
 
             await LoadCustomers();
         }
@@ -1380,4 +1400,5 @@
     }
 
     #endregion
+
 }

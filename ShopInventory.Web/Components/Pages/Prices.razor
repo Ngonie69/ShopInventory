@@ -49,9 +49,10 @@
                                @bind:after="FilterPrices" placeholder="Type to search by code or description..." />
                         @if (!string.IsNullOrWhiteSpace(searchTerm))
                         {
-                            <button class="btn btn-outline-secondary" type="button" @onclick="ClearSearch">
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" ButtonType="ButtonType.Button"
+                                       OnClick="ClearSearch">
                                 <i class="bi bi-x-lg"></i>
-                            </button>
+                            </MudButton>
                         }
                     </div>
                     @if (!string.IsNullOrWhiteSpace(searchTerm) && filteredPrices != null)
@@ -62,7 +63,8 @@
                     }
                 </div>
                 <div class="col-md-3 d-flex align-items-end">
-                    <button class="btn btn-success w-100" @onclick="RefreshPriceLists" disabled="@isLoadingPriceLists">
+                    <MudButton Variant="Variant.Filled" Color="Color.Success" FullWidth="true"
+                               OnClick="RefreshPriceLists" Disabled="@isLoadingPriceLists">
                         @if (isLoadingPriceLists)
                         {
                             <span class="spinner-border spinner-border-sm me-1" role="status"></span>
@@ -72,7 +74,7 @@
                             <i class="bi bi-arrow-clockwise me-1"></i>
                         }
                         Refresh
-                    </button>
+                    </MudButton>
                 </div>
             </div>
 
@@ -235,9 +237,10 @@
                     <i class="bi bi-exclamation-triangle me-2"></i>
                     No items found in this price list. It may not have been synced yet or the list is empty in SAP.
                 </span>
-                <button class="btn btn-sm btn-outline-warning ms-3" @onclick="ForceRefreshPrices" disabled="@isLoading">
+                <MudButton Variant="Variant.Outlined" Color="Color.Warning" Size="Size.Small" Class="ms-3"
+                           OnClick="ForceRefreshPrices" Disabled="@isLoading">
                     <i class="bi bi-arrow-clockwise me-1"></i>Retry from SAP
-                </button>
+                </MudButton>
             </div>
         }
         else if (selectedPriceListNum > 0 && allPricesForList == null)
@@ -247,9 +250,10 @@
                     <i class="bi bi-exclamation-circle me-2"></i>
                     Failed to load prices from the server. Please check your connection and try again.
                 </span>
-                <button class="btn btn-sm btn-outline-danger ms-3" @onclick="ForceRefreshPrices" disabled="@isLoading">
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" Class="ms-3"
+                           OnClick="ForceRefreshPrices" Disabled="@isLoading">
                     <i class="bi bi-arrow-clockwise me-1"></i>Retry
-                </button>
+                </MudButton>
             </div>
         }
     </div>

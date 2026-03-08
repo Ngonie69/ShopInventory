@@ -8,180 +8,971 @@
 
 <PageTitle>User Activity Dashboard - Shop Inventory</PageTitle>
 
-<div class="container-fluid fade-in">
-    <div class="page-header d-flex justify-content-between align-items-center">
-        <div>
-            <h2>
-                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16"
-                     style="color: var(--primary-color);">
-                    <path
-                    d="M8.515 1.019A7 7 0 0 0 8 1V0a8 8 0 0 1 .589.022l-.074.997zm2.004.45a7.003 7.003 0 0 0-.985-.299l.219-.976c.383.086.76.2 1.126.342l-.36.933zm1.37.71a7.01 7.01 0 0 0-.439-.27l.493-.87a8.025 8.025 0 0 1 .979.654l-.615.789a6.996 6.996 0 0 0-.418-.302zm1.834 1.79a6.99 6.99 0 0 0-.653-.796l.724-.69c.27.285.52.59.747.91l-.818.576zm.744 1.352a7.08 7.08 0 0 0-.214-.468l.893-.45a7.976 7.976 0 0 1 .45 1.088l-.95.313a7.023 7.023 0 0 0-.179-.483zm.53 2.507a6.991 6.991 0 0 0-.1-1.025l.985-.17c.067.386.106.778.116 1.17l-1 .025zm-.131 1.538c.033-.17.06-.339.081-.51l.993.123a7.957 7.957 0 0 1-.23 1.155l-.964-.267c.046-.165.086-.332.12-.501zm-.952 2.379c.184-.29.346-.594.486-.908l.914.405c-.16.36-.345.706-.555 1.038l-.845-.535zm-.964 1.205c.122-.122.239-.248.35-.378l.758.653a8.073 8.073 0 0 1-.401.432l-.707-.707z" />
-                    <path d="M8 1a7 7 0 1 0 4.95 11.95l.707.707A8.001 8.001 0 1 1 8 0v1z" />
-                    <path
-                    d="M7.5 3a.5.5 0 0 1 .5.5v5.21l3.248 1.856a.5.5 0 0 1-.496.868l-3.5-2A.5.5 0 0 1 7 9V3.5a.5.5 0 0 1 .5-.5z" />
-                </svg>
-                User Activity Dashboard
-            </h2>
-            <span class="text-muted">Monitor user actions and system activity</span>
-        </div>
-        <div class="btn-group">
-            <button class="btn @(timeRange == "today" ? "btn-primary" : "btn-outline-primary")"
-                    @onclick="@(() => SetTimeRange("today"))">Today</button>
-            <button class="btn @(timeRange == "week" ? "btn-primary" : "btn-outline-primary")"
-                    @onclick="@(() => SetTimeRange("week"))">This Week</button>
-            <button class="btn @(timeRange == "month" ? "btn-primary" : "btn-outline-primary")"
-                    @onclick="@(() => SetTimeRange("month"))">This Month</button>
-        </div>
-    </div>
+<style>
+    /* ── Page ────────────────────────────────────────── */
+    .ua-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
+    }
 
-    <!-- Summary Cards -->
-    <div class="row mb-4">
-        <div class="col-md-3">
-            <div class="card dashboard-card">
-                <div class="card-body text-center">
-                    <div class="dashboard-stat-icon bg-primary bg-opacity-10 text-primary mb-3">
-                        <i class="bi bi-people"></i>
-                    </div>
-                    <h3 class="mb-0">@activeUsersCount</h3>
-                    <small class="text-muted">Active Users</small>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card dashboard-card">
-                <div class="card-body text-center">
-                    <div class="dashboard-stat-icon bg-success bg-opacity-10 text-success mb-3">
-                        <i class="bi bi-activity"></i>
-                    </div>
-                    <h3 class="mb-0">@totalActionsCount</h3>
-                    <small class="text-muted">Total Actions</small>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card dashboard-card">
-                <div class="card-body text-center">
-                    <div class="dashboard-stat-icon bg-info bg-opacity-10 text-info mb-3">
-                        <i class="bi bi-box-arrow-in-right"></i>
-                    </div>
-                    <h3 class="mb-0">@loginCount</h3>
-                    <small class="text-muted">Logins</small>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card dashboard-card">
-                <div class="card-body text-center">
-                    <div class="dashboard-stat-icon bg-warning bg-opacity-10 text-warning mb-3">
-                        <i class="bi bi-exclamation-triangle"></i>
-                    </div>
-                    <h3 class="mb-0">@failedActionsCount</h3>
-                    <small class="text-muted">Failed Actions</small>
-                </div>
-            </div>
-        </div>
-    </div>
+    /* ── Header ──────────────────────────────────────── */
+    .ua-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
 
-    <div class="row">
-        <!-- Most Active Users -->
-        <div class="col-md-4">
-            <div class="card h-100">
-                <div class="card-header">
-                    <h6 class="mb-0"><i class="bi bi-trophy me-2 text-warning"></i>Most Active Users</h6>
+    .ua-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .ua-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .ua-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+        letter-spacing: -.3px;
+    }
+
+    .ua-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: .88rem;
+    }
+
+    .ua-header-actions {
+        display: flex;
+        gap: .5rem;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    /* ── Time Range Buttons ──────────────────────────── */
+    .time-btn {
+        padding: .5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .2s;
+        border: 1px solid #d1d5db;
+        background: #fff;
+        color: #6b7280;
+    }
+
+    .time-btn:hover {
+        background: #f3f4f6;
+        transform: translateY(-1px);
+    }
+
+    .time-btn.active {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        border-color: transparent;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
+    }
+
+    .time-btn.active:hover {
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .4);
+    }
+
+    /* ── Stat Cards ──────────────────────────────────── */
+    .stat-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .stat-card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 1.1rem 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        transition: all .2s;
+    }
+
+    .stat-card:hover {
+        box-shadow: 0 4px 14px rgba(0, 0, 0, .08);
+        transform: translateY(-2px);
+    }
+
+    .stat-icon {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        flex-shrink: 0;
+    }
+
+    .stat-icon.purple {
+        background: #ede9fe;
+        color: #7c3aed;
+    }
+
+    .stat-icon.green {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+    .stat-icon.blue {
+        background: #dbeafe;
+        color: #2563eb;
+    }
+
+    .stat-icon.amber {
+        background: #fef3c7;
+        color: #d97706;
+    }
+
+    .stat-icon.rose {
+        background: #ffe4e6;
+        color: #e11d48;
+    }
+
+    .stat-info .stat-value {
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        line-height: 1.2;
+        font-family: 'Space Grotesk', monospace;
+    }
+
+    .stat-info .stat-label {
+        font-size: .78rem;
+        color: #6b7280;
+        font-weight: 500;
+    }
+
+    /* ── Panels Grid ─────────────────────────────────── */
+    .panels-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    @@media (max-width: 992px) {
+        .panels-row {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .panel-card {
+        background: #fff;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .panel-header {
+        padding: .85rem 1.15rem;
+        border-bottom: 1px solid #f3f4f6;
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+    }
+
+    .panel-header-icon {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: .8rem;
+        flex-shrink: 0;
+    }
+
+    .panel-header h6 {
+        margin: 0;
+        font-weight: 650;
+        font-size: .88rem;
+        color: #1a1a2e;
+    }
+
+    .panel-body {
+        padding: 1rem 1.15rem;
+        flex: 1;
+        overflow-y: auto;
+        max-height: 380px;
+    }
+
+    /* ── Most Active Users ───────────────────────────── */
+    .user-item {
+        display: flex;
+        align-items: center;
+        gap: .7rem;
+        padding: .55rem 0;
+        border-bottom: 1px solid #f3f4f6;
+        transition: background .15s;
+    }
+
+    .user-item:last-child {
+        border-bottom: none;
+    }
+
+    .user-item:hover {
+        background: #f8fafc;
+        margin: 0 -.5rem;
+        padding-left: .5rem;
+        padding-right: .5rem;
+        border-radius: 8px;
+    }
+
+    .user-rank {
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: .65rem;
+        font-weight: 700;
+        flex-shrink: 0;
+    }
+
+    .user-rank.gold {
+        background: #fef3c7;
+        color: #d97706;
+    }
+
+    .user-rank.silver {
+        background: #f1f5f9;
+        color: #64748b;
+    }
+
+    .user-rank.bronze {
+        background: #ffe4e6;
+        color: #e11d48;
+    }
+
+    .user-rank.default {
+        background: #f3f4f6;
+        color: #9ca3af;
+    }
+
+    .user-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-weight: 700;
+        font-size: .75rem;
+        flex-shrink: 0;
+    }
+
+    .user-meta {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .user-meta .name {
+        font-weight: 600;
+        font-size: .85rem;
+        color: #1a1a2e;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .user-meta .last-seen {
+        font-size: .72rem;
+        color: #9ca3af;
+    }
+
+    .user-count {
+        font-family: 'Space Grotesk', monospace;
+        font-weight: 700;
+        font-size: .82rem;
+        color: #667eea;
+        background: #eef2ff;
+        padding: .2rem .55rem;
+        border-radius: 6px;
+    }
+
+    /* ── Action Breakdown ────────────────────────────── */
+    .action-item {
+        margin-bottom: .85rem;
+    }
+
+    .action-item:last-child {
+        margin-bottom: 0;
+    }
+
+    .action-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: .35rem;
+    }
+
+    .action-name {
+        font-size: .82rem;
+        font-weight: 600;
+        color: #374151;
+        display: flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .action-name .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .action-stats {
+        font-family: 'Space Grotesk', monospace;
+        font-size: .78rem;
+        color: #9ca3af;
+    }
+
+    .action-bar {
+        height: 6px;
+        background: #f3f4f6;
+        border-radius: 3px;
+        overflow: hidden;
+    }
+
+    .action-bar-fill {
+        height: 100%;
+        border-radius: 3px;
+        transition: width .4s ease;
+    }
+
+    /* ── Hourly Activity ─────────────────────────────── */
+    .hourly-chart {
+        display: flex;
+        align-items: flex-end;
+        gap: 3px;
+        height: 180px;
+        padding-top: 1rem;
+    }
+
+    .hourly-col {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+        height: 100%;
+        position: relative;
+    }
+
+    .hourly-bar {
+        width: 100%;
+        border-radius: 4px 4px 0 0;
+        transition: height .4s ease, background .2s;
+        min-height: 2px;
+        cursor: pointer;
+    }
+
+    .hourly-bar:hover {
+        filter: brightness(1.1);
+    }
+
+    .hourly-bar.peak {
+        background: linear-gradient(180deg, #667eea, #764ba2);
+    }
+
+    .hourly-bar.high {
+        background: linear-gradient(180deg, #818cf8, #a78bfa);
+    }
+
+    .hourly-bar.mid {
+        background: linear-gradient(180deg, #a5b4fc, #c4b5fd);
+    }
+
+    .hourly-bar.low {
+        background: #e0e7ff;
+    }
+
+    .hourly-lbl {
+        font-size: .58rem;
+        color: #9ca3af;
+        margin-top: 4px;
+        font-weight: 600;
+    }
+
+    .hourly-tooltip {
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #1a1a2e;
+        color: #fff;
+        padding: .25rem .5rem;
+        border-radius: 6px;
+        font-size: .7rem;
+        font-weight: 600;
+        white-space: nowrap;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity .15s;
+        margin-bottom: 4px;
+    }
+
+    .hourly-col:hover .hourly-tooltip {
+        opacity: 1;
+    }
+
+    /* ── Filter Bar ──────────────────────────────────── */
+    .filter-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .75rem;
+        align-items: flex-end;
+        padding: 1rem 1.25rem;
+        background: #f8fafc;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        margin-bottom: 1.25rem;
+    }
+
+    .filter-field {
+        flex: 1;
+        min-width: 160px;
+    }
+
+    .filter-field label {
+        display: block;
+        font-size: .72rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        margin-bottom: .3rem;
+    }
+
+    .filter-field select,
+    .filter-field input {
+        width: 100%;
+        padding: .45rem .75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: .85rem;
+        background: #fff;
+        color: #374151;
+        transition: border-color .15s, box-shadow .15s;
+    }
+
+    .filter-field select:focus,
+    .filter-field input:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, .12);
+    }
+
+    .filter-actions {
+        display: flex;
+        gap: .5rem;
+        align-items: flex-end;
+    }
+
+    .btn-filter-apply {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        border: none;
+        padding: .5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .btn-filter-apply:hover {
+        opacity: .92;
+        transform: translateY(-1px);
+    }
+
+    .btn-filter-clear {
+        background: #fff;
+        color: #6b7280;
+        border: 1px solid #d1d5db;
+        padding: .5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .2s;
+    }
+
+    .btn-filter-clear:hover {
+        background: #f3f4f6;
+    }
+
+    /* ── Table Wrap ──────────────────────────────────── */
+    .ua-table-wrap {
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        overflow: hidden;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .avatar-sm {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-weight: 700;
+        font-size: .7rem;
+        flex-shrink: 0;
+    }
+
+    .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        padding: .2rem .6rem;
+        border-radius: 6px;
+        font-size: .73rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .status-pill.success {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .status-pill.failed {
+        background: #ffe4e6;
+        color: #9f1239;
+    }
+
+    .entity-cell {
+        display: flex;
+        align-items: center;
+        gap: .3rem;
+    }
+
+    .entity-id {
+        font-size: .75rem;
+        color: #9ca3af;
+        font-family: 'Space Grotesk', monospace;
+    }
+
+    .details-cell {
+        max-width: 220px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: .85rem;
+        color: #4b5563;
+    }
+
+    /* ── Detail Drawer ───────────────────────────────── */
+    .ua-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, .45);
+        z-index: 9998;
+        animation: uaFadeIn .2s ease;
+    }
+
+    .ua-drawer {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: min(520px, 95vw);
+        height: 100vh;
+        background: #fff;
+        z-index: 9999;
+        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
+        display: flex;
+        flex-direction: column;
+        animation: uaSlideIn .25s ease;
+    }
+
+    .ua-drawer-header {
+        padding: 1.15rem 1.5rem;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-shrink: 0;
+    }
+
+    .ua-drawer-header h5 {
+        margin: 0;
+        font-weight: 600;
+        font-size: 1.05rem;
+    }
+
+    .ua-drawer-close {
+        background: rgba(255, 255, 255, .15);
+        border: none;
+        color: #fff;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background .15s;
+        font-size: 1rem;
+    }
+
+    .ua-drawer-close:hover {
+        background: rgba(255, 255, 255, .25);
+    }
+
+    .ua-drawer-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.5rem;
+    }
+
+    .detail-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .detail-item .detail-label {
+        font-size: .72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #9ca3af;
+        margin-bottom: .2rem;
+    }
+
+    .detail-item .detail-value {
+        font-size: .92rem;
+        font-weight: 600;
+        color: #1a1a2e;
+    }
+
+    .detail-item.full-width {
+        grid-column: 1 / -1;
+    }
+
+    .detail-item .detail-value.mono {
+        font-family: 'Space Grotesk', monospace;
+    }
+
+    /* ── Empty State ──────────────────────────────────── */
+    .empty-state {
+        text-align: center;
+        padding: 3rem 1.5rem;
+    }
+
+    .empty-icon {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: #f3f4f6;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 1rem;
+        font-size: 1.8rem;
+        color: #9ca3af;
+    }
+
+    .empty-state h6 {
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: .35rem;
+    }
+
+    .empty-state p {
+        color: #9ca3af;
+        font-size: .88rem;
+    }
+
+    /* ── Loading Skeleton ────────────────────────────── */
+    .skeleton {
+        background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+        background-size: 200% 100%;
+        animation: uaShimmer 1.5s infinite;
+        border-radius: 6px;
+    }
+
+    .skeleton-line {
+        height: 14px;
+        margin-bottom: .6rem;
+    }
+
+    .skeleton-line.w75 {
+        width: 75%;
+    }
+
+    .skeleton-line.w50 {
+        width: 50%;
+    }
+
+    .skeleton-circle {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+    }
+
+    /* ── Animations ──────────────────────────────────── */
+    @@keyframes uaFadeIn {
+        from {
+            opacity: 0;
+        }
+
+        to {
+            opacity: 1;
+        }
+    }
+
+    @@keyframes uaSlideIn {
+        from {
+            transform: translateX(100%);
+        }
+
+        to {
+            transform: translateX(0);
+        }
+    }
+
+    @@keyframes uaShimmer {
+        0% {
+            background-position: 200% 0;
+        }
+
+        100% {
+            background-position: -200% 0;
+        }
+    }
+
+    .ua-page {
+        animation: uaFadeIn .3s ease;
+    }
+</style>
+
+<div class="ua-page">
+    <!-- ── Header ──────────────────────────────────────── -->
+    <div class="ua-header">
+        <div class="ua-header-left">
+            <div class="ua-header-icon">
+                <i class="bi bi-activity"></i>
+            </div>
+            <div>
+                <h2>User Activity</h2>
+                <p>Monitor user actions and system activity in real time</p>
+            </div>
+        </div>
+        <div class="ua-header-actions">
+            <MudButton Class="@($"time-btn {(timeRange == "today" ? "active" : "")}")"
+                       OnClick="@(() => SetTimeRange("today"))">Today</MudButton>
+            <MudButton Class="@($"time-btn {(timeRange == "week" ? "active" : "")}")"
+                       OnClick="@(() => SetTimeRange("week"))">
+                This Week</MudButton>
+                <MudButton Class="@($"time-btn {(timeRange == "month" ? "active" : "")}")"
+                           OnClick="@(() => SetTimeRange("month"))">This Month</MudButton>
+            </div>
+        </div>
+
+        <!-- ── Stat Cards ──────────────────────────────────── -->
+        <div class="stat-row">
+            <div class="stat-card">
+                <div class="stat-icon purple"><i class="bi bi-people-fill"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@activeUsersCount</div>
+                    <div class="stat-label">Active Users</div>
                 </div>
-                <div class="card-body">
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon green"><i class="bi bi-lightning-charge-fill"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@totalActionsCount</div>
+                    <div class="stat-label">Total Actions</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon blue"><i class="bi bi-box-arrow-in-right"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@loginCount</div>
+                    <div class="stat-label">Logins</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon rose"><i class="bi bi-exclamation-triangle-fill"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@failedActionsCount</div>
+                    <div class="stat-label">Failed Actions</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Panels Row ──────────────────────────────────── -->
+        <div class="panels-row">
+            <!-- Most Active Users -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <div class="panel-header-icon" style="background: #fef3c7; color: #d97706;">
+                        <i class="bi bi-trophy-fill"></i>
+                    </div>
+                    <h6>Most Active Users</h6>
+                </div>
+                <div class="panel-body">
                     @if (isLoading)
                     {
-                        <div class="text-center py-4">
-                            <div class="spinner-border spinner-border-sm text-primary"></div>
-                        </div>
+                        @for (int i = 0; i < 5; i++)
+                        {
+                            <div class="d-flex align-items-center gap-2 mb-3">
+                                <div class="skeleton skeleton-circle" style="width:32px;height:32px;border-radius:50%;"></div>
+                                <div style="flex:1;">
+                                    <div class="skeleton skeleton-line w75"></div>
+                                    <div class="skeleton skeleton-line w50" style="height:10px;"></div>
+                                </div>
+                            </div>
+                        }
                     }
                     else if (mostActiveUsers.Any())
                     {
-                        <div class="list-group list-group-flush">
-                            @foreach (var user in mostActiveUsers.Take(10))
-                            {
-                                <div class="list-group-item d-flex justify-content-between align-items-center px-0">
-                                    <div class="d-flex align-items-center">
-                                        <div class="avatar-circle-sm bg-primary me-2">
-                                            @user.Username[0].ToString().ToUpper()
-                                        </div>
-                                        <div>
-                                            <div class="fw-medium">@user.Username</div>
-                                            @if (user.LastActivityAt.HasValue)
-                                            {
-                                                <small class="text-muted">Last: @GetRelativeTime(user.LastActivityAt.Value)</small>
-                                            }
-                                        </div>
-                                    </div>
-                                    <span class="badge bg-primary rounded-pill">@user.ActionCount</span>
+                        int rank = 0;
+                        @foreach (var user in mostActiveUsers.Take(10))
+                        {
+                            rank++;
+                            var avatarColors = new[] { "#667eea", "#059669", "#d97706", "#e11d48", "#7c3aed", "#2563eb", "#0891b2",
+                "#c026d3" };
+                            var bgColor = avatarColors[(rank - 1) % avatarColors.Length];
+                            var rankClass = rank == 1 ? "gold" : rank == 2 ? "silver" : rank == 3 ? "bronze" : "default";
+                            <div class="user-item">
+                                <div class="user-rank @rankClass">@rank</div>
+                                <div class="user-avatar" style="background: @bgColor;">
+                                    @user.Username[0].ToString().ToUpper()
                                 </div>
-                            }
-                        </div>
+                                <div class="user-meta">
+                                    <div class="name">@user.Username</div>
+                                    @if (user.LastActivityAt.HasValue)
+                                    {
+                                        <div class="last-seen">@GetRelativeTime(user.LastActivityAt.Value)</div>
+                                    }
+                                </div>
+                                <div class="user-count">@user.ActionCount</div>
+                            </div>
+                        }
                     }
                     else
                     {
-                        <div class="text-center py-4 text-muted">
-                            <i class="bi bi-inbox display-6"></i>
-                            <p class="mt-2">No activity data</p>
+                        <div class="empty-state">
+                            <div class="empty-icon"><i class="bi bi-people"></i></div>
+                            <h6>No activity yet</h6>
+                            <p>User activity will appear here</p>
                         </div>
                     }
                 </div>
             </div>
-        </div>
 
-        <!-- Action Breakdown -->
-        <div class="col-md-4">
-            <div class="card h-100">
-                <div class="card-header">
-                    <h6 class="mb-0"><i class="bi bi-pie-chart me-2 text-info"></i>Action Breakdown</h6>
+            <!-- Action Breakdown -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <div class="panel-header-icon" style="background: #dbeafe; color: #2563eb;">
+                        <i class="bi bi-pie-chart-fill"></i>
+                    </div>
+                    <h6>Action Breakdown</h6>
                 </div>
-                <div class="card-body">
+                <div class="panel-body">
                     @if (isLoading)
                     {
-                        <div class="text-center py-4">
-                            <div class="spinner-border spinner-border-sm text-primary"></div>
-                        </div>
+                        @for (int i = 0; i < 6; i++)
+                        {
+                            <div class="mb-3">
+                                <div class="skeleton skeleton-line w75"></div>
+                                <div class="skeleton" style="height:6px; width:@(90 - i * 12)%;"></div>
+                            </div>
+                        }
                     }
                     else if (actionBreakdown.Any())
                     {
                         @foreach (var action in actionBreakdown.Take(10))
                         {
                             var percentage = totalActionsCount > 0 ? (action.Count * 100.0 / totalActionsCount) : 0;
-                            <div class="mb-3">
-                                <div class="d-flex justify-content-between mb-1">
-                                    <span class="small">@action.Action</span>
-                                    <span class="small text-muted">@action.Count (@percentage.ToString("F1")%)</span>
+                            var barColor = GetActionBarColor(action.Action);
+                            var dotColor = GetActionDotColor(action.Action);
+                            <div class="action-item">
+                                <div class="action-row">
+                                    <span class="action-name">
+                                        <span class="dot" style="background: @dotColor;"></span>
+                                        @action.Action
+                                    </span>
+                                    <span class="action-stats">@action.Count (@percentage.ToString("F1")%)</span>
                                 </div>
-                                <div class="progress" style="height: 6px;">
-                                    <div class="progress-bar @GetActionColor(action.Action)" role="progressbar"
-                                         style="width: @percentage%"></div>
+                                <div class="action-bar">
+                                    <div class="action-bar-fill" style="width: @percentage%; background: @barColor;"></div>
                                 </div>
                             </div>
                         }
                     }
                     else
                     {
-                        <div class="text-center py-4 text-muted">
-                            <i class="bi bi-inbox display-6"></i>
-                            <p class="mt-2">No action data</p>
+                        <div class="empty-state">
+                            <div class="empty-icon"><i class="bi bi-pie-chart"></i></div>
+                            <h6>No actions recorded</h6>
+                            <p>Action data will appear here</p>
                         </div>
                     }
                 </div>
             </div>
-        </div>
 
-        <!-- Hourly Activity -->
-        <div class="col-md-4">
-            <div class="card h-100">
-                <div class="card-header">
-                    <h6 class="mb-0"><i class="bi bi-clock me-2 text-success"></i>Activity by Hour</h6>
+            <!-- Hourly Activity -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <div class="panel-header-icon" style="background: #d1fae5; color: #059669;">
+                        <i class="bi bi-clock-fill"></i>
+                    </div>
+                    <h6>Activity by Hour</h6>
                 </div>
-                <div class="card-body">
+                <div class="panel-body">
                     @if (isLoading)
                     {
-                        <div class="text-center py-4">
-                            <div class="spinner-border spinner-border-sm text-primary"></div>
+                        <div class="d-flex align-items-end gap-1" style="height:180px;">
+                            @for (int i = 0; i < 24; i++)
+                            {
+                                var h = 20 + new Random(i).Next(60);
+                                <div class="skeleton" style="flex:1; height:@(h)px;"></div>
+                            }
                         </div>
                     }
                     else if (hourlyActivity.Any())
@@ -189,240 +980,264 @@
                         <div class="hourly-chart">
                             @{
                                 var maxCount = hourlyActivity.Max(h => h.Count);
+                                var peakThreshold = maxCount * 0.75;
+                                var highThreshold = maxCount * 0.5;
+                                var midThreshold = maxCount * 0.25;
                             }
                             @foreach (var hour in hourlyActivity)
                             {
                                 var height = maxCount > 0 ? (hour.Count * 100.0 / maxCount) : 0;
-                                <div class="hourly-bar-container" title="@hour.Hour:00 - @hour.Count actions">
-                                    <div class="hourly-bar bg-success" style="height: @height%"></div>
-                                    <small class="hourly-label">@hour.Hour</small>
+                                var level = hour.Count >= peakThreshold ? "peak" : hour.Count >= highThreshold ? "high" : hour.Count
+                                >= midThreshold ? "mid" : "low";
+                                <div class="hourly-col">
+                                    <div class="hourly-tooltip">@hour.Hour:00 &mdash; @hour.Count</div>
+                                    <div class="hourly-bar @level" style="height: @height%"></div>
+                                    @if (hour.Hour % 3 == 0)
+                                    {
+                                        <span class="hourly-lbl">@hour.Hour.ToString("D2")</span>
+                                    }
                                 </div>
                             }
                         </div>
                     }
                     else
                     {
-                        <div class="text-center py-4 text-muted">
-                            <i class="bi bi-inbox display-6"></i>
-                            <p class="mt-2">No hourly data</p>
+                        <div class="empty-state">
+                            <div class="empty-icon"><i class="bi bi-clock"></i></div>
+                            <h6>No hourly data</h6>
+                            <p>Hourly patterns will display here</p>
                         </div>
                     }
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- Recent Activity Log -->
-    <div class="card mt-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <h6 class="mb-0"><i class="bi bi-list-ul me-2"></i>Recent Activity</h6>
-            <div class="d-flex gap-2">
-                <select class="form-select form-select-sm" style="width: auto;" @bind="userFilter"
-                        @bind:after="LoadActivities">
+        <!-- ── Filter Bar ──────────────────────────────────── -->
+        <div class="filter-bar">
+            <div class="filter-field">
+                <label>User</label>
+                <select @bind="userFilter">
                     <option value="">All Users</option>
                     @foreach (var user in uniqueUsers)
                     {
                         <option value="@user">@user</option>
                     }
                 </select>
-                <select class="form-select form-select-sm" style="width: auto;" @bind="actionFilter"
-                        @bind:after="LoadActivities">
+            </div>
+            <div class="filter-field">
+                <label>Action</label>
+                <select @bind="actionFilter">
                     <option value="">All Actions</option>
                     @foreach (var action in uniqueActions)
                     {
                         <option value="@action">@action</option>
                     }
                 </select>
-                <select class="form-select form-select-sm" style="width: auto;" @bind="pageSize"
-                        @bind:after="OnPageSizeChanged">
-                    <option value="10">10 per page</option>
-                    <option value="25">25 per page</option>
-                    <option value="50">50 per page</option>
-                    <option value="100">100 per page</option>
+            </div>
+            <div class="filter-field">
+                <label>Per Page</label>
+                <select @bind="pageSize">
+                    <option value="10">10</option>
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
                 </select>
             </div>
+            <div class="filter-actions">
+                <MudButton Class="btn-filter-apply" OnClick="ApplyFilters">
+                    <i class="bi bi-search"></i> Search
+                </MudButton>
+                <MudButton Class="btn-filter-clear" OnClick="ClearFilters">
+                    <i class="bi bi-x-circle"></i> Clear
+                </MudButton>
+            </div>
         </div>
-        <div class="card-body">
+
+        <!-- ── Activity Table ──────────────────────────────── -->
+        <div class="ua-table-wrap">
             @if (isLoading)
             {
-                <div class="text-center py-4">
-                    <div class="spinner-border text-primary"></div>
+                <div class="text-center" style="padding: 3rem;">
+                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                    <p style="color: #9ca3af; margin-top: .75rem; font-size: .88rem;">Loading activity data...</p>
                 </div>
             }
             else if (recentActivities.Any())
             {
                 <MudDataGrid T="ActivityLog" Items="@recentActivities" SortMode="SortMode.Multiple" Filterable="true"
-                             QuickFilter="@_quickFilter" Hideable="true" Dense="true" Hover="true" Striped="true">
+                             QuickFilter="@_quickFilter" Hideable="true" Dense="true" Hover="true" Striped="true"
+                             RowClick="@(args => ShowDetail(args.Item))">
                     <ToolBarContent>
-                        <MudText Typo="Typo.h6">Recent Activity</MudText>
+                        <MudText Typo="Typo.h6" Style="font-weight: 650; color: #1a1a2e;">Activity Log</MudText>
                         <MudSpacer />
-                        <MudTextField @bind-Value="_searchString" Placeholder="Search" Adornment="Adornment.Start"
-                                      Immediate="true" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium"
-                                      Class="mt-0"></MudTextField>
+                        <MudTextField @bind-Value="_searchString" Placeholder="Search activities..." Adornment="Adornment.Start"
+                                      Immediate="true" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"
+                                      Style="max-width: 300px;"></MudTextField>
                     </ToolBarContent>
                     <Columns>
                         <PropertyColumn Property="x => x.Timestamp" Title="Time">
                             <CellTemplate>
-                                <MudTooltip Text="@context.Item.Timestamp.ToString("dd MMM yyyy HH:mm")">
-                                    <span>@GetRelativeTime(context.Item.Timestamp)</span>
+                                <MudTooltip Text="@context.Item.Timestamp.ToString("dd MMM yyyy HH:mm:ss")">
+                                    <span
+                                    style="font-size: .85rem; color: #4b5563;">@GetRelativeTime(context.Item.Timestamp)</span>
                                 </MudTooltip>
                             </CellTemplate>
                         </PropertyColumn>
                         <PropertyColumn Property="x => x.Username" Title="User">
                             <CellTemplate>
-                                <div class="d-flex align-items-center">
-                                    <div class="avatar-circle-sm bg-primary me-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="avatar-sm" style="background: #667eea;">
                                         @context.Item.Username[0].ToString().ToUpper()
                                     </div>
-                                    @context.Item.Username
+                                    <span
+                                    style="font-weight: 600; font-size: .88rem; color: #1a1a2e;">@context.Item.Username</span>
                                 </div>
                             </CellTemplate>
                         </PropertyColumn>
                         <PropertyColumn Property="x => x.Action" Title="Action">
                             <CellTemplate>
-                                <MudChip T="string" Color="@GetActionChipColor(context.Item.Action)" Size="Size.Small">
-                                    @context.Item.Action</MudChip>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.EntityType" Title="Entity">
-                                <CellTemplate>
-                                    @if (!string.IsNullOrEmpty(context.Item.EntityType))
-                                    {
-                                        <span>@context.Item.EntityType</span>
+                                <MudChip T="string" Color="@GetActionChipColor(context.Item.Action)" Size="Size.Small"
+                                         Style="font-weight: 600;">
+                                    @context.Item.Action
+                                </MudChip>
+                            </CellTemplate>
+                        </PropertyColumn>
+                        <PropertyColumn Property="x => x.EntityType" Title="Entity">
+                            <CellTemplate>
+                                @if (!string.IsNullOrEmpty(context.Item.EntityType))
+                                {
+                                    <div class="entity-cell">
+                                        <span style="font-weight: 600; font-size: .85rem;">@context.Item.EntityType</span>
                                         @if (!string.IsNullOrEmpty(context.Item.EntityId))
                                         {
-                                            <MudText Typo="Typo.caption" Class="text-muted ms-1">#@context.Item.EntityId</MudText>
+                                            <span class="entity-id">#@context.Item.EntityId</span>
                                         }
-                                    }
-                                    else
-                                    {
-                                        <span class="text-muted">-</span>
-                                    }
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.Details" Title="Details">
-                                <CellTemplate>
-                                    @if (!string.IsNullOrEmpty(context.Item.Details))
-                                    {
-                                        <MudTooltip Text="@context.Item.Details">
-                                            <span class="text-truncate d-inline-block" style="max-width: 200px;">
-                                                @context.Item.Details
-                                            </span>
-                                        </MudTooltip>
-                                    }
-                                    else
-                                    {
-                                        <span class="text-muted">-</span>
-                                    }
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.IsSuccess" Title="Status">
-                                <CellTemplate>
-                                    @if (context.Item.IsSuccess)
-                                    {
-                                        <MudChip T="string" Color="Color.Success" Size="Size.Small">
-                                            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Class="me-1" />
-                                            Success
-                                        </MudChip>
-                                    }
-                                    else
-                                    {
-                                        <MudChip T="string" Color="Color.Error" Size="Size.Small">
-                                            <MudIcon Icon="@Icons.Material.Filled.Cancel" Size="Size.Small" Class="me-1" />Failed
-                                        </MudChip>
-                                    }
-                                </CellTemplate>
-                            </PropertyColumn>
-                        </Columns>
-                        <PagerContent>
-                            <div class="d-flex flex-column align-items-center px-4 py-2">
-                                <MudPagination Color="Color.Primary" Count="totalPages" Selected="currentPage"
-                                               SelectedChanged="OnPageChanged" ShowFirstButton="true" ShowLastButton="true" />
-                                <MudText Typo="Typo.caption" Class="text-muted mt-2">
-                                    Page @currentPage of @totalPages (@totalActionsCount total records)
-                                </MudText>
-                            </div>
-                        </PagerContent>
-                    </MudDataGrid>
-                }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span style="color: #d1d5db;">&mdash;</span>
+                                }
+                            </CellTemplate>
+                        </PropertyColumn>
+                        <PropertyColumn Property="x => x.Details" Title="Details">
+                            <CellTemplate>
+                                @if (!string.IsNullOrEmpty(context.Item.Details))
+                                {
+                                    <MudTooltip Text="@context.Item.Details">
+                                        <div class="details-cell">@context.Item.Details</div>
+                                    </MudTooltip>
+                                }
+                                else
+                                {
+                                    <span style="color: #d1d5db;">&mdash;</span>
+                                }
+                            </CellTemplate>
+                        </PropertyColumn>
+                        <PropertyColumn Property="x => x.IsSuccess" Title="Status">
+                            <CellTemplate>
+                                @if (context.Item.IsSuccess)
+                                {
+                                    <span class="status-pill success">
+                                        <i class="bi bi-check-circle-fill"></i> Success
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="status-pill failed">
+                                        <i class="bi bi-x-circle-fill"></i> Failed
+                                    </span>
+                                }
+                            </CellTemplate>
+                        </PropertyColumn>
+                    </Columns>
+                    <PagerContent>
+                        <div class="d-flex flex-column align-items-center px-4 py-3">
+                            <MudPagination Color="Color.Primary" Count="totalPages" Selected="currentPage"
+                                           SelectedChanged="OnPageChanged" ShowFirstButton="true" ShowLastButton="true" BoundaryCount="1"
+                                           MiddleCount="3" />
+                            <MudText Typo="Typo.caption" Style="color: #9ca3af; margin-top: .5rem;">
+                                Page @currentPage of @totalPages &middot; @totalActionsCount total records
+                            </MudText>
+                        </div>
+                    </PagerContent>
+                </MudDataGrid>
+            }
             else
-                {
-                    <div class="text-center py-5">
-                        <i class="bi bi-inbox display-1 text-muted"></i>
-                        <p class="text-muted mt-3">No activity found</p>
-                    </div>
-                }
-            </div>
+            {
+                <div class="empty-state">
+                    <div class="empty-icon"><i class="bi bi-inbox"></i></div>
+                    <h6>No activity found</h6>
+                    <p>Try adjusting your filters or time range</p>
+                </div>
+            }
         </div>
     </div>
 
-    <style>
-        .dashboard-card {
-            transition: transform 0.2s;
-        }
-
-        .dashboard-card:hover {
-            transform: translateY(-2px);
-        }
-
-        .dashboard-stat-icon {
-            width: 50px;
-            height: 50px;
-            border-radius: 50%;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.5rem;
-        }
-
-        .avatar-circle-sm {
-            width: 28px;
-            height: 28px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: bold;
-            font-size: 0.75rem;
-        }
-
-        .hourly-chart {
-            display: flex;
-            align-items: flex-end;
-            justify-content: space-between;
-            height: 150px;
-            gap: 2px;
-        }
-
-        .hourly-bar-container {
-            flex: 1;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: flex-end;
-        }
-
-        .hourly-bar {
-            width: 100%;
-            border-radius: 2px 2px 0 0;
-            transition: height 0.3s ease;
-            min-height: 2px;
-        }
-
-        .hourly-label {
-            font-size: 0.6rem;
-            color: #6c757d;
-            margin-top: 2px;
-        }
-
-        .page-header {
-            margin-bottom: 1.5rem;
-            padding-bottom: 1rem;
-            border-bottom: 1px solid #dee2e6;
-        }
-    </style>
+    <!-- ── Detail Drawer ──────────────────────────────────── -->
+    @if (selectedActivity != null)
+    {
+        <div class="ua-backdrop" @onclick="CloseDetail"></div>
+        <div class="ua-drawer">
+            <div class="ua-drawer-header">
+                <h5><i class="bi bi-info-circle me-2"></i>Activity Detail</h5>
+                <MudIconButton Class="ua-drawer-close" OnClick="CloseDetail" Icon="@Icons.Material.Filled.Close" />
+            </div>
+            <div class="ua-drawer-body">
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-label">User</div>
+                        <div class="detail-value">@selectedActivity.Username</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Action</div>
+                        <div class="detail-value">@selectedActivity.Action</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Timestamp</div>
+                        <div class="detail-value mono">@selectedActivity.Timestamp.ToString("dd MMM yyyy HH:mm:ss")</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Status</div>
+                        <div class="detail-value">
+                            @if (selectedActivity.IsSuccess)
+                            {
+                                <span class="status-pill success"><i class="bi bi-check-circle-fill"></i> Success</span>
+                            }
+                            else
+                            {
+                                <span class="status-pill failed"><i class="bi bi-x-circle-fill"></i> Failed</span>
+                            }
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrEmpty(selectedActivity.EntityType))
+                    {
+                        <div class="detail-item">
+                            <div class="detail-label">Entity Type</div>
+                            <div class="detail-value">@selectedActivity.EntityType</div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(selectedActivity.EntityId))
+                    {
+                        <div class="detail-item">
+                            <div class="detail-label">Entity ID</div>
+                            <div class="detail-value mono">@selectedActivity.EntityId</div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(selectedActivity.Details))
+                    {
+                        <div class="detail-item full-width">
+                            <div class="detail-label">Details</div>
+                            <div class="detail-value"
+                                 style="font-weight: 500; color: #374151; line-height: 1.5; word-break: break-word;">
+                                @selectedActivity.Details
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
 
 @code {
     private bool isLoading = true;
@@ -430,6 +1245,7 @@
     private DateTime startDate;
     private DateTime endDate;
     private string _searchString = string.Empty;
+    private ActivityLog? selectedActivity;
 
     // Stats
     private int activeUsersCount = 0;
@@ -676,6 +1492,56 @@
         if (action.Contains("Login") || action.Contains("Auth")) return "bg-info";
         if (action.Contains("View") || action.Contains("Get")) return "bg-secondary";
         return "bg-warning text-dark";
+    }
+
+    private string GetActionBarColor(string action)
+    {
+        if (action.Contains("Create") || action.Contains("Add")) return "linear-gradient(90deg, #059669, #34d399)";
+        if (action.Contains("Update") || action.Contains("Edit")) return "linear-gradient(90deg, #2563eb, #60a5fa)";
+        if (action.Contains("Delete") || action.Contains("Remove")) return "linear-gradient(90deg, #dc2626, #f87171)";
+        if (action.Contains("Login") || action.Contains("Auth")) return "linear-gradient(90deg, #667eea, #a78bfa)";
+        if (action.Contains("View") || action.Contains("Get")) return "linear-gradient(90deg, #6b7280, #9ca3af)";
+        if (action.Contains("Sync")) return "linear-gradient(90deg, #0891b2, #22d3ee)";
+        return "linear-gradient(90deg, #d97706, #fbbf24)";
+    }
+
+    private string GetActionDotColor(string action)
+    {
+        if (action.Contains("Create") || action.Contains("Add")) return "#059669";
+        if (action.Contains("Update") || action.Contains("Edit")) return "#2563eb";
+        if (action.Contains("Delete") || action.Contains("Remove")) return "#dc2626";
+        if (action.Contains("Login") || action.Contains("Auth")) return "#667eea";
+        if (action.Contains("View") || action.Contains("Get")) return "#6b7280";
+        if (action.Contains("Sync")) return "#0891b2";
+        return "#d97706";
+    }
+
+    private void ShowDetail(ActivityLog activity)
+    {
+        selectedActivity = activity;
+        StateHasChanged();
+    }
+
+    private void CloseDetail()
+    {
+        selectedActivity = null;
+        StateHasChanged();
+    }
+
+    private async Task ApplyFilters()
+    {
+        currentPage = 1;
+        await LoadActivities();
+        StateHasChanged();
+    }
+
+    private async Task ClearFilters()
+    {
+        userFilter = string.Empty;
+        actionFilter = string.Empty;
+        currentPage = 1;
+        await LoadActivities();
+        StateHasChanged();
     }
 
     // Models

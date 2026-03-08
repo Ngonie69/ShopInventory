@@ -141,9 +141,9 @@
                         </div>
                     </div>
                     <p class="text-muted small mt-3 mb-3">Password must be at least 8 characters and include upper, lower, number, and symbol.</p>
-                    <button class="btn btn-primary" type="submit" disabled="@isSavingPassword">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" ButtonType="ButtonType.Submit" Disabled="@isSavingPassword">
                         @(isSavingPassword ? "Updating..." : "Update Password")
-                    </button>
+                    </MudButton>
                 </EditForm>
             </div>
         </div>

@@ -88,7 +88,8 @@
                         <input id="password" type="@(showPassword ? "text" : "password")"
                                class="form-input password-input" @bind="loginModel.Password"
                                placeholder="Enter your password" />
-                        <button type="button" class="password-toggle" @onclick="TogglePassword" tabindex="-1">
+                        <MudButton ButtonType="ButtonType.Button" Class="password-toggle" OnClick="TogglePassword"
+                                   tabindex="-1">
                             @if (showPassword)
                             {
                                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor"
@@ -111,12 +112,12 @@
                                     d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0z" />
                                 </svg>
                             }
-                        </button>
+                        </MudButton>
                     </div>
                     <ValidationMessage For="@(() => loginModel.Password)" class="validation-msg" />
                 </div>
 
-                <button type="submit" class="submit-btn" disabled="@isLoading">
+                <MudButton ButtonType="ButtonType.Submit" Class="submit-btn" Disabled="@isLoading">
                     @if (isLoading)
                     {
                         <span class="spinner"></span>
@@ -133,7 +134,7 @@
                         </svg>
                         <span>Sign in</span>
                     }
-                </button>
+                </MudButton>
             </EditForm>
 
             <p class="footer-text">© 2026 Shop Inventory System</p>

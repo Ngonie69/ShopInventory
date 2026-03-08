@@ -11,134 +11,753 @@
 
 <style>
     /* ── Page ────────────────────────────────────────── */
-    .stk-page { background: #f0f2f5; min-height: 100vh; padding: 1.5rem; }
+    .stk-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
+    }
 
     /* ── Header ──────────────────────────────────────── */
-    .stk-header { display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem; }
-    .stk-header-left { display:flex; align-items:center; gap:.85rem; }
-    .stk-header-icon { width:48px; height:48px; border-radius:14px; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#667eea,#764ba2); box-shadow:0 4px 14px rgba(102,126,234,.3); color:#fff; font-size:1.4rem; }
-    .stk-header h2 { font-weight:700; color:#1a1a2e; margin:0; letter-spacing:-.3px; }
-    .stk-header p { color:#6b7280; margin:0; font-size:.88rem; }
-    .stk-header-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
-    .btn-stk-gradient { background:linear-gradient(135deg,#667eea,#764ba2); border:none; color:#fff; padding:.55rem 1.35rem; border-radius:10px; font-weight:600; font-size:.88rem; transition:all .2s; display:inline-flex; align-items:center; gap:.4rem; box-shadow:0 2px 8px rgba(102,126,234,.25); cursor:pointer; }
-    .btn-stk-gradient:hover { transform:translateY(-1px); box-shadow:0 4px 14px rgba(102,126,234,.4); color:#fff; }
-    .btn-stk-gradient:disabled { opacity:.5; cursor:not-allowed; transform:none; box-shadow:none; }
-    .btn-stk-outline { background:#fff; color:#374151; border:1px solid #d1d5db; padding:.55rem 1.35rem; border-radius:10px; font-weight:600; font-size:.88rem; cursor:pointer; transition:all .2s; display:inline-flex; align-items:center; gap:.4rem; }
-    .btn-stk-outline:hover { background:#f9fafb; border-color:#9ca3af; }
-    .btn-stk-outline:disabled { opacity:.5; cursor:not-allowed; }
-    .btn-stk-warning { background:linear-gradient(135deg,#f59e0b,#d97706); border:none; color:#fff; padding:.55rem 1.35rem; border-radius:10px; font-weight:600; font-size:.88rem; cursor:pointer; transition:all .2s; display:inline-flex; align-items:center; gap:.4rem; box-shadow:0 2px 8px rgba(217,119,6,.25); }
-    .btn-stk-warning:hover { transform:translateY(-1px); box-shadow:0 4px 14px rgba(217,119,6,.4); color:#fff; }
-    .btn-stk-warning:disabled { opacity:.5; cursor:not-allowed; transform:none; }
+    .stk-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .stk-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .stk-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .stk-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+        letter-spacing: -.3px;
+    }
+
+    .stk-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: .88rem;
+    }
+
+    .stk-header-actions {
+        display: flex;
+        gap: .5rem;
+        flex-wrap: wrap;
+    }
+
+    .btn-stk-gradient {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
+        cursor: pointer;
+    }
+
+    .btn-stk-gradient:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .4);
+        color: #fff;
+    }
+
+    .btn-stk-gradient:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+    }
+
+    .btn-stk-outline {
+        background: #fff;
+        color: #374151;
+        border: 1px solid #d1d5db;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .btn-stk-outline:hover {
+        background: #f9fafb;
+        border-color: #9ca3af;
+    }
+
+    .btn-stk-outline:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+    }
+
+    .btn-stk-warning {
+        background: linear-gradient(135deg, #f59e0b, #d97706);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        box-shadow: 0 2px 8px rgba(217, 119, 6, .25);
+    }
+
+    .btn-stk-warning:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(217, 119, 6, .4);
+        color: #fff;
+    }
+
+    .btn-stk-warning:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+        transform: none;
+    }
 
     /* ── Stat Cards ──────────────────────────────────── */
-    .stat-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1rem; margin-bottom:1.5rem; }
-    .stat-card { background:#fff; border-radius:12px; padding:1.1rem 1.25rem; display:flex; align-items:center; gap:.85rem; border:1px solid #e5e7eb; box-shadow:0 1px 4px rgba(0,0,0,.04); transition:all .25s ease; }
-    .stat-card:hover { box-shadow:0 4px 14px rgba(0,0,0,.08); transform:translateY(-2px); }
-    .stat-card.warning-pulse { border-color:#fde68a; }
-    .stat-card.danger-pulse { border-color:#fecaca; }
-    .stat-icon { width:42px; height:42px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1.1rem; flex-shrink:0; }
-    .stat-icon.purple { background:#ede9fe; color:#7c3aed; }
-    .stat-icon.green  { background:#d1fae5; color:#059669; }
-    .stat-icon.amber  { background:#fef3c7; color:#d97706; }
-    .stat-icon.red    { background:#fee2e2; color:#dc2626; }
-    .stat-info .stat-value { font-size:1.35rem; font-weight:700; color:#1a1a2e; line-height:1.2; }
-    .stat-info .stat-label { font-size:.78rem; color:#6b7280; font-weight:500; }
-    .stat-info .stat-hint { font-size:.72rem; font-weight:500; margin-top:.15rem; }
+    .stat-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .stat-card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 1.1rem 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        transition: all .25s ease;
+    }
+
+    .stat-card:hover {
+        box-shadow: 0 4px 14px rgba(0, 0, 0, .08);
+        transform: translateY(-2px);
+    }
+
+    .stat-card.warning-pulse {
+        border-color: #fde68a;
+    }
+
+    .stat-card.danger-pulse {
+        border-color: #fecaca;
+    }
+
+    .stat-icon {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        flex-shrink: 0;
+    }
+
+    .stat-icon.purple {
+        background: #ede9fe;
+        color: #7c3aed;
+    }
+
+    .stat-icon.green {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+    .stat-icon.amber {
+        background: #fef3c7;
+        color: #d97706;
+    }
+
+    .stat-icon.red {
+        background: #fee2e2;
+        color: #dc2626;
+    }
+
+    .stat-info .stat-value {
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        line-height: 1.2;
+    }
+
+    .stat-info .stat-label {
+        font-size: .78rem;
+        color: #6b7280;
+        font-weight: 500;
+    }
+
+    .stat-info .stat-hint {
+        font-size: .72rem;
+        font-weight: 500;
+        margin-top: .15rem;
+    }
 
     /* ── Filter Bar ──────────────────────────────────── */
-    .filter-bar { display:flex; flex-wrap:wrap; gap:.75rem; align-items:flex-end; padding:1rem 1.25rem; background:#fff; border:1px solid #e5e7eb; border-radius:12px; margin-bottom:1.25rem; box-shadow:0 1px 4px rgba(0,0,0,.04); }
-    .filter-bar .filter-field { flex:1; min-width:160px; }
-    .filter-bar .filter-field label { display:block; font-size:.72rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.3rem; }
+    .filter-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .75rem;
+        align-items: flex-end;
+        padding: 1rem 1.25rem;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        margin-bottom: 1.25rem;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .filter-bar .filter-field {
+        flex: 1;
+        min-width: 160px;
+    }
+
+    .filter-bar .filter-field label {
+        display: block;
+        font-size: .72rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        margin-bottom: .3rem;
+    }
+
     .filter-bar .filter-field select,
-    .filter-bar .filter-field input { width:100%; padding:.5rem .75rem; border:1px solid #d1d5db; border-radius:8px; font-size:.88rem; color:#374151; background:#fff; transition:all .15s; }
+    .filter-bar .filter-field input {
+        width: 100%;
+        padding: .5rem .75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: .88rem;
+        color: #374151;
+        background: #fff;
+        transition: all .15s;
+    }
+
     .filter-bar .filter-field select:focus,
-    .filter-bar .filter-field input:focus { outline:none; border-color:#667eea; box-shadow:0 0 0 3px rgba(102,126,234,.15); }
-    .filter-actions-row { display:flex; gap:.5rem; align-items:flex-end; }
-    .btn-search { background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; border:none; padding:.5rem 1.1rem; border-radius:8px; font-weight:600; font-size:.85rem; cursor:pointer; transition:all .2s; display:inline-flex; align-items:center; gap:.35rem; }
-    .btn-search:hover { opacity:.92; transform:translateY(-1px); }
-    .btn-search:disabled { opacity:.5; cursor:not-allowed; transform:none; }
-    .btn-clear { background:#fff; color:#6b7280; border:1px solid #d1d5db; padding:.5rem 1.1rem; border-radius:8px; font-weight:600; font-size:.85rem; cursor:pointer; transition:all .15s; display:inline-flex; align-items:center; gap:.35rem; }
-    .btn-clear:hover { background:#f3f4f6; }
+    .filter-bar .filter-field input:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
+    }
+
+    .filter-actions-row {
+        display: flex;
+        gap: .5rem;
+        align-items: flex-end;
+    }
+
+    .btn-search {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        border: none;
+        padding: .5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .btn-search:hover {
+        opacity: .92;
+        transform: translateY(-1px);
+    }
+
+    .btn-search:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .btn-clear {
+        background: #fff;
+        color: #6b7280;
+        border: 1px solid #d1d5db;
+        padding: .5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .15s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .btn-clear:hover {
+        background: #f3f4f6;
+    }
 
     /* ── Table ───────────────────────────────────────── */
-    .stk-table-wrap { border-radius:12px; border:1px solid #e5e7eb; background:#fff; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.04); }
-    .stk-table-header { padding:.85rem 1.25rem; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e5e7eb; background:#f8fafc; }
-    .stk-table-header h6 { margin:0; font-weight:600; color:#1a1a2e; display:flex; align-items:center; gap:.4rem; font-size:.92rem; }
-    .stk-count-badge { display:inline-flex; align-items:center; gap:.25rem; padding:.2rem .6rem; border-radius:6px; font-size:.75rem; font-weight:600; background:#f3f4f6; color:#374151; }
-    .stk-table { width:100%; font-size:.85rem; border-collapse:separate; border-spacing:0; }
-    .stk-table th { background:#f8fafc; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#6b7280; font-weight:600; padding:.6rem .75rem; border-bottom:2px solid #e5e7eb; white-space:nowrap; }
-    .stk-table td { padding:.55rem .75rem; border-bottom:1px solid #f3f4f6; color:#374151; vertical-align:middle; }
-    .stk-table tr:last-child td { border-bottom:none; }
-    .stk-table tbody tr { transition:background .15s; }
-    .stk-table tbody tr:hover { background:#f8fafc; }
-    .stk-table tbody tr.row-danger { background:#fef2f2; }
-    .stk-table tbody tr.row-danger:hover { background:#fee2e2; }
-    .stk-table tbody tr.row-warning { background:#fffbeb; }
-    .stk-table tbody tr.row-warning:hover { background:#fef3c7; }
-    .item-code { font-weight:700; color:#667eea; font-size:.88rem; font-family:'Space Grotesk',monospace; }
-    .item-name { font-weight:500; color:#1a1a2e; }
-    .qty-cell { font-family:'Space Grotesk',monospace; font-weight:600; font-size:.88rem; }
-    .qty-warning { color:#d97706; }
-    .qty-info { color:#2563eb; }
-    .qty-danger { color:#dc2626; }
-    .qty-success { color:#059669; }
+    .stk-table-wrap {
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        overflow: hidden;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .stk-table-header {
+        padding: .85rem 1.25rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #e5e7eb;
+        background: #f8fafc;
+    }
+
+    .stk-table-header h6 {
+        margin: 0;
+        font-weight: 600;
+        color: #1a1a2e;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+        font-size: .92rem;
+    }
+
+    .stk-count-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .25rem;
+        padding: .2rem .6rem;
+        border-radius: 6px;
+        font-size: .75rem;
+        font-weight: 600;
+        background: #f3f4f6;
+        color: #374151;
+    }
+
+    .stk-table {
+        width: 100%;
+        font-size: .85rem;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .stk-table th {
+        background: #f8fafc;
+        font-size: .72rem;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #6b7280;
+        font-weight: 600;
+        padding: .6rem .75rem;
+        border-bottom: 2px solid #e5e7eb;
+        white-space: nowrap;
+    }
+
+    .stk-table td {
+        padding: .55rem .75rem;
+        border-bottom: 1px solid #f3f4f6;
+        color: #374151;
+        vertical-align: middle;
+    }
+
+    .stk-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .stk-table tbody tr {
+        transition: background .15s;
+    }
+
+    .stk-table tbody tr:hover {
+        background: #f8fafc;
+    }
+
+    .stk-table tbody tr.row-danger {
+        background: #fef2f2;
+    }
+
+    .stk-table tbody tr.row-danger:hover {
+        background: #fee2e2;
+    }
+
+    .stk-table tbody tr.row-warning {
+        background: #fffbeb;
+    }
+
+    .stk-table tbody tr.row-warning:hover {
+        background: #fef3c7;
+    }
+
+    .item-code {
+        font-weight: 700;
+        color: #667eea;
+        font-size: .88rem;
+        font-family: 'Space Grotesk', monospace;
+    }
+
+    .item-name {
+        font-weight: 500;
+        color: #1a1a2e;
+    }
+
+    .qty-cell {
+        font-family: 'Space Grotesk', monospace;
+        font-weight: 600;
+        font-size: .88rem;
+    }
+
+    .qty-warning {
+        color: #d97706;
+    }
+
+    .qty-info {
+        color: #2563eb;
+    }
+
+    .qty-danger {
+        color: #dc2626;
+    }
+
+    .qty-success {
+        color: #059669;
+    }
 
     /* Health Bar */
-    .health-bar { width:56px; height:6px; border-radius:3px; background:#e5e7eb; overflow:hidden; }
-    .health-bar-fill { height:100%; border-radius:3px; transition:width .3s ease; }
-    .health-bar-fill.green { background:linear-gradient(90deg,#34d399,#059669); }
-    .health-bar-fill.amber { background:linear-gradient(90deg,#fbbf24,#d97706); }
-    .health-bar-fill.red { background:linear-gradient(90deg,#f87171,#dc2626); }
+    .health-bar {
+        width: 56px;
+        height: 6px;
+        border-radius: 3px;
+        background: #e5e7eb;
+        overflow: hidden;
+    }
+
+    .health-bar-fill {
+        height: 100%;
+        border-radius: 3px;
+        transition: width .3s ease;
+    }
+
+    .health-bar-fill.green {
+        background: linear-gradient(90deg, #34d399, #059669);
+    }
+
+    .health-bar-fill.amber {
+        background: linear-gradient(90deg, #fbbf24, #d97706);
+    }
+
+    .health-bar-fill.red {
+        background: linear-gradient(90deg, #f87171, #dc2626);
+    }
 
     /* Status Indicator */
-    .status-dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
-    .status-dot.green { background:#059669; box-shadow:0 0 0 3px rgba(5,150,105,.2); }
-    .status-dot.amber { background:#d97706; box-shadow:0 0 0 3px rgba(217,119,6,.2); }
-    .status-dot.red { background:#dc2626; box-shadow:0 0 0 3px rgba(220,38,38,.2); }
+    .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+
+    .status-dot.green {
+        background: #059669;
+        box-shadow: 0 0 0 3px rgba(5, 150, 105, .2);
+    }
+
+    .status-dot.amber {
+        background: #d97706;
+        box-shadow: 0 0 0 3px rgba(217, 119, 6, .2);
+    }
+
+    .status-dot.red {
+        background: #dc2626;
+        box-shadow: 0 0 0 3px rgba(220, 38, 38, .2);
+    }
 
     /* ── Pagination ──────────────────────────────────── */
-    .stk-pagination { display:flex; justify-content:center; align-items:center; gap:.5rem; margin-top:1.25rem; }
-    .stk-pagination button { padding:.45rem 1rem; border-radius:8px; border:1px solid #d1d5db; background:#fff; color:#374151; font-weight:600; font-size:.85rem; cursor:pointer; transition:all .15s; display:inline-flex; align-items:center; gap:.3rem; }
-    .stk-pagination button:hover:not(:disabled) { background:#f3f4f6; border-color:#9ca3af; }
-    .stk-pagination button:disabled { opacity:.4; cursor:not-allowed; }
-    .stk-pagination .page-indicator { padding:.45rem .85rem; border-radius:8px; background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; font-weight:600; font-size:.85rem; }
+    .stk-pagination {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: .5rem;
+        margin-top: 1.25rem;
+    }
+
+    .stk-pagination button {
+        padding: .45rem 1rem;
+        border-radius: 8px;
+        border: 1px solid #d1d5db;
+        background: #fff;
+        color: #374151;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .15s;
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+    }
+
+    .stk-pagination button:hover:not(:disabled) {
+        background: #f3f4f6;
+        border-color: #9ca3af;
+    }
+
+    .stk-pagination button:disabled {
+        opacity: .4;
+        cursor: not-allowed;
+    }
+
+    .stk-pagination .page-indicator {
+        padding: .45rem .85rem;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        font-weight: 600;
+        font-size: .85rem;
+    }
 
     /* ── Empty & Loading States ──────────────────────── */
-    .empty-state { text-align:center; padding:3rem 1.5rem; background:#fff; border-radius:12px; border:1px solid #e5e7eb; }
-    .empty-icon { width:72px; height:72px; border-radius:50%; background:#f3f4f6; display:inline-flex; align-items:center; justify-content:center; margin-bottom:1rem; font-size:1.8rem; color:#9ca3af; }
-    .empty-state h6 { font-weight:600; color:#374151; margin-bottom:.35rem; }
-    .empty-state p { color:#9ca3af; font-size:.88rem; margin-bottom:1rem; }
-    .loading-state { text-align:center; padding:3rem; background:#fff; border-radius:12px; border:1px solid #e5e7eb; }
+    .empty-state {
+        text-align: center;
+        padding: 3rem 1.5rem;
+        background: #fff;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+    }
+
+    .empty-icon {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: #f3f4f6;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 1rem;
+        font-size: 1.8rem;
+        color: #9ca3af;
+    }
+
+    .empty-state h6 {
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: .35rem;
+    }
+
+    .empty-state p {
+        color: #9ca3af;
+        font-size: .88rem;
+        margin-bottom: 1rem;
+    }
+
+    .loading-state {
+        text-align: center;
+        padding: 3rem;
+        background: #fff;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+    }
 
     /* ── Alert ───────────────────────────────────────── */
-    .alert-banner { border-radius:10px; padding:.75rem 1rem; display:flex; align-items:flex-start; gap:.6rem; margin-bottom:1rem; font-size:.88rem; animation:slideDown .3s ease; }
-    .alert-banner.error-alert { background:#fef2f2; border:1px solid #fecaca; color:#991b1b; }
+    .alert-banner {
+        border-radius: 10px;
+        padding: .75rem 1rem;
+        display: flex;
+        align-items: flex-start;
+        gap: .6rem;
+        margin-bottom: 1rem;
+        font-size: .88rem;
+        animation: slideDown .3s ease;
+    }
+
+    .alert-banner.error-alert {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #991b1b;
+    }
 
     /* ── Drawer Modal ────────────────────────────────── */
-    .modal-backdrop-custom { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9998; animation:fadeIn .2s ease; }
-    .detail-drawer { position:fixed; top:0; right:0; width:min(520px,95vw); height:100vh; background:#fff; z-index:9999; box-shadow:-8px 0 30px rgba(0,0,0,.12); display:flex; flex-direction:column; animation:slideInRight .25s ease; }
-    .drawer-header { padding:1.15rem 1.5rem; background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; display:flex; justify-content:space-between; align-items:center; flex-shrink:0; }
-    .drawer-header h5 { margin:0; font-weight:600; font-size:1.05rem; }
-    .drawer-header .btn-close-drawer { background:rgba(255,255,255,.15); border:none; color:#fff; width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background .15s; font-size:1rem; }
-    .drawer-header .btn-close-drawer:hover { background:rgba(255,255,255,.25); }
-    .drawer-body { flex:1; overflow-y:auto; padding:1.5rem; }
-    .drawer-footer { padding:1rem 1.5rem; border-top:1px solid #e5e7eb; display:flex; gap:.5rem; justify-content:flex-end; flex-shrink:0; }
-    .detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:.85rem; }
-    .detail-item .detail-label { font-size:.72rem; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#9ca3af; margin-bottom:.15rem; }
-    .detail-item .detail-value { font-size:.92rem; font-weight:600; color:#1a1a2e; }
+    .modal-backdrop-custom {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, .45);
+        z-index: 9998;
+        animation: fadeIn .2s ease;
+    }
+
+    .detail-drawer {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: min(520px, 95vw);
+        height: 100vh;
+        background: #fff;
+        z-index: 9999;
+        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
+        display: flex;
+        flex-direction: column;
+        animation: slideInRight .25s ease;
+    }
+
+    .drawer-header {
+        padding: 1.15rem 1.5rem;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-shrink: 0;
+    }
+
+    .drawer-header h5 {
+        margin: 0;
+        font-weight: 600;
+        font-size: 1.05rem;
+    }
+
+    .drawer-header .btn-close-drawer {
+        background: rgba(255, 255, 255, .15);
+        border: none;
+        color: #fff;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background .15s;
+        font-size: 1rem;
+    }
+
+    .drawer-header .btn-close-drawer:hover {
+        background: rgba(255, 255, 255, .25);
+    }
+
+    .drawer-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.5rem;
+    }
+
+    .drawer-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        gap: .5rem;
+        justify-content: flex-end;
+        flex-shrink: 0;
+    }
+
+    .detail-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .85rem;
+    }
+
+    .detail-item .detail-label {
+        font-size: .72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #9ca3af;
+        margin-bottom: .15rem;
+    }
+
+    .detail-item .detail-value {
+        font-size: .92rem;
+        font-weight: 600;
+        color: #1a1a2e;
+    }
 
     /* ── Animations ──────────────────────────────────── */
-    @@keyframes fadeIn { from{opacity:0;} to{opacity:1;} }
-    @@keyframes slideInRight { from{transform:translateX(100%);} to{transform:translateX(0);} }
-    @@keyframes slideDown { from{opacity:0;transform:translateY(-6px);} to{opacity:1;transform:translateY(0);} }
+    @@keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+
+        to {
+            opacity: 1;
+        }
+    }
+
+    @@keyframes slideInRight {
+        from {
+            transform: translateX(100%);
+        }
+
+        to {
+            transform: translateX(0);
+        }
+    }
+
+    @@keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-6px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
 
     /* ── Responsive ──────────────────────────────────── */
     @@media (max-width:768px) {
-        .stat-row { grid-template-columns:1fr 1fr; }
-        .filter-bar { flex-direction:column; }
-        .filter-bar .filter-field { min-width:100%; }
-        .stk-header { flex-direction:column; }
-        .detail-grid { grid-template-columns:1fr; }
+        .stat-row {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .filter-bar {
+            flex-direction: column;
+        }
+
+        .filter-bar .filter-field {
+            min-width: 100%;
+        }
+
+        .stk-header {
+            flex-direction: column;
+        }
+
+        .detail-grid {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 
@@ -155,11 +774,11 @@
                 </div>
             </div>
             <div class="stk-header-actions">
-                <button class="btn-stk-warning" @onclick="ShowLowStockAlerts" disabled="@(stockItems.Count == 0)">
+                <MudButton Class="btn-stk-warning" OnClick="ShowLowStockAlerts" Disabled="@(stockItems.Count == 0)">
                     <i class="bi bi-exclamation-triangle"></i>
                     Low Stock (@lowStockCount)
-                </button>
-                <button class="btn-stk-outline" @onclick="RefreshStock" disabled="@isLoading">
+                </MudButton>
+                <MudButton Class="btn-stk-outline" OnClick="RefreshStock" Disabled="@isLoading">
                     @if (isLoading)
                     {
                         <span class="spinner-border spinner-border-sm"></span>
@@ -169,7 +788,7 @@
                         <i class="bi bi-arrow-clockwise"></i>
                     }
                     Refresh
-                </button>
+                </MudButton>
             </div>
         </div>
 
@@ -179,7 +798,9 @@
             <div class="alert-banner error-alert">
                 <i class="bi bi-exclamation-octagon-fill"></i>
                 <div style="flex:1;">@errorMessage</div>
-                <button style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;" @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
+                <MudIconButton Icon="@Icons.Material.Filled.Close"
+                               Style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;"
+                               OnClick="() => errorMessage = null" />
             </div>
         }
 
@@ -243,7 +864,8 @@
                         <option value="">-- Select Warehouse --</option>
                         @foreach (var warehouse in warehouses)
                         {
-                            <option value="@warehouse.WarehouseCode">@warehouse.WarehouseCode - @warehouse.WarehouseName</option>
+                            <option value="@warehouse.WarehouseCode">@warehouse.WarehouseCode - @warehouse.WarehouseName
+                            </option>
                         }
                     </select>
                 }
@@ -263,17 +885,17 @@
             </div>
             <div class="filter-field">
                 <label>Search Item</label>
-                <input type="text" @bind="searchTerm" @bind:event="oninput"
-                       placeholder="Code, name or barcode..." @onkeypress="OnSearchKeyPress" />
+                <input type="text" @bind="searchTerm" @bind:event="oninput" placeholder="Code, name or barcode..."
+                       @onkeypress="OnSearchKeyPress" />
             </div>
             <div class="filter-actions-row">
-                <button class="btn-search" @onclick="LoadStock"
-                        disabled="@(string.IsNullOrEmpty(selectedWarehouseCode))">
+                <MudButton Class="btn-search" OnClick="LoadStock"
+                           Disabled="@(string.IsNullOrEmpty(selectedWarehouseCode))">
                     <i class="bi bi-search"></i> Load
-                </button>
-                <button class="btn-clear" @onclick="ClearFilters">
+                </MudButton>
+                <MudButton Class="btn-clear" OnClick="ClearFilters">
                     <i class="bi bi-x-circle"></i> Clear
-                </button>
+                </MudButton>
             </div>
         </div>
 
@@ -299,7 +921,7 @@
                 <div class="empty-icon"><i class="bi bi-inbox"></i></div>
                 <h6>No stock items found</h6>
                 <p>No items match your search criteria</p>
-                <button class="btn-search" @onclick="RefreshStock"><i class="bi bi-arrow-clockwise"></i> Retry</button>
+                <MudButton Class="btn-search" OnClick="RefreshStock"><i class="bi bi-arrow-clockwise"></i> Retry</MudButton>
             </div>
         }
         else
@@ -330,7 +952,8 @@
                         <tbody>
                             @foreach (var item in filteredItems)
                             {
-                                var rowClass = item.Available <= 0 ? "row-danger" : item.Available < lowStockThreshold ? "row-warning" : "";
+                                var rowClass = item.Available <= 0 ? "row-danger" : item.Available < lowStockThreshold ?
+                                "row-warning" : "";
                                 <tr class="@rowClass">
                                     <td style="text-align:center;">
                                         @if (item.Available <= 0)
@@ -348,103 +971,111 @@
                                     </td>
                                     <td><span class="item-code">@item.ItemCode</span></td>
                                     <td><span class="item-name">@item.ItemName</span></td>
-                                    <td style="text-align:right;"><span class="qty-cell">@item.InStock.ToString("N0")</span></td>
-                                    <td style="text-align:right;"><span class="qty-cell qty-warning">@item.Committed.ToString("N0")</span></td>
-                                    <td style="text-align:right;"><span class="qty-cell qty-info">@item.Ordered.ToString("N0")</span></td>
-                                    <td style="text-align:right;">
-                                        <span class="qty-cell @(item.Available <= 0 ? "qty-danger" : item.Available < lowStockThreshold ? "qty-warning" : "qty-success")">
-                                            @item.Available.ToString("N0")
-                                        </span>
+                                    <td style="text-align:right;"><span class="qty-cell">@item.InStock.ToString("N0")</span>
                                     </td>
-                                    <td><span style="font-size:.82rem;color:#6b7280;">@item.UoM</span></td>
-                                    <td style="text-align:center;">
-                                        @{
-                                            var healthPercent = item.InStock > 0 ? Math.Min(100, (item.Available / lowStockThreshold) * 100) : 0;
-                                            var healthFill = healthPercent >= 100 ? "green" : healthPercent >= 50 ? "amber" : "red";
-                                        }
-                                        <div class="health-bar" title="@healthPercent.ToString("N0")% healthy">
-                                            <div class="health-bar-fill @healthFill" style="width:@healthPercent%"></div>
-                                        </div>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
+                                    <td style="text-align:right;"><span
+                                        class="qty-cell qty-warning">@item.Committed.ToString("N0")</span></td>
+                                        <td style="text-align:right;"><span
+                                            class="qty-cell qty-info">@item.Ordered.ToString("N0")</span></td>
+                                            <td style="text-align:right;">
+                                                <span
+                                                    class="qty-cell @(item.Available <= 0 ? "qty-danger" : item.Available < lowStockThreshold ? "qty-warning" : "qty-success")">
+                                                    @item.Available.ToString("N0")
+                                                </span>
+                                            </td>
+                                            <td><span style="font-size:.82rem;color:#6b7280;">@item.UoM</span></td>
+                                            <td style="text-align:center;">
+                                                @{
+                                                    var healthPercent = item.InStock > 0 ? Math.Min(100, (item.Available /
+                                                    lowStockThreshold) * 100) : 0;
+                                                    var healthFill = healthPercent >= 100 ? "green" : healthPercent >= 50 ? "amber" : "red";
+                                                }
+                                                <div class="health-bar" title="@healthPercent.ToString("N0")% healthy">
+                                                    <div class="health-bar-fill @healthFill" style="width:@healthPercent%"></div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- ━━━ Pagination ━━━ -->
+                    @if (hasMore || currentPage > 1)
+                    {
+                        <div class="stk-pagination">
+                            <MudButton OnClick="PreviousPage" Disabled="@(currentPage == 1)" Variant="Variant.Text">
+                                <i class="bi bi-chevron-left"></i> Previous
+                            </MudButton>
+                            <span class="page-indicator">Page @currentPage</span>
+                            <MudButton OnClick="NextPage" Disabled="@(!hasMore)" Variant="Variant.Text">
+                                Next <i class="bi bi-chevron-right"></i>
+                            </MudButton>
+                        </div>
+                    }
+                }
             </div>
-
-            <!-- ━━━ Pagination ━━━ -->
-            @if (hasMore || currentPage > 1)
-            {
-                <div class="stk-pagination">
-                    <button @onclick="PreviousPage" disabled="@(currentPage == 1)">
-                        <i class="bi bi-chevron-left"></i> Previous
-                    </button>
-                    <span class="page-indicator">Page @currentPage</span>
-                    <button @onclick="NextPage" disabled="@(!hasMore)">
-                        Next <i class="bi bi-chevron-right"></i>
-                    </button>
-                </div>
-            }
-        }
-    </div>
-</div>
-
-<!-- ━━━ Warehouse Details Drawer ━━━ -->
-@if (showWarehouseDetails && selectedWarehouse != null)
-{
-    <div class="modal-backdrop-custom" @onclick="() => showWarehouseDetails = false"></div>
-    <div class="detail-drawer">
-        <div class="drawer-header">
-            <h5><i class="bi bi-building me-2"></i>Warehouse Details</h5>
-            <button class="btn-close-drawer" @onclick="() => showWarehouseDetails = false"><i class="bi bi-x-lg"></i></button>
         </div>
-        <div class="drawer-body">
-            <div class="detail-grid">
-                <div class="detail-item">
-                    <div class="detail-label">Code</div>
-                    <div class="detail-value">@selectedWarehouse.WarehouseCode</div>
+
+        <!-- ━━━ Warehouse Details Drawer ━━━ -->
+        @if (showWarehouseDetails && selectedWarehouse != null)
+        {
+            <div class="modal-backdrop-custom" @onclick="() => showWarehouseDetails = false"></div>
+            <div class="detail-drawer">
+                <div class="drawer-header">
+                    <h5><i class="bi bi-building me-2"></i>Warehouse Details</h5>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer"
+                                   OnClick="() => showWarehouseDetails = false" />
                 </div>
-                <div class="detail-item">
-                    <div class="detail-label">Name</div>
-                    <div class="detail-value">@selectedWarehouse.WarehouseName</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Location</div>
-                    <div class="detail-value">@(selectedWarehouse.Location ?? "—")</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">City</div>
-                    <div class="detail-value">@(selectedWarehouse.City ?? "—")</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Country</div>
-                    <div class="detail-value">@(selectedWarehouse.Country ?? "—")</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Status</div>
-                    <div class="detail-value">
-                        @if (selectedWarehouse.IsActive)
-                        {
-                            <span style="display:inline-flex;align-items:center;gap:.3rem;padding:.2rem .6rem;border-radius:6px;font-size:.78rem;font-weight:600;background:#d1fae5;color:#065f46;">
-                                <i class="bi bi-check-circle-fill"></i> Active
-                            </span>
-                        }
-                        else
-                        {
-                            <span style="display:inline-flex;align-items:center;gap:.3rem;padding:.2rem .6rem;border-radius:6px;font-size:.78rem;font-weight:600;background:#f3f4f6;color:#6b7280;">
-                                Inactive
-                            </span>
-                        }
+                <div class="drawer-body">
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <div class="detail-label">Code</div>
+                            <div class="detail-value">@selectedWarehouse.WarehouseCode</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Name</div>
+                            <div class="detail-value">@selectedWarehouse.WarehouseName</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Location</div>
+                            <div class="detail-value">@(selectedWarehouse.Location ?? "—")</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">City</div>
+                            <div class="detail-value">@(selectedWarehouse.City ?? "—")</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Country</div>
+                            <div class="detail-value">@(selectedWarehouse.Country ?? "—")</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Status</div>
+                            <div class="detail-value">
+                                @if (selectedWarehouse.IsActive)
+                                {
+                                    <span
+                                        style="display:inline-flex;align-items:center;gap:.3rem;padding:.2rem .6rem;border-radius:6px;font-size:.78rem;font-weight:600;background:#d1fae5;color:#065f46;">
+                                        <i class="bi bi-check-circle-fill"></i> Active
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span
+                                        style="display:inline-flex;align-items:center;gap:.3rem;padding:.2rem .6rem;border-radius:6px;font-size:.78rem;font-weight:600;background:#f3f4f6;color:#6b7280;">
+                                        Inactive
+                                    </span>
+                                }
+                            </div>
+                        </div>
                     </div>
                 </div>
+                <div class="drawer-footer">
+                    <MudButton Class="btn-stk-outline" OnClick="() => showWarehouseDetails = false">Close</MudButton>
+                </div>
             </div>
-        </div>
-        <div class="drawer-footer">
-            <button class="btn-stk-outline" @onclick="() => showWarehouseDetails = false">Close</button>
-        </div>
-    </div>
-}
+        }
 
 @code {
     private List<WarehouseDto> warehouses = new();
@@ -477,9 +1108,9 @@
             {
                 var term = searchTerm.ToLowerInvariant();
                 items = items.Where(i =>
-                    (i.ItemCode?.ToLowerInvariant().Contains(term) ?? false) ||
-                    (i.ItemName?.ToLowerInvariant().Contains(term) ?? false) ||
-                    (i.BarCode?.ToLowerInvariant().Contains(term) ?? false));
+                (i.ItemCode?.ToLowerInvariant().Contains(term) ?? false) ||
+                (i.ItemName?.ToLowerInvariant().Contains(term) ?? false) ||
+                (i.BarCode?.ToLowerInvariant().Contains(term) ?? false));
             }
 
             return stockFilter switch
@@ -526,7 +1157,7 @@
         try
         {
             var response = await Http.GetFromJsonAsync<WarehouseStockPagedResponseDto>(
-                $"/api/stock/warehouse/{selectedWarehouseCode}/paged?page={currentPage}&pageSize={pageSize}");
+            $"/api/stock/warehouse/{selectedWarehouseCode}/paged?page={currentPage}&pageSize={pageSize}");
 
             if (response != null)
             {

@@ -497,9 +497,9 @@
                     <p>Order items from suppliers</p>
                 </div>
             </div>
-            <button class="btn-back" @onclick="GoBack">
+            <MudButton Class="btn-back" OnClick="GoBack">
                 <i class="bi bi-arrow-left"></i> Back to List
-            </button>
+            </MudButton>
         </div>
 
         <!-- Alerts -->
@@ -508,8 +508,8 @@
             <div class="alert-banner success-alert">
                 <i class="bi bi-check-circle-fill"></i>
                 <div style="flex:1;">@successMessage</div>
-                <button style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;"
-                        @onclick="() => successMessage = null"><i class="bi bi-x-lg"></i></button>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => successMessage = null" Size="Size.Small"
+                               Style="color:inherit;opacity:.45;" />
             </div>
         }
         @if (!string.IsNullOrEmpty(errorMessage))
@@ -517,8 +517,8 @@
             <div class="alert-banner error-alert">
                 <i class="bi bi-exclamation-octagon-fill"></i>
                 <div style="flex:1;">@errorMessage</div>
-                <button style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;"
-                        @onclick="() => errorMessage = null"><i class="bi bi-x-lg"></i></button>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => errorMessage = null" Size="Size.Small"
+                               Style="color:inherit;opacity:.45;" />
             </div>
         }
 
@@ -548,7 +548,8 @@
                     </div>
                     <div class="form-field">
                         <label>Delivery Date</label>
-                        <input type="date" @bind="deliveryDate" />
+                        <MudDatePicker @bind-Date="deliveryDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                       DateFormat="dd.MM.yyyy" Editable="true" />
                     </div>
                     <div class="form-field">
                         <label>Currency</label>
@@ -586,9 +587,9 @@
                 <i class="bi bi-list-ul" style="color:#059669;font-size:1.1rem;"></i>
                 <h5>Line Items</h5>
                 <div style="flex:1;"></div>
-                <button class="btn-add-line" @onclick="AddLine">
+                <MudButton Class="btn-add-line" OnClick="AddLine">
                     <i class="bi bi-plus-lg"></i> Add Line
-                </button>
+                </MudButton>
             </div>
             <div class="po-card-body" style="overflow-x:auto;padding:.75rem;">
                 @if (validationErrors.ContainsKey("Lines"))
@@ -657,9 +658,9 @@
                                 <td>
                                     @if (purchaseOrder.Lines.Count > 1)
                                     {
-                                        <button class="btn-remove-line" @onclick="() => RemoveLine(idx)">
+                                        <MudButton Class="btn-remove-line" OnClick="() => RemoveLine(idx)">
                                             <i class="bi bi-x"></i>
-                                        </button>
+                                        </MudButton>
                                     }
                                 </td>
                             </tr>
@@ -697,21 +698,21 @@
 
         <!-- Action Buttons -->
         <div class="action-bar">
-            <button class="btn-cancel" @onclick="GoBack">Cancel</button>
-            <button class="btn-draft" @onclick="SaveAsDraft" disabled="@isSubmitting">
+            <MudButton Class="btn-cancel" OnClick="GoBack">Cancel</MudButton>
+            <MudButton Class="btn-draft" OnClick="SaveAsDraft" Disabled="@isSubmitting">
                 @if (isSubmitting && !submitForApproval)
                 {
                     <span class="spinner-border spinner-border-sm"></span>
                 }
                 <i class="bi bi-save"></i> Save as Draft
-            </button>
-            <button class="btn-submit" @onclick="SaveAndSubmit" disabled="@isSubmitting">
+            </MudButton>
+            <MudButton Class="btn-submit" OnClick="SaveAndSubmit" Disabled="@isSubmitting">
                 @if (isSubmitting && submitForApproval)
                 {
                     <span class="spinner-border spinner-border-sm"></span>
                 }
-                <i class="bi bi-send"></i> Save & Submit for Approval
-            </button>
+                <i class="bi bi-send"></i> Save &amp; Submit for Approval
+            </MudButton>
         </div>
     </div>
 </div>

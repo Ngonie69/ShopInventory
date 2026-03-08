@@ -124,9 +124,9 @@
                                         <td class="text-end fw-semibold">@FormatCurrency(invoice.Balance)</td>
                                         <td><span class="badge @GetStatusClass(invoice)">@GetStatusText(invoice)</span></td>
                                         <td class="text-end">
-                                            <button class="btn btn-outline-primary btn-sm" @onclick="() => ViewInvoiceDetails(invoice)">
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" OnClick="() => ViewInvoiceDetails(invoice)">
                                                 View
-                                            </button>
+                                            </MudButton>
                                         </td>
                                     </tr>
                                 }
@@ -152,7 +152,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">Invoice #@(selectedInvoice?.DocNum ?? selectedInvoiceSummary?.DocNum)</h5>
-                    <button type="button" class="btn-close" @onclick="CloseInvoiceModal"></button>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CloseInvoiceModal" Size="Size.Small" />
                 </div>
                 <div class="modal-body">
                     @if (isDetailLoading)
@@ -242,9 +242,9 @@
                                                 }
                                             </div>
                                         </div>
-                                        <button class="btn btn-outline-primary btn-sm" @onclick="() => DownloadAttachment(attachment)">
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" OnClick="() => DownloadAttachment(attachment)">
                                             View POD
-                                        </button>
+                                        </MudButton>
                                     </div>
                                 }
                             </div>
@@ -256,7 +256,7 @@
                     }
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="CloseInvoiceModal">Close</button>
+                    <MudButton ButtonType="ButtonType.Button" Variant="Variant.Filled" Color="Color.Default" OnClick="CloseInvoiceModal">Close</MudButton>
                 </div>
             </div>
         </div>
