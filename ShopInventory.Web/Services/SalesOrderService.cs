@@ -105,21 +105,15 @@ public class SalesOrderService : ISalesOrderService
 
     public async Task<SalesOrderDto?> CreateSalesOrderAsync(CreateSalesOrderRequest request)
     {
-        try
+        var response = await _httpClient.PostAsJsonAsync("api/salesorder", request);
+        if (response.IsSuccessStatusCode)
         {
-            var response = await _httpClient.PostAsJsonAsync("api/salesorder", request);
-            if (response.IsSuccessStatusCode)
-            {
-                return await response.Content.ReadFromJsonAsync<SalesOrderDto>();
-            }
-            _logger.LogWarning("Failed to create sales order: {StatusCode}", response.StatusCode);
-            return null;
+            return await response.Content.ReadFromJsonAsync<SalesOrderDto>();
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error creating sales order");
-            return null;
-        }
+
+        var errorBody = await response.Content.ReadAsStringAsync();
+        _logger.LogWarning("Failed to create sales order: {StatusCode} - {Error}", response.StatusCode, errorBody);
+        throw new HttpRequestException($"Server returned {(int)response.StatusCode}: {errorBody}");
     }
 
     public async Task<SalesOrderDto?> UpdateSalesOrderAsync(int id, CreateSalesOrderRequest request)

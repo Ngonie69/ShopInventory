@@ -2144,6 +2144,10 @@
                 Snackbar.Add("Failed to create sales order. Please try again.", Severity.Error);
             }
         }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add($"Failed to create order: {ex.Message}", Severity.Error);
+        }
         catch (Exception ex)
         {
             Snackbar.Add($"Error creating order: {ex.Message}", Severity.Error);
