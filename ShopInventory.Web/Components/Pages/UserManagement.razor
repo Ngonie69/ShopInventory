@@ -116,13 +116,10 @@
                 else if (users.Any())
                 {
                     <MudDataGrid T="UserDisplayModel" Items="@users" SortMode="SortMode.Multiple" Filterable="true"
-                                 QuickFilter="@_quickFilter" Hideable="true" Dense="true" Hover="true" Striped="true">
+                                 Hideable="true" Dense="true" Hover="true" Striped="true">
                         <ToolBarContent>
                             <MudText Typo="Typo.h6">Users</MudText>
                             <MudSpacer />
-                            <MudTextField @bind-Value="_searchString" Placeholder="Search" Adornment="Adornment.Start"
-                                          Immediate="true" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium"
-                                          Class="mt-0"></MudTextField>
                         </ToolBarContent>
                         <Columns>
                             <PropertyColumn Property="x => x.Username" Title="User">
@@ -201,29 +198,42 @@
                                     </PropertyColumn>
                                     <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
                                         <CellTemplate>
-                                            <MudButtonGroup Size="Size.Small" Variant="Variant.Outlined">
-                                                <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary"
-                                                               Size="Size.Small" OnClick="@(() => ShowEditModal(context.Item))"
-                                                               Title="Edit User" />
-                                                <MudIconButton Icon="@Icons.Material.Filled.Security" Color="Color.Info"
-                                                               Size="Size.Small" OnClick="@(() => ShowPermissionsModal(context.Item))"
-                                                               Title="Manage Permissions" />
+                                            <div class="d-flex flex-wrap gap-1">
+                                                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                                                           Size="Size.Small" OnClick="@(() => ShowEditModal(context.Item))"
+                                                           StartIcon="@Icons.Material.Filled.Edit">
+                                                    Edit
+                                                </MudButton>
+                                                <MudButton Variant="Variant.Outlined" Color="Color.Info"
+                                                           Size="Size.Small" OnClick="@(() => ShowPermissionsModal(context.Item))"
+                                                           StartIcon="@Icons.Material.Filled.Security">
+                                                    Permissions
+                                                </MudButton>
                                                 @if (context.Item.IsLocked)
                                                 {
-                                                    <MudIconButton Icon="@Icons.Material.Filled.LockOpen" Color="Color.Warning"
-                                                                   Size="Size.Small" OnClick="@(() => UnlockUser(context.Item))"
-                                                                   Title="Unlock Account" />
+                                                    <MudButton Variant="Variant.Outlined" Color="Color.Warning"
+                                                               Size="Size.Small" OnClick="@(() => UnlockUser(context.Item))"
+                                                               StartIcon="@Icons.Material.Filled.LockOpen">
+                                                        Unlock
+                                                    </MudButton>
                                                 }
                                                 @if (context.Item.TwoFactorEnabled)
                                                 {
-                                                    <MudIconButton Icon="@Icons.Material.Filled.ShieldMoon" Color="Color.Default"
-                                                                   Size="Size.Small" OnClick="@(() => ResetTwoFactor(context.Item))"
-                                                                   Title="Reset 2FA" />
+                                                    <MudButton Variant="Variant.Outlined" Color="Color.Default"
+                                                               Size="Size.Small" OnClick="@(() => ResetTwoFactor(context.Item))"
+                                                               StartIcon="@Icons.Material.Filled.ShieldMoon">
+                                                        Reset 2FA
+                                                    </MudButton>
                                                 }
-                                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                                                @if (context.Item.IsActive)
+                                                {
+                                                    <MudButton Variant="Variant.Outlined" Color="Color.Error"
                                                                Size="Size.Small" OnClick="@(() => ConfirmDelete(context.Item))"
-                                                               Title="Deactivate" />
-                                            </MudButtonGroup>
+                                                               StartIcon="@Icons.Material.Filled.PersonOff">
+                                                        Deactivate
+                                                    </MudButton>
+                                                }
+                                            </div>
                                         </CellTemplate>
                                     </TemplateColumn>
                                 </Columns>
@@ -640,7 +650,6 @@
     private int pageSize = 10;
     private int totalPages = 1;
     private string activeTab = "users";
-    private string _searchString = string.Empty;
 
     private List<string> availableRoles = new() { "Admin", "Cashier", "StockController", "DepotController" };
     private List<WarehouseDto> availableWarehouses = new();
@@ -665,24 +674,6 @@
     // Toast
     private string toastMessage = string.Empty;
     private bool toastIsError = false;
-
-    // Quick filter - filter globally across multiple columns with the same input
-    private Func<UserDisplayModel, bool> _quickFilter => x =>
-    {
-        if (string.IsNullOrWhiteSpace(_searchString))
-            return true;
-
-        if (x.Username?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        if (x.Email?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        if (x.Role?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        return false;
-    };
 
     // Helper for role chip color
     private Color GetRoleChipColor(string role) => role switch
@@ -822,7 +813,7 @@
     private void ShowCreateModal()
     {
         editingUser = null;
-        userModel = new UserFormModel { Role = "User", IsActive = true };
+        userModel = new UserFormModel { Role = "Cashier", IsActive = true };
         showUserModal = true;
     }
 

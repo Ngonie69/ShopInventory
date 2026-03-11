@@ -83,11 +83,6 @@
                 <i class="bi bi-arrow-repeat"></i>
                 <span>Data Sync</span>
             </MudButton>
-            <MudButton Class="@($"settings-tab {(selectedCategory == UserManagementCategory ? "active" : "")}")"
-                       OnClick="() => SelectCategory(UserManagementCategory)">
-                <i class="bi bi-person-plus"></i>
-                <span>Users</span>
-            </MudButton>
         </div>
 
         <!-- Tab Content -->
@@ -277,97 +272,7 @@
                         }
                     </div>
                 }
-        else if (selectedCategory == UserManagementCategory)
-                {
-                    <!-- User Management Section -->
-                    <div class="settings-section" style="animation-delay: 0.05s;">
-                        <div class="section-header">
-                            <div class="section-icon section-icon-purple">
-                                <i class="bi bi-person-plus-fill"></i>
-                            </div>
-                            <div>
-                                <h5 class="section-title">Create User Account</h5>
-                                <p class="section-desc">Add new users and assign roles. Only administrators can create accounts.</p>
-                            </div>
-                        </div>
-
-                        <div class="user-form">
-                            <EditForm Model="newUserModel" OnValidSubmit="CreateUser">
-                                <DataAnnotationsValidator />
-
-                                <div class="form-grid">
-                                    <div class="form-field">
-                                        <label class="field-label">Username <span class="required">*</span></label>
-                                        <InputText @bind-Value="newUserModel.Username" class="field-input"
-                                                   placeholder="e.g. john.doe" />
-                                        <ValidationMessage For="() => newUserModel.Username" class="field-error" />
-                                    </div>
-
-                                    <div class="form-field">
-                                        <label class="field-label">Email Address</label>
-                                        <InputText @bind-Value="newUserModel.Email" class="field-input"
-                                                   placeholder="email address" />
-                                        <ValidationMessage For="() => newUserModel.Email" class="field-error" />
-                                    </div>
-
-                                    <div class="form-field">
-                                        <label class="field-label">Password <span class="required">*</span></label>
-                                        <InputText @bind-Value="newUserModel.Password" type="password" class="field-input"
-                                                   placeholder="Minimum 6 characters" />
-                                        <ValidationMessage For="() => newUserModel.Password" class="field-error" />
-                                    </div>
-
-                                    <div class="form-field">
-                                        <label class="field-label">Confirm Password <span class="required">*</span></label>
-                                        <InputText @bind-Value="confirmPassword" type="password" class="field-input"
-                                                   placeholder="Re-enter password" />
-                                        @if (!string.IsNullOrEmpty(confirmPassword) && newUserModel.Password != confirmPassword)
-                                        {
-                                            <span class="field-error">Passwords do not match</span>
-                                        }
-                                    </div>
-
-                                    <div class="form-field">
-                                        <label class="field-label">Role <span class="required">*</span></label>
-                                        <InputSelect @bind-Value="newUserModel.Role" class="field-input">
-                                            <option value="Cashier">Cashier</option>
-                                            <option value="StockController">Stock Controller</option>
-                                            <option value="DepotController">Depot Controller</option>
-                                            <option value="Admin">Admin</option>
-                                        </InputSelect>
-                                        <ValidationMessage For="() => newUserModel.Role" class="field-error" />
-                                    </div>
-                                </div>
-
-                                <div class="form-actions">
-                                    <MudButton ButtonType="ButtonType.Submit" Class="btn-create-user"
-                                               Disabled="@(isCreatingUser || (!string.IsNullOrEmpty(confirmPassword) && newUserModel.Password != confirmPassword))">
-                                        @if (isCreatingUser)
-                                        {
-                                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                                        }
-                                        else
-                                        {
-                                            <i class="bi bi-person-plus me-1"></i>
-                                        }
-                                        Create Account
-                                    </MudButton>
-                                </div>
-                            </EditForm>
-                        </div>
-
-                        @if (!string.IsNullOrEmpty(userMessage))
-                        {
-                            <div class="settings-alert @(userSuccess ? "settings-alert-success" : "settings-alert-error") mt-3">
-                                <i class="bi @(userSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
-                                <span>@userMessage</span>
-                                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="settings-alert-close"
-                                               OnClick="() => userMessage = null" Size="Size.Small" />
-                            </div>
-                        }
-                    </div>
-                }
-                else if (categorySettings.Any())
+        else if (categorySettings.Any())
                 {
                     <!-- Dynamic Settings -->
                     <div class="settings-section" style="animation-delay: 0.05s;">
@@ -461,7 +366,6 @@
 
 @code {
     private const string DataManagementCategory = "Data Management";
-    private const string UserManagementCategory = "User Management";
 
     private List<AppSetting> allSettings = new();
     private List<AppSetting> categorySettings = new();
@@ -489,13 +393,6 @@
     private DateTime? bpLastSync;
     private DateTime? warehousesLastSync;
     private DateTime? costCentresLastSync;
-
-    // User Management fields
-    private NewUserModel newUserModel = new();
-    private string confirmPassword = string.Empty;
-    private bool isCreatingUser = false;
-    private string? userMessage;
-    private bool userSuccess = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -867,72 +764,6 @@
         finally
         {
             isRefreshingAll = false;
-            StateHasChanged();
-        }
-    }
-
-    // User Management Methods
-    private async Task CreateUser()
-    {
-        if (newUserModel.Password != confirmPassword)
-        {
-            userSuccess = false;
-            userMessage = "Passwords do not match.";
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(newUserModel.Username) || newUserModel.Username.Length < 3)
-        {
-            userSuccess = false;
-            userMessage = "Username must be at least 3 characters.";
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(newUserModel.Password) || newUserModel.Password.Length < 6)
-        {
-            userSuccess = false;
-            userMessage = "Password must be at least 6 characters.";
-            return;
-        }
-
-        isCreatingUser = true;
-        userMessage = null;
-        StateHasChanged();
-
-        try
-        {
-            var request = new RegisterUserRequest
-            {
-                Username = newUserModel.Username,
-                Email = newUserModel.Email,
-                Password = newUserModel.Password,
-                Role = newUserModel.Role
-            };
-
-            var (success, message, user) = await AuthService.RegisterUserAsync(request);
-
-            if (success)
-            {
-                userSuccess = true;
-                userMessage = $"User '{newUserModel.Username}' created successfully with role '{newUserModel.Role}'.";
-                await LogAudit(AuditActions.CreateUser, $"Created user: {newUserModel.Username} with role {newUserModel.Role}");
-                newUserModel = new NewUserModel();
-                confirmPassword = string.Empty;
-            }
-            else
-            {
-                userSuccess = false;
-                userMessage = message;
-            }
-        }
-        catch (Exception ex)
-        {
-            userSuccess = false;
-            userMessage = $"Failed to create user: {ex.Message}";
-        }
-        finally
-        {
-            isCreatingUser = false;
             StateHasChanged();
         }
     }
