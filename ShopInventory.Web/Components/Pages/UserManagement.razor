@@ -12,632 +12,708 @@
 
 <PageTitle>User Management - Shop Inventory</PageTitle>
 
-<div class="container-fluid fade-in">
-    <div class="page-header d-flex justify-content-between align-items-center">
-        <div>
-            <h2>
-                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16"
-                     style="color: var(--primary-color);">
-                    <path
-                    d="M15 14s1 0 1-1-1-4-5-4-5 3-5 4 1 1 1 1h8Zm-7.978-1A.261.261 0 0 1 7 12.996c.001-.264.167-1.03.76-1.72C8.312 10.629 9.282 10 11 10c1.717 0 2.687.63 3.24 1.276.593.69.758 1.457.76 1.72l-.008.002a.274.274 0 0 1-.014.002H7.022ZM11 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm3-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM6.936 9.28a5.88 5.88 0 0 0-1.23-.247A7.35 7.35 0 0 0 5 9c-4 0-5 3-5 4 0 .667.333 1 1 1h4.216A2.238 2.238 0 0 1 5 13c0-1.01.377-2.042 1.09-2.904.243-.294.526-.569.846-.816ZM4.92 10A5.493 5.493 0 0 0 4 13H1c0-.26.164-1.03.76-1.724.545-.636 1.492-1.256 3.16-1.275ZM1.5 5.5a3 3 0 1 1 6 0 3 3 0 0 1-6 0Zm3-2a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z" />
-                </svg>
-                Enhanced User Management
-            </h2>
-            <span class="text-muted">Manage users, permissions, and security settings</span>
+<div class="um-page">
+    <!-- Page Header -->
+    <div class="um-header">
+        <div class="um-header-left">
+            <div class="um-header-icon">
+                <i class="bi bi-people-fill"></i>
+            </div>
+            <div>
+                <h1 class="um-title">User Management</h1>
+                <p class="um-subtitle">Manage accounts, permissions, and security</p>
+            </div>
         </div>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ShowCreateModal">
-            <i class="bi bi-plus-circle me-2"></i>Add User
-        </MudButton>
+        <button class="um-btn um-btn-primary" @onclick="ShowCreateModal">
+            <i class="bi bi-plus-lg"></i>
+            <span>Add User</span>
+        </button>
     </div>
 
     <!-- Tabs -->
-    <ul class="nav nav-tabs mb-4" role="tablist">
-        <li class="nav-item">
-            <MudButton Class="@($"nav-link {(activeTab == "users" ? "active" : "")}")"
-                       OnClick="@(() => SetTab("users"))">
-                <i class="bi bi-people me-1"></i>Users
-            </MudButton>
-        </li>
-        <li class="nav-item">
-            <MudButton Class="@($"nav-link {(activeTab == "permissions" ? "active" : "")}")"
-                       OnClick="@(() => SetTab("permissions"))">
-                <i class="bi bi-shield-lock me-1"></i>Permissions
-            </MudButton>
-        </li>
-        <li class="nav-item">
-            <MudButton Class="@($"nav-link {(activeTab == "security" ? "active" : "")}")"
-                       OnClick="@(() => SetTab("security"))">
-                <i class="bi bi-key me-1"></i>Security
-            </MudButton>
-        </li>
-    </ul>
+    <div class="um-tabs">
+        <button class="um-tab @(activeTab == "users" ? "active" : "")" @onclick="@(() => SetTab("users"))">
+            <i class="bi bi-people"></i> Users
+            <span class="um-tab-count">@users.Count</span>
+        </button>
+        <button class="um-tab @(activeTab == "permissions" ? "active" : "")" @onclick="@(() => SetTab("permissions"))">
+            <i class="bi bi-shield-lock"></i> Permissions
+        </button>
+        <button class="um-tab @(activeTab == "security" ? "active" : "")" @onclick="@(() => SetTab("security"))">
+            <i class="bi bi-fingerprint"></i> Security
+        </button>
+    </div>
 
     @if (activeTab == "users")
     {
-        <!-- Search and Filter -->
-        <div class="card mb-4">
-            <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-md-4">
-                        <div class="input-group">
-                            <span class="input-group-text"><i class="bi bi-search"></i></span>
-                            <input type="text" class="form-control" placeholder="Search users..." @bind="searchTerm"
-                                   @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <select class="form-select" @bind="roleFilter" @bind:after="LoadUsers">
-                            <option value="">All Roles</option>
-                            @foreach (var role in availableRoles)
-                            {
-                                <option value="@role">@role</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="col-md-3">
-                        <select class="form-select" @bind="statusFilter" @bind:after="LoadUsers">
-                            <option value="">All Status</option>
-                            <option value="active">Active</option>
-                            <option value="inactive">Inactive</option>
-                            <option value="locked">Locked</option>
-                        </select>
-                    </div>
-                    <div class="col-md-2">
-                        <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" OnClick="ResetFilters">
-                            <i class="bi bi-arrow-clockwise me-1"></i>Reset
-                        </MudButton>
-                    </div>
-                </div>
-                <div class="row mt-3">
-                    <div class="col-md-2">
-                        <label class="form-label">Records per page</label>
-                        <select class="form-select" @bind="pageSize" @bind:after="OnPageSizeChanged">
-                            <option value="10">10</option>
-                            <option value="20">20</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                        </select>
-                    </div>
-                </div>
+        <!-- Filter Bar -->
+        <div class="um-filter-bar">
+            <div class="um-search-box">
+                <i class="bi bi-search"></i>
+                <input type="text" placeholder="Search by name or email..." @bind="searchTerm"
+                       @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
             </div>
-        </div>
-
-        <!-- Users Table -->
-        <div class="card">
-            <div class="card-body">
-                @if (isLoading)
+            <select class="um-select" @bind="roleFilter" @bind:after="LoadUsers">
+                <option value="">All Roles</option>
+                @foreach (var role in availableRoles)
                 {
-                    <div class="text-center py-5">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                    </div>
+                    <option value="@role">@role</option>
                 }
-                else if (users.Any())
-                {
-                    <MudDataGrid T="UserDisplayModel" Items="@users" SortMode="SortMode.Multiple" Filterable="true"
-                                 Hideable="true" Dense="true" Hover="true" Striped="true">
-                        <ToolBarContent>
-                            <MudText Typo="Typo.h6">Users</MudText>
-                            <MudSpacer />
-                        </ToolBarContent>
-                        <Columns>
-                            <PropertyColumn Property="x => x.Username" Title="User">
-                                <CellTemplate>
-                                    <div class="d-flex align-items-center">
-                                        <div
-                                            class="avatar-circle me-3 @(context.Item.IsActive ? "bg-primary" : "bg-secondary")">
-                                            @context.Item.Username[0].ToString().ToUpper()
-                                        </div>
-                                        <div>
-                                            <MudText Typo="Typo.body2" Class="fw-medium">@context.Item.Username</MudText>
-                                            <MudText Typo="Typo.caption" Class="text-muted">@(context.Item.Email ?? "No email")
-                                            </MudText>
-                                        </div>
-                                    </div>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.Role" Title="Role">
-                                <CellTemplate>
-                                    <MudChip T="string" Color="@GetRoleChipColor(context.Item.Role)" Size="Size.Small">
-                                        @context.Item.Role</MudChip>
-                                    </CellTemplate>
-                                </PropertyColumn>
-                                <PropertyColumn Property="x => x.IsActive" Title="Status">
-                                    <CellTemplate>
-                                        @if (context.Item.IsLocked)
-                                        {
-                                            <MudChip T="string" Color="Color.Error" Size="Size.Small">Locked</MudChip>
-                                        }
-                                        else if (context.Item.IsActive)
-                                        {
-                                            <MudChip T="string" Color="Color.Success" Size="Size.Small">Active</MudChip>
-                                        }
-                                        else
-                                        {
-                                            <MudChip T="string" Color="Color.Default" Size="Size.Small">Inactive</MudChip>
-                                        }
-                                    </CellTemplate>
-                                </PropertyColumn>
-                                <PropertyColumn Property="x => x.TwoFactorEnabled" Title="2FA">
-                                    <CellTemplate>
-                                        @if (context.Item.TwoFactorEnabled)
-                                        {
-                                            <MudChip T="string" Color="Color.Success" Size="Size.Small">
-                                                <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small" Class="me-1" />Enabled
-                                            </MudChip>
-                                        }
-                                        else
-                                        {
-                                            <MudChip T="string" Color="Color.Warning" Size="Size.Small">
-                                                <MudIcon Icon="@Icons.Material.Filled.ShieldMoon" Size="Size.Small" Class="me-1" />
-                                                Disabled
-                                            </MudChip>
-                                        }
-                                    </CellTemplate>
-                                </PropertyColumn>
-                                <TemplateColumn Title="Permissions" Sortable="false" Filterable="false">
-                                    <CellTemplate>
-                                        <MudChip T="string" Color="Color.Info" Size="Size.Small">@(context.Item.Permissions?.Count
-                                                                            ?? 0) permissions</MudChip>
-                                        </CellTemplate>
-                                    </TemplateColumn>
-                                    <PropertyColumn Property="x => x.LastLoginAt" Title="Last Login">
-                                        <CellTemplate>
-                                            @if (context.Item.LastLoginAt.HasValue)
-                                            {
-                                                <MudTooltip Text="@context.Item.LastLoginAt.Value.ToString("dd MMM yyyy HH:mm")">
-                                                    <span>@GetRelativeTime(context.Item.LastLoginAt.Value)</span>
-                                                </MudTooltip>
-                                            }
-                                            else
-                                            {
-                                                <span class="text-muted">Never</span>
-                                            }
-                                        </CellTemplate>
-                                    </PropertyColumn>
-                                    <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
-                                        <CellTemplate>
-                                            <div class="d-flex flex-wrap gap-1">
-                                                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                                                           Size="Size.Small" OnClick="@(() => ShowEditModal(context.Item))"
-                                                           StartIcon="@Icons.Material.Filled.Edit">
-                                                    Edit
-                                                </MudButton>
-                                                <MudButton Variant="Variant.Outlined" Color="Color.Info"
-                                                           Size="Size.Small" OnClick="@(() => ShowPermissionsModal(context.Item))"
-                                                           StartIcon="@Icons.Material.Filled.Security">
-                                                    Permissions
-                                                </MudButton>
-                                                @if (context.Item.IsLocked)
-                                                {
-                                                    <MudButton Variant="Variant.Outlined" Color="Color.Warning"
-                                                               Size="Size.Small" OnClick="@(() => UnlockUser(context.Item))"
-                                                               StartIcon="@Icons.Material.Filled.LockOpen">
-                                                        Unlock
-                                                    </MudButton>
-                                                }
-                                                @if (context.Item.TwoFactorEnabled)
-                                                {
-                                                    <MudButton Variant="Variant.Outlined" Color="Color.Default"
-                                                               Size="Size.Small" OnClick="@(() => ResetTwoFactor(context.Item))"
-                                                               StartIcon="@Icons.Material.Filled.ShieldMoon">
-                                                        Reset 2FA
-                                                    </MudButton>
-                                                }
-                                                @if (context.Item.IsActive)
-                                                {
-                                                    <MudButton Variant="Variant.Outlined" Color="Color.Error"
-                                                               Size="Size.Small" OnClick="@(() => ConfirmDelete(context.Item))"
-                                                               StartIcon="@Icons.Material.Filled.PersonOff">
-                                                        Deactivate
-                                                    </MudButton>
-                                                }
-                                            </div>
-                                        </CellTemplate>
-                                    </TemplateColumn>
-                                </Columns>
-                                <PagerContent>
-                                    <div class="d-flex flex-column align-items-center px-4 py-2">
-                                        <MudPagination Color="Color.Primary" Count="totalPages" Selected="currentPage"
-                                                       SelectedChanged="OnPageChanged" ShowFirstButton="true" ShowLastButton="true" />
-                                        <MudText Typo="Typo.caption" Class="text-muted mt-2">
-                                            Page @currentPage of @totalPages
-                                        </MudText>
-                                    </div>
-                                </PagerContent>
-                            </MudDataGrid>
-                        }
-            else
-                        {
-                            <div class="text-center py-5">
-                                <i class="bi bi-people display-1 text-muted"></i>
-                                <p class="text-muted mt-3">No users found</p>
-                            </div>
-                        }
-                    </div>
-                </div>
-            }
-    else if (activeTab == "permissions")
+            </select>
+            <select class="um-select" @bind="statusFilter" @bind:after="LoadUsers">
+                <option value="">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="locked">Locked</option>
+            </select>
+            @if (!string.IsNullOrEmpty(searchTerm) || !string.IsNullOrEmpty(roleFilter) || !string.IsNullOrEmpty(statusFilter))
             {
-                <!-- Permissions Reference -->
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">Available Permissions</h5>
-                    </div>
-                    <div class="card-body">
-                        @if (permissionCategories != null)
-                        {
-                            <div class="accordion" id="permissionsAccordion">
-                                @foreach (var category in permissionCategories)
-                                {
-                                    <div class="accordion-item">
-                                        <h2 class="accordion-header">
-                                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
-                                                    data-bs-target="#collapse-@category.Key.Replace(" ", "-")">
-                                                @category.Key (@category.Value.Count permissions)
-                                            </button>
-                                        </h2>
-                                        <div id="collapse-@category.Key.Replace(" ", "-")" class="accordion-collapse collapse"
-                                             data-bs-parent="#permissionsAccordion">
-                                            <div class="accordion-body">
-                                                <div class="table-responsive">
-                                                    <table class="table table-sm">
-                                                        <thead>
-                                                            <tr>
-                                                                <th>Code</th>
-                                                                <th>Name</th>
-                                                                <th>Description</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            @foreach (var perm in category.Value)
-                                                            {
-                                                                <tr>
-                                                                    <td><code>@perm.Code</code></td>
-                                                                    <td>@perm.Name</td>
-                                                                    <td class="text-muted">@perm.Description</td>
-                                                                </tr>
-                                                            }
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                }
-                            </div>
-                        }
-                    </div>
-                </div>
-
-                <!-- Role Default Permissions -->
-                <div class="card mt-4">
-                    <div class="card-header">
-                        <h5 class="mb-0">Default Role Permissions</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            @foreach (var role in new[] { "Admin", "Cashier", "StockController", "DepotController" })
-                            {
-                                <div class="col-md-6 col-lg-3 mb-3">
-                                    <div class="card h-100">
-                                        <div class="card-header bg-light">
-                                            <strong>@role</strong>
-                                        </div>
-                                        <div class="card-body">
-                                            <small class="text-muted">
-                                                @if (role == "Admin")
-                                                {
-                                                    <text>Full system access including user management and all permissions</text>
-                                                }
-                                                else if (role == "Cashier")
-                                                {
-                                                    <text>Access to incoming payments, invoicing, sales orders, and credit notes</text>
-                                                }
-                                                else if (role == "StockController")
-                                                {
-                                                    <text>Access to inventory transfers only</text>
-                                                }
-                                                else
-                                                {
-                                                    <text>Access to incoming payments and inventory transfers</text>
-                                                }
-                                            </small>
-                                        </div>
-                                    </div>
-                                </div>
-                            }
-                        </div>
-                    </div>
-                </div>
-            }
-            else if (activeTab == "security")
-            {
-                <!-- Security Overview -->
-                <div class="row">
-                    <div class="col-md-4">
-                        <div class="card bg-success text-white mb-4">
-                            <div class="card-body">
-                                <h5 class="card-title"><i class="bi bi-shield-check me-2"></i>2FA Enabled</h5>
-                                <h2>@usersWithTwoFactor</h2>
-                                <small>users with two-factor authentication</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="card bg-warning text-dark mb-4">
-                            <div class="card-body">
-                                <h5 class="card-title"><i class="bi bi-shield-x me-2"></i>2FA Disabled</h5>
-                                <h2>@usersWithoutTwoFactor</h2>
-                                <small>users without two-factor authentication</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="card bg-danger text-white mb-4">
-                            <div class="card-body">
-                                <h5 class="card-title"><i class="bi bi-lock me-2"></i>Locked Accounts</h5>
-                                <h2>@lockedUsers</h2>
-                                <small>users currently locked out</small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Recent Security Events -->
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">Recent Security Events</h5>
-                    </div>
-                    <div class="card-body">
-                        @if (securityEvents.Any())
-                        {
-                            <div class="list-group list-group-flush">
-                                @foreach (var evt in securityEvents)
-                                {
-                                    <div class="list-group-item d-flex justify-content-between align-items-center">
-                                        <div>
-                                            <i class="bi @GetSecurityEventIcon(evt.EventType) me-2"></i>
-                                            <strong>@evt.Username</strong> - @evt.Description
-                                        </div>
-                                        <small class="text-muted">@evt.Timestamp.ToString("dd MMM yyyy HH:mm")</small>
-                                    </div>
-                                }
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="text-center py-4">
-                                <i class="bi bi-shield-check display-4 text-success"></i>
-                                <p class="text-muted mt-2">No recent security events</p>
-                            </div>
-                        }
-                    </div>
-                </div>
+                <button class="um-btn um-btn-ghost" @onclick="ResetFilters">
+                    <i class="bi bi-x-lg"></i> Clear
+                </button>
             }
         </div>
 
-        <!-- Create/Edit User Modal -->
-        @if (showUserModal)
+        <!-- Users List -->
+        @if (isLoading)
         {
-            <div class="modal show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
-                <div class="modal-dialog modal-lg">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title">@(editingUser == null ? "Create New User" : "Edit User")</h5>
-                            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CloseModal" Size="Size.Small" />
-                        </div>
-                        <div class="modal-body">
-                            <EditForm Model="userModel" OnValidSubmit="SaveUser">
-                                <DataAnnotationsValidator />
-                                <div class="row g-3">
-                                    <div class="col-md-6">
-                                        <label class="form-label">Username *</label>
-                                        <InputText class="form-control" @bind-Value="userModel.Username"
-                                                   disabled="@(editingUser != null)" />
-                                        <ValidationMessage For="@(() => userModel.Username)" />
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label">Email *</label>
-                                        <InputText class="form-control" @bind-Value="userModel.Email" />
-                                        <ValidationMessage For="@(() => userModel.Email)" />
-                                    </div>
-                                    @if (editingUser == null)
-                                    {
-                                        <div class="col-md-6">
-                                            <label class="form-label">Password *</label>
-                                            <InputText type="password" class="form-control" @bind-Value="userModel.Password" />
-                                            <ValidationMessage For="@(() => userModel.Password)" />
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label class="form-label">Confirm Password *</label>
-                                            <InputText type="password" class="form-control" @bind-Value="userModel.ConfirmPassword" />
-                                            <ValidationMessage For="@(() => userModel.ConfirmPassword)" />
-                                        </div>
-                                    }
-                                    <div class="col-md-6">
-                                        <label class="form-label">First Name</label>
-                                        <InputText class="form-control" @bind-Value="userModel.FirstName" />
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label">Last Name</label>
-                                        <InputText class="form-control" @bind-Value="userModel.LastName" />
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label">Role *</label>
-                                        <InputSelect class="form-select" @bind-Value="userModel.Role">
-                                            @foreach (var role in availableRoles)
-                                            {
-                                                <option value="@role">@role</option>
-                                            }
-                                        </InputSelect>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label">Status</label>
-                                        <div class="form-check form-switch mt-2">
-                                            <InputCheckbox class="form-check-input" @bind-Value="userModel.IsActive" />
-                                            <label class="form-check-label">Active</label>
-                                        </div>
-                                    </div>
-                                    @if (userModel.Role == "StockController" || userModel.Role == "DepotController")
-                                    {
-                                        <div class="col-md-6">
-                                            <label class="form-label">Assigned Warehouse *</label>
-                                            @if (isLoadingWarehouses)
-                                            {
-                                                <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
-                                            }
-                                            else
-                                            {
-                                                <InputSelect class="form-select" @bind-Value="userModel.AssignedWarehouseCode">
-                                                    <option value="">-- Select Warehouse --</option>
-                                                    @foreach (var wh in availableWarehouses)
-                                                    {
-                                                        <option value="@wh.WarehouseCode">@wh.WarehouseCode - @wh.WarehouseName</option>
-                                                    }
-                                                </InputSelect>
-                                            }
-                                            <small class="text-muted">This user will only have access to the selected warehouse.</small>
-                                        </div>
-                                    }
-                                </div>
-                                <div class="modal-footer mt-4">
-                                    <MudButton ButtonType="ButtonType.Button" Variant="Variant.Filled" Color="Color.Default"
-                                               OnClick="CloseModal">Cancel</MudButton>
-                                    <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary"
-                                               Disabled="@isSaving">
-                                        @if (isSaving)
-                                        {
-                                            <span class="spinner-border spinner-border-sm me-1"></span>
-                                        }
-                                        @(editingUser == null ? "Create User" : "Save Changes")
-                                    </MudButton>
-                                </div>
-                            </EditForm>
-                        </div>
-                    </div>
-                </div>
+            <div class="um-loading">
+                <div class="um-spinner"></div>
+                <p>Loading users...</p>
             </div>
         }
-
-        <!-- Permissions Modal -->
-        @if (showPermissionsModal && selectedUserForPermissions != null)
+        else if (users.Any())
         {
-            <div class="modal show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
-                <div class="modal-dialog modal-xl">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title">Manage Permissions - @selectedUserForPermissions.Username</h5>
-                            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="ClosePermissionsModal" Size="Size.Small" />
-                        </div>
-                        <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
-                            <div class="mb-3">
-                                <div class="form-check">
-                                    <input type="checkbox" class="form-check-input" id="useRoleDefaults" @bind="useRoleDefaults" />
-                                    <label class="form-check-label" for="useRoleDefaults">Use default permissions for role
-                                        (@selectedUserForPermissions.Role)</label>
-                                    </div>
-                                </div>
-
-                                @if (!useRoleDefaults && permissionCategories != null)
+            <div class="um-user-list">
+                @foreach (var user in users)
+                {
+                    <div class="um-user-card @(!user.IsActive ? "inactive" : "") @(user.IsLocked ? "locked" : "")">
+                        <div class="um-user-main">
+                            <div class="um-avatar @GetAvatarClass(user)">
+                                @user.Username[0].ToString().ToUpper()
+                            </div>
+                            <div class="um-user-info">
+                                <div class="um-user-name">@user.Username</div>
+                                <div class="um-user-email">@(user.Email ?? "No email")</div>
+                            </div>
+                            <div class="um-user-meta">
+                                <span class="um-badge @GetRoleBadgeClass(user.Role)">@user.Role</span>
+                                @if (user.IsLocked)
                                 {
-                                    @foreach (var category in permissionCategories)
-                                    {
-                                        <div class="card mb-3">
-                                            <div class="card-header d-flex justify-content-between align-items-center">
-                                                <strong>@category.Key</strong>
-                                                <div>
-                                                    <MudButton Variant="Variant.Outlined" Color="Color.Success" Size="Size.Small" Class="me-1"
-                                                               OnClick="() => SelectAllInCategory(category.Key)">Select All</MudButton>
-                                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
-                                                               OnClick="() => DeselectAllInCategory(category.Key)">Deselect All</MudButton>
-                                                </div>
-                                            </div>
-                                            <div class="card-body">
-                                                <div class="row">
-                                                    @foreach (var perm in category.Value)
-                                                    {
-                                                        <div class="col-md-4 mb-2">
-                                                            <div class="form-check">
-                                                                <input type="checkbox" class="form-check-input" id="perm-@perm.Code"
-                                                                       checked="@selectedPermissions.Contains(perm.Code)"
-                                                                       @onchange="(e) => TogglePermission(perm.Code, (bool)e.Value!)" />
-                                                                <label class="form-check-label" for="perm-@perm.Code">
-                                                                    @perm.Name
-                                                                    <small class="d-block text-muted">@perm.Description</small>
-                                                                </label>
-                                                            </div>
-                                                        </div>
-                                                    }
-                                                </div>
-                                            </div>
-                                        </div>
-                                    }
+                                    <span class="um-badge um-badge-locked"><i class="bi bi-lock-fill"></i> Locked</span>
+                                }
+                                else if (user.IsActive)
+                                {
+                                    <span class="um-badge um-badge-active">Active</span>
+                                }
+                                else
+                                {
+                                    <span class="um-badge um-badge-inactive">Inactive</span>
+                                }
+                                @if (user.TwoFactorEnabled)
+                                {
+                                    <span class="um-badge um-badge-2fa"><i class="bi bi-shield-fill-check"></i> 2FA</span>
                                 }
                             </div>
-                            <div class="modal-footer">
-                                <MudButton ButtonType="ButtonType.Button" Variant="Variant.Filled" Color="Color.Default"
-                                           OnClick="ClosePermissionsModal">Cancel</MudButton>
-                                <MudButton ButtonType="ButtonType.Button" Variant="Variant.Filled" Color="Color.Primary"
-                                           OnClick="SavePermissions" Disabled="@isSaving">
-                                    @if (isSaving)
+                            <div class="um-user-login">
+                                <span class="um-login-label">Last login</span>
+                                <span class="um-login-time">
+                                    @if (user.LastLoginAt.HasValue)
                                     {
-                                        <span class="spinner-border spinner-border-sm me-1"></span>
+                                        @GetRelativeTime(user.LastLoginAt.Value)
                                     }
-                                    Save Permissions
-                                </MudButton>
+                                    else
+                                    {
+                                        <text>Never</text>
+                                    }
+                                </span>
+                            </div>
+                        </div>
+                        <div class="um-user-actions">
+                            <button class="um-action-btn" @onclick="@(() => ShowEditModal(user))" title="Edit user">
+                                <i class="bi bi-pencil-square"></i>
+                            </button>
+                            <button class="um-action-btn" @onclick="@(() => ShowPermissionsModal(user))" title="Manage permissions">
+                                <i class="bi bi-shield-lock"></i>
+                            </button>
+                            <div class="um-action-more">
+                                <button class="um-action-btn" @onclick="() => ToggleActionMenu(user.Id)" title="More actions">
+                                    <i class="bi bi-three-dots-vertical"></i>
+                                </button>
+                                @if (openMenuUserId == user.Id)
+                                {
+                                    <div class="um-dropdown-menu" @onclick:stopPropagation="true">
+                                        @if (user.IsLocked)
+                                        {
+                                            <button class="um-dropdown-item" @onclick="@(() => { CloseActionMenu(); UnlockUser(user); })">
+                                                <i class="bi bi-unlock-fill text-warning"></i> Unlock Account
+                                            </button>
+                                        }
+                                        @if (user.TwoFactorEnabled)
+                                        {
+                                            <button class="um-dropdown-item" @onclick="@(() => { CloseActionMenu(); ResetTwoFactor(user); })">
+                                                <i class="bi bi-shield-x text-secondary"></i> Reset 2FA
+                                            </button>
+                                        }
+                                        @if (user.IsActive)
+                                        {
+                                            <button class="um-dropdown-item um-dropdown-danger" @onclick="@(() => { CloseActionMenu(); ConfirmDelete(user); })">
+                                                <i class="bi bi-person-dash-fill"></i> Deactivate User
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button class="um-dropdown-item um-dropdown-success" @onclick="@(() => { CloseActionMenu(); ActivateUser(user); })">
+                                                <i class="bi bi-person-check-fill"></i> Activate User
+                                            </button>
+                                        }
+                                    </div>
+                                }
                             </div>
                         </div>
                     </div>
+                }
+            </div>
+
+            <!-- Pagination -->
+            @if (totalPages > 1)
+            {
+                <div class="um-pagination">
+                    <span class="um-page-info">Showing @((currentPage - 1) * pageSize + 1)–@Math.Min(currentPage * pageSize, users.Count + (currentPage - 1) * pageSize) of page @currentPage</span>
+                    <div class="um-page-buttons">
+                        <button class="um-page-btn" disabled="@(currentPage <= 1)" @onclick="() => GoToPage(currentPage - 1)">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                        @for (int i = 1; i <= totalPages; i++)
+                        {
+                            var pg = i;
+                            <button class="um-page-btn @(pg == currentPage ? "active" : "")" @onclick="() => GoToPage(pg)">@pg</button>
+                        }
+                        <button class="um-page-btn" disabled="@(currentPage >= totalPages)" @onclick="() => GoToPage(currentPage + 1)">
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
+                    </div>
+                    <select class="um-select um-select-sm" @bind="pageSize" @bind:after="OnPageSizeChanged">
+                        <option value="10">10 / page</option>
+                        <option value="20">20 / page</option>
+                        <option value="50">50 / page</option>
+                    </select>
                 </div>
             }
-
-            <!-- Toast Notifications -->
-            @if (!string.IsNullOrEmpty(toastMessage))
+        }
+        else
+        {
+            <div class="um-empty">
+                <i class="bi bi-people"></i>
+                <h3>No users found</h3>
+                <p>Try adjusting your search or filters</p>
+            </div>
+        }
+    }
+    else if (activeTab == "permissions")
+    {
+        <div class="um-section-card">
+            <div class="um-section-header">
+                <h3><i class="bi bi-list-check me-2"></i>Available Permissions</h3>
+            </div>
+            @if (permissionCategories != null)
             {
-                <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1100;">
-                    <div class="toast show" role="alert">
-                        <div class="toast-header @(toastIsError ? "bg-danger text-white" : "bg-success text-white")">
-                            <strong class="me-auto">@(toastIsError ? "Error" : "Success")</strong>
-                            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Inherit"
-                                           OnClick="() => toastMessage = string.Empty" Size="Size.Small" />
+                @foreach (var category in permissionCategories)
+                {
+                    <details class="um-perm-group">
+                        <summary class="um-perm-summary">
+                            <span>@category.Key</span>
+                            <span class="um-perm-count">@category.Value.Count</span>
+                        </summary>
+                        <div class="um-perm-list">
+                            @foreach (var perm in category.Value)
+                            {
+                                <div class="um-perm-item">
+                                    <code class="um-perm-code">@perm.Code</code>
+                                    <span class="um-perm-name">@perm.Name</span>
+                                    <span class="um-perm-desc">@perm.Description</span>
+                                </div>
+                            }
                         </div>
-                        <div class="toast-body">
-                            @toastMessage
+                    </details>
+                }
+            }
+        </div>
+
+        <div class="um-section-card" style="margin-top: 1.5rem;">
+            <div class="um-section-header">
+                <h3><i class="bi bi-diagram-3 me-2"></i>Default Role Permissions</h3>
+            </div>
+            <div class="um-role-grid">
+                @foreach (var role in new[] { "Admin", "Cashier", "StockController", "DepotController" })
+                {
+                    <div class="um-role-card">
+                        <div class="um-role-name">
+                            <span class="um-badge @GetRoleBadgeClass(role)">@role</span>
                         </div>
+                        <p class="um-role-desc">
+                            @if (role == "Admin")
+                            {
+                                <text>Full system access including user management and all permissions</text>
+                            }
+                            else if (role == "Cashier")
+                            {
+                                <text>Access to payments, invoicing, sales orders, and credit notes</text>
+                            }
+                            else if (role == "StockController")
+                            {
+                                <text>Access to inventory transfers only</text>
+                            }
+                            else
+                            {
+                                <text>Access to payments and inventory transfers</text>
+                            }
+                        </p>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else if (activeTab == "security")
+    {
+        <!-- Security Stats -->
+        <div class="um-stats-grid">
+            <div class="um-stat-card um-stat-success">
+                <div class="um-stat-icon"><i class="bi bi-shield-fill-check"></i></div>
+                <div class="um-stat-value">@usersWithTwoFactor</div>
+                <div class="um-stat-label">2FA Enabled</div>
+            </div>
+            <div class="um-stat-card um-stat-warning">
+                <div class="um-stat-icon"><i class="bi bi-shield-fill-exclamation"></i></div>
+                <div class="um-stat-value">@usersWithoutTwoFactor</div>
+                <div class="um-stat-label">2FA Disabled</div>
+            </div>
+            <div class="um-stat-card um-stat-danger">
+                <div class="um-stat-icon"><i class="bi bi-lock-fill"></i></div>
+                <div class="um-stat-value">@lockedUsers</div>
+                <div class="um-stat-label">Locked Accounts</div>
+            </div>
+        </div>
+
+        <div class="um-section-card">
+            <div class="um-section-header">
+                <h3><i class="bi bi-clock-history me-2"></i>Recent Security Events</h3>
+            </div>
+            @if (securityEvents.Any())
+            {
+                <div class="um-event-list">
+                    @foreach (var evt in securityEvents)
+                    {
+                        <div class="um-event-item">
+                            <div class="um-event-icon">
+                                <i class="bi @GetSecurityEventIcon(evt.EventType)"></i>
+                            </div>
+                            <div class="um-event-info">
+                                <span class="um-event-user">@evt.Username</span>
+                                <span class="um-event-desc">@evt.Description</span>
+                            </div>
+                            <span class="um-event-time">@evt.Timestamp.ToString("dd MMM yyyy HH:mm")</span>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="um-empty" style="padding: 2rem;">
+                    <i class="bi bi-shield-check" style="font-size: 2.5rem;"></i>
+                    <p>No recent security events</p>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<!-- Create/Edit User Modal -->
+@if (showUserModal)
+{
+    <div class="um-overlay" @onclick="CloseModal">
+        <div class="um-modal" @onclick:stopPropagation="true">
+            <div class="um-modal-header">
+                <h2>@(editingUser == null ? "Create New User" : $"Edit {editingUser.Username}")</h2>
+                <button class="um-modal-close" @onclick="CloseModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <EditForm Model="userModel" OnValidSubmit="SaveUser">
+                <DataAnnotationsValidator />
+                <div class="um-modal-body">
+                    <div class="um-form-grid">
+                        <div class="um-form-field">
+                            <label>Username <span class="required">*</span></label>
+                            <InputText class="um-input" @bind-Value="userModel.Username" disabled="@(editingUser != null)"
+                                       placeholder="e.g. john.doe" />
+                            <ValidationMessage For="@(() => userModel.Username)" />
+                        </div>
+                        <div class="um-form-field">
+                            <label>Email</label>
+                            <InputText class="um-input" @bind-Value="userModel.Email" placeholder="user@company.com" />
+                            <ValidationMessage For="@(() => userModel.Email)" />
+                        </div>
+                        @if (editingUser == null)
+                        {
+                            <div class="um-form-field">
+                                <label>Password <span class="required">*</span></label>
+                                <InputText type="password" class="um-input" @bind-Value="userModel.Password"
+                                           placeholder="Min. 6 characters" />
+                                <ValidationMessage For="@(() => userModel.Password)" />
+                            </div>
+                            <div class="um-form-field">
+                                <label>Confirm Password <span class="required">*</span></label>
+                                <InputText type="password" class="um-input" @bind-Value="userModel.ConfirmPassword"
+                                           placeholder="Re-enter password" />
+                                <ValidationMessage For="@(() => userModel.ConfirmPassword)" />
+                            </div>
+                        }
+                        <div class="um-form-field">
+                            <label>First Name</label>
+                            <InputText class="um-input" @bind-Value="userModel.FirstName" />
+                        </div>
+                        <div class="um-form-field">
+                            <label>Last Name</label>
+                            <InputText class="um-input" @bind-Value="userModel.LastName" />
+                        </div>
+                        <div class="um-form-field">
+                            <label>Role <span class="required">*</span></label>
+                            <InputSelect class="um-input" @bind-Value="userModel.Role">
+                                @foreach (var role in availableRoles)
+                                {
+                                    <option value="@role">@role</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div class="um-form-field">
+                            <label>Status</label>
+                            <label class="um-toggle">
+                                <InputCheckbox @bind-Value="userModel.IsActive" />
+                                <span class="um-toggle-slider"></span>
+                                <span class="um-toggle-label">@(userModel.IsActive ? "Active" : "Inactive")</span>
+                            </label>
+                        </div>
+                        @if (userModel.Role == "StockController" || userModel.Role == "DepotController")
+                        {
+                            <div class="um-form-field um-form-full">
+                                <label>Assigned Warehouse <span class="required">*</span></label>
+                                @if (isLoadingWarehouses)
+                                {
+                                    <div class="um-spinner-sm"></div>
+                                }
+                                else
+                                {
+                                    <InputSelect class="um-input" @bind-Value="userModel.AssignedWarehouseCode">
+                                        <option value="">-- Select Warehouse --</option>
+                                        @foreach (var wh in availableWarehouses)
+                                        {
+                                            <option value="@wh.WarehouseCode">@wh.WarehouseCode - @wh.WarehouseName</option>
+                                        }
+                                    </InputSelect>
+                                }
+                                <small class="um-form-hint">User will only have access to the selected warehouse</small>
+                            </div>
+                        }
                     </div>
                 </div>
-            }
+                <div class="um-modal-footer">
+                    <button type="button" class="um-btn um-btn-ghost" @onclick="CloseModal">Cancel</button>
+                    <button type="submit" class="um-btn um-btn-primary" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="um-spinner-sm"></span>
+                        }
+                        @(editingUser == null ? "Create User" : "Save Changes")
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
 
-            <style>
-                .avatar-circle {
-                    width: 40px;
-                    height: 40px;
-                    border-radius: 50%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    color: white;
-                    font-weight: bold;
-                    font-size: 1.1rem;
-                }
+<!-- Permissions Modal -->
+@if (showPermissionsModal && selectedUserForPermissions != null)
+{
+    <div class="um-overlay" @onclick="ClosePermissionsModal">
+        <div class="um-modal um-modal-wide" @onclick:stopPropagation="true">
+            <div class="um-modal-header">
+                <h2>Permissions for @selectedUserForPermissions.Username</h2>
+                <button class="um-modal-close" @onclick="ClosePermissionsModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="um-modal-body" style="max-height: 65vh; overflow-y: auto;">
+                <label class="um-toggle" style="margin-bottom: 1.25rem;">
+                    <input type="checkbox" @bind="useRoleDefaults" />
+                    <span class="um-toggle-slider"></span>
+                    <span class="um-toggle-label">Use default permissions for <strong>@selectedUserForPermissions.Role</strong></span>
+                </label>
 
-                .page-header {
-                    margin-bottom: 1.5rem;
-                    padding-bottom: 1rem;
-                    border-bottom: 1px solid #dee2e6;
+                @if (!useRoleDefaults && permissionCategories != null)
+                {
+                    @foreach (var category in permissionCategories)
+                    {
+                        <div class="um-perm-modal-group">
+                            <div class="um-perm-modal-header">
+                                <strong>@category.Key</strong>
+                                <div class="um-perm-modal-actions">
+                                    <button type="button" class="um-btn-link" @onclick="() => SelectAllInCategory(category.Key)">Select All</button>
+                                    <button type="button" class="um-btn-link um-btn-link-muted" @onclick="() => DeselectAllInCategory(category.Key)">Clear</button>
+                                </div>
+                            </div>
+                            <div class="um-perm-modal-body">
+                                @foreach (var perm in category.Value)
+                                {
+                                    <label class="um-perm-check @(selectedPermissions.Contains(perm.Code) ? "checked" : "")">
+                                        <input type="checkbox" checked="@selectedPermissions.Contains(perm.Code)"
+                                               @onchange="(e) => TogglePermission(perm.Code, (bool)e.Value!)" />
+                                        <div>
+                                            <span class="um-perm-check-name">@perm.Name</span>
+                                            <span class="um-perm-check-desc">@perm.Description</span>
+                                        </div>
+                                    </label>
+                                }
+                            </div>
+                        </div>
+                    }
                 }
+            </div>
+            <div class="um-modal-footer">
+                <button type="button" class="um-btn um-btn-ghost" @onclick="ClosePermissionsModal">Cancel</button>
+                <button type="button" class="um-btn um-btn-primary" @onclick="SavePermissions" disabled="@isSaving">
+                    @if (isSaving) { <span class="um-spinner-sm"></span> }
+                    Save Permissions
+                </button>
+            </div>
+        </div>
+    </div>
+}
 
-                .nav-tabs .nav-link {
-                    color: #6c757d;
-                }
+<!-- Toast -->
+@if (!string.IsNullOrEmpty(toastMessage))
+{
+    <div class="um-toast @(toastIsError ? "um-toast-error" : "um-toast-success")">
+        <i class="bi @(toastIsError ? "bi-exclamation-circle-fill" : "bi-check-circle-fill")"></i>
+        <span>@toastMessage</span>
+        <button @onclick="() => toastMessage = string.Empty"><i class="bi bi-x"></i></button>
+    </div>
+}
 
-                .nav-tabs .nav-link.active {
-                    color: var(--primary-color);
-                    font-weight: 500;
-                }
-            </style>
+<style>
+    /* ── Base ─────────────────────────────── */
+    .um-page { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+
+    /* ── Header ──────────────────────────── */
+    .um-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.75rem; }
+    .um-header-left { display: flex; align-items: center; gap: 1rem; }
+    .um-header-icon { width: 48px; height: 48px; border-radius: 14px; background: linear-gradient(135deg, #667eea, #764ba2); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
+    .um-title { font-size: 1.6rem; font-weight: 700; color: #1a1a2e; margin: 0; line-height: 1.2; }
+    .um-subtitle { font-size: .85rem; color: #6b7280; margin: .15rem 0 0; }
+
+    /* ── Buttons ──────────────────────────── */
+    .um-btn { display: inline-flex; align-items: center; gap: .5rem; padding: .6rem 1.25rem; border-radius: 10px; font-weight: 600; font-size: .85rem; border: none; cursor: pointer; transition: all .2s; }
+    .um-btn-primary { background: linear-gradient(135deg, #667eea, #764ba2); color: white; box-shadow: 0 2px 8px rgba(102,126,234,.3); }
+    .um-btn-primary:hover { box-shadow: 0 4px 15px rgba(102,126,234,.45); transform: translateY(-1px); }
+    .um-btn-ghost { background: transparent; color: #6b7280; border: 1px solid #e5e7eb; }
+    .um-btn-ghost:hover { background: #f9fafb; color: #374151; }
+    .um-btn-link { background: none; border: none; color: #667eea; font-size: .8rem; font-weight: 600; cursor: pointer; padding: .2rem .5rem; border-radius: 6px; }
+    .um-btn-link:hover { background: #eef2ff; }
+    .um-btn-link-muted { color: #9ca3af; }
+    .um-btn-link-muted:hover { color: #6b7280; background: #f3f4f6; }
+
+    /* ── Tabs ─────────────────────────────── */
+    .um-tabs { display: flex; gap: .25rem; background: #f3f4f6; border-radius: 12px; padding: .3rem; margin-bottom: 1.5rem; }
+    .um-tab { flex: 1; display: flex; align-items: center; justify-content: center; gap: .5rem; padding: .65rem 1rem; border-radius: 10px; border: none; background: transparent; color: #6b7280; font-weight: 500; font-size: .85rem; cursor: pointer; transition: all .2s; }
+    .um-tab:hover { color: #374151; background: rgba(255,255,255,.5); }
+    .um-tab.active { background: white; color: #667eea; font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    .um-tab-count { background: #e5e7eb; color: #6b7280; font-size: .7rem; padding: .1rem .5rem; border-radius: 20px; font-weight: 600; }
+    .um-tab.active .um-tab-count { background: #eef2ff; color: #667eea; }
+
+    /* ── Filter Bar ───────────────────────── */
+    .um-filter-bar { display: flex; gap: .75rem; margin-bottom: 1.25rem; flex-wrap: wrap; align-items: center; }
+    .um-search-box { flex: 1; min-width: 220px; display: flex; align-items: center; gap: .6rem; background: white; border: 1.5px solid #e5e7eb; border-radius: 10px; padding: .55rem .9rem; transition: border-color .2s; }
+    .um-search-box:focus-within { border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,.1); }
+    .um-search-box i { color: #9ca3af; font-size: .9rem; }
+    .um-search-box input { border: none; outline: none; width: 100%; font-size: .85rem; color: #374151; background: transparent; }
+    .um-select { padding: .55rem .9rem; border: 1.5px solid #e5e7eb; border-radius: 10px; font-size: .85rem; color: #374151; background: white; min-width: 140px; cursor: pointer; outline: none; transition: border-color .2s; }
+    .um-select:focus { border-color: #667eea; }
+    .um-select-sm { min-width: 100px; padding: .4rem .6rem; font-size: .8rem; }
+
+    /* ── User Cards ───────────────────────── */
+    .um-user-list { display: flex; flex-direction: column; gap: .5rem; }
+    .um-user-card { display: flex; align-items: center; justify-content: space-between; background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: .85rem 1.25rem; transition: all .2s; }
+    .um-user-card:hover { border-color: #c7d2fe; box-shadow: 0 2px 12px rgba(102,126,234,.08); }
+    .um-user-card.inactive { opacity: .6; }
+    .um-user-card.locked { border-left: 3px solid #ef4444; }
+    .um-user-main { display: flex; align-items: center; gap: 1rem; flex: 1; min-width: 0; }
+    .um-avatar { width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 1rem; flex-shrink: 0; }
+    .um-avatar-admin { background: linear-gradient(135deg, #ef4444, #dc2626); }
+    .um-avatar-cashier { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+    .um-avatar-stock { background: linear-gradient(135deg, #06b6d4, #0891b2); }
+    .um-avatar-depot { background: linear-gradient(135deg, #f59e0b, #d97706); }
+    .um-avatar-default { background: linear-gradient(135deg, #6b7280, #4b5563); }
+    .um-user-info { min-width: 0; flex-shrink: 1; }
+    .um-user-name { font-weight: 600; font-size: .9rem; color: #1f2937; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .um-user-email { font-size: .78rem; color: #9ca3af; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .um-user-meta { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
+    .um-user-login { text-align: right; min-width: 90px; flex-shrink: 0; }
+    .um-login-label { display: block; font-size: .68rem; color: #9ca3af; text-transform: uppercase; letter-spacing: .5px; }
+    .um-login-time { font-size: .82rem; color: #6b7280; font-weight: 500; }
+
+    /* ── Badges ───────────────────────────── */
+    .um-badge { display: inline-flex; align-items: center; gap: .3rem; padding: .2rem .6rem; border-radius: 6px; font-size: .72rem; font-weight: 600; white-space: nowrap; }
+    .um-badge-admin { background: #fef2f2; color: #dc2626; }
+    .um-badge-cashier { background: #eff6ff; color: #2563eb; }
+    .um-badge-stockcontroller { background: #ecfeff; color: #0891b2; }
+    .um-badge-depotcontroller { background: #fffbeb; color: #d97706; }
+    .um-badge-apiuser { background: #f3f4f6; color: #4b5563; }
+    .um-badge-user { background: #f3f4f6; color: #6b7280; }
+    .um-badge-active { background: #ecfdf5; color: #059669; }
+    .um-badge-inactive { background: #f3f4f6; color: #9ca3af; }
+    .um-badge-locked { background: #fef2f2; color: #dc2626; }
+    .um-badge-2fa { background: #ecfdf5; color: #059669; }
+
+    /* ── Actions ──────────────────────────── */
+    .um-user-actions { display: flex; align-items: center; gap: .25rem; flex-shrink: 0; }
+    .um-action-btn { width: 36px; height: 36px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #6b7280; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .15s; font-size: .9rem; }
+    .um-action-btn:hover { background: #f3f4f6; color: #374151; border-color: #e5e7eb; }
+    .um-action-more { position: relative; }
+    .um-dropdown-menu { position: absolute; right: 0; top: 100%; margin-top: .35rem; background: white; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,.12); min-width: 200px; z-index: 50; padding: .4rem; overflow: hidden; }
+    .um-dropdown-item { display: flex; align-items: center; gap: .6rem; width: 100%; padding: .55rem .75rem; border: none; background: transparent; font-size: .83rem; color: #374151; cursor: pointer; border-radius: 8px; transition: background .15s; }
+    .um-dropdown-item:hover { background: #f3f4f6; }
+    .um-dropdown-danger { color: #dc2626; }
+    .um-dropdown-danger:hover { background: #fef2f2; }
+    .um-dropdown-success { color: #059669; }
+    .um-dropdown-success:hover { background: #ecfdf5; }
+
+    /* ── Pagination ───────────────────────── */
+    .um-pagination { display: flex; align-items: center; justify-content: space-between; margin-top: 1.25rem; padding: .75rem 0; }
+    .um-page-info { font-size: .82rem; color: #6b7280; }
+    .um-page-buttons { display: flex; gap: .25rem; }
+    .um-page-btn { width: 34px; height: 34px; border-radius: 8px; border: 1px solid #e5e7eb; background: white; color: #374151; font-size: .82rem; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; }
+    .um-page-btn:hover:not(:disabled) { border-color: #667eea; color: #667eea; }
+    .um-page-btn.active { background: #667eea; color: white; border-color: #667eea; }
+    .um-page-btn:disabled { opacity: .4; cursor: default; }
+
+    /* ── Stats ────────────────────────────── */
+    .um-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+    .um-stat-card { background: white; border-radius: 14px; padding: 1.5rem; border: 1px solid #e5e7eb; display: flex; flex-direction: column; align-items: center; text-align: center; }
+    .um-stat-icon { font-size: 1.8rem; margin-bottom: .5rem; }
+    .um-stat-value { font-size: 2rem; font-weight: 800; line-height: 1; }
+    .um-stat-label { font-size: .82rem; color: #6b7280; margin-top: .25rem; }
+    .um-stat-success .um-stat-icon { color: #059669; }
+    .um-stat-success .um-stat-value { color: #059669; }
+    .um-stat-warning .um-stat-icon { color: #d97706; }
+    .um-stat-warning .um-stat-value { color: #d97706; }
+    .um-stat-danger .um-stat-icon { color: #dc2626; }
+    .um-stat-danger .um-stat-value { color: #dc2626; }
+
+    /* ── Section Cards ────────────────────── */
+    .um-section-card { background: white; border: 1px solid #e5e7eb; border-radius: 14px; overflow: hidden; }
+    .um-section-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid #f3f4f6; }
+    .um-section-header h3 { font-size: 1rem; font-weight: 600; color: #1f2937; margin: 0; }
+
+    /* ── Permission Groups ────────────────── */
+    .um-perm-group { border-bottom: 1px solid #f3f4f6; }
+    .um-perm-group:last-child { border-bottom: none; }
+    .um-perm-summary { display: flex; justify-content: space-between; align-items: center; padding: .85rem 1.5rem; cursor: pointer; font-weight: 600; font-size: .88rem; color: #374151; list-style: none; }
+    .um-perm-summary::-webkit-details-marker { display: none; }
+    .um-perm-summary::before { content: '\F285'; font-family: 'bootstrap-icons'; margin-right: .6rem; font-size: .7rem; transition: transform .2s; }
+    details[open] .um-perm-summary::before { transform: rotate(90deg); }
+    .um-perm-count { background: #eef2ff; color: #667eea; font-size: .72rem; padding: .15rem .5rem; border-radius: 20px; }
+    .um-perm-list { padding: 0 1.5rem 1rem; }
+    .um-perm-item { display: grid; grid-template-columns: 160px 1fr 2fr; gap: .75rem; padding: .5rem 0; border-bottom: 1px solid #f9fafb; font-size: .82rem; align-items: center; }
+    .um-perm-item:last-child { border-bottom: none; }
+    .um-perm-code { font-family: monospace; font-size: .75rem; background: #f3f4f6; padding: .15rem .4rem; border-radius: 4px; color: #667eea; }
+    .um-perm-name { font-weight: 500; color: #374151; }
+    .um-perm-desc { color: #9ca3af; }
+
+    /* ── Role Grid ────────────────────────── */
+    .um-role-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; padding: 1.25rem 1.5rem; }
+    .um-role-card { background: #f9fafb; border-radius: 10px; padding: 1rem; border: 1px solid #f3f4f6; }
+    .um-role-name { margin-bottom: .5rem; }
+    .um-role-desc { font-size: .82rem; color: #6b7280; margin: 0; line-height: 1.5; }
+
+    /* ── Security Events ──────────────────── */
+    .um-event-list { padding: .5rem 0; }
+    .um-event-item { display: flex; align-items: center; gap: .85rem; padding: .65rem 1.5rem; border-bottom: 1px solid #f9fafb; }
+    .um-event-item:last-child { border-bottom: none; }
+    .um-event-icon { width: 32px; height: 32px; border-radius: 8px; background: #f3f4f6; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .um-event-info { flex: 1; }
+    .um-event-user { font-weight: 600; font-size: .85rem; color: #1f2937; margin-right: .4rem; }
+    .um-event-desc { font-size: .82rem; color: #6b7280; }
+    .um-event-time { font-size: .78rem; color: #9ca3af; white-space: nowrap; }
+
+    /* ── Modal ────────────────────────────── */
+    .um-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1050; padding: 1rem; }
+    .um-modal { background: white; border-radius: 16px; width: 100%; max-width: 600px; box-shadow: 0 20px 60px rgba(0,0,0,.2); overflow: hidden; }
+    .um-modal-wide { max-width: 850px; }
+    .um-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 1.5rem; border-bottom: 1px solid #f3f4f6; }
+    .um-modal-header h2 { font-size: 1.1rem; font-weight: 700; color: #1f2937; margin: 0; }
+    .um-modal-close { width: 32px; height: 32px; border-radius: 8px; border: none; background: #f3f4f6; color: #6b7280; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .15s; }
+    .um-modal-close:hover { background: #e5e7eb; color: #374151; }
+    .um-modal-body { padding: 1.5rem; }
+    .um-modal-footer { display: flex; justify-content: flex-end; gap: .75rem; padding: 1rem 1.5rem; border-top: 1px solid #f3f4f6; background: #f9fafb; }
+
+    /* ── Form ─────────────────────────────── */
+    .um-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .um-form-full { grid-column: 1 / -1; }
+    .um-form-field label { display: block; font-size: .78rem; font-weight: 600; color: #374151; margin-bottom: .3rem; text-transform: uppercase; letter-spacing: .3px; }
+    .um-form-field .required { color: #ef4444; }
+    .um-form-hint { display: block; font-size: .75rem; color: #9ca3af; margin-top: .3rem; }
+    .um-input { width: 100%; padding: .6rem .85rem; border: 1.5px solid #e5e7eb; border-radius: 10px; font-size: .85rem; color: #374151; outline: none; transition: border-color .2s; background: white; }
+    .um-input:focus { border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,.1); }
+    .um-input:disabled { background: #f9fafb; color: #9ca3af; }
+
+    /* ── Toggle ───────────────────────────── */
+    .um-toggle { display: flex; align-items: center; gap: .7rem; cursor: pointer; padding-top: .4rem; }
+    .um-toggle input { display: none; }
+    .um-toggle-slider { position: relative; width: 44px; height: 24px; background: #d1d5db; border-radius: 24px; transition: background .2s; flex-shrink: 0; }
+    .um-toggle-slider::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; background: white; border-radius: 50%; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+    .um-toggle input:checked + .um-toggle-slider { background: #667eea; }
+    .um-toggle input:checked + .um-toggle-slider::after { transform: translateX(20px); }
+    .um-toggle-label { font-size: .85rem; color: #374151; }
+
+    /* ── Permission Modal Groups ──────────── */
+    .um-perm-modal-group { border: 1px solid #e5e7eb; border-radius: 10px; margin-bottom: .75rem; overflow: hidden; }
+    .um-perm-modal-header { display: flex; justify-content: space-between; align-items: center; padding: .7rem 1rem; background: #f9fafb; border-bottom: 1px solid #f3f4f6; }
+    .um-perm-modal-actions { display: flex; gap: .5rem; }
+    .um-perm-modal-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .5rem; padding: .75rem; }
+    .um-perm-check { display: flex; align-items: flex-start; gap: .5rem; padding: .5rem .6rem; border-radius: 8px; cursor: pointer; transition: background .15s; border: 1px solid transparent; }
+    .um-perm-check:hover { background: #f9fafb; }
+    .um-perm-check.checked { background: #eef2ff; border-color: #c7d2fe; }
+    .um-perm-check input { margin-top: .15rem; accent-color: #667eea; }
+    .um-perm-check-name { display: block; font-size: .82rem; font-weight: 500; color: #374151; }
+    .um-perm-check-desc { display: block; font-size: .72rem; color: #9ca3af; }
+
+    /* ── Loading / Empty ──────────────────── */
+    .um-loading { text-align: center; padding: 4rem 1rem; }
+    .um-loading p { color: #9ca3af; margin-top: .75rem; font-size: .85rem; }
+    .um-spinner { width: 36px; height: 36px; border: 3px solid #e5e7eb; border-top-color: #667eea; border-radius: 50%; animation: um-spin .6s linear infinite; margin: 0 auto; }
+    .um-spinner-sm { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-top-color: white; border-radius: 50%; animation: um-spin .6s linear infinite; }
+    @@keyframes um-spin { to { transform: rotate(360deg); } }
+    .um-empty { text-align: center; padding: 4rem 1rem; color: #9ca3af; }
+    .um-empty i { font-size: 3rem; opacity: .4; }
+    .um-empty h3 { font-size: 1.1rem; color: #6b7280; margin: .75rem 0 .25rem; }
+    .um-empty p { font-size: .85rem; }
+
+    /* ── Toast ────────────────────────────── */
+    .um-toast { position: fixed; bottom: 1.5rem; right: 1.5rem; display: flex; align-items: center; gap: .6rem; padding: .75rem 1.25rem; border-radius: 12px; font-size: .85rem; font-weight: 500; z-index: 1200; box-shadow: 0 8px 30px rgba(0,0,0,.15); animation: um-slide-in .3s ease; }
+    .um-toast button { background: none; border: none; color: inherit; opacity: .6; cursor: pointer; font-size: 1rem; padding: 0 0 0 .5rem; }
+    .um-toast-success { background: #059669; color: white; }
+    .um-toast-error { background: #dc2626; color: white; }
+    @@keyframes um-slide-in { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    /* ── Responsive ───────────────────────── */
+    @@media (max-width: 768px) {
+        .um-header { flex-direction: column; align-items: flex-start; gap: 1rem; }
+        .um-filter-bar { flex-direction: column; }
+        .um-user-main { flex-wrap: wrap; }
+        .um-user-meta { order: 3; width: 100%; margin-top: .5rem; }
+        .um-user-login { order: 2; }
+        .um-stats-grid { grid-template-columns: 1fr; }
+        .um-form-grid { grid-template-columns: 1fr; }
+        .um-perm-item { grid-template-columns: 1fr; }
+        .um-pagination { flex-direction: column; gap: .75rem; }
+    }
+</style>
 
 @code {
     private List<UserDisplayModel> users = new();
@@ -675,17 +751,26 @@
     private string toastMessage = string.Empty;
     private bool toastIsError = false;
 
-    // Helper for role chip color
-    private Color GetRoleChipColor(string role) => role switch
-    {
-        "Admin" => Color.Error,
-        "Cashier" => Color.Primary,
-        "StockController" => Color.Info,
-        "DepotController" => Color.Warning,
-        _ => Color.Default
-    };
+    // Action menu state
+    private Guid? openMenuUserId = null;
 
     private void SetTab(string tab) => activeTab = tab;
+
+    private void ToggleActionMenu(Guid userId)
+    {
+        openMenuUserId = openMenuUserId == userId ? null : userId;
+    }
+
+    private void CloseActionMenu() => openMenuUserId = null;
+
+    private string GetAvatarClass(UserDisplayModel user) => user.Role switch
+    {
+        "Admin" => "um-avatar-admin",
+        "Cashier" => "um-avatar-cashier",
+        "StockController" => "um-avatar-stock",
+        "DepotController" => "um-avatar-depot",
+        _ => "um-avatar-default"
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -992,6 +1077,29 @@
         }
     }
 
+    private async Task ActivateUser(UserDisplayModel user)
+    {
+        try
+        {
+            var form = new UserFormModel
+            {
+                Username = user.Username,
+                Email = user.Email ?? "",
+                Role = user.Role,
+                IsActive = true,
+                AssignedWarehouseCode = user.AssignedWarehouseCode
+            };
+            await UserService.UpdateUserAsync(user.Id, form);
+            ShowToast($"User {user.Username} activated successfully");
+            await LoadUsers();
+            await AuditService.LogAsync("ActivateUser", "User", user.Username);
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, true);
+        }
+    }
+
     private void ShowToast(string message, bool isError = false)
     {
         toastMessage = message;
@@ -1008,11 +1116,11 @@
 
     private string GetRoleBadgeClass(string role) => role switch
     {
-        "Admin" => "bg-danger",
-        "Cashier" => "bg-primary",
-        "StockController" => "bg-success",
-        "DepotController" => "bg-warning",
-        _ => "bg-info"
+        "Admin" => "um-badge-admin",
+        "Cashier" => "um-badge-cashier",
+        "StockController" => "um-badge-stockcontroller",
+        "DepotController" => "um-badge-depotcontroller",
+        _ => "um-badge-user"
     };
 
     private string GetSecurityEventIcon(string eventType) => eventType switch
