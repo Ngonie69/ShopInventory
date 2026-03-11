@@ -1,5 +1,6 @@
 @page "/inventory-transfer/create"
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @attribute [Authorize(Roles = "Admin,StockController,DepotController")]
 @inject IInventoryTransferService TransferService
 @inject IMasterDataCacheService CacheService
@@ -7,6 +8,7 @@
 @inject NavigationManager NavigationManager
 @inject ILogger<CreateInventoryTransfer> Logger
 @inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthStateProvider
 @rendermode InteractiveServer
 
 <PageTitle>Create Inventory Transfer - Shop Inventory</PageTitle>
@@ -22,14 +24,17 @@
     .page-header {
         margin-bottom: 1.5rem;
     }
+
     .page-header h2 {
         font-weight: 700;
         color: #1a1a2e;
     }
+
     .breadcrumb-nav {
         font-size: 0.85rem;
         color: #6c757d;
     }
+
     .breadcrumb-nav a {
         color: #0d6efd;
         text-decoration: none;
@@ -43,8 +48,9 @@
         background: #fff;
         border-radius: 12px;
         overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0,0,0,.06);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .06);
     }
+
     .step-item {
         flex: 1;
         display: flex;
@@ -58,16 +64,19 @@
         border-bottom: 3px solid transparent;
         transition: all .25s;
     }
+
     .step-item.active {
         color: #0d6efd;
         border-bottom-color: #0d6efd;
         background: #f0f6ff;
     }
+
     .step-item.completed {
         color: #059669;
         border-bottom-color: #059669;
         background: #f0fdf4;
     }
+
     .step-number {
         width: 28px;
         height: 28px;
@@ -82,10 +91,12 @@
         flex-shrink: 0;
         transition: all .25s;
     }
+
     .step-item.active .step-number {
         background: #0d6efd;
         color: #fff;
     }
+
     .step-item.completed .step-number {
         background: #059669;
         color: #fff;
@@ -95,15 +106,17 @@
     .section-card {
         background: #fff;
         border-radius: 12px;
-        box-shadow: 0 1px 6px rgba(0,0,0,.06);
+        box-shadow: 0 1px 6px rgba(0, 0, 0, .06);
         border: 1px solid #e5e7eb;
         margin-bottom: 1.25rem;
         overflow: hidden;
         transition: box-shadow .2s;
     }
+
     .section-card:hover {
-        box-shadow: 0 4px 16px rgba(0,0,0,.08);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, .08);
     }
+
     .section-card .card-header {
         background: #fff;
         border-bottom: 1px solid #f0f0f0;
@@ -112,12 +125,14 @@
         align-items: center;
         justify-content: space-between;
     }
+
     .section-card .card-header h5 {
         margin: 0;
         font-weight: 600;
         font-size: 1rem;
         color: #1a1a2e;
     }
+
     .section-card .card-header .header-icon {
         width: 32px;
         height: 32px;
@@ -127,10 +142,26 @@
         justify-content: center;
         font-size: 0.9rem;
     }
-    .header-icon.blue   { background: #dbeafe; color: #2563eb; }
-    .header-icon.green  { background: #d1fae5; color: #059669; }
-    .header-icon.amber  { background: #fef3c7; color: #d97706; }
-    .header-icon.purple { background: #ede9fe; color: #7c3aed; }
+
+    .header-icon.blue {
+        background: #dbeafe;
+        color: #2563eb;
+    }
+
+    .header-icon.green {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+    .header-icon.amber {
+        background: #fef3c7;
+        color: #d97706;
+    }
+
+    .header-icon.purple {
+        background: #ede9fe;
+        color: #7c3aed;
+    }
 
     .section-card .card-body {
         padding: 1.25rem;
@@ -143,6 +174,7 @@
         gap: 1rem;
         padding: 0.75rem 0;
     }
+
     .warehouse-box {
         flex: 1;
         background: #f8fafc;
@@ -156,15 +188,18 @@
         flex-direction: column;
         justify-content: center;
     }
+
     .warehouse-box.filled {
         border-style: solid;
         border-color: #0d6efd;
         background: #f0f6ff;
     }
+
     .warehouse-box.filled.destination {
         border-color: #059669;
         background: #f0fdf4;
     }
+
     .warehouse-box .wh-label {
         font-size: 0.75rem;
         font-weight: 600;
@@ -173,15 +208,18 @@
         color: #6b7280;
         margin-bottom: 0.5rem;
     }
+
     .warehouse-box .wh-code {
         font-size: 1.15rem;
         font-weight: 700;
         color: #1a1a2e;
     }
+
     .warehouse-box .wh-name {
         font-size: 0.8rem;
         color: #6b7280;
     }
+
     .transfer-arrow {
         display: flex;
         flex-direction: column;
@@ -190,10 +228,12 @@
         color: #9ca3af;
         flex-shrink: 0;
     }
+
     .transfer-arrow i {
         font-size: 1.5rem;
         color: #0d6efd;
     }
+
     .transfer-arrow span {
         font-size: 0.7rem;
         font-weight: 600;
@@ -211,20 +251,24 @@
         transition: all .2s;
         position: relative;
     }
+
     .line-item-card:hover {
         border-color: #93c5fd;
-        box-shadow: 0 2px 8px rgba(59,130,246,.08);
+        box-shadow: 0 2px 8px rgba(59, 130, 246, .08);
     }
+
     .line-item-card.has-product {
         border-left: 3px solid #0d6efd;
         background: #fff;
     }
+
     .line-item-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: 0.75rem;
     }
+
     .line-badge {
         background: #e5e7eb;
         color: #4b5563;
@@ -233,10 +277,12 @@
         font-size: 0.75rem;
         font-weight: 600;
     }
+
     .line-item-card.has-product .line-badge {
         background: #dbeafe;
         color: #2563eb;
     }
+
     .btn-remove-line {
         color: #9ca3af;
         border: none;
@@ -247,14 +293,17 @@
         cursor: pointer;
         font-size: 1rem;
     }
+
     .btn-remove-line:hover:not(:disabled) {
         background: #fee2e2;
         color: #dc2626;
     }
+
     .btn-remove-line:disabled {
         opacity: 0.3;
         cursor: not-allowed;
     }
+
     .product-preview {
         display: flex;
         align-items: center;
@@ -264,6 +313,7 @@
         border-radius: 8px;
         margin-top: 0.5rem;
     }
+
     .product-preview .product-icon {
         width: 36px;
         height: 36px;
@@ -276,10 +326,12 @@
         font-size: 0.9rem;
         flex-shrink: 0;
     }
+
     .product-preview .product-info {
         flex: 1;
         min-width: 0;
     }
+
     .product-preview .product-name {
         font-weight: 600;
         font-size: 0.85rem;
@@ -288,14 +340,17 @@
         overflow: hidden;
         text-overflow: ellipsis;
     }
+
     .product-preview .product-stock {
         font-size: 0.75rem;
         color: #6b7280;
     }
+
     .product-preview .product-stock .in-stock {
         color: #059669;
         font-weight: 600;
     }
+
     .product-preview .product-stock .low-stock {
         color: #d97706;
         font-weight: 600;
@@ -312,6 +367,7 @@
         font-weight: 500;
         cursor: pointer;
     }
+
     .btn-add-item:hover {
         border-color: #93c5fd;
         color: #2563eb;
@@ -323,6 +379,7 @@
         position: sticky;
         top: 1.5rem;
     }
+
     .summary-stat {
         display: flex;
         justify-content: space-between;
@@ -331,21 +388,26 @@
         border-bottom: 1px solid #f3f4f6;
         font-size: 0.88rem;
     }
+
     .summary-stat:last-child {
         border-bottom: none;
     }
+
     .summary-stat .stat-label {
         color: #6b7280;
     }
+
     .summary-stat .stat-value {
         font-weight: 600;
         color: #1a1a2e;
     }
+
     .validation-checklist {
         list-style: none;
         padding: 0;
         margin: 0;
     }
+
     .validation-checklist li {
         display: flex;
         align-items: center;
@@ -353,6 +415,7 @@
         padding: 0.35rem 0;
         font-size: 0.82rem;
     }
+
     .validation-checklist .check-icon {
         width: 18px;
         height: 18px;
@@ -363,10 +426,12 @@
         font-size: 0.65rem;
         flex-shrink: 0;
     }
+
     .check-icon.pass {
         background: #d1fae5;
         color: #059669;
     }
+
     .check-icon.fail {
         background: #fee2e2;
         color: #dc2626;
@@ -383,19 +448,22 @@
         font-size: 0.95rem;
         width: 100%;
         transition: all .25s;
-        box-shadow: 0 2px 8px rgba(37,99,235,.25);
+        box-shadow: 0 2px 8px rgba(37, 99, 235, .25);
     }
+
     .btn-execute:hover:not(:disabled) {
         transform: translateY(-1px);
-        box-shadow: 0 4px 16px rgba(37,99,235,.35);
+        box-shadow: 0 4px 16px rgba(37, 99, 235, .35);
         background: linear-gradient(135deg, #1d4ed8, #2563eb);
     }
+
     .btn-execute:disabled {
         opacity: 0.5;
         cursor: not-allowed;
         transform: none;
         box-shadow: none;
     }
+
     .btn-execute:active:not(:disabled) {
         transform: translateY(0);
     }
@@ -411,28 +479,34 @@
         font-size: 0.88rem;
         animation: slideDown .3s ease;
     }
+
     .alert-banner.error {
         background: #fef2f2;
         border: 1px solid #fecaca;
         color: #991b1b;
     }
+
     .alert-banner.success {
         background: #f0fdf4;
         border: 1px solid #bbf7d0;
         color: #166534;
     }
+
     .alert-banner .alert-icon {
         font-size: 1.1rem;
         flex-shrink: 0;
         margin-top: 1px;
     }
+
     .alert-banner .alert-body {
         flex: 1;
     }
+
     .alert-banner .alert-title {
         font-weight: 600;
         margin-bottom: 0.15rem;
     }
+
     .alert-banner .alert-close {
         background: none;
         border: none;
@@ -442,13 +516,21 @@
         padding: 0.25rem;
         font-size: 1rem;
     }
+
     .alert-banner .alert-close:hover {
         opacity: 1;
     }
 
     @@keyframes slideDown {
-        from { opacity: 0; transform: translateY(-8px); }
-        to   { opacity: 1; transform: translateY(0); }
+        from {
+            opacity: 0;
+            transform: translateY(-8px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
     }
 
     /* ── Info hint ────────────────────────────────────── */
@@ -466,9 +548,17 @@
 
     /* ── Responsive ──────────────────────────────────── */
     @@media (max-width: 768px) {
-        .warehouse-visual { flex-direction: column; }
-        .transfer-arrow { transform: rotate(90deg); }
-        .step-item span.step-text { display: none; }
+        .warehouse-visual {
+            flex-direction: column;
+        }
+
+        .transfer-arrow {
+            transform: rotate(90deg);
+        }
+
+        .step-item span.step-text {
+            display: none;
+        }
     }
 </style>
 
@@ -499,7 +589,8 @@
                     <div class="alert-title">Transfer Failed</div>
                     <div>@errorMessage</div>
                 </div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => errorMessage = null" Size="Size.Small" Class="alert-close" />
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => errorMessage = null" Size="Size.Small"
+                               Class="alert-close" />
             </div>
         }
         @if (!string.IsNullOrEmpty(successMessage))
@@ -510,7 +601,8 @@
                     <div class="alert-title">Success</div>
                     <div>@successMessage</div>
                 </div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => successMessage = null" Size="Size.Small" Class="alert-close" />
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => successMessage = null" Size="Size.Small"
+                               Class="alert-close" />
             </div>
         }
 
@@ -542,415 +634,435 @@
                             <h5>Warehouse Selection</h5>
                         </div>
                         @if (selectedFromWarehouse != null && selectedToWarehouse != null
-                            && selectedFromWarehouse.WarehouseCode != selectedToWarehouse?.WarehouseCode)
+                                                && selectedFromWarehouse.WarehouseCode != selectedToWarehouse?.WarehouseCode)
                         {
-                            <span class="badge bg-success-subtle text-success"><i class="bi bi-check-lg me-1"></i>Complete</span>
-                        }
-                    </div>
-                    <div class="card-body">
-                        @if (isLoadingWarehouses)
-                        {
-                            <div class="text-center py-4">
-                                <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
-                                <span class="text-muted">Loading warehouses…</span>
-                            </div>
-                        }
-                        else
-                        {
-                            <!-- Visual warehouse display -->
-                            <div class="warehouse-visual mb-3">
-                                <div class="warehouse-box @(selectedFromWarehouse != null ? "filled" : "")">
-                                    <div class="wh-label"><i class="bi bi-box-arrow-right me-1"></i>Source</div>
-                                    @if (selectedFromWarehouse != null)
-                                    {
-                                        <div class="wh-code">@selectedFromWarehouse.WarehouseCode</div>
-                                        <div class="wh-name">@selectedFromWarehouse.WarehouseName</div>
-                                    }
-                                    else
-                                    {
-                                        <div class="text-muted small">Not selected</div>
-                                    }
-                                </div>
-                                <div class="transfer-arrow">
-                                    <i class="bi bi-arrow-right-circle-fill"></i>
-                                    <span>Transfer</span>
-                                </div>
-                                <div class="warehouse-box @(selectedToWarehouse != null ? "filled destination" : "")">
-                                    <div class="wh-label"><i class="bi bi-box-arrow-in-right me-1"></i>Destination</div>
-                                    @if (selectedToWarehouse != null)
-                                    {
-                                        <div class="wh-code">@selectedToWarehouse.WarehouseCode</div>
-                                        <div class="wh-name">@selectedToWarehouse.WarehouseName</div>
-                                    }
-                                    else
-                                    {
-                                        <div class="text-muted small">Not selected</div>
-                                    }
-                                </div>
-                            </div>
-
-                            @if (selectedFromWarehouse != null && selectedToWarehouse != null
-                                && selectedFromWarehouse.WarehouseCode == selectedToWarehouse.WarehouseCode)
-                            {
-                                <div class="info-hint mb-3" style="background:#fef2f2; border-color:#fecaca; color:#991b1b;">
-                                    <i class="bi bi-exclamation-triangle-fill"></i>
-                                    <span>Source and destination warehouse cannot be the same.</span>
-                                </div>
+                            <span class="badge bg-success-subtle text-success"><i
+                                class="bi bi-check-lg me-1"></i>Complete</span>
                             }
-
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold small">From Warehouse <span class="text-danger">*</span></label>
-                                    <MudAutocomplete T="WarehouseDto" Value="selectedFromWarehouse"
-                                                     ValueChanged="OnFromWarehouseChanged"
-                                                     Label="Search source warehouse…"
-                                                     SearchFunc="SearchWarehousesAsync"
-                                                     ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
-                                                     Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                     ResetValueOnEmptyText="true" ShowProgressIndicator="true"
-                                                     MaxItems="20" DebounceInterval="150" Class="mt-0">
-                                        <ItemTemplate>
-                                            <div class="d-flex flex-column py-1">
-                                                <span class="fw-semibold">@context.WarehouseCode</span>
-                                                <small class="text-muted">@context.WarehouseName</small>
-                                            </div>
-                                        </ItemTemplate>
-                                    </MudAutocomplete>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold small">To Warehouse <span class="text-danger">*</span></label>
-                                    <MudAutocomplete T="WarehouseDto" @bind-Value="selectedToWarehouse"
-                                                     Label="Search destination warehouse…"
-                                                     SearchFunc="SearchWarehousesAsync"
-                                                     ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
-                                                     Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                     ResetValueOnEmptyText="true" ShowProgressIndicator="true"
-                                                     MaxItems="20" DebounceInterval="150" Class="mt-0">
-                                        <ItemTemplate>
-                                            <div class="d-flex flex-column py-1">
-                                                <span class="fw-semibold">@context.WarehouseCode</span>
-                                                <small class="text-muted">@context.WarehouseName</small>
-                                            </div>
-                                        </ItemTemplate>
-                                    </MudAutocomplete>
-                                </div>
-                            </div>
-
-                            <!-- Reason for Transfer -->
-                            <div class="mt-3">
-                                <label class="form-label fw-semibold small">Reason for Transfer <span class="text-danger">*</span></label>
-                                <textarea class="form-control form-control-sm" rows="2" @bind="transferReason"
-                                          placeholder="e.g. Stock replenishment, customer order fulfilment, warehouse rebalancing…"></textarea>
-                            </div>
-                        }
-                    </div>
-                </div>
-
-                <!-- Document Details (Collapsible) -->
-                <div class="section-card">
-                    <div class="card-header" role="button" @onclick="() => showDocDetails = !showDocDetails" style="cursor:pointer;">
-                        <div class="d-flex align-items-center gap-2">
-                            <div class="header-icon purple"><i class="bi bi-calendar-event"></i></div>
-                            <h5>Document Details</h5>
                         </div>
-                        <i class="bi @(showDocDetails ? "bi-chevron-up" : "bi-chevron-down") text-muted"></i>
-                    </div>
-                    @if (showDocDetails)
-                    {
                         <div class="card-body">
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold small">Document Date</label>
-                                    <MudDatePicker @bind-Date="docDate" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd.MM.yyyy" Editable="true" />
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label fw-semibold small">Due Date</label>
-                                    <MudDatePicker @bind-Date="dueDate" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd.MM.yyyy" Editable="true" />
-                                </div>
-                                <div class="col-12">
-                                    <label class="form-label fw-semibold small">Comments / Notes</label>
-                                    <textarea class="form-control form-control-sm" rows="2" @bind="comments"
-                                              placeholder="Optional notes for this transfer…"></textarea>
-                                </div>
-                            </div>
-                        </div>
-                    }
-                </div>
-
-                <!-- Line Items Card -->
-                <div class="section-card">
-                    <div class="card-header">
-                        <div class="d-flex align-items-center gap-2">
-                            <div class="header-icon green"><i class="bi bi-list-check"></i></div>
-                            <h5>Transfer Items</h5>
-                        </div>
-                        <div class="d-flex align-items-center gap-2">
-                            @if (isLoadingStock)
+                            @if (isLoadingWarehouses)
                             {
-                                <span class="badge bg-warning-subtle text-warning">
-                                    <span class="spinner-border spinner-border-sm me-1" style="width:0.65rem;height:0.65rem;"></span>
-                                    Updating stock…
-                                </span>
+                                <div class="text-center py-4">
+                                    <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                                    <span class="text-muted">Loading warehouses…</span>
+                                </div>
                             }
-                            <span class="badge bg-primary-subtle text-primary">@lines.Count item(s)</span>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        @if (isLoadingProducts)
-                        {
-                            <div class="text-center py-4">
-                                <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
-                                <span class="text-muted">Loading products…</span>
-                            </div>
-                        }
-                        else
-                        {
-                            @foreach (var line in lines)
+                            else
                             {
-                                var currentLine = line;
-                                var index = lines.IndexOf(currentLine);
-                                <div @key="currentLine.Id" class="line-item-card @(currentLine.SelectedProduct != null ? "has-product" : "")">
-                                    <div class="line-item-header">
-                                        <span class="line-badge">Item @(index + 1)</span>
-                                        <MudIconButton Icon="@Icons.Material.Filled.Delete" OnClick="() => RemoveLine(currentLine)"
-                                                Disabled="@(lines.Count <= 1)" title="Remove item" Size="Size.Small" Class="btn-remove-line" />
+                                <!-- Visual warehouse display -->
+                                <div class="warehouse-visual mb-3">
+                                    <div class="warehouse-box @(selectedFromWarehouse != null ? "filled" : "")">
+                                        <div class="wh-label"><i class="bi bi-box-arrow-right me-1"></i>Source</div>
+                                        @if (selectedFromWarehouse != null)
+                                        {
+                                            <div class="wh-code">@selectedFromWarehouse.WarehouseCode</div>
+                                            <div class="wh-name">@selectedFromWarehouse.WarehouseName</div>
+                                        }
+                                        else
+                                        {
+                                            <div class="text-muted small">Not selected</div>
+                                        }
                                     </div>
+                                    <div class="transfer-arrow">
+                                        <i class="bi bi-arrow-right-circle-fill"></i>
+                                        <span>Transfer</span>
+                                    </div>
+                                    <div class="warehouse-box @(selectedToWarehouse != null ? "filled destination" : "")">
+                                        <div class="wh-label"><i class="bi bi-box-arrow-in-right me-1"></i>Destination</div>
+                                        @if (selectedToWarehouse != null)
+                                        {
+                                            <div class="wh-code">@selectedToWarehouse.WarehouseCode</div>
+                                            <div class="wh-name">@selectedToWarehouse.WarehouseName</div>
+                                        }
+                                        else
+                                        {
+                                            <div class="text-muted small">Not selected</div>
+                                        }
+                                    </div>
+                                </div>
 
-                                    <div class="row g-3 align-items-end">
-                                        <div class="col-md-8">
-                                            <label class="form-label small text-muted mb-1">Product <span class="text-danger">*</span></label>
-                                            <MudAutocomplete T="ProductDto" Value="currentLine.SelectedProduct"
-                                                             ValueChanged="(p) => OnProductSelected(currentLine, p)"
-                                                             Label="Search by code or name…"
-                                                             SearchFunc="SearchProductsAsync"
-                                                             ToStringFunc="@(p => p == null ? string.Empty : $"{p.ItemCode} - {p.ItemName}")"
+                                @if (selectedFromWarehouse != null && selectedToWarehouse != null
+                                                        && selectedFromWarehouse.WarehouseCode == selectedToWarehouse.WarehouseCode)
+                                {
+                                    <div class="info-hint mb-3" style="background:#fef2f2; border-color:#fecaca; color:#991b1b;">
+                                        <i class="bi bi-exclamation-triangle-fill"></i>
+                                        <span>Source and destination warehouse cannot be the same.</span>
+                                    </div>
+                                }
+
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label fw-semibold small">From Warehouse <span
+                                            class="text-danger">*</span></label>
+                                            <MudAutocomplete T="WarehouseDto" Value="selectedFromWarehouse"
+                                                             ValueChanged="OnFromWarehouseChanged" Label="Search source warehouse…"
+                                                             SearchFunc="SearchWarehousesAsync"
+                                                             ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
                                                              Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                             ResetValueOnEmptyText="true" ShowProgressIndicator="true"
-                                                             MaxItems="20" DebounceInterval="150">
+                                                             ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
+                                                             DebounceInterval="150" Class="mt-0">
                                                 <ItemTemplate>
-                                                    <div class="d-flex justify-content-between align-items-center py-1 w-100">
-                                                        <div class="d-flex flex-column">
-                                                            <span class="fw-semibold" style="font-size:0.88rem;">@context.ItemCode</span>
-                                                            <small class="text-muted">@context.ItemName</small>
-                                                        </div>
-                                                        @if (context.QuantityInStock > 0)
-                                                        {
-                                                            <span class="badge bg-success-subtle text-success ms-2" style="font-size:0.7rem;">
-                                                                @context.QuantityInStock.ToString("N0") in stock
-                                                            </span>
-                                                        }
-                                                        else
-                                                        {
-                                                            <span class="badge bg-danger-subtle text-danger ms-2" style="font-size:0.7rem;">
-                                                                No stock
-                                                            </span>
-                                                        }
+                                                    <div class="d-flex flex-column py-1">
+                                                        <span class="fw-semibold">@context.WarehouseCode</span>
+                                                        <small class="text-muted">@context.WarehouseName</small>
                                                     </div>
                                                 </ItemTemplate>
                                             </MudAutocomplete>
                                         </div>
-                                        <div class="col-md-4">
-                                            <label class="form-label small text-muted mb-1">Quantity <span class="text-danger">*</span></label>
-                                            <input type="number" class="form-control form-control-sm"
-                                                   value="@currentLine.Quantity"
-                                                   @oninput="(e) => OnQuantityChanged(currentLine, e)"
-                                                   min="0.01" step="0.01" placeholder="0.00"
-                                                   style="font-weight:600;" />
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-semibold small">To Warehouse <span
+                                                class="text-danger">*</span></label>
+                                                <MudAutocomplete T="WarehouseDto" @bind-Value="selectedToWarehouse"
+                                                                 Label="Search destination warehouse…" SearchFunc="SearchWarehousesAsync"
+                                                                 ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
+                                                                 Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                                 ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
+                                                                 DebounceInterval="150" Class="mt-0">
+                                                    <ItemTemplate>
+                                                        <div class="d-flex flex-column py-1">
+                                                            <span class="fw-semibold">@context.WarehouseCode</span>
+                                                            <small class="text-muted">@context.WarehouseName</small>
+                                                        </div>
+                                                    </ItemTemplate>
+                                                </MudAutocomplete>
+                                            </div>
                                         </div>
-                                    </div>
 
-                                    @if (currentLine.SelectedProduct != null)
+                                        <!-- Reason for Transfer -->
+                                        <div class="mt-3">
+                                            <label class="form-label fw-semibold small">Reason for Transfer <span
+                                                class="text-danger">*</span></label>
+                                                <textarea class="form-control form-control-sm" rows="2" @bind="transferReason"
+                                                          placeholder="e.g. Stock replenishment, customer order fulfilment, warehouse rebalancing…"></textarea>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+
+                                <!-- Document Details (Collapsible) -->
+                                <div class="section-card">
+                                    <div class="card-header" role="button" @onclick="() => showDocDetails = !showDocDetails"
+                                         style="cursor:pointer;">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="header-icon purple"><i class="bi bi-calendar-event"></i></div>
+                                            <h5>Document Details</h5>
+                                        </div>
+                                        <i class="bi @(showDocDetails ? "bi-chevron-up" : "bi-chevron-down") text-muted"></i>
+                                    </div>
+                                    @if (showDocDetails)
                                     {
-                                        <div class="product-preview">
-                                            <div class="product-icon"><i class="bi bi-box-seam"></i></div>
-                                            <div class="product-info">
-                                                <div class="product-name">@currentLine.SelectedProduct.ItemName</div>
-                                                <div class="product-stock">
-                                                    In Stock:
-                                                    @if (currentLine.SelectedProduct.QuantityInStock > 0)
-                                                    {
-                                                        <span class="@(currentLine.Quantity > currentLine.SelectedProduct.QuantityInStock ? "low-stock" : "in-stock")">
-                                                            @currentLine.SelectedProduct.QuantityInStock.ToString("N0")
-                                                        </span>
-                                                        @if (currentLine.Quantity > 0 && currentLine.Quantity > currentLine.SelectedProduct.QuantityInStock)
-                                                        {
-                                                            <span class="text-danger ms-2">
-                                                                <i class="bi bi-exclamation-triangle-fill"></i> Exceeds stock
-                                                            </span>
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-                                                        <span class="text-danger fw-semibold">0 (No stock)</span>
-                                                    }
-                                                    @if (!string.IsNullOrEmpty(currentLine.SelectedProduct.UoM))
-                                                    {
-                                                        <span class="text-muted ms-2">@currentLine.SelectedProduct.UoM</span>
-                                                    }
+                                        <div class="card-body">
+                                            <div class="row g-3">
+                                                <div class="col-md-6">
+                                                    <label class="form-label fw-semibold small">Document Date</label>
+                                                    <MudDatePicker @bind-Date="docDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                                   DateFormat="dd.MM.yyyy" Editable="true" />
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label fw-semibold small">Due Date</label>
+                                                    <MudDatePicker @bind-Date="dueDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                                   DateFormat="dd.MM.yyyy" Editable="true" />
+                                                </div>
+                                                <div class="col-12">
+                                                    <label class="form-label fw-semibold small">Comments / Notes</label>
+                                                    <textarea class="form-control form-control-sm" rows="2" @bind="comments"
+                                                              placeholder="Optional notes for this transfer…"></textarea>
                                                 </div>
                                             </div>
                                         </div>
                                     }
                                 </div>
-                            }
 
-                            <MudButton Class="btn-add-item" OnClick="AddLine">
-                                <i class="bi bi-plus-circle me-2"></i>Add Another Item
-                            </MudButton>
-                        }
-                    </div>
-                </div>
-            </div>
+                                <!-- Line Items Card -->
+                                <div class="section-card">
+                                    <div class="card-header">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="header-icon green"><i class="bi bi-list-check"></i></div>
+                                            <h5>Transfer Items</h5>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            @if (isLoadingStock)
+                                            {
+                                                <span class="badge bg-warning-subtle text-warning">
+                                                    <span class="spinner-border spinner-border-sm me-1"
+                                                          style="width:0.65rem;height:0.65rem;"></span>
+                                                    Updating stock…
+                                                </span>
+                                            }
+                                            <span class="badge bg-primary-subtle text-primary">@lines.Count item(s)</span>
+                                        </div>
+                                    </div>
+                                    <div class="card-body">
+                                        @if (isLoadingProducts)
+                                        {
+                                            <div class="text-center py-4">
+                                                <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                                                <span class="text-muted">Loading products…</span>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var line in lines)
+                                            {
+                                                var currentLine = line;
+                                                var index = lines.IndexOf(currentLine);
+                                                <div @key="currentLine.Id"
+                                                     class="line-item-card @(currentLine.SelectedProduct != null ? "has-product" : "")">
+                                                    <div class="line-item-header">
+                                                        <span class="line-badge">Item @(index + 1)</span>
+                                                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                                       OnClick="() => RemoveLine(currentLine)" Disabled="@(lines.Count <= 1)"
+                                                                       title="Remove item" Size="Size.Small" Class="btn-remove-line" />
+                                                    </div>
 
-            <!-- Sidebar -->
-            <div class="col-lg-4">
-                <div class="summary-section">
+                                                    <div class="row g-3 align-items-end">
+                                                        <div class="col-md-8">
+                                                            <label class="form-label small text-muted mb-1">Product <span
+                                                                class="text-danger">*</span></label>
+                                                                <MudAutocomplete T="ProductDto" Value="currentLine.SelectedProduct"
+                                                                                 ValueChanged="(p) => OnProductSelected(currentLine, p)"
+                                                                                 Label="Search by code or name…" SearchFunc="SearchProductsAsync"
+                                                                                 ToStringFunc="@(p => p == null ? string.Empty : $"{p.ItemCode} - {p.ItemName}")"
+                                                                                 Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                                                 ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
+                                                                                 DebounceInterval="150">
+                                                                    <ItemTemplate>
+                                                                        <div class="d-flex justify-content-between align-items-center py-1 w-100">
+                                                                            <div class="d-flex flex-column">
+                                                                                <span class="fw-semibold"
+                                                                                      style="font-size:0.88rem;">@context.ItemCode</span>
+                                                                                <small class="text-muted">@context.ItemName</small>
+                                                                            </div>
+                                                                            @if (context.QuantityInStock > 0)
+                                                                            {
+                                                                                <span class="badge bg-success-subtle text-success ms-2"
+                                                                                      style="font-size:0.7rem;">
+                                                                                    @context.QuantityInStock.ToString("N0") in stock
+                                                                                </span>
+                                                                            }
+                                                                            else
+                                                                            {
+                                                                                <span class="badge bg-danger-subtle text-danger ms-2"
+                                                                                      style="font-size:0.7rem;">
+                                                                                    No stock
+                                                                                </span>
+                                                                            }
+                                                                        </div>
+                                                                    </ItemTemplate>
+                                                                </MudAutocomplete>
+                                                            </div>
+                                                            <div class="col-md-4">
+                                                                <label class="form-label small text-muted mb-1">Quantity <span
+                                                                    class="text-danger">*</span></label>
+                                                                    <input type="number" class="form-control form-control-sm"
+                                                                           value="@currentLine.Quantity"
+                                                                           @oninput="(e) => OnQuantityChanged(currentLine, e)" min="0.01" step="0.01"
+                                                                           placeholder="0.00" style="font-weight:600;" />
+                                                                </div>
+                                                            </div>
 
-                    <!-- Validation Checklist -->
-                    <div class="section-card">
-                        <div class="card-header">
-                            <div class="d-flex align-items-center gap-2">
-                                <div class="header-icon amber"><i class="bi bi-shield-check"></i></div>
-                                <h5>Validation</h5>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <ul class="validation-checklist">
-                                <li>
-                                    <div class="check-icon @(selectedFromWarehouse != null ? "pass" : "fail")">
-                                        <i class="bi @(selectedFromWarehouse != null ? "bi-check" : "bi-x")"></i>
-                                    </div>
-                                    <span>Source warehouse selected</span>
-                                </li>
-                                <li>
-                                    <div class="check-icon @(selectedToWarehouse != null ? "pass" : "fail")">
-                                        <i class="bi @(selectedToWarehouse != null ? "bi-check" : "bi-x")"></i>
-                                    </div>
-                                    <span>Destination warehouse selected</span>
-                                </li>
-                                <li>
-                                    @{
-                                        var warehousesDifferent = selectedFromWarehouse != null && selectedToWarehouse != null
-                                            && selectedFromWarehouse.WarehouseCode != selectedToWarehouse.WarehouseCode;
-                                        var warehouseCheckNA = selectedFromWarehouse == null || selectedToWarehouse == null;
-                                    }
-                                    <div class="check-icon @(warehouseCheckNA ? "fail" : (warehousesDifferent ? "pass" : "fail"))">
-                                        <i class="bi @(warehouseCheckNA ? "bi-dash" : (warehousesDifferent ? "bi-check" : "bi-x"))"></i>
-                                    </div>
-                                    <span>Warehouses are different</span>
-                                </li>
-                                <li>
-                                    <div class="check-icon @(AllLinesHaveProduct() ? "pass" : "fail")">
-                                        <i class="bi @(AllLinesHaveProduct() ? "bi-check" : "bi-x")"></i>
-                                    </div>
-                                    <span>All items have products</span>
-                                </li>
-                                <li>
-                                    <div class="check-icon @(AllLinesHaveValidQuantity() ? "pass" : "fail")">
-                                        <i class="bi @(AllLinesHaveValidQuantity() ? "bi-check" : "bi-x")"></i>
-                                    </div>
-                                    <span>All quantities are valid</span>
-                                </li>
-                                <li>
-                                    <div class="check-icon @(!string.IsNullOrWhiteSpace(transferReason) ? "pass" : "fail")">
-                                        <i class="bi @(!string.IsNullOrWhiteSpace(transferReason) ? "bi-check" : "bi-x")"></i>
-                                    </div>
-                                    <span>Reason for transfer provided</span>
-                                </li>
-                            </ul>
-                        </div>
-                    </div>
+                                                            @if (currentLine.SelectedProduct != null)
+                                                            {
+                                                                <div class="product-preview">
+                                                                    <div class="product-icon"><i class="bi bi-box-seam"></i></div>
+                                                                    <div class="product-info">
+                                                                        <div class="product-name">@currentLine.SelectedProduct.ItemName</div>
+                                                                        <div class="product-stock">
+                                                                            In Stock:
+                                                                            @if (currentLine.SelectedProduct.QuantityInStock > 0)
+                                                                            {
+                                                                                <span
+                                                                                    class="@(currentLine.Quantity > currentLine.SelectedProduct.QuantityInStock ? "low-stock" : "in-stock")">
+                                                                                    @currentLine.SelectedProduct.QuantityInStock.ToString("N0")
+                                                                                </span>
+                                                                                @if (currentLine.Quantity > 0 && currentLine.Quantity >
+                                                                                                                        currentLine.SelectedProduct.QuantityInStock)
+                                                                                {
+                                                                                    <span class="text-danger ms-2">
+                                                                                        <i class="bi bi-exclamation-triangle-fill"></i> Exceeds stock
+                                                                                    </span>
+                                                                                }
+                                                                            }
+                                                                            else
+                                                                            {
+                                                                                <span class="text-danger fw-semibold">0 (No stock)</span>
+                                                                            }
+                                                                            @if (!string.IsNullOrEmpty(currentLine.SelectedProduct.UoM))
+                                                                            {
+                                                                                <span class="text-muted ms-2">@currentLine.SelectedProduct.UoM</span>
+                                                                            }
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    }
 
-                    <!-- Transfer Summary -->
-                    <div class="section-card">
-                        <div class="card-header">
-                            <div class="d-flex align-items-center gap-2">
-                                <div class="header-icon blue"><i class="bi bi-receipt"></i></div>
-                                <h5>Summary</h5>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <div class="summary-stat">
-                                <span class="stat-label">From</span>
-                                <span class="stat-value">@(selectedFromWarehouse?.WarehouseCode ?? "—")</span>
-                            </div>
-                            <div class="summary-stat">
-                                <span class="stat-label">To</span>
-                                <span class="stat-value">@(selectedToWarehouse?.WarehouseCode ?? "—")</span>
-                            </div>
-                            <div class="summary-stat">
-                                <span class="stat-label">Items</span>
-                                <span class="stat-value">@ValidLineCount()</span>
-                            </div>
-                            <div class="summary-stat">
-                                <span class="stat-label">Total Qty</span>
-                                <span class="stat-value">@lines.Where(l => l.Quantity > 0).Sum(l => l.Quantity).ToString("N2")</span>
-                            </div>
-                            <div class="summary-stat">
-                                <span class="stat-label">Doc Date</span>
-                                <span class="stat-value">@((docDate ?? DateTime.Today).ToString("dd MMM yyyy"))</span>
-                            </div>
-                            @if (!string.IsNullOrWhiteSpace(transferReason))
-                            {
-                                <div class="summary-stat">
-                                    <span class="stat-label">Reason</span>
-                                    <span class="stat-value" style="white-space:normal;">@transferReason</span>
+                                                    <MudButton Class="btn-add-item" OnClick="AddLine">
+                                                        <i class="bi bi-plus-circle me-2"></i>Add Another Item
+                                                    </MudButton>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Sidebar -->
+                                    <div class="col-lg-4">
+                                        <div class="summary-section">
+
+                                            <!-- Validation Checklist -->
+                                            <div class="section-card">
+                                                <div class="card-header">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <div class="header-icon amber"><i class="bi bi-shield-check"></i></div>
+                                                        <h5>Validation</h5>
+                                                    </div>
+                                                </div>
+                                                <div class="card-body">
+                                                    <ul class="validation-checklist">
+                                                        <li>
+                                                            <div class="check-icon @(selectedFromWarehouse != null ? "pass" : "fail")">
+                                                                <i class="bi @(selectedFromWarehouse != null ? "bi-check" : "bi-x")"></i>
+                                                            </div>
+                                                            <span>Source warehouse selected</span>
+                                                        </li>
+                                                        <li>
+                                                            <div class="check-icon @(selectedToWarehouse != null ? "pass" : "fail")">
+                                                                <i class="bi @(selectedToWarehouse != null ? "bi-check" : "bi-x")"></i>
+                                                            </div>
+                                                            <span>Destination warehouse selected</span>
+                                                        </li>
+                                                        <li>
+                                                            @{
+                                                                var warehousesDifferent = selectedFromWarehouse != null && selectedToWarehouse !=
+                                                                null
+                                                                && selectedFromWarehouse.WarehouseCode != selectedToWarehouse.WarehouseCode;
+                                                                var warehouseCheckNA = selectedFromWarehouse == null || selectedToWarehouse == null;
+                                                            }
+                                                            <div
+                                                                class="check-icon @(warehouseCheckNA ? "fail" : (warehousesDifferent ? "pass" : "fail"))">
+                                                                <i
+                                                                class="bi @(warehouseCheckNA ? "bi-dash" : (warehousesDifferent ? "bi-check" : "bi-x"))"></i>
+                                                            </div>
+                                                            <span>Warehouses are different</span>
+                                                        </li>
+                                                        <li>
+                                                            <div class="check-icon @(AllLinesHaveProduct() ? "pass" : "fail")">
+                                                                <i class="bi @(AllLinesHaveProduct() ? "bi-check" : "bi-x")"></i>
+                                                            </div>
+                                                            <span>All items have products</span>
+                                                        </li>
+                                                        <li>
+                                                            <div class="check-icon @(AllLinesHaveValidQuantity() ? "pass" : "fail")">
+                                                                <i class="bi @(AllLinesHaveValidQuantity() ? "bi-check" : "bi-x")"></i>
+                                                            </div>
+                                                            <span>All quantities are valid</span>
+                                                        </li>
+                                                        <li>
+                                                            <div
+                                                                class="check-icon @(!string.IsNullOrWhiteSpace(transferReason) ? "pass" : "fail")">
+                                                                <i
+                                                                class="bi @(!string.IsNullOrWhiteSpace(transferReason) ? "bi-check" : "bi-x")"></i>
+                                                            </div>
+                                                            <span>Reason for transfer provided</span>
+                                                        </li>
+                                                    </ul>
+                                                </div>
+                                            </div>
+
+                                            <!-- Transfer Summary -->
+                                            <div class="section-card">
+                                                <div class="card-header">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <div class="header-icon blue"><i class="bi bi-receipt"></i></div>
+                                                        <h5>Summary</h5>
+                                                    </div>
+                                                </div>
+                                                <div class="card-body">
+                                                    <div class="summary-stat">
+                                                        <span class="stat-label">From</span>
+                                                        <span class="stat-value">@(selectedFromWarehouse?.WarehouseCode ?? "—")</span>
+                                                    </div>
+                                                    <div class="summary-stat">
+                                                        <span class="stat-label">To</span>
+                                                        <span class="stat-value">@(selectedToWarehouse?.WarehouseCode ?? "—")</span>
+                                                    </div>
+                                                    <div class="summary-stat">
+                                                        <span class="stat-label">Items</span>
+                                                        <span class="stat-value">@ValidLineCount()</span>
+                                                    </div>
+                                                    <div class="summary-stat">
+                                                        <span class="stat-label">Total Qty</span>
+                                                        <span class="stat-value">@lines.Where(l => l.Quantity > 0).Sum(l =>
+                                                                                                l.Quantity).ToString("N2")</span>
+                                                        </div>
+                                                        <div class="summary-stat">
+                                                            <span class="stat-label">Doc Date</span>
+                                                            <span class="stat-value">@((docDate ?? DateTime.Today).ToString("dd MMM yyyy"))</span>
+                                                        </div>
+                                                        @if (!string.IsNullOrWhiteSpace(transferReason))
+                                                        {
+                                                            <div class="summary-stat">
+                                                                <span class="stat-label">Reason</span>
+                                                                <span class="stat-value" style="white-space:normal;">@transferReason</span>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                </div>
+
+                                                <!-- Actions -->
+                                                <div class="section-card">
+                                                    <div class="card-body">
+                                                        @if (!string.IsNullOrEmpty(errorMessage))
+                                                        {
+                                                            <div class="alert-banner error mb-3">
+                                                                <i class="bi bi-exclamation-octagon-fill alert-icon"></i>
+                                                                <div class="alert-body">
+                                                                    <div class="alert-title">Transfer Failed</div>
+                                                                    <div style="white-space:pre-wrap;">@errorMessage</div>
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                        <MudButton Class="btn-execute" OnClick="SubmitTransfer"
+                                                                   Disabled="@(isSubmitting || !IsFormValid())">
+                                                            @if (isSubmitting)
+                                                            {
+                                                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                                                <span>Processing Transfer…</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <i class="bi bi-send-fill me-2"></i>
+                                                                <span>Execute Transfer</span>
+                                                            }
+                                                        </MudButton>
+
+                                                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Class="w-100 mt-2"
+                                                                   Size="Size.Small" OnClick="ClearForm" Disabled="@isSubmitting">
+                                                            <i class="bi bi-arrow-counterclockwise me-1"></i>Reset Form
+                                                        </MudButton>
+
+                                                        <div class="info-hint mt-3">
+                                                            <i class="bi bi-info-circle-fill flex-shrink-0"></i>
+                                                            <span>This transfers stock immediately. The system validates stock availability before
+                                                                processing.</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <!-- Alt action -->
+                                                    <div class="text-center mt-3">
+                                                        <span class="text-muted small">Need approval first?</span>
+                                                        <a href="/transfer-request/create" class="btn btn-link btn-sm p-0 ms-1">
+                                                            Create Transfer Request <i class="bi bi-arrow-right"></i>
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                            }
-                        </div>
-                    </div>
-
-                    <!-- Actions -->
-                    <div class="section-card">
-                        <div class="card-body">
-                            @if (!string.IsNullOrEmpty(errorMessage))
-                            {
-                                <div class="alert-banner error mb-3">
-                                    <i class="bi bi-exclamation-octagon-fill alert-icon"></i>
-                                    <div class="alert-body">
-                                        <div class="alert-title">Transfer Failed</div>
-                                        <div style="white-space:pre-wrap;">@errorMessage</div>
-                                    </div>
-                                </div>
-                            }
-                            <MudButton Class="btn-execute" OnClick="SubmitTransfer"
-                                    Disabled="@(isSubmitting || !IsFormValid())">
-                                @if (isSubmitting)
-                                {
-                                    <span class="spinner-border spinner-border-sm me-2"></span>
-                                    <span>Processing Transfer…</span>
-                                }
-                                else
-                                {
-                                    <i class="bi bi-send-fill me-2"></i>
-                                    <span>Execute Transfer</span>
-                                }
-                            </MudButton>
-
-                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Class="w-100 mt-2" Size="Size.Small" OnClick="ClearForm"
-                                    Disabled="@isSubmitting">
-                                <i class="bi bi-arrow-counterclockwise me-1"></i>Reset Form
-                            </MudButton>
-
-                            <div class="info-hint mt-3">
-                                <i class="bi bi-info-circle-fill flex-shrink-0"></i>
-                                <span>This transfers stock immediately. The system validates stock availability before processing.</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Alt action -->
-                    <div class="text-center mt-3">
-                        <span class="text-muted small">Need approval first?</span>
-                        <a href="/transfer-request/create" class="btn btn-link btn-sm p-0 ms-1">
-                            Create Transfer Request <i class="bi bi-arrow-right"></i>
-                        </a>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
 
 @code {
     // ── State ───────────────────────────────────────────
@@ -1001,6 +1113,17 @@
         // Load sequentially to avoid EF Core DbContext concurrency issues
         await LoadWarehousesAsync();
         await LoadProductsAsync();
+
+        // Auto-select From warehouse for StockController/DepotController
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        var assignedWarehouse = user.FindFirst("warehouse")?.Value;
+        var role = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+
+        if (!string.IsNullOrEmpty(assignedWarehouse) && (role == "StockController" || role == "DepotController"))
+        {
+            selectedFromWarehouse = cachedWarehouses.FirstOrDefault(w => w.WarehouseCode == assignedWarehouse);
+        }
     }
 
     private async Task LoadWarehousesAsync()
@@ -1058,8 +1181,8 @@
             if (stockResponse?.Products != null && cachedProducts != null)
             {
                 var stockLookup = stockResponse.Products
-                    .Where(p => !string.IsNullOrEmpty(p.ItemCode))
-                    .ToDictionary(p => p.ItemCode!, p => p.QuantityInStock, StringComparer.OrdinalIgnoreCase);
+                .Where(p => !string.IsNullOrEmpty(p.ItemCode))
+                .ToDictionary(p => p.ItemCode!, p => p.QuantityInStock, StringComparer.OrdinalIgnoreCase);
 
                 foreach (var product in cachedProducts)
                 {
@@ -1074,7 +1197,7 @@
                 }
 
                 Logger.LogInformation("Merged stock quantities for {Count} items from warehouse {Warehouse}",
-                    stockLookup.Count, warehouseCode);
+                stockLookup.Count, warehouseCode);
             }
         }
         catch (Exception ex)
@@ -1116,10 +1239,10 @@
             return cachedWarehouses.Take(20);
 
         return cachedWarehouses
-            .Where(w =>
-                (w.WarehouseCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (w.WarehouseName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
-            .Take(20);
+        .Where(w =>
+        (w.WarehouseCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        (w.WarehouseName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Take(20);
     }
 
     private async Task<IEnumerable<ProductDto>> SearchProductsAsync(string searchText, CancellationToken ct)
@@ -1128,10 +1251,10 @@
             return cachedProducts.Take(20);
 
         return cachedProducts
-            .Where(p =>
-                (p.ItemCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (p.ItemName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
-            .Take(20);
+        .Where(p =>
+        (p.ItemCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        (p.ItemName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Take(20);
     }
 
     // ── Line item management ────────────────────────────
@@ -1179,19 +1302,19 @@
     private bool IsFormValid()
     {
         return selectedFromWarehouse != null
-            && selectedToWarehouse != null
-            && selectedFromWarehouse.WarehouseCode != selectedToWarehouse.WarehouseCode
-            && !string.IsNullOrWhiteSpace(transferReason)
-            && lines.Count > 0
-            && lines.All(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0);
+        && selectedToWarehouse != null
+        && selectedFromWarehouse.WarehouseCode != selectedToWarehouse.WarehouseCode
+        && !string.IsNullOrWhiteSpace(transferReason)
+        && lines.Count > 0
+        && lines.All(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0);
     }
 
     // ── Step indicator helpers ──────────────────────────
     private bool IsStepCompleted(int step) => step switch
     {
         1 => selectedFromWarehouse != null && selectedToWarehouse != null
-             && selectedFromWarehouse.WarehouseCode != selectedToWarehouse.WarehouseCode
-             && !string.IsNullOrWhiteSpace(transferReason),
+        && selectedFromWarehouse.WarehouseCode != selectedToWarehouse.WarehouseCode
+        && !string.IsNullOrWhiteSpace(transferReason),
         2 => lines.Count > 0 && lines.All(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0),
         3 => false,
         _ => false
@@ -1223,24 +1346,24 @@
         try
         {
             var request = new CreateInventoryTransferDto
-                {
-                    FromWarehouse = selectedFromWarehouse!.WarehouseCode,
-                    ToWarehouse = selectedToWarehouse!.WarehouseCode,
-                    DocDate = (docDate ?? DateTime.Today).ToString("yyyy-MM-dd"),
-                    DueDate = dueDate?.ToString("yyyy-MM-dd"),
-                    Comments = BuildComments(),
+            {
+                FromWarehouse = selectedFromWarehouse!.WarehouseCode,
+                ToWarehouse = selectedToWarehouse!.WarehouseCode,
+                DocDate = (docDate ?? DateTime.Today).ToString("yyyy-MM-dd"),
+                DueDate = dueDate?.ToString("yyyy-MM-dd"),
+                Comments = BuildComments(),
 
-                    Lines = lines.Select(l => new CreateInventoryTransferLineDto
-                    {
-                        ItemCode = l.ItemCode,
-                        Quantity = l.Quantity,
-                        FromWarehouseCode = selectedFromWarehouse.WarehouseCode,
-                        ToWarehouseCode = selectedToWarehouse.WarehouseCode
-                    }).ToList()
-                };
+                Lines = lines.Select(l => new CreateInventoryTransferLineDto
+                {
+                    ItemCode = l.ItemCode,
+                    Quantity = l.Quantity,
+                    FromWarehouseCode = selectedFromWarehouse.WarehouseCode,
+                    ToWarehouseCode = selectedToWarehouse.WarehouseCode
+                }).ToList()
+            };
 
             Logger.LogInformation("Submitting inventory transfer: From={From}, To={To}, Lines={Lines}",
-                request.FromWarehouse, request.ToWarehouse, request.Lines.Count);
+            request.FromWarehouse, request.ToWarehouse, request.Lines.Count);
 
             var (success, message, transfer) = await TransferService.CreateInventoryTransferAsync(request);
 
@@ -1248,7 +1371,7 @@
             {
                 successMessage = $"Transfer #{transfer?.DocNum} created successfully! Redirecting…";
                 Logger.LogInformation("Inventory transfer created: DocNum={DocNum}, DocEntry={DocEntry}",
-                    transfer?.DocNum, transfer?.DocEntry);
+                transfer?.DocNum, transfer?.DocEntry);
 
                 StateHasChanged();
                 await Task.Delay(1500);

@@ -1,5 +1,6 @@
 using Blazored.LocalStorage;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using Serilog;
@@ -145,6 +146,17 @@ try
     // Add background service to preload cache on startup
     builder.Services.AddHostedService<CachePreloadService>();
 
+    // Configure forwarded headers for IIS behind reverse proxy
+    // This ensures the app correctly detects HTTPS scheme and client IP
+    // when behind a load balancer or reverse proxy that terminates SSL
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
+        // Trust the reverse proxy - clear default restrictions
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
+
     var app = builder.Build();
 
     // Apply database migrations and seed default data
@@ -154,10 +166,14 @@ try
     }
 
     // Configure the HTTP request pipeline.
+
+    // ForwardedHeaders MUST be first - before any middleware that checks scheme/host/IP
+    // This is critical for IIS behind a reverse proxy (e.g., load balancer terminating SSL)
+    app.UseForwardedHeaders();
+
     if (!app.Environment.IsDevelopment())
     {
         app.UseExceptionHandler("/Error", createScopeForErrors: true);
-        // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
         app.UseHsts();
     }
 
@@ -169,7 +185,8 @@ try
     // Add Serilog request logging
     app.UseSerilogRequestLogging();
 
-    app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+    // Only redirect to HTTPS if the request is actually HTTP
+    // With ForwardedHeaders configured, this correctly detects the original scheme
     app.UseHttpsRedirection();
 
     app.UseStaticFiles();

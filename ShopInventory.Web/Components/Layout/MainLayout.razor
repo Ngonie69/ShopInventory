@@ -4,6 +4,9 @@
 @inject IThemeService ThemeService
 @inject ILocalizationService L
 @inject IJSRuntime JS
+@inject INotificationClientService NotificationClient
+@inject ISnackbar Snackbar
+@inject AuthenticationStateProvider AuthStateProvider
 @implements IDisposable
 
 <MudThemeProvider @ref="_mudThemeProvider" @bind-IsDarkMode="@_isDarkMode" />
@@ -20,6 +23,65 @@
             <MudText Typo="Typo.h6" Class="brand-title">Staff Portal</MudText>
         </div>
         <MudSpacer />
+
+        <AuthorizeView>
+            <Authorized>
+                @* ── Notification Bell ── *@
+                <MudBadge Content="@_unreadCount" Overlap="true" Color="Color.Error"
+                          Visible="@(_unreadCount > 0)" Class="mx-1">
+                    <MudIconButton Icon="@Icons.Material.Filled.Notifications" Color="Color.Inherit"
+                                   OnClick="@ToggleNotificationPopover" aria-label="Notifications" />
+                </MudBadge>
+
+                <MudPopover Open="@_notifPopoverOpen" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight"
+                            Class="notification-popover" Style="width: 380px; max-height: 480px;">
+                    <div class="d-flex justify-space-between align-center pa-3" style="border-bottom: 1px solid var(--mud-palette-divider);">
+                        <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Notifications</MudText>
+                        @if (_unreadCount > 0)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" OnClick="@MarkAllRead">
+                                Mark all read
+                            </MudButton>
+                        }
+                    </div>
+                    <div style="max-height: 360px; overflow-y: auto;">
+                        @if (_recentNotifications.Count == 0)
+                        {
+                            <div class="pa-6 d-flex flex-column align-center justify-center" style="color: var(--mud-palette-text-secondary);">
+                                <MudIcon Icon="@Icons.Material.Filled.NotificationsNone" Style="font-size: 2.5rem; opacity: 0.4;" />
+                                <MudText Typo="Typo.body2" Class="mt-2">No notifications</MudText>
+                            </div>
+                        }
+                        else
+                        {
+                            @foreach (var n in _recentNotifications)
+                            {
+                                <div class="notification-item @(n.IsRead ? "" : "unread")" @onclick="() => OnNotificationClick(n)">
+                                    <div class="d-flex align-start gap-2 pa-3">
+                                        <MudIcon Icon="@GetNotifIcon(n.Type)" Color="@GetNotifColor(n.Type)" Style="font-size: 1.25rem; margin-top: 2px;" />
+                                        <div style="flex: 1; min-width: 0;">
+                                            <MudText Typo="Typo.body2" Style="font-weight: 600; line-height: 1.3;">@n.Title</MudText>
+                                            <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">@n.Message</MudText>
+                                            <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-disabled); margin-top: 2px;">@n.TimeAgo</MudText>
+                                        </div>
+                                        @if (!n.IsRead)
+                                        {
+                                            <div style="width: 8px; height: 8px; border-radius: 50%; background: var(--mud-palette-primary); margin-top: 6px; flex-shrink: 0;"></div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                    <div class="pa-2 d-flex justify-center" style="border-top: 1px solid var(--mud-palette-divider);">
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                                   OnClick="@GoToNotifications">
+                            View all notifications
+                        </MudButton>
+                    </div>
+                </MudPopover>
+            </Authorized>
+        </AuthorizeView>
 
         <LanguageSelector />
         <MudIconButton Icon="@(_isDarkMode? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
@@ -67,6 +129,33 @@
     </MudMainContent>
 </MudLayout>
 
+<MudOverlay @bind-Visible="@_notifPopoverOpen" DarkBackground="false" AutoClose="true" LockScroll="false" />
+
+<style>
+    .notification-popover {
+        border-radius: 12px !important;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.15) !important;
+        overflow: hidden;
+    }
+    .notification-item {
+        cursor: pointer;
+        transition: background 0.15s ease;
+        border-bottom: 1px solid rgba(128,128,128,0.1);
+    }
+    .notification-item:hover {
+        background: rgba(128,128,128,0.08);
+    }
+    .notification-item.unread {
+        background: rgba(var(--mud-palette-primary-rgb), 0.04);
+    }
+    .notification-item.unread:hover {
+        background: rgba(var(--mud-palette-primary-rgb), 0.08);
+    }
+    .notification-item:last-child {
+        border-bottom: none;
+    }
+</style>
+
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
     <a href="." class="reload">Reload</a>
@@ -77,6 +166,13 @@
     private bool _drawerOpen = true;
     private bool _isDarkMode = false;
     private MudThemeProvider? _mudThemeProvider;
+
+    // Notification state
+    private int _unreadCount;
+    private bool _notifPopoverOpen;
+    private List<NotificationModel> _recentNotifications = new();
+    private System.Threading.Timer? _pollTimer;
+    private bool _isAuthenticated;
 
     protected override async Task OnInitializedAsync()
     {
@@ -97,9 +193,144 @@
             // Sync theme from storage
             var theme = await ThemeService.GetThemeAsync();
             _isDarkMode = theme == "dark";
+
+            // Check auth and start polling if authenticated
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            _isAuthenticated = authState.User.Identity?.IsAuthenticated == true;
+            if (_isAuthenticated)
+            {
+                await LoadNotifications();
+                _pollTimer = new System.Threading.Timer(PollNotifications, null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+            }
+
             StateHasChanged();
         }
     }
+
+    private async void PollNotifications(object? state)
+    {
+        try
+        {
+            var previousUnread = _unreadCount;
+            var response = await NotificationClient.GetNotificationsAsync(1, 5, false);
+            if (response != null)
+            {
+                var newUnread = response.UnreadCount;
+                if (newUnread > previousUnread)
+                {
+                    // Show toast for new notifications
+                    var newNotifs = response.Notifications.Where(n => !n.IsRead).Take(newUnread - previousUnread).ToList();
+                    foreach (var n in newNotifs)
+                    {
+                        await InvokeAsync(() => Snackbar.Add(
+                            $"{n.Title}: {TruncateMessage(n.Message, 80)}",
+                            MapSeverity(n.Type),
+                            config =>
+                            {
+                                config.VisibleStateDuration = 5000;
+                                config.ShowCloseIcon = true;
+                                config.SnackbarVariant = Variant.Filled;
+                            }));
+                    }
+                }
+
+                await InvokeAsync(() =>
+                {
+                    _unreadCount = response.UnreadCount;
+                    _recentNotifications = response.Notifications.Take(5).ToList();
+                    StateHasChanged();
+                });
+            }
+        }
+        catch
+        {
+            // Silently ignore polling errors
+        }
+    }
+
+    private async Task LoadNotifications()
+    {
+        try
+        {
+            var countTask = NotificationClient.GetUnreadCountAsync();
+            var listTask = NotificationClient.GetNotificationsAsync(1, 5, false);
+            await Task.WhenAll(countTask, listTask);
+
+            _unreadCount = countTask.Result;
+            var response = listTask.Result;
+            if (response != null)
+            {
+                _recentNotifications = response.Notifications.Take(5).ToList();
+            }
+        }
+        catch
+        {
+            // Silently ignore load errors
+        }
+    }
+
+    private void ToggleNotificationPopover()
+    {
+        _notifPopoverOpen = !_notifPopoverOpen;
+    }
+
+    private async Task OnNotificationClick(NotificationModel notification)
+    {
+        if (!notification.IsRead)
+        {
+            await NotificationClient.MarkAsReadAsync(new List<int> { notification.Id });
+            notification.IsRead = true;
+            _unreadCount = Math.Max(0, _unreadCount - 1);
+        }
+
+        _notifPopoverOpen = false;
+
+        if (!string.IsNullOrEmpty(notification.ActionUrl))
+        {
+            NavigationManager.NavigateTo(notification.ActionUrl);
+        }
+    }
+
+    private async Task MarkAllRead()
+    {
+        await NotificationClient.MarkAsReadAsync();
+        _unreadCount = 0;
+        foreach (var n in _recentNotifications)
+            n.IsRead = true;
+    }
+
+    private void GoToNotifications()
+    {
+        _notifPopoverOpen = false;
+        NavigationManager.NavigateTo("/notifications");
+    }
+
+    private static string GetNotifIcon(string type) => type switch
+    {
+        "Error" => Icons.Material.Filled.Error,
+        "Warning" => Icons.Material.Filled.Warning,
+        "Success" => Icons.Material.Filled.CheckCircle,
+        _ => Icons.Material.Filled.Info
+    };
+
+    private static Color GetNotifColor(string type) => type switch
+    {
+        "Error" => Color.Error,
+        "Warning" => Color.Warning,
+        "Success" => Color.Success,
+        _ => Color.Info
+    };
+
+    private static Severity MapSeverity(string type) => type switch
+    {
+        "Error" => Severity.Error,
+        "Warning" => Severity.Warning,
+        "Success" => Severity.Success,
+        _ => Severity.Info
+    };
+
+    private static string TruncateMessage(string msg, int maxLen) =>
+        msg.Length <= maxLen ? msg : msg[..maxLen] + "...";
 
     private async void OnThemeChanged()
     {
@@ -120,6 +351,8 @@
 
     private async Task Logout()
     {
+        _pollTimer?.Dispose();
+        _pollTimer = null;
         await AuthService.LogoutAsync();
         NavigationManager.NavigateTo("/login");
     }
@@ -127,5 +360,6 @@
     public void Dispose()
     {
         ThemeService.OnThemeChanged -= OnThemeChanged;
+        _pollTimer?.Dispose();
     }
 }

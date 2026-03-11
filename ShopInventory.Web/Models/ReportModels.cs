@@ -263,6 +263,7 @@ public class UserModel
     public bool IsLocked { get; set; }
     public bool TwoFactorEnabled { get; set; }
     public List<string>? Permissions { get; set; }
+    public string? AssignedWarehouseCode { get; set; }
     public DateTime? LastLoginAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }

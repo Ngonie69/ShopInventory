@@ -6,6 +6,7 @@
 @inject IUserManagementService UserService
 @inject IAuditService AuditService
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IMasterDataCacheService MasterDataCache
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -181,7 +182,7 @@
                                 <TemplateColumn Title="Permissions" Sortable="false" Filterable="false">
                                     <CellTemplate>
                                         <MudChip T="string" Color="Color.Info" Size="Size.Small">@(context.Item.Permissions?.Count
-                                                                                                                        ?? 0) permissions</MudChip>
+                                                                            ?? 0) permissions</MudChip>
                                         </CellTemplate>
                                     </TemplateColumn>
                                     <PropertyColumn Property="x => x.LastLoginAt" Title="Last Login">
@@ -469,6 +470,27 @@
                                             <label class="form-check-label">Active</label>
                                         </div>
                                     </div>
+                                    @if (userModel.Role == "StockController" || userModel.Role == "DepotController")
+                                    {
+                                        <div class="col-md-6">
+                                            <label class="form-label">Assigned Warehouse *</label>
+                                            @if (isLoadingWarehouses)
+                                            {
+                                                <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                                            }
+                                            else
+                                            {
+                                                <InputSelect class="form-select" @bind-Value="userModel.AssignedWarehouseCode">
+                                                    <option value="">-- Select Warehouse --</option>
+                                                    @foreach (var wh in availableWarehouses)
+                                                    {
+                                                        <option value="@wh.WarehouseCode">@wh.WarehouseCode - @wh.WarehouseName</option>
+                                                    }
+                                                </InputSelect>
+                                            }
+                                            <small class="text-muted">This user will only have access to the selected warehouse.</small>
+                                        </div>
+                                    }
                                 </div>
                                 <div class="modal-footer mt-4">
                                     <MudButton ButtonType="ButtonType.Button" Variant="Variant.Filled" Color="Color.Default"
@@ -621,6 +643,8 @@
     private string _searchString = string.Empty;
 
     private List<string> availableRoles = new() { "Admin", "Cashier", "StockController", "DepotController" };
+    private List<WarehouseDto> availableWarehouses = new();
+    private bool isLoadingWarehouses = false;
     private Dictionary<string, List<PermissionModel>>? permissionCategories;
 
     private bool showUserModal = false;
@@ -677,6 +701,25 @@
         await LoadUsers();
         await LoadPermissions();
         await LoadSecurityStats();
+        await LoadWarehouses();
+    }
+
+    private async Task LoadWarehouses()
+    {
+        isLoadingWarehouses = true;
+        try
+        {
+            var warehouseList = await MasterDataCache.GetWarehousesAsync();
+            availableWarehouses = warehouseList?.Where(w => w.IsActive).ToList() ?? new();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load warehouses: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingWarehouses = false;
+        }
     }
 
     private async Task LoadUsers()
@@ -695,7 +738,8 @@
                 IsLocked = u.IsLocked,
                 TwoFactorEnabled = u.TwoFactorEnabled,
                 LastLoginAt = u.LastLoginAt,
-                Permissions = u.Permissions
+                Permissions = u.Permissions,
+                AssignedWarehouseCode = u.AssignedWarehouseCode
             }).ToList() ?? new List<UserDisplayModel>();
             totalPages = result.TotalPages;
         }
@@ -792,7 +836,8 @@
             FirstName = user.FirstName,
             LastName = user.LastName,
             Role = user.Role,
-            IsActive = user.IsActive
+            IsActive = user.IsActive,
+            AssignedWarehouseCode = user.AssignedWarehouseCode
         };
         showUserModal = true;
     }
@@ -1016,6 +1061,7 @@
         public bool TwoFactorEnabled { get; set; }
         public DateTime? LastLoginAt { get; set; }
         public List<string>? Permissions { get; set; }
+        public string? AssignedWarehouseCode { get; set; }
     }
 
     public class UserFormModel
@@ -1028,6 +1074,7 @@
         public string? LastName { get; set; }
         public string Role { get; set; } = "User";
         public bool IsActive { get; set; } = true;
+        public string? AssignedWarehouseCode { get; set; }
     }
 
     public class PermissionModel

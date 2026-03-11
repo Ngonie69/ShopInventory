@@ -186,7 +186,8 @@ public class UserManagementService : IUserManagementService
             Password = model.Password,
             FirstName = model.FirstName,
             LastName = model.LastName,
-            Role = model.Role
+            Role = model.Role,
+            AssignedWarehouseCode = model.AssignedWarehouseCode
         });
 
         if (!response.IsSuccessStatusCode)
@@ -204,7 +205,8 @@ public class UserManagementService : IUserManagementService
             FirstName = model.FirstName,
             LastName = model.LastName,
             Role = model.Role,
-            IsActive = model.IsActive
+            IsActive = model.IsActive,
+            AssignedWarehouseCode = model.AssignedWarehouseCode
         });
 
         if (!response.IsSuccessStatusCode)

@@ -1,10 +1,12 @@
 @page "/stock"
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @using ShopInventory.Web.Services
 @using ShopInventory.Web.Models
 @attribute [Authorize]
 @inject IMasterDataCacheService MasterDataCache
 @inject HttpClient Http
+@inject AuthenticationStateProvider AuthStateProvider
 @rendermode InteractiveServer
 
 <PageTitle>Stock Monitoring - Shop Inventory</PageTitle>
@@ -860,7 +862,7 @@
                 }
                 else
                 {
-                    <select @bind="selectedWarehouseCode">
+                    <select @bind="selectedWarehouseCode" disabled="@isWarehouseLocked">
                         <option value="">-- Select Warehouse --</option>
                         @foreach (var warehouse in warehouses)
                         {
@@ -868,6 +870,10 @@
                             </option>
                         }
                     </select>
+                    @if (isWarehouseLocked)
+                    {
+                        <small style="font-size:.75rem;color:#6b7280;">Warehouse assigned to your account</small>
+                    }
                 }
             </div>
             <div class="filter-field" style="max-width:180px;">
@@ -1123,9 +1129,26 @@
         }
     }
 
+    private string? userAssignedWarehouse;
+    private bool isWarehouseLocked = false;
+
     protected override async Task OnInitializedAsync()
     {
+        // Check if user has an assigned warehouse (StockController/DepotController)
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        userAssignedWarehouse = user.FindFirst("warehouse")?.Value;
+        var role = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+
         await LoadWarehouses();
+
+        // Auto-select and lock warehouse for StockController/DepotController
+        if (!string.IsNullOrEmpty(userAssignedWarehouse) && (role == "StockController" || role == "DepotController"))
+        {
+            selectedWarehouseCode = userAssignedWarehouse;
+            isWarehouseLocked = true;
+            await LoadStock();
+        }
     }
 
     private async Task LoadWarehouses()

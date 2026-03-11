@@ -104,6 +104,8 @@ public class CachedBusinessPartner
 
     public decimal? Balance { get; set; }
 
+    public int? PriceListNum { get; set; }
+
     public bool IsActive { get; set; } = true;
 
     public DateTime LastSyncedAt { get; set; }

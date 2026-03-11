@@ -185,7 +185,8 @@ public class AuthService : IAuthService
             {
                 Username = user.Username,
                 Role = user.Role,
-                Email = user.Email
+                Email = user.Email,
+                AssignedWarehouseCode = user.AssignedWarehouseCode
             }
         };
     }
@@ -256,7 +257,8 @@ public class AuthService : IAuthService
             {
                 Username = user.Username,
                 Role = user.Role,
-                Email = user.Email
+                Email = user.Email,
+                AssignedWarehouseCode = user.AssignedWarehouseCode
             }
         };
     }
@@ -383,7 +385,7 @@ public class AuthService : IAuthService
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.SecretKey));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Name, user.Username),
@@ -393,6 +395,11 @@ public class AuthService : IAuthService
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64)
         };
+
+        if (!string.IsNullOrEmpty(user.AssignedWarehouseCode))
+        {
+            claims.Add(new Claim("warehouse", user.AssignedWarehouseCode));
+        }
 
         var token = new JwtSecurityToken(
             issuer: _jwtSettings.Issuer,

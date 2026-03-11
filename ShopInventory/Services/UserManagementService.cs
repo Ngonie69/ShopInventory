@@ -149,10 +149,16 @@ public class UserManagementService : IUserManagementService
         }
 
         // Validate role
-        var validRoles = new[] { "Admin", "Manager", "User", "ReadOnly" };
+        var validRoles = new[] { "Admin", "Manager", "User", "ReadOnly", "Cashier", "StockController", "DepotController" };
         if (!validRoles.Contains(request.Role))
         {
             return ServiceResult<UserDetailDto>.Failure($"Invalid role. Valid roles: {string.Join(", ", validRoles)}");
+        }
+
+        // Validate warehouse assignment for StockController/DepotController roles
+        if ((request.Role == "StockController" || request.Role == "DepotController") && string.IsNullOrWhiteSpace(request.AssignedWarehouseCode))
+        {
+            return ServiceResult<UserDetailDto>.Failure($"Assigned warehouse code is required for {request.Role} role");
         }
 
         // Determine permissions
@@ -187,6 +193,7 @@ public class UserManagementService : IUserManagementService
             EmailVerified = false,
             TwoFactorEnabled = false,
             Permissions = JsonSerializer.Serialize(permissions),
+            AssignedWarehouseCode = (request.Role == "StockController" || request.Role == "DepotController") ? request.AssignedWarehouseCode : null,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -226,12 +233,23 @@ public class UserManagementService : IUserManagementService
         // Update role if provided
         if (!string.IsNullOrWhiteSpace(request.Role))
         {
-            var validRoles = new[] { "Admin", "Manager", "User", "ReadOnly" };
+            var validRoles = new[] { "Admin", "Manager", "User", "ReadOnly", "Cashier", "StockController", "DepotController" };
             if (!validRoles.Contains(request.Role))
             {
                 return ServiceResult.Failure($"Invalid role. Valid roles: {string.Join(", ", validRoles)}");
             }
             user.Role = request.Role;
+        }
+
+        // Update assigned warehouse
+        if (request.AssignedWarehouseCode != null)
+        {
+            user.AssignedWarehouseCode = (user.Role == "StockController" || user.Role == "DepotController") ? request.AssignedWarehouseCode : null;
+        }
+        // Validate warehouse is set for warehouse-dependent roles
+        if ((user.Role == "StockController" || user.Role == "DepotController") && string.IsNullOrWhiteSpace(user.AssignedWarehouseCode))
+        {
+            return ServiceResult.Failure($"Assigned warehouse code is required for {user.Role} role");
         }
 
         // Update permissions if provided
@@ -488,6 +506,7 @@ public class UserManagementService : IUserManagementService
             IsLockedOut = user.LockoutEnd.HasValue && user.LockoutEnd > DateTime.UtcNow,
             LockoutEnd = user.LockoutEnd,
             Permissions = permissions,
+            AssignedWarehouseCode = user.AssignedWarehouseCode,
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt,
             LastLoginAt = user.LastLoginAt

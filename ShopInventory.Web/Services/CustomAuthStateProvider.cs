@@ -118,6 +118,11 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
             claims.Add(new Claim(ClaimTypes.Email, userInfo.Email));
         }
 
+        if (!string.IsNullOrEmpty(userInfo?.AssignedWarehouseCode))
+        {
+            claims.Add(new Claim("warehouse", userInfo.AssignedWarehouseCode));
+        }
+
         var identity = new ClaimsIdentity(claims, "jwt");
         var user = new ClaimsPrincipal(identity);
 

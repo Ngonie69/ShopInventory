@@ -115,6 +115,12 @@ public class User
     public bool PhoneNumberVerified { get; set; } = false;
 
     /// <summary>
+    /// Assigned warehouse code for StockController/DepotController roles
+    /// </summary>
+    [MaxLength(50)]
+    public string? AssignedWarehouseCode { get; set; }
+
+    /// <summary>
     /// JSON serialized list of granular permissions
     /// </summary>
     public string? Permissions { get; set; }

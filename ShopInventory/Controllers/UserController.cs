@@ -72,7 +72,8 @@ public class UserController : ControllerBase
                 FailedLoginAttempts = u.FailedLoginAttempts,
                 LockoutEnd = u.LockoutEnd,
                 CreatedAt = u.CreatedAt,
-                LastLoginAt = u.LastLoginAt
+                LastLoginAt = u.LastLoginAt,
+                AssignedWarehouseCode = u.AssignedWarehouseCode
             })
             .ToListAsync(cancellationToken);
 
@@ -113,7 +114,8 @@ public class UserController : ControllerBase
             FailedLoginAttempts = user.FailedLoginAttempts,
             LockoutEnd = user.LockoutEnd,
             CreatedAt = user.CreatedAt,
-            LastLoginAt = user.LastLoginAt
+            LastLoginAt = user.LastLoginAt,
+            AssignedWarehouseCode = user.AssignedWarehouseCode
         });
     }
 
@@ -150,6 +152,12 @@ public class UserController : ControllerBase
             return BadRequest(new ErrorResponseDto { Message = $"Invalid role. Valid roles are: {string.Join(", ", validRoles)}" });
         }
 
+        // Validate warehouse assignment for StockController/DepotController
+        if ((request.Role == "StockController" || request.Role == "DepotController") && string.IsNullOrWhiteSpace(request.AssignedWarehouseCode))
+        {
+            return BadRequest(new ErrorResponseDto { Message = $"Assigned warehouse code is required for {request.Role} role" });
+        }
+
         var user = new User
         {
             Id = Guid.NewGuid(),
@@ -159,6 +167,7 @@ public class UserController : ControllerBase
             Role = request.Role,
             FirstName = request.FirstName,
             LastName = request.LastName,
+            AssignedWarehouseCode = (request.Role == "StockController" || request.Role == "DepotController") ? request.AssignedWarehouseCode : null,
             IsActive = true,
             CreatedAt = DateTime.UtcNow
         };
@@ -180,7 +189,8 @@ public class UserController : ControllerBase
                 FirstName = user.FirstName,
                 LastName = user.LastName,
                 IsActive = user.IsActive,
-                CreatedAt = user.CreatedAt
+                CreatedAt = user.CreatedAt,
+                AssignedWarehouseCode = user.AssignedWarehouseCode
             }
         });
     }
@@ -226,6 +236,17 @@ public class UserController : ControllerBase
         if (request.LastName != null) user.LastName = request.LastName;
         if (request.IsActive.HasValue) user.IsActive = request.IsActive.Value;
 
+        // Update assigned warehouse
+        if (request.AssignedWarehouseCode != null)
+        {
+            user.AssignedWarehouseCode = (user.Role == "StockController" || user.Role == "DepotController") ? request.AssignedWarehouseCode : null;
+        }
+        // Validate warehouse is set for warehouse-dependent roles
+        if ((user.Role == "StockController" || user.Role == "DepotController") && string.IsNullOrWhiteSpace(user.AssignedWarehouseCode))
+        {
+            return BadRequest(new ErrorResponseDto { Message = $"Assigned warehouse code is required for {user.Role} role" });
+        }
+
         user.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync(cancellationToken);
@@ -245,7 +266,8 @@ public class UserController : ControllerBase
             FailedLoginAttempts = user.FailedLoginAttempts,
             LockoutEnd = user.LockoutEnd,
             CreatedAt = user.CreatedAt,
-            LastLoginAt = user.LastLoginAt
+            LastLoginAt = user.LastLoginAt,
+            AssignedWarehouseCode = user.AssignedWarehouseCode
         });
     }
 

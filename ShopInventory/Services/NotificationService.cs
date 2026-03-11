@@ -71,7 +71,7 @@ public class NotificationService : INotificationService
         var query = _context.Notifications
             .Where(n => n.ExpiresAt == null || n.ExpiresAt > DateTime.UtcNow)
             .Where(n =>
-                n.TargetUsername == null && n.TargetRole == null || // Broadcast
+                (n.TargetUsername == null && n.TargetRole == null) || // Broadcast
                 n.TargetUsername == username || // Direct to user
                 n.TargetRole == role // Role-based
             );
@@ -84,12 +84,13 @@ public class NotificationService : INotificationService
         var totalCount = await query.CountAsync(cancellationToken);
         var unreadCount = await query.CountAsync(n => !n.IsRead, cancellationToken);
 
-        var notifications = await query
+        var notificationEntities = await query
             .OrderByDescending(n => n.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(n => MapToDto(n))
             .ToListAsync(cancellationToken);
+
+        var notifications = notificationEntities.Select(n => MapToDto(n)).ToList();
 
         return new NotificationListResponseDto
         {
@@ -110,7 +111,7 @@ public class NotificationService : INotificationService
             .Where(n => n.ExpiresAt == null || n.ExpiresAt > DateTime.UtcNow)
             .Where(n => !n.IsRead)
             .Where(n =>
-                n.TargetUsername == null && n.TargetRole == null ||
+                (n.TargetUsername == null && n.TargetRole == null) ||
                 n.TargetUsername == username ||
                 n.TargetRole == role
             )

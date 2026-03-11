@@ -189,6 +189,7 @@ public class UserDetailDto
     public bool IsLockedOut { get; set; }
     public DateTime? LockoutEnd { get; set; }
     public List<string> Permissions { get; set; } = new();
+    public string? AssignedWarehouseCode { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
@@ -226,6 +227,12 @@ public class CreateUserDetailRequest
     public List<string>? Permissions { get; set; }
 
     /// <summary>
+    /// Assigned warehouse code (required for StockController/DepotController roles)
+    /// </summary>
+    [StringLength(50)]
+    public string? AssignedWarehouseCode { get; set; }
+
+    /// <summary>
     /// Whether to send welcome email
     /// </summary>
     public bool SendWelcomeEmail { get; set; } = true;
@@ -253,6 +260,11 @@ public class UpdateUserDetailRequest
     /// Custom permissions (null to keep existing, empty list to use role defaults)
     /// </summary>
     public List<string>? Permissions { get; set; }
+
+    /// <summary>
+    /// Assigned warehouse code (for StockController/DepotController roles)
+    /// </summary>
+    public string? AssignedWarehouseCode { get; set; }
 }
 
 /// <summary>

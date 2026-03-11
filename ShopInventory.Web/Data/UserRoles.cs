@@ -115,4 +115,11 @@ public static class UserRoles
         IsAdmin(role) ||
         string.Equals(role, StockController, StringComparison.OrdinalIgnoreCase) ||
         string.Equals(role, DepotController, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Check if a role requires an assigned warehouse
+    /// </summary>
+    public static bool RequiresWarehouseAssignment(string role) =>
+        string.Equals(role, StockController, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(role, DepotController, StringComparison.OrdinalIgnoreCase);
 }
