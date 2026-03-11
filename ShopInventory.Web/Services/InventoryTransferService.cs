@@ -22,6 +22,7 @@ public interface IInventoryTransferService
 
     // Transfer Request conversion
     Task<(bool Success, string Message, InventoryTransferDto? Transfer)> ConvertTransferRequestToTransferAsync(int docEntry);
+    Task<(bool Success, string Message)> CloseTransferRequestAsync(int docEntry);
 }
 
 public class InventoryTransferService : IInventoryTransferService
@@ -191,23 +192,64 @@ public class InventoryTransferService : IInventoryTransferService
             _logger.LogError("Inventory transfer creation failed. Status: {StatusCode}, Response: {ErrorContent}",
                 response.StatusCode, errorContent);
 
+            // Parse the error response using JsonDocument to handle all API error shapes
             try
             {
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                using var doc = System.Text.Json.JsonDocument.Parse(errorContent);
+                var root = doc.RootElement;
 
-                var errorMessage = errorResponse?.Message ?? "Failed to create inventory transfer";
+                var message = root.TryGetProperty("message", out var msgProp) || root.TryGetProperty("Message", out msgProp)
+                    ? msgProp.GetString() ?? "Failed to create inventory transfer"
+                    : "Failed to create inventory transfer";
 
-                if (errorResponse?.Errors?.Any() == true)
+                // Extract errors - could be List<string> or List<complex object>
+                var errorMessages = new List<string>();
+                var errorsPropertyName = root.TryGetProperty("errors", out var errorsProp) ? "errors"
+                    : root.TryGetProperty("Errors", out errorsProp) ? "Errors" : null;
+
+                if (errorsPropertyName != null && errorsProp.ValueKind == System.Text.Json.JsonValueKind.Array)
                 {
-                    errorMessage = string.Join("; ", errorResponse.Errors);
+                    foreach (var err in errorsProp.EnumerateArray())
+                    {
+                        if (err.ValueKind == System.Text.Json.JsonValueKind.String)
+                        {
+                            errorMessages.Add(err.GetString()!);
+                        }
+                        else if (err.ValueKind == System.Text.Json.JsonValueKind.Object)
+                        {
+                            // StockValidationError or similar complex error object
+                            var errMsg = err.TryGetProperty("message", out var m) || err.TryGetProperty("Message", out m)
+                                ? m.GetString() : null;
+                            if (!string.IsNullOrEmpty(errMsg))
+                                errorMessages.Add(errMsg);
+                            else
+                                errorMessages.Add(err.ToString());
+                        }
+                    }
                 }
 
-                return (false, errorMessage, null);
+                // Also extract suggestions if present
+                if (root.TryGetProperty("suggestions", out var sugProp) || root.TryGetProperty("Suggestions", out sugProp))
+                {
+                    if (sugProp.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    {
+                        foreach (var sug in sugProp.EnumerateArray())
+                        {
+                            if (sug.ValueKind == System.Text.Json.JsonValueKind.String)
+                                errorMessages.Add($"Suggestion: {sug.GetString()}");
+                        }
+                    }
+                }
+
+                var fullMessage = errorMessages.Count > 0
+                    ? $"{message}\n{string.Join("\n", errorMessages)}"
+                    : message;
+
+                return (false, fullMessage, null);
             }
             catch
             {
-                return (false, $"Failed to create inventory transfer: {response.StatusCode} - {errorContent}", null);
+                return (false, $"Failed to create inventory transfer (HTTP {(int)response.StatusCode}): {errorContent}", null);
             }
         }
         catch (HttpRequestException httpEx)
@@ -369,6 +411,28 @@ public class InventoryTransferService : IInventoryTransferService
         {
             _logger.LogError(ex, "Unexpected error converting transfer request");
             return (false, $"Error: {ex.Message}", null);
+        }
+    }
+
+    public async Task<(bool Success, string Message)> CloseTransferRequestAsync(int docEntry)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync($"api/inventorytransfer/request/{docEntry}/close", null);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return (true, $"Transfer request {docEntry} closed successfully");
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Failed to close transfer request {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
+            return (false, $"Failed to close transfer request: {errorContent}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error closing transfer request {DocEntry}", docEntry);
+            return (false, $"Error: {ex.Message}");
         }
     }
 

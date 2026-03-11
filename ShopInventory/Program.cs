@@ -418,11 +418,11 @@ app.UseFileUploadValidation(); // Validate file uploads
 app.UseSecurityHeaders();    // Add security headers to responses
 
 // Configure the HTTP request pipeline.
+app.UseSwagger();
+app.UseSwaggerUI();
+
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-
     // Redirect root to Swagger only in development
     app.MapGet("/", () => Results.Redirect("/swagger")).AllowAnonymous();
 }

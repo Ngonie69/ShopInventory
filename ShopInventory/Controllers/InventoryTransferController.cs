@@ -75,11 +75,31 @@ public class InventoryTransferController : ControllerBase
                 });
             }
 
-            // CRITICAL: Validate stock availability in source warehouse
+            // Run warehouse validation and stock validation in parallel to reduce total wait time
             _logger.LogInformation("Validating stock availability for transfer with {LineCount} lines from {FromWarehouse} to {ToWarehouse}",
                 request.Lines?.Count ?? 0, request.FromWarehouse, request.ToWarehouse);
 
-            var stockValidationResult = await _stockValidation.ValidateInventoryTransferStockAsync(request, cancellationToken);
+            // Start both validations concurrently
+            using var warehouseValidationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            warehouseValidationCts.CancelAfter(TimeSpan.FromSeconds(15));
+            var warehouseTask = ValidateWarehouseCodesAsync(request, warehouseValidationCts.Token);
+            var stockTask = _stockValidation.ValidateInventoryTransferStockAsync(request, cancellationToken);
+
+            await Task.WhenAll(warehouseTask, stockTask);
+
+            // Check warehouse validation result
+            var warehouseErrors = await warehouseTask;
+            if (warehouseErrors != null && warehouseErrors.Count > 0)
+            {
+                _logger.LogWarning("Invalid warehouse codes in transfer request: {Errors}", string.Join(", ", warehouseErrors));
+                return BadRequest(new ErrorResponseDto
+                {
+                    Message = "Invalid warehouse code(s) - the specified warehouse(s) do not exist in SAP",
+                    Errors = warehouseErrors
+                });
+            }
+
+            var stockValidationResult = await stockTask;
             if (!stockValidationResult.IsValid)
             {
                 _logger.LogWarning("Stock validation failed for inventory transfer. {ErrorCount} items have insufficient stock",
@@ -197,6 +217,47 @@ public class InventoryTransferController : ControllerBase
         }
 
         return errors;
+    }
+
+    private async Task<List<string>?> ValidateWarehouseCodesAsync(CreateInventoryTransferRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var warehouses = await _sapClient.GetWarehousesAsync(cancellationToken);
+            var validCodes = new HashSet<string>(warehouses.Select(w => w.WarehouseCode!), StringComparer.OrdinalIgnoreCase);
+
+            var invalidWarehouses = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(request.FromWarehouse) && !validCodes.Contains(request.FromWarehouse))
+                invalidWarehouses.Add($"FromWarehouse '{request.FromWarehouse}' does not exist in SAP");
+
+            if (!string.IsNullOrWhiteSpace(request.ToWarehouse) && !validCodes.Contains(request.ToWarehouse))
+                invalidWarehouses.Add($"ToWarehouse '{request.ToWarehouse}' does not exist in SAP");
+
+            if (request.Lines != null)
+            {
+                for (int i = 0; i < request.Lines.Count; i++)
+                {
+                    var line = request.Lines[i];
+                    if (!string.IsNullOrWhiteSpace(line.FromWarehouseCode) && !validCodes.Contains(line.FromWarehouseCode))
+                        invalidWarehouses.Add($"Line {i + 1}: FromWarehouseCode '{line.FromWarehouseCode}' does not exist in SAP");
+                    if (!string.IsNullOrWhiteSpace(line.ToWarehouseCode) && !validCodes.Contains(line.ToWarehouseCode))
+                        invalidWarehouses.Add($"Line {i + 1}: ToWarehouseCode '{line.ToWarehouseCode}' does not exist in SAP");
+                }
+            }
+
+            return invalidWarehouses;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("Warehouse validation timed out after 15s. Proceeding without warehouse validation.");
+            return null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Could not validate warehouse codes against SAP. Proceeding without warehouse validation.");
+            return null;
+        }
     }
 
     /// <summary>
@@ -569,6 +630,54 @@ public class InventoryTransferController : ControllerBase
                 });
             }
 
+            // Validate warehouse codes exist in SAP (with short timeout so it doesn't block the main operation)
+            try
+            {
+                using var warehouseValidationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                warehouseValidationCts.CancelAfter(TimeSpan.FromSeconds(15));
+
+                var warehouses = await _sapClient.GetWarehousesAsync(warehouseValidationCts.Token);
+                var validCodes = new HashSet<string>(warehouses.Select(w => w.WarehouseCode!), StringComparer.OrdinalIgnoreCase);
+
+                var invalidWarehouses = new List<string>();
+
+                if (!string.IsNullOrWhiteSpace(request.FromWarehouse) && !validCodes.Contains(request.FromWarehouse))
+                    invalidWarehouses.Add($"FromWarehouse '{request.FromWarehouse}' does not exist in SAP");
+
+                if (!string.IsNullOrWhiteSpace(request.ToWarehouse) && !validCodes.Contains(request.ToWarehouse))
+                    invalidWarehouses.Add($"ToWarehouse '{request.ToWarehouse}' does not exist in SAP");
+
+                if (request.Lines != null)
+                {
+                    for (int i = 0; i < request.Lines.Count; i++)
+                    {
+                        var line = request.Lines[i];
+                        if (!string.IsNullOrWhiteSpace(line.FromWarehouseCode) && !validCodes.Contains(line.FromWarehouseCode))
+                            invalidWarehouses.Add($"Line {i + 1}: FromWarehouseCode '{line.FromWarehouseCode}' does not exist in SAP");
+                        if (!string.IsNullOrWhiteSpace(line.ToWarehouseCode) && !validCodes.Contains(line.ToWarehouseCode))
+                            invalidWarehouses.Add($"Line {i + 1}: ToWarehouseCode '{line.ToWarehouseCode}' does not exist in SAP");
+                    }
+                }
+
+                if (invalidWarehouses.Count > 0)
+                {
+                    _logger.LogWarning("Invalid warehouse codes in transfer request: {Errors}", string.Join(", ", invalidWarehouses));
+                    return BadRequest(new ErrorResponseDto
+                    {
+                        Message = "Invalid warehouse code(s) - the specified warehouse(s) do not exist in SAP",
+                        Errors = invalidWarehouses
+                    });
+                }
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning("Warehouse validation timed out after 15s. Proceeding without warehouse validation.");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Could not validate warehouse codes against SAP. Proceeding without warehouse validation.");
+            }
+
             _logger.LogInformation("Creating transfer request with {LineCount} lines from {FromWarehouse} to {ToWarehouse}",
                 request.Lines?.Count ?? 0, request.FromWarehouse, request.ToWarehouse);
 
@@ -678,6 +787,40 @@ public class InventoryTransferController : ControllerBase
         {
             _logger.LogError(ex, "Error converting transfer request {DocEntry}", docEntry);
             return StatusCode(500, new ErrorResponseDto { Message = "Error converting transfer request", Errors = new List<string> { ex.Message } });
+        }
+    }
+
+    /// <summary>
+    /// Closes a transfer request so it cannot be converted again
+    /// </summary>
+    /// <param name="docEntry">The document entry ID of the transfer request to close</param>
+    [HttpPost("request/{docEntry:int}/close")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> CloseTransferRequest(
+        int docEntry,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!_settings.Enabled)
+            {
+                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+            }
+
+            await _sapClient.CloseInventoryTransferRequestAsync(docEntry, cancellationToken);
+
+            return Ok(new { Message = $"Transfer request {docEntry} closed successfully" });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error closing transfer request {DocEntry}", docEntry);
+            return StatusCode(500, new ErrorResponseDto { Message = "Error closing transfer request", Errors = new List<string> { ex.Message } });
         }
     }
 

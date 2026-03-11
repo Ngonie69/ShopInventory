@@ -3596,8 +3596,112 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         // Validate the request
         ValidateInventoryTransferRequest(request);
 
-        // Cache item metadata across lines to avoid repeated SAP lookups
+        // Pre-fetch all unique item metadata in parallel to avoid sequential SAP calls per line
         var itemMetadataCache = new Dictionary<string, Item?>(StringComparer.OrdinalIgnoreCase);
+        var uniqueItemCodes = request.Lines!
+            .Where(l => !string.IsNullOrEmpty(l.ItemCode) && l.BatchNumbers == null && l.SerialNumbers == null)
+            .Select(l => l.ItemCode!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (uniqueItemCodes.Count > 0)
+        {
+            _logger.LogInformation("Pre-fetching metadata for {Count} unique items in parallel", uniqueItemCodes.Count);
+            var metadataTasks = uniqueItemCodes.Select(async code =>
+            {
+                try
+                {
+                    var item = await GetItemByCodeAsync(code, cancellationToken);
+                    return (code, item);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to pre-fetch metadata for item {ItemCode}", code);
+                    return (code, (Item?)null);
+                }
+            });
+            var results = await Task.WhenAll(metadataTasks);
+            foreach (var (code, item) in results)
+            {
+                itemMetadataCache[code] = item;
+            }
+        }
+
+        // Pre-fetch batch numbers in parallel for all batch-managed items
+        var batchCache = new Dictionary<string, List<BatchNumber>>(StringComparer.OrdinalIgnoreCase);
+        var batchManagedItems = itemMetadataCache
+            .Where(kvp => kvp.Value?.ManageBatchNumbers == "tYES")
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        if (batchManagedItems.Count > 0)
+        {
+            var batchItemsByWarehouse = request.Lines!
+                .Where(l => !string.IsNullOrEmpty(l.ItemCode) && l.BatchNumbers == null && l.SerialNumbers == null
+                    && batchManagedItems.Contains(l.ItemCode!, StringComparer.OrdinalIgnoreCase))
+                .Select(l => new { ItemCode = l.ItemCode!, Warehouse = l.FromWarehouseCode ?? request.FromWarehouse ?? "01" })
+                .Distinct()
+                .ToList();
+
+            _logger.LogInformation("Pre-fetching batches for {Count} batch-managed items in parallel", batchItemsByWarehouse.Count);
+            var batchTasks = batchItemsByWarehouse.Select(async x =>
+            {
+                var cacheKey = $"{x.ItemCode}|{x.Warehouse}";
+                try
+                {
+                    var batches = await GetBatchNumbersForItemInWarehouseAsync(x.ItemCode, x.Warehouse, cancellationToken);
+                    return (cacheKey, batches);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to pre-fetch batches for {ItemCode} in {Warehouse}", x.ItemCode, x.Warehouse);
+                    return (cacheKey, new List<BatchNumber>());
+                }
+            });
+            var batchResults = await Task.WhenAll(batchTasks);
+            foreach (var (key, batches) in batchResults)
+            {
+                batchCache[key] = batches;
+            }
+        }
+
+        // Pre-fetch serial numbers in parallel for serial-managed items
+        var serialCache = new Dictionary<string, List<SerialNumber>>(StringComparer.OrdinalIgnoreCase);
+        var serialManagedItems = itemMetadataCache
+            .Where(kvp => kvp.Value?.ManageSerialNumbers == "tYES")
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        if (serialManagedItems.Count > 0)
+        {
+            var serialItemsByWarehouse = request.Lines!
+                .Where(l => !string.IsNullOrEmpty(l.ItemCode) && l.BatchNumbers == null && l.SerialNumbers == null
+                    && serialManagedItems.Contains(l.ItemCode!, StringComparer.OrdinalIgnoreCase))
+                .Select(l => new { ItemCode = l.ItemCode!, Warehouse = l.FromWarehouseCode ?? request.FromWarehouse ?? "01" })
+                .Distinct()
+                .ToList();
+
+            _logger.LogInformation("Pre-fetching serials for {Count} serial-managed items in parallel", serialItemsByWarehouse.Count);
+            var serialTasks = serialItemsByWarehouse.Select(async x =>
+            {
+                var cacheKey = $"{x.ItemCode}|{x.Warehouse}";
+                try
+                {
+                    var serials = await GetSerialNumbersForItemInWarehouseAsync(x.ItemCode, x.Warehouse, cancellationToken);
+                    return (cacheKey, serials);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to pre-fetch serials for {ItemCode} in {Warehouse}", x.ItemCode, x.Warehouse);
+                    return (cacheKey, new List<SerialNumber>());
+                }
+            });
+            var serialResults = await Task.WhenAll(serialTasks);
+            foreach (var (key, serials) in serialResults)
+            {
+                serialCache[key] = serials;
+            }
+        }
 
         // Build the SAP payload
         var lines = new List<object>();
@@ -3663,30 +3767,31 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             }
             else
             {
-                // Auto-allocate batch/serial numbers if not explicitly provided
-                // Check if item is batch or serial managed
-                // Use a per-item timeout to prevent the entire transfer from hanging
-                using var allocationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                allocationCts.CancelAfter(TimeSpan.FromSeconds(30)); // 30s timeout per line
-                var allocationToken = allocationCts.Token;
+                // Auto-allocate batch/serial numbers using pre-fetched data
                 try
                 {
-                    // Use cached item lookup to avoid repeated SAP calls
+                    // Use pre-fetched item metadata (falls back to live lookup only if not pre-fetched)
                     if (!itemMetadataCache.TryGetValue(line.ItemCode!, out var item))
                     {
-                        item = await GetItemByCodeAsync(line.ItemCode!, allocationToken);
+                        item = await GetItemByCodeAsync(line.ItemCode!, cancellationToken);
                         itemMetadataCache[line.ItemCode!] = item;
                     }
 
                     if (item != null)
                     {
+                        var allocationCacheKey = $"{line.ItemCode}|{fromWarehouse}";
+
                         if (item.ManageBatchNumbers == "tYES")
                         {
-                            // Auto-allocate batches using FIFO
                             _logger.LogInformation("Auto-allocating batch numbers for batch-managed item {ItemCode} in warehouse {Warehouse}",
                                 line.ItemCode, fromWarehouse);
 
-                            var batches = await GetBatchNumbersForItemInWarehouseAsync(line.ItemCode!, fromWarehouse, allocationToken);
+                            // Use pre-fetched batches or fetch if not in cache
+                            if (!batchCache.TryGetValue(allocationCacheKey, out var batches))
+                            {
+                                batches = await GetBatchNumbersForItemInWarehouseAsync(line.ItemCode!, fromWarehouse, cancellationToken);
+                            }
+
                             if (batches.Any())
                             {
                                 var batchAllocations = new List<object>();
@@ -3735,11 +3840,15 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                         }
                         else if (item.ManageSerialNumbers == "tYES")
                         {
-                            // Auto-allocate serial numbers using FIFO
                             _logger.LogInformation("Auto-allocating serial numbers for serial-managed item {ItemCode} in warehouse {Warehouse}",
                                 line.ItemCode, fromWarehouse);
 
-                            var serials = await GetSerialNumbersForItemInWarehouseAsync(line.ItemCode!, fromWarehouse, allocationToken);
+                            // Use pre-fetched serials or fetch if not in cache
+                            if (!serialCache.TryGetValue(allocationCacheKey, out var serials))
+                            {
+                                serials = await GetSerialNumbersForItemInWarehouseAsync(line.ItemCode!, fromWarehouse, cancellationToken);
+                            }
+
                             if (serials.Any())
                             {
                                 var serialAllocations = new List<object>();
@@ -3794,17 +3903,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    // Client disconnected or request was cancelled - stop immediately
                     throw;
-                }
-                catch (OperationCanceledException)
-                {
-                    // Per-item allocation timeout - log and continue without allocation
-                    _logger.LogWarning("Auto-allocation timed out for item {ItemCode} (30s limit), proceeding without allocation. SAP will validate.", line.ItemCode);
                 }
                 catch (ArgumentException)
                 {
-                    // Validation errors (insufficient stock, no batches) - propagate
                     throw;
                 }
                 catch (Exception ex)
@@ -4245,6 +4347,12 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                                         $"Please reduce the transfer quantity or replenish stock.");
                                 }
                             }
+                            else
+                            {
+                                throw new ArgumentException(
+                                    $"No batches found for batch-managed item {requestLine.ItemCode} in warehouse {fromWarehouse}. " +
+                                    $"Please ensure the item has available stock with batch numbers in the source warehouse before converting this transfer request.");
+                            }
                         }
                         else if (item != null && item.ManageSerialNumbers == "tYES")
                         {
@@ -4289,6 +4397,12 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                                         $"Requested: {(int)requestLine.Quantity}, Available: {allocated}. " +
                                         $"Serial-managed items require complete serial number selection.");
                                 }
+                            }
+                            else
+                            {
+                                throw new ArgumentException(
+                                    $"No serial numbers found for serial-managed item {requestLine.ItemCode} in warehouse {fromWarehouse}. " +
+                                    $"Please ensure the item has available stock with serial numbers in the source warehouse before converting this transfer request.");
                             }
                         }
                     }
@@ -4343,7 +4457,61 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         _logger.LogInformation("Successfully converted transfer request {RequestDocEntry} to transfer {TransferDocEntry} (DocNum: {DocNum})",
             requestDocEntry, transfer.DocEntry, transfer.DocNum);
 
+        // Close the transfer request in SAP to prevent duplicate conversions
+        try
+        {
+            await CloseInventoryTransferRequestAsync(requestDocEntry, cancellationToken);
+            _logger.LogInformation("Transfer request {RequestDocEntry} closed successfully after conversion", requestDocEntry);
+        }
+        catch (Exception ex)
+        {
+            // Log but don't fail the conversion — the transfer was already created successfully
+            _logger.LogWarning(ex, "Failed to close transfer request {RequestDocEntry} after conversion. " +
+                "The transfer was created successfully but the request remains open.", requestDocEntry);
+        }
+
         return transfer;
+    }
+
+    /// <summary>
+    /// Closes an inventory transfer request in SAP Business One.
+    /// Uses the SAP Service Layer Close action: POST InventoryTransferRequests({docEntry})/Close
+    /// </summary>
+    public async Task CloseInventoryTransferRequestAsync(
+        int docEntry,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        _logger.LogInformation("Closing inventory transfer request {DocEntry}", docEntry);
+
+        var url = $"InventoryTransferRequests({docEntry})/Close";
+        var request = new HttpRequestMessage(HttpMethod.Post, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            _sessionId = null;
+            await EnsureAuthenticatedAsync(cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to close transfer request {DocEntry}: {StatusCode} - {Error}",
+                docEntry, response.StatusCode, errorContent);
+            throw new Exception($"Failed to close transfer request {docEntry}: {response.StatusCode} - {errorContent}");
+        }
+
+        _logger.LogInformation("Inventory transfer request {DocEntry} closed successfully", docEntry);
     }
 
     #endregion

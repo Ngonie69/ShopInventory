@@ -46,6 +46,11 @@ public interface ISAPServiceLayerClient
     /// </summary>
     Task<InventoryTransfer> ConvertTransferRequestToTransferAsync(int requestDocEntry, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Closes an inventory transfer request in SAP so it cannot be converted again.
+    /// </summary>
+    Task CloseInventoryTransferRequestAsync(int docEntry, CancellationToken cancellationToken = default);
+
     // Invoice Operations
     Task<Invoice> CreateInvoiceAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default);
     Task<Invoice?> GetInvoiceByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);

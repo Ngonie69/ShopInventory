@@ -1,17 +1,17 @@
 // Shop Inventory Service Worker
-const CACHE_NAME = 'shop-inventory-v1';
+const CACHE_NAME = 'shop-inventory-v2';
 const OFFLINE_URL = '/offline.html';
 
-// Assets to cache on install
+// Only cache truly static assets that rarely change
 const STATIC_ASSETS = [
-    '/',
     '/offline.html',
-    '/css/app.css',
-    '/css/bootstrap/bootstrap.min.css',
     '/manifest.json',
     '/images/icons/icon-192x192.png',
     '/images/icons/icon-512x512.png'
 ];
+
+// Blazor framework paths - NEVER cache these, always fetch from network
+const BLAZOR_PATHS = ['/_blazor', '/_framework', '/_content'];
 
 // API endpoints that should be cached with network-first strategy
 const API_CACHE_PATTERNS = [
@@ -55,6 +55,11 @@ self.addEventListener('activate', (event) => {
     );
 });
 
+// Check if request is for Blazor framework assets
+function isBlazorAsset(pathname) {
+    return BLAZOR_PATHS.some(p => pathname.startsWith(p));
+}
+
 // Fetch event - handle requests
 self.addEventListener('fetch', (event) => {
     const { request } = event;
@@ -70,13 +75,12 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // Handle API requests with network-first strategy
-    if (isApiRequest(url.pathname)) {
-        event.respondWith(networkFirstStrategy(request));
+    // NEVER intercept Blazor framework assets - let the server handle them directly
+    if (isBlazorAsset(url.pathname)) {
         return;
     }
 
-    // Handle navigation requests
+    // Handle navigation requests - always go to network, fallback to offline page
     if (request.mode === 'navigate') {
         event.respondWith(
             fetch(request)
@@ -87,8 +91,14 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // Handle static assets with cache-first strategy
-    event.respondWith(cacheFirstStrategy(request));
+    // Handle API requests with network-first strategy
+    if (isApiRequest(url.pathname)) {
+        event.respondWith(networkFirstStrategy(request));
+        return;
+    }
+
+    // Handle other static assets (images, manifest, etc.) with network-first strategy
+    event.respondWith(networkFirstStrategy(request));
 });
 
 // Network-first strategy for API requests

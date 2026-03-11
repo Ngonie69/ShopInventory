@@ -601,12 +601,12 @@ public class StockValidationService : IStockValidationService
                 {
                     var stock = cachedStock.FirstOrDefault(s =>
                         string.Equals(s.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
-                    availableQty = stock?.Available ?? 0;
+                    availableQty = stock?.InStock ?? 0;
                 }
                 else
                 {
                     // Fallback to individual lookup if warehouse query failed
-                    availableQty = await GetAvailableQuantityAsync(itemCode, fromWarehouse, cancellationToken);
+                    availableQty = await GetInStockQuantityAsync(itemCode, fromWarehouse, cancellationToken);
                 }
 
                 if (line.Quantity > availableQty)
@@ -697,6 +697,14 @@ public class StockValidationService : IStockValidationService
         string warehouseCode,
         CancellationToken cancellationToken = default)
     {
+        return await GetInStockQuantityAsync(itemCode, warehouseCode, cancellationToken);
+    }
+
+    private async Task<decimal> GetInStockQuantityAsync(
+        string itemCode,
+        string warehouseCode,
+        CancellationToken cancellationToken = default)
+    {
         // Check local database first
         var localProduct = await _dbContext.Products
             .FirstOrDefaultAsync(p => p.ItemCode == itemCode && p.IsActive, cancellationToken);
@@ -704,8 +712,8 @@ public class StockValidationService : IStockValidationService
         if (localProduct != null && localProduct.LastSyncedAt.HasValue &&
             localProduct.LastSyncedAt.Value > DateTime.UtcNow.AddMinutes(-5))
         {
-            // Use cached quantity if recently synced
-            return localProduct.QuantityOnStock - localProduct.QuantityOrderedByCustomers;
+            // Use cached on-hand quantity if recently synced
+            return localProduct.QuantityOnStock;
         }
 
         // Fall back to SAP query
@@ -715,11 +723,11 @@ public class StockValidationService : IStockValidationService
             var stock = stockQuantities?.FirstOrDefault(s =>
                 string.Equals(s.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
 
-            return stock?.Available ?? 0;
+            return stock?.InStock ?? 0;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to get available quantity from SAP for {ItemCode} in {Warehouse}",
+            _logger.LogWarning(ex, "Failed to get in-stock quantity from SAP for {ItemCode} in {Warehouse}",
                 itemCode, warehouseCode);
             return localProduct?.QuantityOnStock ?? 0;
         }

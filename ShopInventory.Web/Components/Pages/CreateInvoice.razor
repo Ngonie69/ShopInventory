@@ -1138,37 +1138,27 @@
                                                                                         <div class="col-6 col-md-2">
                                                                                             <div class="field-group">
                                                                                                 <label class="field-label">Unit Price</label>
-                                                                                                <input type="number" class="form-control form-control-line"
-                                                                                                       @bind="line.UnitPrice" min="0" step="0.01" placeholder="0.00" />
+                                                                                                <input type="text" class="form-control form-control-line"
+                                                                                                       value="@((line.UnitPrice ?? 0).ToString("N2"))" readonly
+                                                                                                       style="background-color:#f3f4f6; cursor:default;" />
                                                                                             </div>
                                                                                         </div>
-                                                                                        <div class="col-6 col-md-2">
+                                                                                        <div class="col-6 col-md-4">
                                                                                             <div class="field-group">
-                                                                                                <label class="field-label">Discount %</label>
-                                                                                                <input type="number" class="form-control form-control-line"
-                                                                                                       @bind="line.DiscountPercent" min="0" max="100" placeholder="0" />
-                                                                                            </div>
-                                                                                        </div>
-                                                                                        <div class="col-6 col-md-3">
-                                                                                            <div class="field-group">
-                                                                                                <label class="field-label">Batch #
+                                                                                                <label class="field-label">Batch
                                                                                                     <span class="batch-required-badge ms-1">Auto FEFO</span>
                                                                                                 </label>
                                                                                                 <input type="text" class="form-control form-control-line"
-                                                                                                       @bind="line.BatchNumber" placeholder="Leave empty for auto"
-                                                                                                       title="Leave empty for automatic batch selection using FEFO (First Expiry First Out)" />
+                                                                                                       value="Auto-allocated (FEFO)" readonly
+                                                                                                       style="background-color:#f3f4f6; cursor:default; color:#6b7280;" />
                                                                                             </div>
                                                                                         </div>
-                                                                                        <div class="col-12 col-md-3">
+                                                                                        <div class="col-12 col-md-4">
                                                                                             <div class="field-group">
                                                                                                 <label class="field-label">Cost Centre</label>
-                                                                                                <MudAutocomplete T="CostCentreDto" Value="GetLineCostCentre(line)"
-                                                                                                                 ValueChanged="@(cc => OnLineCostCentreChanged(index, cc))"
-                                                                                                                 SearchFunc="SearchCostCentresAsync"
-                                                                                                                 ToStringFunc="@(cc => cc == null ? "" : $"{cc.CenterCode} - {TruncateName(cc.CenterName, 15)}")"
-                                                                                                                 Placeholder="— Default —" Dense="true" Variant="Variant.Outlined"
-                                                                                                                 Margin="Margin.Dense" Clearable="true" ResetValueOnEmptyText="true"
-                                                                                                                 CoerceText="false" Class="form-select-line" />
+                                                                                                <input type="text" class="form-control form-control-line"
+                                                                                                       value="@GetLineCostCentreDisplay(line)" readonly
+                                                                                                       style="background-color:#f3f4f6; cursor:default;" />
                                                                                             </div>
                                                                                         </div>
                                                                                     </div>
@@ -1251,120 +1241,113 @@
                                                                                                                style="color:#059669;"></i>Subtotal</span>
                                                                                     <span class="sum-value">@CalculateSubtotal().ToString("N2")</span>
                                                                                 </div>
-                                                                                <div class="sum-line">
-                                                                                    <span class="sum-label"><i class="bi bi-percent me-1"
-                                                                                                                   style="color:#d97706;"></i>Discount</span>
-                                                                                        <span class="sum-value"
-                                                                                              style="color:#ef4444;">-@CalculateTotalDiscount().ToString("N2")</span>
-                                                                                    </div>
-
-                                                                                    <hr class="sum-divider" />
-                                                                                    <div class="sum-total">
-                                                                                        <span class="total-label">Total</span>
-                                                                                        <div style="text-align:right;">
-                                                                                            <span class="total-value">@CalculateTotal().ToString("N2")</span>
-                                                                                            <div style="font-size:.75rem; color:#6b7280;">@invoice.DocCurrency</div>
-                                                                                        </div>
+                                                                                <hr class="sum-divider" />
+                                                                                <div class="sum-total">
+                                                                                    <span class="total-label">Total</span>
+                                                                                    <div style="text-align:right;">
+                                                                                        <span class="total-value">@CalculateTotal().ToString("N2")</span>
+                                                                                        <div style="font-size:.75rem; color:#6b7280;">@invoice.DocCurrency</div>
                                                                                     </div>
                                                                                 </div>
+                                                                            </div>
 
-                                                                                <!-- Actions -->
-                                                                                <div style="padding:0 1.15rem 1.15rem;">
-                                                                                    <div style="display:flex; align-items:center; gap:.5rem; margin-bottom:.75rem;">
-                                                                                        <input type="checkbox" id="notifyCustomerEmail" @bind="notifyCustomerByEmail"
-                                                                                               style="accent-color:#2563eb;" />
-                                                                                        <label for="notifyCustomerEmail"
-                                                                                               style="font-size:.85rem; color:#374151; margin:0; cursor:pointer;">
-                                                                                            Email customer notification
-                                                                                        </label>
-                                                                                    </div>
+                                                                            <!-- Actions -->
+                                                                            <div style="padding:0 1.15rem 1.15rem;">
+                                                                                <div style="display:flex; align-items:center; gap:.5rem; margin-bottom:.75rem;">
+                                                                                    <input type="checkbox" id="notifyCustomerEmail" @bind="notifyCustomerByEmail"
+                                                                                           style="accent-color:#2563eb;" />
+                                                                                    <label for="notifyCustomerEmail"
+                                                                                           style="font-size:.85rem; color:#374151; margin:0; cursor:pointer;">
+                                                                                        Email customer notification
+                                                                                    </label>
+                                                                                </div>
 
-                                                                                    <MudButton Class="btn-execute" OnClick="SubmitInvoice" Disabled="@isSubmitting">
-                                                                                        @if (isSubmitting)
-                                                                                        {
-                                                                                            <span class="spinner-border spinner-border-sm"></span>
-                                                                                            <span>Creating…</span>
-                                                                                        }
-                                                                                        else
-                                                                                        {
-                                                                                            <i class="bi bi-check-circle-fill"></i>
-                                                                                            <span>Create Invoice</span>
-                                                                                        }
-                                                                                    </MudButton>
-                                                                                    <MudButton Class="btn-secondary-action" OnClick="ClearForm" Disabled="@isSubmitting">
-                                                                                        <i class="bi bi-arrow-counterclockwise"></i> Clear Form
-                                                                                    </MudButton>
-
-                                                                                    <!-- Validation Errors -->
-                                                                                    @if (validationErrors.Any() || lineValidationErrors.Any())
+                                                                                <MudButton Class="btn-execute" OnClick="SubmitInvoice" Disabled="@isSubmitting">
+                                                                                    @if (isSubmitting)
                                                                                     {
-                                                                                        <div
-                                                                                            style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:.65rem .85rem; margin-bottom:.75rem;">
-                                                                                            <div style="font-size:.78rem; font-weight:600; color:#991b1b; margin-bottom:.35rem;">
-                                                                                                <i class="bi bi-exclamation-triangle me-1"></i>Please fix the following:
-                                                                                            </div>
-                                                                                            <ul style="list-style:none; padding:0; margin:0; font-size:.78rem; color:#991b1b;">
-                                                                                                @foreach (var error in validationErrors.Values)
-                                                                                                {
-                                                                                                    <li><i class="bi bi-dot"></i>@error</li>
-                                                                                                }
-                                                                                                @foreach (var lineError in lineValidationErrors)
-                                                                                                {
-                                                                                                    foreach (var error in lineError.Value.Values)
-                                                                                                    {
-                                                                                                        <li><i class="bi bi-dot"></i>Line @(lineError.Key + 1): @error</li>
-                                                                                                    }
-                                                                                                }
-                                                                                            </ul>
-                                                                                        </div>
+                                                                                        <span class="spinner-border spinner-border-sm"></span>
+                                                                                        <span>Creating…</span>
                                                                                     }
+                                                                                    else
+                                                                                    {
+                                                                                        <i class="bi bi-check-circle-fill"></i>
+                                                                                        <span>Create Invoice</span>
+                                                                                    }
+                                                                                </MudButton>
+                                                                                <MudButton Class="btn-secondary-action" OnClick="ClearForm" Disabled="@isSubmitting">
+                                                                                    <i class="bi bi-arrow-counterclockwise"></i> Clear Form
+                                                                                </MudButton>
 
-                                                                                    <div class="info-hint">
-                                                                                        <i class="bi bi-info-circle" style="flex-shrink:0; margin-top:1px;"></i>
-                                                                                        <span>Invoices are posted directly to SAP Business One. Ensure all details are correct
-                                                                                            before submitting.</span>
+                                                                                <!-- Validation Errors -->
+                                                                                @if (validationErrors.Any() || lineValidationErrors.Any())
+                                                                                {
+                                                                                    <div
+                                                                                        style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:.65rem .85rem; margin-bottom:.75rem;">
+                                                                                        <div style="font-size:.78rem; font-weight:600; color:#991b1b; margin-bottom:.35rem;">
+                                                                                            <i class="bi bi-exclamation-triangle me-1"></i>Please fix the following:
                                                                                         </div>
+                                                                                        <ul style="list-style:none; padding:0; margin:0; font-size:.78rem; color:#991b1b;">
+                                                                                            @foreach (var error in validationErrors.Values)
+                                                                                            {
+                                                                                                <li><i class="bi bi-dot"></i>@error</li>
+                                                                                            }
+                                                                                            @foreach (var lineError in lineValidationErrors)
+                                                                                            {
+                                                                                                foreach (var error in lineError.Value.Values)
+                                                                                                {
+                                                                                                    <li><i class="bi bi-dot"></i>Line @(lineError.Key + 1): @error</li>
+                                                                                                }
+                                                                                            }
+                                                                                        </ul>
+                                                                                    </div>
+                                                                                }
+
+                                                                                <div class="info-hint">
+                                                                                    <i class="bi bi-info-circle" style="flex-shrink:0; margin-top:1px;"></i>
+                                                                                    <span>Invoices are posted directly to SAP Business One. Ensure all details are correct
+                                                                                        before submitting.</span>
                                                                                     </div>
                                                                                 </div>
+                                                                            </div>
 
-                                                                                <!-- Data Status Card -->
-                                                                                <div class="summary-card" style="margin-top:1rem;">
-                                                                                    <div class="summary-hdr">
-                                                                                        <i class="bi bi-database" style="color:#6b7280;"></i>
-                                                                                        <h6 style="font-size:.85rem; color:#6b7280;">Cached Data Status</h6>
-                                                                                    </div>
-                                                                                    <div style="padding:.65rem 1.15rem;">
-                                                                                        <div class="row g-1">
+                                                                            <!-- Data Status Card -->
+                                                                            <div class="summary-card" style="margin-top:1rem;">
+                                                                                <div class="summary-hdr">
+                                                                                    <i class="bi bi-database" style="color:#6b7280;"></i>
+                                                                                    <h6 style="font-size:.85rem; color:#6b7280;">Cached Data Status</h6>
+                                                                                </div>
+                                                                                <div style="padding:.65rem 1.15rem;">
+                                                                                    <div class="row g-1">
+                                                                                        <div class="col-6">
+                                                                                            <div class="ds-item"><i class="bi bi-people"
+                                                                                                                        style="color:#2563eb;"></i>@allBusinessPartners.Count customers</div>
+                                                                                            </div>
                                                                                             <div class="col-6">
-                                                                                                <div class="ds-item"><i class="bi bi-people"
-                                                                                                                            style="color:#2563eb;"></i>@allBusinessPartners.Count customers</div>
+                                                                                                <div class="ds-item"><i class="bi bi-box"
+                                                                                                                            style="color:#059669;"></i>@cachedProducts.Count products</div>
                                                                                                 </div>
                                                                                                 <div class="col-6">
-                                                                                                    <div class="ds-item"><i class="bi bi-box"
-                                                                                                                                style="color:#059669;"></i>@cachedProducts.Count products</div>
+                                                                                                    <div class="ds-item"><i class="bi bi-building"
+                                                                                                                                style="color:#0ea5e9;"></i>@cachedWarehouses.Count warehouses</div>
                                                                                                     </div>
                                                                                                     <div class="col-6">
-                                                                                                        <div class="ds-item"><i class="bi bi-building"
-                                                                                                                                    style="color:#0ea5e9;"></i>@cachedWarehouses.Count warehouses</div>
+                                                                                                        <div class="ds-item"><i class="bi bi-diagram-3"
+                                                                                                                                    style="color:#d97706;"></i>@cachedCostCentres.Count cost centres</div>
                                                                                                         </div>
-                                                                                                        <div class="col-6">
-                                                                                                            <div class="ds-item"><i class="bi bi-diagram-3"
-                                                                                                                                        style="color:#d97706;"></i>@cachedCostCentres.Count cost centres</div>
-                                                                                                            </div>
-                                                                                                        </div>
-                                                                                                        @if (lastCacheRefresh.HasValue)
-                                                                                                        {
-                                                                                                            <div style="font-size:.75rem; color:#9ca3af; margin-top:.35rem;">
-                                                                                                                <i class="bi bi-clock me-1"></i>Last sync: @lastCacheRefresh.Value.ToString("HH:mm:ss")
-                                                                                                            </div>
-                                                                                                        }
                                                                                                     </div>
+                                                                                                    @if (lastCacheRefresh.HasValue)
+                                                                                                    {
+                                                                                                        <div style="font-size:.75rem; color:#9ca3af; margin-top:.35rem;">
+                                                                                                            <i class="bi bi-clock me-1"></i>Last sync: @lastCacheRefresh.Value.ToString("HH:mm:ss")
+                                                                                                        </div>
+                                                                                                    }
                                                                                                 </div>
                                                                                             </div>
                                                                                         </div>
                                                                                     </div>
                                                                                 </div>
                                                                             </div>
+                                                                        </div>
 
 @code {
     private CreateInvoiceRequest invoice = new()
@@ -1667,6 +1650,15 @@
             return null;
 
         return cachedCostCentres.FirstOrDefault(cc => cc.CenterCode == line.CostCentreCode);
+    }
+
+    private string GetLineCostCentreDisplay(CreateInvoiceLineRequest line)
+    {
+        if (string.IsNullOrEmpty(line.CostCentreCode))
+            return "— Default —";
+
+        var cc = cachedCostCentres.FirstOrDefault(c => c.CenterCode == line.CostCentreCode);
+        return cc != null ? $"{cc.CenterCode} - {cc.CenterName}" : line.CostCentreCode;
     }
 
     private void OnLineCostCentreChanged(int index, CostCentreDto? costCentre)
@@ -2060,23 +2052,12 @@
 
     private decimal CalculateLineTotal(CreateInvoiceLineRequest line)
     {
-        var subtotal = line.Quantity * (line.UnitPrice ?? 0);
-        var discount = subtotal * ((line.DiscountPercent ?? 0) / 100);
-        return subtotal - discount;
+        return line.Quantity * (line.UnitPrice ?? 0);
     }
 
     private decimal CalculateSubtotal()
     {
         return invoice.Lines.Sum(l => l.Quantity * (l.UnitPrice ?? 0));
-    }
-
-    private decimal CalculateTotalDiscount()
-    {
-        return invoice.Lines.Sum(l =>
-        {
-            var subtotal = l.Quantity * (l.UnitPrice ?? 0);
-            return subtotal * ((l.DiscountPercent ?? 0) / 100);
-        });
     }
 
     private decimal CalculateTotal()

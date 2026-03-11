@@ -3,8 +3,10 @@
 @attribute [Authorize(Roles = "Admin,StockController,DepotController")]
 @inject IInventoryTransferService TransferService
 @inject IMasterDataCacheService CacheService
+@inject IWarehouseStockCacheService StockCacheService
 @inject NavigationManager NavigationManager
 @inject ILogger<CreateInventoryTransfer> Logger
+@inject IJSRuntime JS
 @rendermode InteractiveServer
 
 <PageTitle>Create Inventory Transfer - Shop Inventory</PageTitle>
@@ -599,7 +601,8 @@
                             <div class="row g-3">
                                 <div class="col-md-6">
                                     <label class="form-label fw-semibold small">From Warehouse <span class="text-danger">*</span></label>
-                                    <MudAutocomplete T="WarehouseDto" @bind-Value="selectedFromWarehouse"
+                                    <MudAutocomplete T="WarehouseDto" Value="selectedFromWarehouse"
+                                                     ValueChanged="OnFromWarehouseChanged"
                                                      Label="Search source warehouse…"
                                                      SearchFunc="SearchWarehousesAsync"
                                                      ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
@@ -631,6 +634,13 @@
                                         </ItemTemplate>
                                     </MudAutocomplete>
                                 </div>
+                            </div>
+
+                            <!-- Reason for Transfer -->
+                            <div class="mt-3">
+                                <label class="form-label fw-semibold small">Reason for Transfer <span class="text-danger">*</span></label>
+                                <textarea class="form-control form-control-sm" rows="2" @bind="transferReason"
+                                          placeholder="e.g. Stock replenishment, customer order fulfilment, warehouse rebalancing…"></textarea>
                             </div>
                         }
                     </div>
@@ -674,7 +684,16 @@
                             <div class="header-icon green"><i class="bi bi-list-check"></i></div>
                             <h5>Transfer Items</h5>
                         </div>
-                        <span class="badge bg-primary-subtle text-primary">@lines.Count item(s)</span>
+                        <div class="d-flex align-items-center gap-2">
+                            @if (isLoadingStock)
+                            {
+                                <span class="badge bg-warning-subtle text-warning">
+                                    <span class="spinner-border spinner-border-sm me-1" style="width:0.65rem;height:0.65rem;"></span>
+                                    Updating stock…
+                                </span>
+                            }
+                            <span class="badge bg-primary-subtle text-primary">@lines.Count item(s)</span>
+                        </div>
                     </div>
                     <div class="card-body">
                         @if (isLoadingProducts)
@@ -747,7 +766,7 @@
                                             <div class="product-info">
                                                 <div class="product-name">@currentLine.SelectedProduct.ItemName</div>
                                                 <div class="product-stock">
-                                                    Available:
+                                                    In Stock:
                                                     @if (currentLine.SelectedProduct.QuantityInStock > 0)
                                                     {
                                                         <span class="@(currentLine.Quantity > currentLine.SelectedProduct.QuantityInStock ? "low-stock" : "in-stock")">
@@ -832,6 +851,12 @@
                                     </div>
                                     <span>All quantities are valid</span>
                                 </li>
+                                <li>
+                                    <div class="check-icon @(!string.IsNullOrWhiteSpace(transferReason) ? "pass" : "fail")">
+                                        <i class="bi @(!string.IsNullOrWhiteSpace(transferReason) ? "bi-check" : "bi-x")"></i>
+                                    </div>
+                                    <span>Reason for transfer provided</span>
+                                </li>
                             </ul>
                         </div>
                     </div>
@@ -865,12 +890,29 @@
                                 <span class="stat-label">Doc Date</span>
                                 <span class="stat-value">@((docDate ?? DateTime.Today).ToString("dd MMM yyyy"))</span>
                             </div>
+                            @if (!string.IsNullOrWhiteSpace(transferReason))
+                            {
+                                <div class="summary-stat">
+                                    <span class="stat-label">Reason</span>
+                                    <span class="stat-value" style="white-space:normal;">@transferReason</span>
+                                </div>
+                            }
                         </div>
                     </div>
 
                     <!-- Actions -->
                     <div class="section-card">
                         <div class="card-body">
+                            @if (!string.IsNullOrEmpty(errorMessage))
+                            {
+                                <div class="alert-banner error mb-3">
+                                    <i class="bi bi-exclamation-octagon-fill alert-icon"></i>
+                                    <div class="alert-body">
+                                        <div class="alert-title">Transfer Failed</div>
+                                        <div style="white-space:pre-wrap;">@errorMessage</div>
+                                    </div>
+                                </div>
+                            }
                             <MudButton Class="btn-execute" OnClick="SubmitTransfer"
                                     Disabled="@(isSubmitting || !IsFormValid())">
                                 @if (isSubmitting)
@@ -926,15 +968,22 @@
 
     // ── Products ────────────────────────────────────────
     private List<ProductDto> cachedProducts = new();
+    private bool isLoadingStock = false;
 
     // ── Form ────────────────────────────────────────────
     private DateTime? docDate = DateTime.Today;
     private DateTime? dueDate;
     private string? comments;
+    private string? transferReason;
 
     // ── Lines ───────────────────────────────────────────
     private List<TransferLineItem> lines = new() { new TransferLineItem() };
     private bool _hasLoadedData = false;
+
+    private async Task ScrollToTopAsync()
+    {
+        try { await JS.InvokeVoidAsync("window.scrollTo", 0, 0); } catch { }
+    }
 
     // ── Lifecycle ───────────────────────────────────────
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -973,13 +1022,13 @@
         }
     }
 
-    private async Task LoadProductsAsync()
+    private async Task LoadProductsAsync(string? warehouseCode = null)
     {
         try
         {
             isLoadingProducts = true;
             cachedProducts = await CacheService.GetProductsAsync();
-            Logger.LogInformation("Loaded {Count} products", cachedProducts?.Count ?? 0);
+            Logger.LogInformation("Loaded {Count} products from cache", cachedProducts?.Count ?? 0);
         }
         catch (Exception ex)
         {
@@ -990,6 +1039,74 @@
         {
             isLoadingProducts = false;
         }
+
+        // If warehouse specified, merge stock quantities in background
+        if (!string.IsNullOrEmpty(warehouseCode))
+        {
+            _ = LoadAndMergeStockAsync(warehouseCode);
+        }
+    }
+
+    private async Task LoadAndMergeStockAsync(string warehouseCode)
+    {
+        try
+        {
+            isLoadingStock = true;
+            StateHasChanged();
+
+            var stockResponse = await StockCacheService.GetAllCachedStockAsync(warehouseCode);
+            if (stockResponse?.Products != null && cachedProducts != null)
+            {
+                var stockLookup = stockResponse.Products
+                    .Where(p => !string.IsNullOrEmpty(p.ItemCode))
+                    .ToDictionary(p => p.ItemCode!, p => p.QuantityInStock, StringComparer.OrdinalIgnoreCase);
+
+                foreach (var product in cachedProducts)
+                {
+                    if (!string.IsNullOrEmpty(product.ItemCode) && stockLookup.TryGetValue(product.ItemCode, out var inStock))
+                    {
+                        product.QuantityInStock = inStock;
+                    }
+                    else
+                    {
+                        product.QuantityInStock = 0;
+                    }
+                }
+
+                Logger.LogInformation("Merged stock quantities for {Count} items from warehouse {Warehouse}",
+                    stockLookup.Count, warehouseCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load stock for warehouse {Warehouse}, product list still usable", warehouseCode);
+        }
+        finally
+        {
+            isLoadingStock = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnFromWarehouseChanged(WarehouseDto? warehouse)
+    {
+        selectedFromWarehouse = warehouse;
+
+        // Clear existing line selections since stock data is changing
+        foreach (var line in lines)
+        {
+            line.SelectedProduct = null;
+            line.ItemCode = null;
+            line.Quantity = 0;
+        }
+
+        // Merge stock quantities for the selected warehouse (non-blocking)
+        if (!string.IsNullOrEmpty(warehouse?.WarehouseCode))
+        {
+            _ = LoadAndMergeStockAsync(warehouse.WarehouseCode);
+        }
+
+        StateHasChanged();
     }
 
     // ── Search helpers ──────────────────────────────────
@@ -1049,11 +1166,22 @@
     private bool AllLinesHaveValidQuantity() => lines.Count > 0 && lines.All(l => l.Quantity > 0);
     private int ValidLineCount() => lines.Count(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0);
 
+    private string BuildComments()
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(transferReason))
+            parts.Add($"Reason: {transferReason.Trim()}");
+        if (!string.IsNullOrWhiteSpace(comments))
+            parts.Add(comments.Trim());
+        return string.Join(" | ", parts);
+    }
+
     private bool IsFormValid()
     {
         return selectedFromWarehouse != null
             && selectedToWarehouse != null
             && selectedFromWarehouse.WarehouseCode != selectedToWarehouse.WarehouseCode
+            && !string.IsNullOrWhiteSpace(transferReason)
             && lines.Count > 0
             && lines.All(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0);
     }
@@ -1062,7 +1190,8 @@
     private bool IsStepCompleted(int step) => step switch
     {
         1 => selectedFromWarehouse != null && selectedToWarehouse != null
-             && selectedFromWarehouse.WarehouseCode != selectedToWarehouse.WarehouseCode,
+             && selectedFromWarehouse.WarehouseCode != selectedToWarehouse.WarehouseCode
+             && !string.IsNullOrWhiteSpace(transferReason),
         2 => lines.Count > 0 && lines.All(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0),
         3 => false,
         _ => false
@@ -1099,7 +1228,8 @@
                     ToWarehouse = selectedToWarehouse!.WarehouseCode,
                     DocDate = (docDate ?? DateTime.Today).ToString("yyyy-MM-dd"),
                     DueDate = dueDate?.ToString("yyyy-MM-dd"),
-                    Comments = comments,
+                    Comments = BuildComments(),
+
                     Lines = lines.Select(l => new CreateInventoryTransferLineDto
                     {
                         ItemCode = l.ItemCode,
@@ -1128,12 +1258,16 @@
             {
                 errorMessage = message;
                 Logger.LogWarning("Failed to create inventory transfer: {Message}", message);
+                StateHasChanged();
+                await ScrollToTopAsync();
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error submitting inventory transfer");
             errorMessage = $"An unexpected error occurred: {ex.Message}";
+            StateHasChanged();
+            await ScrollToTopAsync();
         }
         finally
         {
@@ -1148,6 +1282,7 @@
         docDate = DateTime.Today;
         dueDate = null;
         comments = null;
+        transferReason = null;
         lines = new() { new TransferLineItem() };
         errorMessage = null;
         successMessage = null;

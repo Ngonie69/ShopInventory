@@ -42,14 +42,13 @@ public class SecurityHeadersMiddleware
         headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
 
         // Content Security Policy for Blazor Server
-        // Blazor Server requires 'unsafe-inline' for styles (MudBlazor), 'unsafe-eval' for some JS interop
-        // We use nonce-based approach where possible, but Blazor's architecture requires these for now
+        // Blazor Server requires 'unsafe-inline' for styles (MudBlazor), 'unsafe-eval' for JS interop
         headers["Content-Security-Policy"] =
             "default-src 'self'; " +
-            "script-src 'self' 'unsafe-inline'; " +        // Blazor SignalR requires inline scripts
-            "style-src 'self' 'unsafe-inline'; " +          // MudBlazor uses inline styles
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +  // Blazor SignalR + import maps + JS interop
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; " +
             "img-src 'self' data: https:; " +
-            "font-src 'self' data:; " +                     // MudBlazor icons use data: fonts
+            "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; " +
             "connect-src 'self' ws: wss:; " +                // Blazor SignalR WebSocket connections
             "frame-ancestors 'self'; " +
             "base-uri 'self'; " +
@@ -58,9 +57,6 @@ public class SecurityHeadersMiddleware
 
         // Permissions Policy - restrict browser features
         headers["Permissions-Policy"] = "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=(), interest-cohort=()";
-
-        // Cross-Origin policies
-        headers["Cross-Origin-Opener-Policy"] = "same-origin";
 
         // Remove server identification
         headers.Remove("Server");
