@@ -160,6 +160,19 @@ public class SyncHealthSummaryDto
 }
 
 /// <summary>
+/// Connection log entry for SAP connection history
+/// </summary>
+public class ConnectionLogDto
+{
+    public int Id { get; set; }
+    public DateTime CheckedAt { get; set; }
+    public bool IsSuccess { get; set; }
+    public string? Endpoint { get; set; }
+    public string? ErrorMessage { get; set; }
+    public double? ResponseTimeMs { get; set; }
+}
+
+/// <summary>
 /// Trigger manual sync request
 /// </summary>
 public class TriggerSyncRequest

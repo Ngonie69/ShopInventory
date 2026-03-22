@@ -4,6 +4,7 @@
 @attribute [Authorize(Roles = "Admin,Manager")]
 @inject IAuditService AuditService
 @inject IJSRuntime JS
+@inject IAppSettingsProvider AppSettings
 @rendermode InteractiveServer
 
 <PageTitle>User Activity Dashboard - Shop Inventory</PageTitle>
@@ -1306,6 +1307,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        pageSize = AppSettings.PageSize;
         await SetTimeRange("today");
     }
 

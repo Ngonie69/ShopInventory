@@ -285,4 +285,103 @@ public class ReportController : ControllerBase
             return StatusCode(500, new ErrorResponseDto { Message = $"Error generating report: {ex.Message}" });
         }
     }
+
+    /// <summary>
+    /// Gets credit notes summary report
+    /// </summary>
+    [HttpGet("credit-notes")]
+    [ProducesResponseType(typeof(CreditNoteSummaryReportDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetCreditNoteSummary(
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
+            var to = ToUtc(toDate ?? DateTime.UtcNow);
+
+            var report = await _reportService.GetCreditNoteSummaryAsync(from, to, cancellationToken);
+            return Ok(report);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating credit notes report");
+            return StatusCode(500, new ErrorResponseDto { Message = $"Error generating report: {ex.Message}" });
+        }
+    }
+
+    /// <summary>
+    /// Gets purchase orders summary report
+    /// </summary>
+    [HttpGet("purchase-orders")]
+    [ProducesResponseType(typeof(PurchaseOrderSummaryReportDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetPurchaseOrderSummary(
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
+            var to = ToUtc(toDate ?? DateTime.UtcNow);
+
+            var report = await _reportService.GetPurchaseOrderSummaryAsync(from, to, cancellationToken);
+            return Ok(report);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating purchase orders report");
+            return StatusCode(500, new ErrorResponseDto { Message = $"Error generating report: {ex.Message}" });
+        }
+    }
+
+    /// <summary>
+    /// Gets receivables aging report
+    /// </summary>
+    [HttpGet("receivables-aging")]
+    [ProducesResponseType(typeof(ReceivablesAgingReportDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetReceivablesAging(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var report = await _reportService.GetReceivablesAgingAsync(cancellationToken);
+            return Ok(report);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating receivables aging report");
+            return StatusCode(500, new ErrorResponseDto { Message = $"Error generating report: {ex.Message}" });
+        }
+    }
+
+    /// <summary>
+    /// Gets profit overview report
+    /// </summary>
+    [HttpGet("profit-overview")]
+    [ProducesResponseType(typeof(ProfitOverviewReportDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetProfitOverview(
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
+            var to = ToUtc(toDate ?? DateTime.UtcNow);
+
+            var report = await _reportService.GetProfitOverviewAsync(from, to, cancellationToken);
+            return Ok(report);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating profit overview report");
+            return StatusCode(500, new ErrorResponseDto { Message = $"Error generating report: {ex.Message}" });
+        }
+    }
+
 }

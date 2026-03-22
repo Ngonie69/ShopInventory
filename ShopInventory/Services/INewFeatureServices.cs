@@ -98,6 +98,7 @@ public interface IBackupService
     Task<bool> RestoreBackupAsync(int backupId, Guid userId, CancellationToken cancellationToken = default);
     Task<bool> DeleteBackupAsync(int id, CancellationToken cancellationToken = default);
     Task<Stream?> DownloadBackupAsync(int id, CancellationToken cancellationToken = default);
+    Task ResetDatabaseAsync(Guid userId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -172,4 +173,22 @@ public interface IImportExportService
     Task<ImportTemplateDto> GetImportTemplateAsync(string entityType, CancellationToken cancellationToken = default);
     Task<byte[]> DownloadImportTemplateAsync(string entityType, CancellationToken cancellationToken = default);
     Task<List<string>> GetImportableEntitiesAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Service interface for Quotation operations
+/// </summary>
+public interface IQuotationService
+{
+    Task<QuotationDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
+    Task<QuotationDto?> GetByQuotationNumberAsync(string quotationNumber, CancellationToken cancellationToken = default);
+    Task<QuotationListResponseDto> GetAllAsync(int page, int pageSize, QuotationStatus? status = null,
+        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+    Task<QuotationDto> CreateAsync(CreateQuotationRequest request, Guid userId, CancellationToken cancellationToken = default);
+    Task<QuotationDto> UpdateAsync(int id, CreateQuotationRequest request, CancellationToken cancellationToken = default);
+    Task<QuotationDto> UpdateStatusAsync(int id, QuotationStatus status, Guid userId, string? comments = null, CancellationToken cancellationToken = default);
+    Task<bool> DeleteAsync(int id, CancellationToken cancellationToken = default);
+    Task<QuotationDto> ApproveAsync(int id, Guid userId, CancellationToken cancellationToken = default);
+    Task<SalesOrderDto?> ConvertToSalesOrderAsync(int id, Guid userId, CancellationToken cancellationToken = default);
+    Task<string> GenerateQuotationNumberAsync(CancellationToken cancellationToken = default);
 }

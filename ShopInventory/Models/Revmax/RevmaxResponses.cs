@@ -8,19 +8,26 @@ namespace ShopInventory.Models.Revmax;
 /// </summary>
 public class CardDetailsResponse
 {
-    public bool Success { get; set; }
+    public string? Code { get; set; }
     public string? Message { get; set; }
+    public string? QRcode { get; set; }
+    public string? VerificationCode { get; set; }
+    public string? VerificationLink { get; set; }
+    public string? DeviceID { get; set; }
+    public string? DeviceSerialNumber { get; set; }
+    public string? FiscalDay { get; set; }
     public CardDetailsData? Data { get; set; }
 }
 
 public class CardDetailsData
 {
-    public string? DeviceSerial { get; set; }
-    public string? TaxpayerName { get; set; }
-    public string? TaxpayerTIN { get; set; }
-    public string? TaxpayerBPN { get; set; }
-    public string? TaxpayerVATNo { get; set; }
-    public string? Address { get; set; }
+    public string? TIN { get; set; }
+    public string? BPN { get; set; }
+    public string? VAT { get; set; }
+    public string? COMPANYNAME { get; set; }
+    public string? ADDRESS { get; set; }
+    public string? REGISTRATIONNUMBER { get; set; }
+    public string? SERIALNUMBER { get; set; }
 }
 
 /// <summary>
@@ -28,17 +35,30 @@ public class CardDetailsData
 /// </summary>
 public class DayStatusResponse
 {
-    public bool Success { get; set; }
+    public string? Code { get; set; }
     public string? Message { get; set; }
+    public string? QRcode { get; set; }
+    public string? VerificationCode { get; set; }
+    public string? VerificationLink { get; set; }
+    public string? DeviceID { get; set; }
+    public string? DeviceSerialNumber { get; set; }
+    public string? FiscalDay { get; set; }
     public DayStatusData? Data { get; set; }
 }
 
 public class DayStatusData
 {
-    public bool DayOpened { get; set; }
-    public int FiscalDayNo { get; set; }
-    public string? FiscalDayDate { get; set; }
-    public int ReceiptCounter { get; set; }
+    [JsonPropertyName("fiscalDayStatus")]
+    public string? FiscalDayStatus { get; set; }
+
+    [JsonPropertyName("lastReceiptGlobalNo")]
+    public int LastReceiptGlobalNo { get; set; }
+
+    [JsonPropertyName("lastFiscalDayNo")]
+    public int LastFiscalDayNo { get; set; }
+
+    [JsonPropertyName("operationID")]
+    public string? OperationID { get; set; }
 }
 
 /// <summary>
@@ -46,16 +66,22 @@ public class DayStatusData
 /// </summary>
 public class LicenseResponse
 {
-    public bool Success { get; set; }
+    public string? Code { get; set; }
     public string? Message { get; set; }
+    public string? QRcode { get; set; }
+    public string? VerificationCode { get; set; }
+    public string? VerificationLink { get; set; }
+    public string? DeviceID { get; set; }
+    public string? DeviceSerialNumber { get; set; }
+    public string? FiscalDay { get; set; }
     public LicenseData? Data { get; set; }
 }
 
 public class LicenseData
 {
-    public string? License { get; set; }
-    public string? ExpiryDate { get; set; }
-    public bool IsValid { get; set; }
+    public string? Status { get; set; }
+    public string? Start { get; set; }
+    public string? End { get; set; }
 }
 
 /// <summary>
@@ -63,8 +89,14 @@ public class LicenseData
 /// </summary>
 public class ZReportResponse
 {
-    public bool Success { get; set; }
+    public string? Code { get; set; }
     public string? Message { get; set; }
+    public string? QRcode { get; set; }
+    public string? VerificationCode { get; set; }
+    public string? VerificationLink { get; set; }
+    public string? DeviceID { get; set; }
+    public string? DeviceSerialNumber { get; set; }
+    public string? FiscalDay { get; set; }
     public object? Data { get; set; }
 }
 
@@ -73,10 +105,18 @@ public class ZReportResponse
 /// </summary>
 public class InvoiceResponse
 {
-    public bool Success { get; set; }
+    public string? Code { get; set; }
     public string? Message { get; set; }
-    public InvoiceData? Data { get; set; }
     public string? QRcode { get; set; }
+    public string? VerificationCode { get; set; }
+    public string? VerificationLink { get; set; }
+    public string? DeviceID { get; set; }
+    public string? DeviceSerialNumber { get; set; }
+    public string? FiscalDay { get; set; }
+    public InvoiceData? Data { get; set; }
+
+    [JsonIgnore]
+    public bool Success => Code == "1";
 }
 
 public class InvoiceData
@@ -109,8 +149,14 @@ public class InvoiceData
 /// </summary>
 public class UnprocessedInvoicesSummaryResponse
 {
-    public bool Success { get; set; }
+    public string? Code { get; set; }
     public string? Message { get; set; }
+    public string? QRcode { get; set; }
+    public string? VerificationCode { get; set; }
+    public string? VerificationLink { get; set; }
+    public string? DeviceID { get; set; }
+    public string? DeviceSerialNumber { get; set; }
+    public string? FiscalDay { get; set; }
     public List<UnprocessedInvoiceSummary>? Data { get; set; }
 }
 
@@ -128,7 +174,7 @@ public class UnprocessedInvoiceSummary
 /// </summary>
 public class RevmaxErrorResponse
 {
-    public bool Success { get; set; }
+    public string? Code { get; set; }
     public string? Message { get; set; }
     public string? ErrorCode { get; set; }
     public object? Details { get; set; }

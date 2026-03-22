@@ -11,6 +11,7 @@
 @inject IAuditService AuditService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
+@inject IAppSettingsProvider AppSettings
 @rendermode InteractiveServer
 
 <PageTitle>Reports - Shop Inventory</PageTitle>
@@ -26,82 +27,86 @@
         <div class="d-flex gap-2">
             @if (HasActiveData())
             {
-                <div class="dropdown">
-                    <MudButton Variant="Variant.Outlined" Color="Color.Success" Class="dropdown-toggle" data-bs-toggle="dropdown"
-                            Disabled="@isExporting">
-                        @if (isExporting)
-                        {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
-                        }
-                        else
-                        {
-                            <i class="bi bi-file-earmark-excel me-1"></i>
-                        }
-                        Excel
-                    </MudButton>
-                    <ul class="dropdown-menu dropdown-menu-end">
-                        <li>
-                            <MudButton Class="dropdown-item" OnClick="() => ExportToExcel(activeTab)">
-                                <i class="bi bi-download me-2"></i>Export Current Tab
-                            </MudButton>
-                        </li>
-                        <li>
-                            <hr class="dropdown-divider" />
-                        </li>
-                        @if (salesReport != null)
-                        {
-                            <li><MudButton Class="dropdown-item" OnClick='() => ExportToExcel("sales")'><i
-                                class="bi bi-graph-up me-2"></i>Sales Summary</MudButton></li>
-                            }
-                            @if (topProductsReport != null)
-                            {
-                                <li><MudButton Class="dropdown-item" OnClick='() => ExportToExcel("products")'><i
-                                    class="bi bi-box-seam me-2"></i>Top Products</MudButton></li>
-                                }
-                                @if (stockReport != null)
-                                {
-                                    <li><MudButton Class="dropdown-item" OnClick='() => ExportToExcel("stock")'><i
-                                        class="bi bi-boxes me-2"></i>Stock Summary</MudButton></li>
-                                    }
-                                    @if (paymentReport != null)
-                                    {
-                                        <li><MudButton Class="dropdown-item" OnClick='() => ExportToExcel("payments")'><i
-                                            class="bi bi-cash-stack me-2"></i>Payments</MudButton></li>
-                                        }
-                                        @if (topCustomersReport != null)
-                                        {
-                                            <li><MudButton Class="dropdown-item" OnClick='() => ExportToExcel("customers")'><i
-                                                class="bi bi-people me-2"></i>Top Customers</MudButton></li>
-                                            }
-                                            @if (lowStockReport != null)
-                                            {
-                                                <li><MudButton Class="dropdown-item" OnClick='() => ExportToExcel("alerts")'><i
-                                                    class="bi bi-exclamation-triangle me-2"></i>Low Stock Alerts</MudButton></li>
-                                                }
-                                                @if (fulfillmentReport != null)
-                                                {
-                                                    <li><MudButton Class="dropdown-item" OnClick='() => ExportToExcel("fulfillment")'><i
-                                                        class="bi bi-truck me-2"></i>Order Fulfillment</MudButton></li>
-                                                    }
-                                                </ul>
-                                            </div>
-                                            <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="() => ExportToPdf(activeTab)" Disabled="@isExporting">
-                                                <i class="bi bi-file-earmark-pdf me-1"></i>PDF
-                                            </MudButton>
-                                        }
-                                    </div>
-                                </div>
+                <MudMenu Label="Excel" Variant="Variant.Outlined" Color="Color.Success" EndIcon="@MudBlazor.Icons.Material.Filled.ArrowDropDown"
+                         Disabled="@isExporting" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                    <MudMenuItem OnClick="() => ExportToExcel(activeTab)">
+                        <i class="bi bi-download me-2"></i>Export Current Tab
+                    </MudMenuItem>
+                    <MudDivider />
+                    @if (salesReport != null)
+                    {
+                        <MudMenuItem OnClick='() => ExportToExcel("sales")'><i class="bi bi-graph-up me-2"></i>Sales Summary</MudMenuItem>
+                    }
+                    @if (topProductsReport != null)
+                    {
+                        <MudMenuItem OnClick='() => ExportToExcel("products")'><i class="bi bi-box-seam me-2"></i>Top Products</MudMenuItem>
+                    }
+                    @if (stockReport != null)
+                    {
+                        <MudMenuItem OnClick='() => ExportToExcel("stock")'><i class="bi bi-boxes me-2"></i>Stock Summary</MudMenuItem>
+                    }
+                    @if (paymentReport != null)
+                    {
+                        <MudMenuItem OnClick='() => ExportToExcel("payments")'><i class="bi bi-cash-stack me-2"></i>Payments</MudMenuItem>
+                    }
+                    @if (topCustomersReport != null)
+                    {
+                        <MudMenuItem OnClick='() => ExportToExcel("customers")'><i class="bi bi-people me-2"></i>Top Customers</MudMenuItem>
+                    }
+                    @if (lowStockReport != null)
+                    {
+                        <MudMenuItem OnClick='() => ExportToExcel("alerts")'><i class="bi bi-exclamation-triangle me-2"></i>Low Stock Alerts</MudMenuItem>
+                    }
+                    @if (fulfillmentReport != null)
+                    {
+                        <MudMenuItem OnClick='() => ExportToExcel("fulfillment")'><i class="bi bi-truck me-2"></i>Order Fulfillment</MudMenuItem>
+                    }
+                    @if (creditNotesReport != null)
+                    {
+                        <MudMenuItem OnClick='() => ExportToExcel("creditnotes")'><i class="bi bi-receipt me-2"></i>Credit Notes</MudMenuItem>
+                    }
+                    @if (purchaseOrderReport != null)
+                    {
+                        <MudMenuItem OnClick='() => ExportToExcel("purchasing")'><i class="bi bi-cart me-2"></i>Purchase Orders</MudMenuItem>
+                    }
+                    @if (agingReport != null)
+                    {
+                        <MudMenuItem OnClick='() => ExportToExcel("aging")'><i class="bi bi-clock-history me-2"></i>Receivables Aging</MudMenuItem>
+                    }
+                    @if (profitReport != null)
+                    {
+                        <MudMenuItem OnClick='() => ExportToExcel("profit")'><i class="bi bi-currency-dollar me-2"></i>Profit Overview</MudMenuItem>
+                    }
+                    @if (slowMovingReport != null)
+                    {
+                        <MudMenuItem OnClick='() => ExportToExcel("slowmoving")'><i class="bi bi-hourglass-split me-2"></i>Slow Moving Products</MudMenuItem>
+                    }
+                </MudMenu>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="() => ExportToPdf(activeTab)" Disabled="@isExporting">
+                    @if (isExporting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-file-earmark-pdf me-1"></i>
+                    }
+                    PDF
+                </MudButton>
+            }
+        </div>
+    </div>
 
                                 <div class="card border-0 shadow-sm mb-4" style="border-radius: 12px;">
                                     <div class="card-body py-3">
                                         <div class="row g-3 align-items-end">
                                             <div class="col-md-3">
                                                 <label class="form-label small fw-semibold text-uppercase text-muted">From Date</label>
-                                                <MudDatePicker @bind-Date="fromDatePicker" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd.MM.yyyy" Editable="true" />
+                                                <MudDatePicker @bind-Date="fromDatePicker" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat" Editable="true" />
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label small fw-semibold text-uppercase text-muted">To Date</label>
-                                                <MudDatePicker @bind-Date="toDatePicker" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd.MM.yyyy" Editable="true" />
+                                                <MudDatePicker @bind-Date="toDatePicker" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat" Editable="true" />
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label small fw-semibold text-uppercase text-muted">Quick Select</label>
@@ -882,6 +887,619 @@
                                                                                                                             </div>
                                                                                                                         }
                                                                                                                     }
+@* ==================== PROFIT OVERVIEW TAB ==================== *@
+else if (activeTab == "profit")
+{
+    @if (profitReport != null)
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #e8f5e9, #c8e6c9); border-left: 4px solid #2e7d32;">
+                    <p class="text-muted small mb-1 fw-semibold">NET REVENUE (USD)</p>
+                    <h3 class="fw-bold mb-0" style="color: #2e7d32;">$@profitReport.NetRevenueUSD.ToString("N2")</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #e3f2fd, #bbdefb); border-left: 4px solid #1565c0;">
+                    <p class="text-muted small mb-1 fw-semibold">GROSS PROFIT (USD)</p>
+                    <h3 class="fw-bold mb-0" style="color: #1565c0;">$@profitReport.GrossProfitUSD.ToString("N2")</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #fff3e0, #ffe0b2); border-left: 4px solid #e65100;">
+                    <p class="text-muted small mb-1 fw-semibold">GROSS MARGIN</p>
+                    <h3 class="fw-bold mb-0" style="color: #e65100;">@profitReport.GrossMarginPercent.ToString("N1")%</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #f3e5f5, #e1bee7); border-left: 4px solid #7b1fa2;">
+                    <p class="text-muted small mb-1 fw-semibold">COLLECTION RATE</p>
+                    <h3 class="fw-bold mb-0" style="color: #7b1fa2;">@profitReport.CollectionRatePercent.ToString("N1")%</h3>
+                </div>
+            </div>
+        </div>
+        <div class="row g-3 mb-4">
+            <div class="col-md-2">
+                <div class="text-center p-2 bg-light rounded-3">
+                    <div class="fw-bold" style="color: #2e7d32;">$@profitReport.TotalRevenueUSD.ToString("N2")</div>
+                    <small class="text-muted">Gross Sales</small>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="text-center p-2 bg-light rounded-3">
+                    <div class="fw-bold" style="color: #c62828;">$@profitReport.TotalCreditNotesUSD.ToString("N2")</div>
+                    <small class="text-muted">Credit Notes</small>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="text-center p-2 bg-light rounded-3">
+                    <div class="fw-bold" style="color: #e65100;">$@profitReport.TotalPurchaseCostUSD.ToString("N2")</div>
+                    <small class="text-muted">Purchases (COGS)</small>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="text-center p-2 bg-light rounded-3">
+                    <div class="fw-bold" style="color: #1565c0;">$@profitReport.TotalCollectedUSD.ToString("N2")</div>
+                    <small class="text-muted">Payments Received</small>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="text-center p-2 bg-light rounded-3">
+                    <div class="fw-bold" style="color: #c62828;">$@profitReport.OutstandingReceivablesUSD.ToString("N2")</div>
+                    <small class="text-muted">Outstanding AR</small>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="text-center p-2 bg-light rounded-3">
+                    <div class="fw-bold">ZIG @profitReport.NetRevenueZIG.ToString("N2")</div>
+                    <small class="text-muted">Net Revenue (ZIG)</small>
+                </div>
+            </div>
+        </div>
+        @if (profitReport.MonthlyBreakdown.Any())
+        {
+            <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-calendar3 me-2"></i>Monthly Breakdown</h6>
+            <div class="table-responsive mb-4">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead>
+                        <tr style="background: #f8f9fa;">
+                            <th class="border-0 fw-semibold">Month</th>
+                            <th class="border-0 fw-semibold text-end">Sales (USD)</th>
+                            <th class="border-0 fw-semibold text-end">Credit Notes</th>
+                            <th class="border-0 fw-semibold text-end">Net Revenue</th>
+                            <th class="border-0 fw-semibold text-end">Purchases</th>
+                            <th class="border-0 fw-semibold text-end">Gross Profit</th>
+                            <th class="border-0 fw-semibold text-end">Margin %</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var m in profitReport.MonthlyBreakdown.OrderByDescending(x => x.Month))
+                        {
+                            var netRev = m.RevenueUSD - m.CreditNotesUSD;
+                            var gp = netRev - m.PurchaseCostUSD;
+                            var margin = netRev > 0 ? (gp / netRev * 100) : 0;
+                            <tr>
+                                <td class="fw-medium">@(m.Month)</td>
+                                <td class="text-end">$@m.RevenueUSD.ToString("N2")</td>
+                                <td class="text-end" style="color: #c62828;">$@m.CreditNotesUSD.ToString("N2")</td>
+                                <td class="text-end fw-semibold">$@netRev.ToString("N2")</td>
+                                <td class="text-end">$@m.PurchaseCostUSD.ToString("N2")</td>
+                                <td class="text-end fw-bold" style="color: @(gp >= 0 ? "#2e7d32" : "#c62828");">$@gp.ToString("N2")</td>
+                                <td class="text-end"><span class="badge rounded-pill @(margin >= 20 ? "bg-success" : margin >= 10 ? "bg-warning text-dark" : "bg-danger")">@margin.ToString("N1")%</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="text-center py-5">
+            <i class="bi bi-currency-dollar" style="font-size: 3rem; color: #bdbdbd;"></i>
+            <p class="mt-3 text-muted">No profit data available. Click "Generate Reports" to load.</p>
+        </div>
+    }
+}
+
+@* ==================== CREDIT NOTES TAB ==================== *@
+else if (activeTab == "creditnotes")
+{
+    @if (creditNotesReport != null)
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #fbe9e7, #ffccbc); border-left: 4px solid #c62828;">
+                    <p class="text-muted small mb-1 fw-semibold">TOTAL CREDIT NOTES</p>
+                    <h3 class="fw-bold mb-0" style="color: #c62828;">@creditNotesReport.TotalCreditNotes</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #fce4ec, #f8bbd0); border-left: 4px solid #ad1457;">
+                    <p class="text-muted small mb-1 fw-semibold">TOTAL (USD)</p>
+                    <h3 class="fw-bold mb-0" style="color: #ad1457;">$@creditNotesReport.TotalCreditAmountUSD.ToString("N2")</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #e0f7fa, #b2ebf2); border-left: 4px solid #00838f;">
+                    <p class="text-muted small mb-1 fw-semibold">TOTAL (ZIG)</p>
+                    <h3 class="fw-bold mb-0" style="color: #00838f;">ZIG @creditNotesReport.TotalCreditAmountZIG.ToString("N2")</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #fff3e0, #ffe0b2); border-left: 4px solid #e65100;">
+                    <p class="text-muted small mb-1 fw-semibold">CREDIT-TO-SALES RATIO</p>
+                    <h3 class="fw-bold mb-0" style="color: @(creditNotesReport.CreditToSalesRatioPercent > 5 ? "#c62828" : "#e65100");">@creditNotesReport.CreditToSalesRatioPercent.ToString("N1")%</h3>
+                </div>
+            </div>
+        </div>
+        @if (creditNotesReport.ByCustomer.Any())
+        {
+            <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-people me-2"></i>By Customer</h6>
+            <div class="table-responsive mb-4" style="max-height: 300px; overflow-y: auto;">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                        <tr style="background: #f8f9fa;">
+                            <th class="border-0 fw-semibold">Customer</th>
+                            <th class="border-0 fw-semibold text-end">Count</th>
+                            <th class="border-0 fw-semibold text-end">USD Amount</th>
+                            <th class="border-0 fw-semibold text-end">ZIG Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in creditNotesReport.ByCustomer.OrderByDescending(x => x.TotalAmountUSD).Take(20))
+                        {
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">@c.CardName</div>
+                                    <small class="text-muted font-monospace">@c.CardCode</small>
+                                </td>
+                                <td class="text-end"><span class="badge bg-danger rounded-pill">@c.CreditNoteCount</span></td>
+                                <td class="text-end fw-semibold" style="color: #c62828;">$@c.TotalAmountUSD.ToString("N2")</td>
+                                <td class="text-end">ZIG @c.TotalAmountZIG.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        @if (creditNotesReport.TopProductsReturned.Any())
+        {
+            <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-box-seam me-2"></i>Top Products Returned</h6>
+            <div class="table-responsive mb-4" style="max-height: 300px; overflow-y: auto;">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                        <tr style="background: #f8f9fa;">
+                            <th class="border-0 fw-semibold">Product</th>
+                            <th class="border-0 fw-semibold text-end">Quantity Returned</th>
+                            <th class="border-0 fw-semibold text-end">Total Value (USD)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var p in creditNotesReport.TopProductsReturned.Take(15))
+                        {
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">@p.ItemName</div>
+                                    <small class="text-muted font-monospace">@p.ItemCode</small>
+                                </td>
+                                <td class="text-end">@p.TotalQuantityReturned.ToString("N0")</td>
+                                <td class="text-end" style="color: #c62828;">$@p.TotalCreditAmountUSD.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        @if (creditNotesReport.DailyBreakdown.Any())
+        {
+            <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-calendar-day me-2"></i>Daily Breakdown</h6>
+            <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                        <tr style="background: #f8f9fa;">
+                            <th class="border-0 fw-semibold">Date</th>
+                            <th class="border-0 fw-semibold text-end">Count</th>
+                            <th class="border-0 fw-semibold text-end">USD</th>
+                            <th class="border-0 fw-semibold text-end">ZIG</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var d in creditNotesReport.DailyBreakdown.OrderByDescending(x => x.Date))
+                        {
+                            <tr>
+                                <td>@d.Date.ToString("ddd, dd MMM yyyy")</td>
+                                <td class="text-end">@d.Count</td>
+                                <td class="text-end">$@d.TotalAmountUSD.ToString("N2")</td>
+                                <td class="text-end">ZIG @d.TotalAmountZIG.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="text-center py-5">
+            <i class="bi bi-receipt-cutoff" style="font-size: 3rem; color: #bdbdbd;"></i>
+            <p class="mt-3 text-muted">No credit note data available. Click "Generate Reports" to load.</p>
+        </div>
+    }
+}
+
+@* ==================== PURCHASING TAB ==================== *@
+else if (activeTab == "purchasing")
+{
+    @if (purchaseOrderReport != null)
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #e3f2fd, #bbdefb); border-left: 4px solid #1565c0;">
+                    <p class="text-muted small mb-1 fw-semibold">TOTAL POs</p>
+                    <h3 class="fw-bold mb-0" style="color: #1565c0;">@purchaseOrderReport.TotalPurchaseOrders</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #e8f5e9, #c8e6c9); border-left: 4px solid #2e7d32;">
+                    <p class="text-muted small mb-1 fw-semibold">TOTAL (USD)</p>
+                    <h3 class="fw-bold mb-0" style="color: #2e7d32;">$@purchaseOrderReport.TotalOrderValueUSD.ToString("N2")</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #fff3e0, #ffe0b2); border-left: 4px solid #e65100;">
+                    <p class="text-muted small mb-1 fw-semibold">OPEN POs</p>
+                    <h3 class="fw-bold mb-0" style="color: #e65100;">@purchaseOrderReport.OpenOrders</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #fbe9e7, #ffccbc); border-left: 4px solid #c62828;">
+                    <p class="text-muted small mb-1 fw-semibold">OPEN VALUE (USD)</p>
+                    <h3 class="fw-bold mb-0" style="color: #c62828;">$@purchaseOrderReport.TotalPendingValueUSD.ToString("N2")</h3>
+                </div>
+            </div>
+        </div>
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="text-center p-2 bg-light rounded-3">
+                    <div class="fw-bold" style="color: #2e7d32;">@purchaseOrderReport.ClosedOrders</div>
+                    <small class="text-muted">Closed POs</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-center p-2 bg-light rounded-3">
+                    <div class="fw-bold" style="color: #9e9e9e;">@purchaseOrderReport.CancelledOrders</div>
+                    <small class="text-muted">Cancelled POs</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-center p-2 bg-light rounded-3">
+                    <div class="fw-bold">ZIG @purchaseOrderReport.TotalOrderValueZIG.ToString("N2")</div>
+                    <small class="text-muted">Total (ZIG)</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-center p-2 bg-light rounded-3">
+                    <div class="fw-bold">ZIG @purchaseOrderReport.TotalPendingValueZIG.ToString("N2")</div>
+                    <small class="text-muted">Open (ZIG)</small>
+                </div>
+            </div>
+        </div>
+        @if (purchaseOrderReport.BySupplier.Any())
+        {
+            <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-building me-2"></i>By Supplier</h6>
+            <div class="table-responsive mb-4" style="max-height: 300px; overflow-y: auto;">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                        <tr style="background: #f8f9fa;">
+                            <th class="border-0 fw-semibold">Supplier</th>
+                            <th class="border-0 fw-semibold text-end">POs</th>
+                            <th class="border-0 fw-semibold text-end">USD Amount</th>
+                            <th class="border-0 fw-semibold text-end">ZIG Amount</th>
+                            <th class="border-0 fw-semibold text-end">Open POs</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var s in purchaseOrderReport.BySupplier.OrderByDescending(x => x.TotalValueUSD).Take(20))
+                        {
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">@s.CardName</div>
+                                    <small class="text-muted font-monospace">@s.CardCode</small>
+                                </td>
+                                <td class="text-end"><span class="badge bg-primary rounded-pill">@s.OrderCount</span></td>
+                                <td class="text-end fw-semibold">$@s.TotalValueUSD.ToString("N2")</td>
+                                <td class="text-end">ZIG @s.TotalValueZIG.ToString("N2")</td>
+                                <td class="text-end"><span class="badge bg-warning text-dark rounded-pill">@s.OpenOrders</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        @if (purchaseOrderReport.TopProducts.Any())
+        {
+            <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-box-seam me-2"></i>Top Purchased Products</h6>
+            <div class="table-responsive mb-4" style="max-height: 300px; overflow-y: auto;">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                        <tr style="background: #f8f9fa;">
+                            <th class="border-0 fw-semibold">Product</th>
+                            <th class="border-0 fw-semibold text-end">Quantity Ordered</th>
+                            <th class="border-0 fw-semibold text-end">Total Value (USD)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var p in purchaseOrderReport.TopProducts.Take(15))
+                        {
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">@p.ItemName</div>
+                                    <small class="text-muted font-monospace">@p.ItemCode</small>
+                                </td>
+                                <td class="text-end">@p.TotalQuantityOrdered.ToString("N0")</td>
+                                <td class="text-end fw-semibold">$@p.TotalCostUSD.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        @if (purchaseOrderReport.DailyBreakdown.Any())
+        {
+            <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-calendar-day me-2"></i>Daily Breakdown</h6>
+            <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                        <tr style="background: #f8f9fa;">
+                            <th class="border-0 fw-semibold">Date</th>
+                            <th class="border-0 fw-semibold text-end">Count</th>
+                            <th class="border-0 fw-semibold text-end">USD</th>
+                            <th class="border-0 fw-semibold text-end">ZIG</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var d in purchaseOrderReport.DailyBreakdown.OrderByDescending(x => x.Date))
+                        {
+                            <tr>
+                                <td>@d.Date.ToString("ddd, dd MMM yyyy")</td>
+                                <td class="text-end">@d.Count</td>
+                                <td class="text-end">$@d.TotalValueUSD.ToString("N2")</td>
+                                <td class="text-end">ZIG @d.TotalValueZIG.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="text-center py-5">
+            <i class="bi bi-cart4" style="font-size: 3rem; color: #bdbdbd;"></i>
+            <p class="mt-3 text-muted">No purchasing data available. Click "Generate Reports" to load.</p>
+        </div>
+    }
+}
+
+@* ==================== RECEIVABLES AGING TAB ==================== *@
+else if (activeTab == "aging")
+{
+    @if (agingReport != null)
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #fbe9e7, #ffccbc); border-left: 4px solid #c62828;">
+                    <p class="text-muted small mb-1 fw-semibold">TOTAL OUTSTANDING</p>
+                    <h3 class="fw-bold mb-0" style="color: #c62828;">$@agingReport.TotalOutstandingUSD.ToString("N2")</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #e8f5e9, #c8e6c9); border-left: 4px solid #2e7d32;">
+                    <p class="text-muted small mb-1 fw-semibold">CURRENT (0-30 days)</p>
+                    <h3 class="fw-bold mb-0" style="color: #2e7d32;">$@agingReport.Current.AmountUSD.ToString("N2")</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #fff3e0, #ffe0b2); border-left: 4px solid #e65100;">
+                    <p class="text-muted small mb-1 fw-semibold">31-60 DAYS</p>
+                    <h3 class="fw-bold mb-0" style="color: #e65100;">$@agingReport.Days31To60.AmountUSD.ToString("N2")</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #fce4ec, #f8bbd0); border-left: 4px solid #ad1457;">
+                    <p class="text-muted small mb-1 fw-semibold">OVER 90 DAYS</p>
+                    <h3 class="fw-bold mb-0" style="color: #ad1457;">$@agingReport.Over90Days.AmountUSD.ToString("N2")</h3>
+                </div>
+            </div>
+        </div>
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="text-center p-2 bg-light rounded-3">
+                    <div class="fw-bold" style="color: #2e7d32;">@agingReport.Current.InvoiceCount invoices</div>
+                    <small class="text-muted">Current (@agingReport.Current.PercentOfTotal.ToString("N1")%)</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-center p-2 bg-light rounded-3">
+                    <div class="fw-bold" style="color: #e65100;">@agingReport.Days31To60.InvoiceCount invoices</div>
+                    <small class="text-muted">31-60 days (@agingReport.Days31To60.PercentOfTotal.ToString("N1")%)</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-center p-2 bg-light rounded-3">
+                    <div class="fw-bold" style="color: #c62828;">@agingReport.Days61To90.InvoiceCount invoices</div>
+                    <small class="text-muted">61-90 days (@agingReport.Days61To90.PercentOfTotal.ToString("N1")%)</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-center p-2 bg-light rounded-3">
+                    <div class="fw-bold" style="color: #ad1457;">@agingReport.Over90Days.InvoiceCount invoices</div>
+                    <small class="text-muted">90+ days (@agingReport.Over90Days.PercentOfTotal.ToString("N1")%)</small>
+                </div>
+            </div>
+        </div>
+        @* Aging Bar Visual *@
+        <div class="mb-4">
+            <div class="d-flex" style="height: 24px; border-radius: 12px; overflow: hidden;">
+                @if (agingReport.Current.PercentOfTotal > 0)
+                {
+                    <div style="width: @(agingReport.Current.PercentOfTotal)%; background: #4caf50;" title="Current: @agingReport.Current.PercentOfTotal.ToString("N1")%"></div>
+                }
+                @if (agingReport.Days31To60.PercentOfTotal > 0)
+                {
+                    <div style="width: @(agingReport.Days31To60.PercentOfTotal)%; background: #ff9800;" title="31-60: @agingReport.Days31To60.PercentOfTotal.ToString("N1")%"></div>
+                }
+                @if (agingReport.Days61To90.PercentOfTotal > 0)
+                {
+                    <div style="width: @(agingReport.Days61To90.PercentOfTotal)%; background: #f44336;" title="61-90: @agingReport.Days61To90.PercentOfTotal.ToString("N1")%"></div>
+                }
+                @if (agingReport.Over90Days.PercentOfTotal > 0)
+                {
+                    <div style="width: @(agingReport.Over90Days.PercentOfTotal)%; background: #880e4f;" title="90+: @agingReport.Over90Days.PercentOfTotal.ToString("N1")%"></div>
+                }
+            </div>
+            <div class="d-flex justify-content-between mt-1">
+                <small><span style="color:#4caf50;">&#9632;</span> Current</small>
+                <small><span style="color:#ff9800;">&#9632;</span> 31-60 days</small>
+                <small><span style="color:#f44336;">&#9632;</span> 61-90 days</small>
+                <small><span style="color:#880e4f;">&#9632;</span> 90+ days</small>
+            </div>
+        </div>
+        @if (agingReport.CustomerAging.Any())
+        {
+            <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-people me-2"></i>Customer Aging Detail</h6>
+            <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                        <tr style="background: #f8f9fa;">
+                            <th class="border-0 fw-semibold">Customer</th>
+                            <th class="border-0 fw-semibold text-end">Total Owed</th>
+                            <th class="border-0 fw-semibold text-end">Current</th>
+                            <th class="border-0 fw-semibold text-end">31-60</th>
+                            <th class="border-0 fw-semibold text-end">61-90</th>
+                            <th class="border-0 fw-semibold text-end">90+</th>
+                            <th class="border-0 fw-semibold text-end">Invoices</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in agingReport.CustomerAging.OrderByDescending(x => x.TotalOutstandingUSD).Take(30))
+                        {
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">@c.CardName</div>
+                                    <small class="text-muted font-monospace">@c.CardCode</small>
+                                </td>
+                                <td class="text-end fw-bold" style="color: #c62828;">$@c.TotalOutstandingUSD.ToString("N2")</td>
+                                <td class="text-end" style="color: #2e7d32;">$@c.CurrentUSD.ToString("N2")</td>
+                                <td class="text-end" style="color: #e65100;">$@c.Days31To60USD.ToString("N2")</td>
+                                <td class="text-end" style="color: #c62828;">$@c.Days61To90USD.ToString("N2")</td>
+                                <td class="text-end" style="color: #ad1457;">$@c.Over90DaysUSD.ToString("N2")</td>
+                                <td class="text-end"><span class="badge bg-secondary rounded-pill">@c.TotalInvoices</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="text-center py-5">
+            <i class="bi bi-hourglass-split" style="font-size: 3rem; color: #bdbdbd;"></i>
+            <p class="mt-3 text-muted">No receivables data available. Click "Generate Reports" to load.</p>
+        </div>
+    }
+}
+
+@* ==================== SLOW MOVING PRODUCTS TAB ==================== *@
+else if (activeTab == "slowmoving")
+{
+    @if (slowMovingReport != null)
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #fff3e0, #ffe0b2); border-left: 4px solid #e65100;">
+                    <p class="text-muted small mb-1 fw-semibold">TOTAL SLOW ITEMS</p>
+                    <h3 class="fw-bold mb-0" style="color: #e65100;">@slowMovingReport.Products.Count</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #fbe9e7, #ffccbc); border-left: 4px solid #c62828;">
+                    <p class="text-muted small mb-1 fw-semibold">STOCK VALUE AT RISK</p>
+                    <h3 class="fw-bold mb-0" style="color: #c62828;">$@slowMovingReport.Products.Sum(p => p.StockValue).ToString("N2")</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #e3f2fd, #bbdefb); border-left: 4px solid #1565c0;">
+                    <p class="text-muted small mb-1 fw-semibold">ANALYSIS PERIOD</p>
+                    <h3 class="fw-bold mb-0" style="color: #1565c0;">@slowMovingDays days</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #f3e5f5, #e1bee7); border-left: 4px solid #7b1fa2;">
+                    <p class="text-muted small mb-1 fw-semibold">TOTAL QTY IN STOCK</p>
+                    <h3 class="fw-bold mb-0" style="color: #7b1fa2;">@slowMovingReport.Products.Sum(p => p.CurrentStock).ToString("N0")</h3>
+                </div>
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-3 mb-3">
+            <label class="form-label mb-0 small fw-semibold">Days threshold:</label>
+            <select class="form-select form-select-sm" style="width: 120px;" @onchange="OnSlowMovingDaysChanged">
+                <option value="14" selected="@(slowMovingDays == 14)">14 days</option>
+                <option value="30" selected="@(slowMovingDays == 30)">30 days</option>
+                <option value="60" selected="@(slowMovingDays == 60)">60 days</option>
+                <option value="90" selected="@(slowMovingDays == 90)">90 days</option>
+            </select>
+        </div>
+        @if (slowMovingReport.Products.Any())
+        {
+            <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                        <tr style="background: #f8f9fa;">
+                            <th class="border-0 fw-semibold">Product</th>
+                            <th class="border-0 fw-semibold text-end">Current Stock</th>
+                            <th class="border-0 fw-semibold text-end">Last Sale</th>
+                            <th class="border-0 fw-semibold text-end">Days Since Sale</th>
+                            <th class="border-0 fw-semibold text-end">Stock Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var p in slowMovingReport.Products.OrderByDescending(x => x.DaysSinceLastSale))
+                        {
+                            var severity = p.DaysSinceLastSale > 90 ? "#c62828" : p.DaysSinceLastSale > 60 ? "#e65100" : "#ff9800";
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">@p.ItemName</div>
+                                    <small class="text-muted font-monospace">@p.ItemCode</small>
+                                </td>
+                                <td class="text-end">@p.CurrentStock.ToString("N0")</td>
+                                <td class="text-end">@(p.LastSoldDate.HasValue ? p.LastSoldDate.Value.ToString("dd MMM yyyy") : "Never")</td>
+                                <td class="text-end"><span class="badge rounded-pill" style="background: @severity;">@p.DaysSinceLastSale d</span></td>
+                                <td class="text-end fw-semibold" style="color: #c62828;">$@p.StockValue.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else
+        {
+            <div class="text-center py-3">
+                <i class="bi bi-check-circle" style="font-size: 2rem; color: #2e7d32;"></i>
+                <p class="mt-2 text-muted">No slow-moving products found for the selected threshold.</p>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="text-center py-5">
+            <i class="bi bi-clock-history" style="font-size: 3rem; color: #bdbdbd;"></i>
+            <p class="mt-3 text-muted">No slow-moving data available. Click "Generate Reports" to load.</p>
+        </div>
+    }
+}
                                                                                                                 </div>
                                                                                                             </div>
                                                                                                         </div>
@@ -890,16 +1508,21 @@
     private record TabInfo(string Key, string Label, string Icon);
     private readonly TabInfo[] tabs =
     [
-    new("sales", "Sales", "bi-graph-up"),
+    new("profit", "Profit Overview", "bi-currency-dollar"),
+new("sales", "Sales", "bi-graph-up"),
 new("products", "Top Products", "bi-box-seam"),
 new("stock", "Stock", "bi-boxes"),
 new("payments", "Payments", "bi-cash-stack"),
 new("customers", "Top Customers", "bi-people"),
+new("creditnotes", "Credit Notes", "bi-receipt-cutoff"),
+new("purchasing", "Purchasing", "bi-cart4"),
+new("aging", "Receivables Aging", "bi-hourglass-split"),
 new("alerts", "Low Stock", "bi-exclamation-triangle"),
+new("slowmoving", "Slow Moving", "bi-clock-history"),
 new("fulfillment", "Fulfillment", "bi-truck")
     ];
 
-    private string activeTab = "sales";
+    private string activeTab = "profit";
     private bool isLoading;
     private bool isExporting;
     private string errorMessage = "";
@@ -918,6 +1541,7 @@ new("fulfillment", "Fulfillment", "bi-truck")
         set => toDate = value ?? DateTime.UtcNow;
     }
     private int topProductsCount = 10;
+    private int slowMovingDays = 30;
     private string currentUsername = "Unknown";
     private string currentUserRole = "User";
     private HashSet<string> loadingTabs = new();
@@ -929,6 +1553,11 @@ new("fulfillment", "Fulfillment", "bi-truck")
     private TopCustomersReport? topCustomersReport;
     private LowStockAlertReport? lowStockReport;
     private OrderFulfillmentReport? fulfillmentReport;
+    private CreditNoteSummaryReport? creditNotesReport;
+    private PurchaseOrderSummaryReport? purchaseOrderReport;
+    private ReceivablesAgingReport? agingReport;
+    private ProfitOverviewReport? profitReport;
+    private SlowMovingProductsReport? slowMovingReport;
 
     protected override async Task OnInitializedAsync()
     {
@@ -953,40 +1582,51 @@ new("fulfillment", "Fulfillment", "bi-truck")
     private bool IsTabLoading(string tab) => loadingTabs.Contains(tab);
     private string GetTabLabel(string tab) => tabs.FirstOrDefault(t => t.Key == tab)?.Label ?? tab;
     private bool HasActiveData() => salesReport != null || topProductsReport != null || stockReport != null || paymentReport
-    != null || topCustomersReport != null || lowStockReport != null || fulfillmentReport != null;
+    != null || topCustomersReport != null || lowStockReport != null || fulfillmentReport != null
+    || creditNotesReport != null || purchaseOrderReport != null || agingReport != null || profitReport != null || slowMovingReport != null;
 
     private async Task LoadReports()
     {
         if (isLoading) return;
         isLoading = true;
         errorMessage = "";
-        loadingTabs = new HashSet<string> { "sales", "products", "stock", "payments", "customers", "alerts", "fulfillment" };
+        loadingTabs = new HashSet<string> { "profit", "sales", "products", "stock", "payments", "customers", "creditnotes", "purchasing", "aging", "alerts", "slowmoving", "fulfillment" };
         await InvokeAsync(StateHasChanged);
 
         var errors = new System.Collections.Concurrent.ConcurrentBag<string>();
         var _loadingTabs = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(
             loadingTabs.Select(t => new KeyValuePair<string, byte>(t, 0)));
 
-        // Batch 1: Sales, Stock, Payments (most commonly viewed, limited parallelism)
+        // Batch 1: Profit Overview, Sales, Stock, Payments (most commonly viewed)
         var batch1 = new (string Tab, Func<Task> Action)[]
         {
+            ("profit", async () => { profitReport = await ReportService.GetProfitOverviewAsync(fromDate, toDate); }),
             ("sales", async () => { salesReport = await ReportService.GetSalesSummaryAsync(fromDate, toDate); }),
             ("stock", async () => { stockReport = await ReportService.GetStockSummaryAsync(); }),
             ("payments", async () => { paymentReport = await ReportService.GetPaymentSummaryAsync(fromDate, toDate); })
         };
 
-        // Batch 2: Products, Customers, Alerts, Fulfillment
+        // Batch 2: Products, Customers, Credit Notes, Purchasing
         var batch2 = new (string Tab, Func<Task> Action)[]
         {
             ("products", async () => { topProductsReport = await ReportService.GetTopProductsAsync(fromDate, toDate, topProductsCount); }),
             ("customers", async () => { topCustomersReport = await ReportService.GetTopCustomersAsync(fromDate, toDate, 10); }),
+            ("creditnotes", async () => { creditNotesReport = await ReportService.GetCreditNoteSummaryAsync(fromDate, toDate); }),
+            ("purchasing", async () => { purchaseOrderReport = await ReportService.GetPurchaseOrderSummaryAsync(fromDate, toDate); })
+        };
+
+        // Batch 3: Aging, Alerts, Slow Moving, Fulfillment
+        var batch3 = new (string Tab, Func<Task> Action)[]
+        {
+            ("aging", async () => { agingReport = await ReportService.GetReceivablesAgingAsync(); }),
             ("alerts", async () => { lowStockReport = await ReportService.GetLowStockAlertsAsync(); }),
+            ("slowmoving", async () => { slowMovingReport = await ReportService.GetSlowMovingProductsAsync(fromDate, toDate, slowMovingDays); }),
             ("fulfillment", async () => { fulfillmentReport = await ReportService.GetOrderFulfillmentAsync(fromDate, toDate); })
         };
 
         try
         {
-            foreach (var batch in new[] { batch1, batch2 })
+            foreach (var batch in new[] { batch1, batch2, batch3 })
             {
                 var loadTasks = batch.Select(async t =>
                 {
@@ -1050,6 +1690,11 @@ new("fulfillment", "Fulfillment", "bi-truck")
                 "customers" when topCustomersReport != null => ExportService.ExportTopCustomersToExcel(topCustomersReport),
                 "alerts" when lowStockReport != null => ExportService.ExportLowStockAlertsToExcel(lowStockReport),
                 "fulfillment" when fulfillmentReport != null => ExportService.ExportOrderFulfillmentToExcel(fulfillmentReport),
+                "creditnotes" when creditNotesReport != null => ExportService.ExportCreditNoteSummaryToExcel(creditNotesReport),
+                "purchasing" when purchaseOrderReport != null => ExportService.ExportPurchaseOrderSummaryToExcel(purchaseOrderReport),
+                "aging" when agingReport != null => ExportService.ExportReceivablesAgingToExcel(agingReport),
+                "profit" when profitReport != null => ExportService.ExportProfitOverviewToExcel(profitReport),
+                "slowmoving" when slowMovingReport != null => ExportService.ExportSlowMovingProductsToExcel(slowMovingReport),
                 _ => null
             };
             if (bytes != null)
@@ -1077,6 +1722,11 @@ new("fulfillment", "Fulfillment", "bi-truck")
                 "customers" when topCustomersReport != null => BuildCustomersPdfHtml(),
                 "alerts" when lowStockReport != null => BuildAlertsPdfHtml(),
                 "fulfillment" when fulfillmentReport != null => BuildFulfillmentPdfHtml(),
+                "creditnotes" when creditNotesReport != null => BuildCreditNotesPdfHtml(),
+                "purchasing" when purchaseOrderReport != null => BuildPurchasingPdfHtml(),
+                "aging" when agingReport != null => BuildAgingPdfHtml(),
+                "profit" when profitReport != null => BuildProfitPdfHtml(),
+                "slowmoving" when slowMovingReport != null => BuildSlowMovingPdfHtml(),
                 _ => null
             };
             if (html != null) await JS.InvokeVoidAsync("printReportHtml", html);
@@ -1201,5 +1851,148 @@ new("fulfillment", "Fulfillment", "bi-truck")
             sb.Append("</tbody></table>");
         }
         return ExportService.GeneratePrintableHtml("Order Fulfillment Report", sb.ToString(), fromDate, toDate);
+    }
+
+    private async Task OnSlowMovingDaysChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int days))
+        {
+            slowMovingDays = days;
+            loadingTabs.Add("slowmoving");
+            StateHasChanged();
+            try { slowMovingReport = await ReportService.GetSlowMovingProductsAsync(fromDate, toDate, slowMovingDays); }
+            finally { loadingTabs.Remove("slowmoving"); StateHasChanged(); }
+        }
+    }
+
+    private string BuildProfitPdfHtml()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<div class='kpi-row'>");
+        sb.Append($"<div class='kpi'><h3>${profitReport!.NetRevenueUSD:N2}</h3><p>Net Revenue (USD)</p></div>");
+        sb.Append($"<div class='kpi'><h3>${profitReport.GrossProfitUSD:N2}</h3><p>Gross Profit (USD)</p></div>");
+        sb.Append($"<div class='kpi'><h3>{profitReport.GrossMarginPercent:N1}%</h3><p>Gross Margin</p></div>");
+        sb.Append($"<div class='kpi'><h3>{profitReport.CollectionRatePercent:N1}%</h3><p>Collection Rate</p></div>");
+        sb.Append("</div>");
+        sb.Append("<table><thead><tr><th>Metric</th><th>USD</th><th>ZIG</th></tr></thead><tbody>");
+        sb.Append($"<tr><td>Gross Sales</td><td class='text-end'>${profitReport.TotalRevenueUSD:N2}</td><td class='text-end'>ZIG {profitReport.TotalRevenueZIG:N2}</td></tr>");
+        sb.Append($"<tr><td>Credit Notes</td><td class='text-end' style='color:#c62828'>-${profitReport.TotalCreditNotesUSD:N2}</td><td class='text-end'>-ZIG {profitReport.TotalCreditNotesZIG:N2}</td></tr>");
+        sb.Append($"<tr style='font-weight:bold'><td>Net Revenue</td><td class='text-end'>${profitReport.NetRevenueUSD:N2}</td><td class='text-end'>ZIG {profitReport.NetRevenueZIG:N2}</td></tr>");
+        sb.Append($"<tr><td>Purchases (COGS)</td><td class='text-end'>-${profitReport.TotalPurchaseCostUSD:N2}</td><td class='text-end'>-ZIG {profitReport.TotalPurchaseCostZIG:N2}</td></tr>");
+        sb.Append($"<tr style='font-weight:bold;background:#e8f5e9'><td>Gross Profit</td><td class='text-end'>${profitReport.GrossProfitUSD:N2}</td><td class='text-end'>ZIG {profitReport.GrossProfitZIG:N2}</td></tr>");
+        sb.Append($"<tr><td>Payments Received</td><td class='text-end'>${profitReport.TotalCollectedUSD:N2}</td><td class='text-end'>ZIG {profitReport.TotalCollectedZIG:N2}</td></tr>");
+        sb.Append($"<tr><td>Outstanding Receivables</td><td class='text-end' style='color:#c62828'>${profitReport.OutstandingReceivablesUSD:N2}</td><td class='text-end'>ZIG {profitReport.OutstandingReceivablesZIG:N2}</td></tr>");
+        sb.Append("</tbody></table>");
+        if (profitReport.MonthlyBreakdown.Any())
+        {
+            sb.Append("<h3 style='font-size:14px;margin-top:20px;'>Monthly Breakdown</h3>");
+            sb.Append("<table><thead><tr><th>Month</th><th>Sales</th><th>Credit Notes</th><th>Net Revenue</th><th>Purchases</th><th>Gross Profit</th><th>Margin</th></tr></thead><tbody>");
+            foreach (var m in profitReport.MonthlyBreakdown.OrderByDescending(x => x.Month))
+            {
+                var netRev = m.RevenueUSD - m.CreditNotesUSD;
+                var gp = netRev - m.PurchaseCostUSD;
+                var margin = netRev > 0 ? (gp / netRev * 100) : 0;
+                sb.Append($"<tr><td>{m.Month}</td><td class='text-end'>${m.RevenueUSD:N2}</td><td class='text-end'>${m.CreditNotesUSD:N2}</td><td class='text-end'>${netRev:N2}</td><td class='text-end'>${m.PurchaseCostUSD:N2}</td><td class='text-end'>${gp:N2}</td><td class='text-end'>{margin:N1}%</td></tr>");
+            }
+            sb.Append("</tbody></table>");
+        }
+        return ExportService.GeneratePrintableHtml("Profit & Loss Overview", sb.ToString(), fromDate, toDate);
+    }
+
+    private string BuildCreditNotesPdfHtml()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<div class='kpi-row'>");
+        sb.Append($"<div class='kpi'><h3>{creditNotesReport!.TotalCreditNotes}</h3><p>Total Credit Notes</p></div>");
+        sb.Append($"<div class='kpi'><h3>${creditNotesReport.TotalCreditAmountUSD:N2}</h3><p>Total (USD)</p></div>");
+        sb.Append($"<div class='kpi'><h3>ZIG {creditNotesReport.TotalCreditAmountZIG:N2}</h3><p>Total (ZIG)</p></div>");
+        sb.Append($"<div class='kpi'><h3>{creditNotesReport.CreditToSalesRatioPercent:N1}%</h3><p>Credit-to-Sales</p></div>");
+        sb.Append("</div>");
+        if (creditNotesReport.ByCustomer.Any())
+        {
+            sb.Append("<h3 style='font-size:14px;margin-top:20px;'>By Customer</h3>");
+            sb.Append("<table><thead><tr><th>Customer</th><th>Count</th><th>USD</th><th>ZIG</th></tr></thead><tbody>");
+            foreach (var c in creditNotesReport.ByCustomer.OrderByDescending(x => x.TotalAmountUSD))
+                sb.Append($"<tr><td>{c.CardName} ({c.CardCode})</td><td class='text-end'>{c.CreditNoteCount}</td><td class='text-end'>${c.TotalAmountUSD:N2}</td><td class='text-end'>ZIG {c.TotalAmountZIG:N2}</td></tr>");
+            sb.Append("</tbody></table>");
+        }
+        if (creditNotesReport.TopProductsReturned.Any())
+        {
+            sb.Append("<h3 style='font-size:14px;margin-top:20px;'>Top Products Returned</h3>");
+            sb.Append("<table><thead><tr><th>Product</th><th>Qty Returned</th><th>Value (USD)</th></tr></thead><tbody>");
+            foreach (var p in creditNotesReport.TopProductsReturned)
+                sb.Append($"<tr><td>{p.ItemName} ({p.ItemCode})</td><td class='text-end'>{p.TotalQuantityReturned:N0}</td><td class='text-end'>${p.TotalCreditAmountUSD:N2}</td></tr>");
+            sb.Append("</tbody></table>");
+        }
+        return ExportService.GeneratePrintableHtml("Credit Notes Report", sb.ToString(), fromDate, toDate);
+    }
+
+    private string BuildPurchasingPdfHtml()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<div class='kpi-row'>");
+        sb.Append($"<div class='kpi'><h3>{purchaseOrderReport!.TotalPurchaseOrders}</h3><p>Total POs</p></div>");
+        sb.Append($"<div class='kpi'><h3>${purchaseOrderReport.TotalOrderValueUSD:N2}</h3><p>Total (USD)</p></div>");
+        sb.Append($"<div class='kpi'><h3>{purchaseOrderReport.OpenOrders}</h3><p>Open POs</p></div>");
+        sb.Append($"<div class='kpi' style='border-color:#c62828'><h3 style='color:#c62828'>${purchaseOrderReport.TotalPendingValueUSD:N2}</h3><p>Open Value</p></div>");
+        sb.Append("</div>");
+        if (purchaseOrderReport.BySupplier.Any())
+        {
+            sb.Append("<h3 style='font-size:14px;margin-top:20px;'>By Supplier</h3>");
+            sb.Append("<table><thead><tr><th>Supplier</th><th>POs</th><th>USD</th><th>ZIG</th><th>Open</th></tr></thead><tbody>");
+            foreach (var s in purchaseOrderReport.BySupplier.OrderByDescending(x => x.TotalValueUSD))
+                sb.Append($"<tr><td>{s.CardName} ({s.CardCode})</td><td class='text-end'>{s.OrderCount}</td><td class='text-end'>${s.TotalValueUSD:N2}</td><td class='text-end'>ZIG {s.TotalValueZIG:N2}</td><td class='text-end'>{s.OpenOrders}</td></tr>");
+            sb.Append("</tbody></table>");
+        }
+        if (purchaseOrderReport.TopProducts.Any())
+        {
+            sb.Append("<h3 style='font-size:14px;margin-top:20px;'>Top Products</h3>");
+            sb.Append("<table><thead><tr><th>Product</th><th>Qty Ordered</th><th>Value (USD)</th></tr></thead><tbody>");
+            foreach (var p in purchaseOrderReport.TopProducts)
+                sb.Append($"<tr><td>{p.ItemName} ({p.ItemCode})</td><td class='text-end'>{p.TotalQuantityOrdered:N0}</td><td class='text-end'>${p.TotalCostUSD:N2}</td></tr>");
+            sb.Append("</tbody></table>");
+        }
+        return ExportService.GeneratePrintableHtml("Purchase Orders Report", sb.ToString(), fromDate, toDate);
+    }
+
+    private string BuildAgingPdfHtml()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<div class='kpi-row'>");
+        sb.Append($"<div class='kpi' style='border-color:#c62828'><h3 style='color:#c62828'>${agingReport!.TotalOutstandingUSD:N2}</h3><p>Total Outstanding</p></div>");
+        sb.Append($"<div class='kpi'><h3>${agingReport.Current.AmountUSD:N2}</h3><p>Current (0-30d)</p></div>");
+        sb.Append($"<div class='kpi'><h3>${agingReport.Days31To60.AmountUSD:N2}</h3><p>31-60 days</p></div>");
+        sb.Append($"<div class='kpi'><h3>${agingReport.Over90Days.AmountUSD:N2}</h3><p>Over 90 days</p></div>");
+        sb.Append("</div>");
+        sb.Append("<table><thead><tr><th>Bucket</th><th>Invoices</th><th>Amount (USD)</th><th>% of Total</th></tr></thead><tbody>");
+        sb.Append($"<tr><td>Current (0-30 days)</td><td class='text-end'>{agingReport.Current.InvoiceCount}</td><td class='text-end'>${agingReport.Current.AmountUSD:N2}</td><td class='text-end'>{agingReport.Current.PercentOfTotal:N1}%</td></tr>");
+        sb.Append($"<tr><td>31-60 days</td><td class='text-end'>{agingReport.Days31To60.InvoiceCount}</td><td class='text-end'>${agingReport.Days31To60.AmountUSD:N2}</td><td class='text-end'>{agingReport.Days31To60.PercentOfTotal:N1}%</td></tr>");
+        sb.Append($"<tr><td>61-90 days</td><td class='text-end'>{agingReport.Days61To90.InvoiceCount}</td><td class='text-end'>${agingReport.Days61To90.AmountUSD:N2}</td><td class='text-end'>{agingReport.Days61To90.PercentOfTotal:N1}%</td></tr>");
+        sb.Append($"<tr style='color:#c62828;font-weight:bold'><td>Over 90 days</td><td class='text-end'>{agingReport.Over90Days.InvoiceCount}</td><td class='text-end'>${agingReport.Over90Days.AmountUSD:N2}</td><td class='text-end'>{agingReport.Over90Days.PercentOfTotal:N1}%</td></tr>");
+        sb.Append("</tbody></table>");
+        if (agingReport.CustomerAging.Any())
+        {
+            sb.Append("<h3 style='font-size:14px;margin-top:20px;'>Customer Aging Detail</h3>");
+            sb.Append("<table><thead><tr><th>Customer</th><th>Total Owed</th><th>Current</th><th>31-60</th><th>61-90</th><th>90+</th></tr></thead><tbody>");
+            foreach (var c in agingReport.CustomerAging.OrderByDescending(x => x.TotalOutstandingUSD))
+                sb.Append($"<tr><td>{c.CardName} ({c.CardCode})</td><td class='text-end'>${c.TotalOutstandingUSD:N2}</td><td class='text-end'>${c.CurrentUSD:N2}</td><td class='text-end'>${c.Days31To60USD:N2}</td><td class='text-end'>${c.Days61To90USD:N2}</td><td class='text-end'>${c.Over90DaysUSD:N2}</td></tr>");
+            sb.Append("</tbody></table>");
+        }
+        return ExportService.GeneratePrintableHtml("Receivables Aging Report", sb.ToString());
+    }
+
+    private string BuildSlowMovingPdfHtml()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<div class='kpi-row'>");
+        sb.Append($"<div class='kpi'><h3>{slowMovingReport!.Products.Count}</h3><p>Slow Moving Items</p></div>");
+        sb.Append($"<div class='kpi' style='border-color:#c62828'><h3 style='color:#c62828'>${slowMovingReport.Products.Sum(p => p.StockValue):N2}</h3><p>Stock Value at Risk</p></div>");
+        sb.Append($"<div class='kpi'><h3>{slowMovingDays} days</h3><p>Analysis Period</p></div>");
+        sb.Append("</div>");
+        sb.Append("<table><thead><tr><th>Code</th><th>Product</th><th>Stock</th><th>Last Sale</th><th>Days Since</th><th>Value</th></tr></thead><tbody>");
+        foreach (var p in slowMovingReport.Products.OrderByDescending(x => x.DaysSinceLastSale))
+            sb.Append($"<tr><td>{p.ItemCode}</td><td>{p.ItemName}</td><td class='text-end'>{p.CurrentStock:N0}</td><td>{(p.LastSoldDate.HasValue ? p.LastSoldDate.Value.ToString("dd MMM yyyy") : "Never")}</td><td class='text-end'>{p.DaysSinceLastSale}</td><td class='text-end'>${p.StockValue:N2}</td></tr>");
+        sb.Append("</tbody></table>");
+        return ExportService.GeneratePrintableHtml("Slow Moving Products Report", sb.ToString());
     }
 }

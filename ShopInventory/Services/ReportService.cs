@@ -22,6 +22,10 @@ public interface IReportService
     Task<PaymentSummaryReportDto> GetPaymentSummaryAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<TopCustomersReportDto> GetTopCustomersAsync(DateTime fromDate, DateTime toDate, int topCount = 10, CancellationToken cancellationToken = default);
     Task<OrderFulfillmentReportDto> GetOrderFulfillmentAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<CreditNoteSummaryReportDto> GetCreditNoteSummaryAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<PurchaseOrderSummaryReportDto> GetPurchaseOrderSummaryAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<ReceivablesAgingReportDto> GetReceivablesAgingAsync(CancellationToken cancellationToken = default);
+    Task<ProfitOverviewReportDto> GetProfitOverviewAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -191,7 +195,7 @@ public class ReportService : IReportService
         var invoices = await _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
 
         var lastSaleLookup = invoices
-            .Where(inv => inv.DocumentLines != null)
+            .Where(inv => inv.DocumentLines is not null)
             .SelectMany(inv => inv.DocumentLines!.Select(line => new
             {
                 line.ItemCode,
@@ -769,6 +773,399 @@ public class ReportService : IReportService
             Orders = orderItems,
             FulfillmentByCustomer = byCustomer,
             DailyFulfillment = daily
+        };
+    }
+
+    /// <summary>
+    /// Get credit notes summary from SAP
+    /// </summary>
+    public async Task<CreditNoteSummaryReportDto> GetCreditNoteSummaryAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Generating credit note summary from SAP: {FromDate} to {ToDate}", fromDate, toDate);
+
+        var creditNotes = await _sapClient.GetCreditNotesByDateRangeAsync(fromDate, toDate, cancellationToken);
+        // Exclude cancelled credit notes
+        creditNotes = creditNotes.Where(cn => cn.Cancelled != "tYES").ToList();
+
+        var usdCNs = creditNotes.Where(cn => cn.DocCurrency == "USD" || cn.DocCurrency == "$" || string.IsNullOrEmpty(cn.DocCurrency)).ToList();
+        var zigCNs = creditNotes.Where(cn => cn.DocCurrency == "ZIG" || cn.DocCurrency == "ZiG").ToList();
+
+        // By customer breakdown
+        var byCustomer = creditNotes
+            .GroupBy(cn => new { cn.CardCode, cn.CardName })
+            .Select(g => new CreditNoteByCustomerDto
+            {
+                CardCode = g.Key.CardCode ?? "Unknown",
+                CardName = g.Key.CardName ?? g.Key.CardCode ?? "Unknown",
+                CreditNoteCount = g.Count(),
+                TotalAmountUSD = g.Where(cn => cn.DocCurrency == "USD" || cn.DocCurrency == "$" || string.IsNullOrEmpty(cn.DocCurrency)).Sum(cn => cn.DocTotal),
+                TotalAmountZIG = g.Where(cn => cn.DocCurrency == "ZIG" || cn.DocCurrency == "ZiG").Sum(cn => cn.DocTotal)
+            })
+            .OrderByDescending(c => c.TotalAmountUSD + c.TotalAmountZIG)
+            .ToList();
+
+        // Daily breakdown
+        var dailyBreakdown = creditNotes
+            .GroupBy(cn => ParseSapDate(cn.DocDate).Date)
+            .Where(g => g.Key != DateTime.MinValue.Date)
+            .Select(g => new DailyCreditNoteDto
+            {
+                Date = g.Key,
+                Count = g.Count(),
+                TotalAmountUSD = g.Where(cn => cn.DocCurrency == "USD" || cn.DocCurrency == "$" || string.IsNullOrEmpty(cn.DocCurrency)).Sum(cn => cn.DocTotal),
+                TotalAmountZIG = g.Where(cn => cn.DocCurrency == "ZIG" || cn.DocCurrency == "ZiG").Sum(cn => cn.DocTotal)
+            })
+            .OrderBy(d => d.Date)
+            .ToList();
+
+        // Top products returned
+        var topProducts = creditNotes
+            .Where(cn => cn.DocumentLines != null)
+            .SelectMany(cn => cn.DocumentLines!.Select(l => new { Line = l, cn.DocCurrency }))
+            .GroupBy(x => new { x.Line.ItemCode, x.Line.ItemDescription })
+            .Select(g => new CreditNoteByProductDto
+            {
+                ItemCode = g.Key.ItemCode ?? "Unknown",
+                ItemName = g.Key.ItemDescription ?? g.Key.ItemCode ?? "Unknown",
+                TotalQuantityReturned = g.Sum(x => Math.Abs(x.Line.Quantity)),
+                TotalCreditAmountUSD = g.Where(x => x.DocCurrency == "USD" || x.DocCurrency == "$" || string.IsNullOrEmpty(x.DocCurrency)).Sum(x => Math.Abs(x.Line.LineTotal)),
+                TotalCreditAmountZIG = g.Where(x => x.DocCurrency == "ZIG" || x.DocCurrency == "ZiG").Sum(x => Math.Abs(x.Line.LineTotal)),
+                TimesReturned = g.Count()
+            })
+            .OrderByDescending(p => p.TotalQuantityReturned)
+            .Take(20)
+            .ToList();
+
+        // Calculate credit-to-sales ratio
+        decimal creditToSalesRatio = 0;
+        try
+        {
+            var invoices = await _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
+            var totalSalesUSD = invoices.Where(i => i.DocCurrency == "USD" || i.DocCurrency == "$" || string.IsNullOrEmpty(i.DocCurrency)).Sum(i => i.DocTotal);
+            if (totalSalesUSD > 0)
+                creditToSalesRatio = Math.Round(usdCNs.Sum(cn => cn.DocTotal) / totalSalesUSD * 100, 2);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not calculate credit-to-sales ratio");
+        }
+
+        return new CreditNoteSummaryReportDto
+        {
+            FromDate = fromDate,
+            ToDate = toDate,
+            TotalCreditNotes = creditNotes.Count,
+            TotalCreditAmountUSD = usdCNs.Sum(cn => cn.DocTotal),
+            TotalCreditAmountZIG = zigCNs.Sum(cn => cn.DocTotal),
+            TotalVatUSD = usdCNs.Sum(cn => cn.VatSum),
+            TotalVatZIG = zigCNs.Sum(cn => cn.VatSum),
+            AverageCreditNoteValueUSD = usdCNs.Count > 0 ? Math.Round(usdCNs.Average(cn => cn.DocTotal), 2) : 0,
+            UniqueCustomers = creditNotes.Select(cn => cn.CardCode).Distinct().Count(),
+            CreditToSalesRatioPercent = creditToSalesRatio,
+            ByCustomer = byCustomer,
+            DailyBreakdown = dailyBreakdown,
+            TopProductsReturned = topProducts
+        };
+    }
+
+    /// <summary>
+    /// Get purchase order summary from SAP
+    /// </summary>
+    public async Task<PurchaseOrderSummaryReportDto> GetPurchaseOrderSummaryAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Generating purchase order summary from SAP: {FromDate} to {ToDate}", fromDate, toDate);
+
+        var purchaseOrders = await _sapClient.GetPurchaseOrdersByDateRangeAsync(fromDate, toDate, cancellationToken);
+
+        var openPOs = purchaseOrders.Where(po => po.DocumentStatus == "bost_Open" && po.Cancelled != "tYES").ToList();
+        var closedPOs = purchaseOrders.Where(po => po.DocumentStatus == "bost_Close" && po.Cancelled != "tYES").ToList();
+        var cancelledPOs = purchaseOrders.Where(po => po.Cancelled == "tYES").ToList();
+        var activePOs = purchaseOrders.Where(po => po.Cancelled != "tYES").ToList();
+
+        var usdPOs = activePOs.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).ToList();
+        var zigPOs = activePOs.Where(po => po.DocCurrency == "ZIG" || po.DocCurrency == "ZiG").ToList();
+
+        // By supplier
+        var bySupplier = activePOs
+            .GroupBy(po => new { po.CardCode, po.CardName })
+            .Select(g => new PurchaseOrderBySupplierDto
+            {
+                CardCode = g.Key.CardCode ?? "Unknown",
+                CardName = g.Key.CardName ?? g.Key.CardCode ?? "Unknown",
+                OrderCount = g.Count(),
+                TotalValueUSD = g.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => po.DocTotal ?? 0),
+                TotalValueZIG = g.Where(po => po.DocCurrency == "ZIG" || po.DocCurrency == "ZiG").Sum(po => po.DocTotal ?? 0),
+                OpenOrders = g.Count(po => po.DocumentStatus == "bost_Open"),
+                PendingValueUSD = g.Where(po => po.DocumentStatus == "bost_Open" && (po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency))).Sum(po => po.DocTotal ?? 0)
+            })
+            .OrderByDescending(s => s.TotalValueUSD + s.TotalValueZIG)
+            .ToList();
+
+        // Daily breakdown
+        var dailyBreakdown = activePOs
+            .GroupBy(po => ParseSapDate(po.DocDate).Date)
+            .Where(g => g.Key != DateTime.MinValue.Date)
+            .Select(g => new DailyPurchaseOrderDto
+            {
+                Date = g.Key,
+                Count = g.Count(),
+                TotalValueUSD = g.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => po.DocTotal ?? 0),
+                TotalValueZIG = g.Where(po => po.DocCurrency == "ZIG" || po.DocCurrency == "ZiG").Sum(po => po.DocTotal ?? 0)
+            })
+            .OrderBy(d => d.Date)
+            .ToList();
+
+        // Top purchased products
+        var topProducts = activePOs
+            .Where(po => po.DocumentLines != null)
+            .SelectMany(po => po.DocumentLines!.Select(l => new { Line = l, po.DocCurrency }))
+            .GroupBy(x => new { x.Line.ItemCode, x.Line.ItemDescription })
+            .Select((g, index) => new TopPurchasedProductDto
+            {
+                Rank = index + 1,
+                ItemCode = g.Key.ItemCode ?? "Unknown",
+                ItemName = g.Key.ItemDescription ?? g.Key.ItemCode ?? "Unknown",
+                TotalQuantityOrdered = g.Sum(x => x.Line.Quantity ?? 0),
+                TotalCostUSD = g.Where(x => x.DocCurrency == "USD" || x.DocCurrency == "$" || string.IsNullOrEmpty(x.DocCurrency)).Sum(x => x.Line.LineTotal ?? 0),
+                TotalCostZIG = g.Where(x => x.DocCurrency == "ZIG" || x.DocCurrency == "ZiG").Sum(x => x.Line.LineTotal ?? 0),
+                TimesOrdered = g.Count()
+            })
+            .OrderByDescending(p => p.TotalCostUSD + p.TotalCostZIG)
+            .Take(20)
+            .ToList();
+
+        // Re-rank after ordering
+        for (int i = 0; i < topProducts.Count; i++) topProducts[i].Rank = i + 1;
+
+        return new PurchaseOrderSummaryReportDto
+        {
+            FromDate = fromDate,
+            ToDate = toDate,
+            TotalPurchaseOrders = activePOs.Count,
+            OpenOrders = openPOs.Count,
+            ClosedOrders = closedPOs.Count,
+            CancelledOrders = cancelledPOs.Count,
+            TotalOrderValueUSD = usdPOs.Sum(po => po.DocTotal ?? 0),
+            TotalOrderValueZIG = zigPOs.Sum(po => po.DocTotal ?? 0),
+            TotalPendingValueUSD = openPOs.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => po.DocTotal ?? 0),
+            TotalPendingValueZIG = openPOs.Where(po => po.DocCurrency == "ZIG" || po.DocCurrency == "ZiG").Sum(po => po.DocTotal ?? 0),
+            AverageOrderValueUSD = usdPOs.Count > 0 ? Math.Round(usdPOs.Average(po => po.DocTotal ?? 0), 2) : 0,
+            UniqueSuppliers = activePOs.Select(po => po.CardCode).Distinct().Count(),
+            BySupplier = bySupplier,
+            DailyBreakdown = dailyBreakdown,
+            TopProducts = topProducts
+        };
+    }
+
+    /// <summary>
+    /// Get receivables aging report from SAP invoices
+    /// </summary>
+    public async Task<ReceivablesAgingReportDto> GetReceivablesAgingAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Generating receivables aging report from SAP");
+
+        // Get all open invoices (last 365 days to catch aged items)
+        var fromDate = DateTime.UtcNow.AddDays(-365);
+        var toDate = DateTime.UtcNow;
+        var invoices = await _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
+
+        // Filter to only unpaid/partially paid invoices
+        var openInvoices = invoices.Where(i => i.DocTotal - i.PaidToDate > 0.01m).ToList();
+
+        var today = DateTime.UtcNow.Date;
+
+        var agingItems = openInvoices.Select(inv =>
+        {
+            var docDate = ParseSapDate(inv.DocDate);
+            var outstanding = inv.DocTotal - inv.PaidToDate;
+            var daysOutstanding = docDate != DateTime.MinValue ? (int)(today - docDate.Date).TotalDays : 999;
+            var isUSD = inv.DocCurrency == "USD" || inv.DocCurrency == "$" || string.IsNullOrEmpty(inv.DocCurrency);
+            var isZIG = inv.DocCurrency == "ZIG" || inv.DocCurrency == "ZiG";
+
+            return new
+            {
+                inv.CardCode,
+                inv.CardName,
+                Outstanding = outstanding,
+                OutstandingUSD = isUSD ? outstanding : 0,
+                OutstandingZIG = isZIG ? outstanding : 0,
+                DaysOutstanding = daysOutstanding,
+                Bucket = daysOutstanding <= 30 ? "Current" : daysOutstanding <= 60 ? "31-60" : daysOutstanding <= 90 ? "61-90" : "90+"
+            };
+        }).ToList();
+
+        var totalUSD = agingItems.Sum(a => a.OutstandingUSD);
+        var totalZIG = agingItems.Sum(a => a.OutstandingZIG);
+        var totalAll = totalUSD + totalZIG;
+
+        var currentItems = agingItems.Where(a => a.Bucket == "Current").ToList();
+        var days31Items = agingItems.Where(a => a.Bucket == "31-60").ToList();
+        var days61Items = agingItems.Where(a => a.Bucket == "61-90").ToList();
+        var over90Items = agingItems.Where(a => a.Bucket == "90+").ToList();
+
+        AgingBucketDto MakeBucket(string label, List<dynamic> items, decimal usdTotal, decimal zigTotal)
+        {
+            var usd = items.Sum(a => (decimal)a.OutstandingUSD);
+            var zig = items.Sum(a => (decimal)a.OutstandingZIG);
+            return new AgingBucketDto
+            {
+                Label = label,
+                InvoiceCount = items.Count,
+                AmountUSD = usd,
+                AmountZIG = zig,
+                PercentOfTotal = totalAll > 0 ? Math.Round((usd + zig) / totalAll * 100, 1) : 0
+            };
+        }
+
+        // Customer aging
+        var customerAging = agingItems
+            .GroupBy(a => new { a.CardCode, a.CardName })
+            .Select(g => new CustomerAgingDto
+            {
+                CardCode = (string)(g.Key.CardCode ?? "Unknown"),
+                CardName = (string)(g.Key.CardName ?? g.Key.CardCode ?? "Unknown"),
+                CurrentUSD = g.Where(a => a.Bucket == "Current").Sum(a => a.OutstandingUSD),
+                Days31To60USD = g.Where(a => a.Bucket == "31-60").Sum(a => a.OutstandingUSD),
+                Days61To90USD = g.Where(a => a.Bucket == "61-90").Sum(a => a.OutstandingUSD),
+                Over90DaysUSD = g.Where(a => a.Bucket == "90+").Sum(a => a.OutstandingUSD),
+                TotalOutstandingUSD = g.Sum(a => a.OutstandingUSD),
+                TotalOutstandingZIG = g.Sum(a => a.OutstandingZIG),
+                TotalInvoices = g.Count()
+            })
+            .OrderByDescending(c => c.TotalOutstandingUSD + c.TotalOutstandingZIG)
+            .ToList();
+
+        return new ReceivablesAgingReportDto
+        {
+            ReportDate = DateTime.UtcNow,
+            TotalCustomers = customerAging.Count,
+            TotalOutstandingUSD = totalUSD,
+            TotalOutstandingZIG = totalZIG,
+            Current = MakeBucket("0-30 Days", currentItems.Cast<dynamic>().ToList(), totalUSD, totalZIG),
+            Days31To60 = MakeBucket("31-60 Days", days31Items.Cast<dynamic>().ToList(), totalUSD, totalZIG),
+            Days61To90 = MakeBucket("61-90 Days", days61Items.Cast<dynamic>().ToList(), totalUSD, totalZIG),
+            Over90Days = MakeBucket("90+ Days", over90Items.Cast<dynamic>().ToList(), totalUSD, totalZIG),
+            CustomerAging = customerAging
+        };
+    }
+
+    /// <summary>
+    /// Get profit overview from SAP: revenue, credit notes, payments, purchase costs
+    /// </summary>
+    public async Task<ProfitOverviewReportDto> GetProfitOverviewAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Generating profit overview from SAP: {FromDate} to {ToDate}", fromDate, toDate);
+
+        // Fetch data in parallel batches (SAP session is sequential, but we can interleave)
+        var invoicesTask = _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
+        var invoices = await invoicesTask;
+
+        var paymentsTask = _sapClient.GetIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
+        var payments = await paymentsTask;
+
+        var creditNotesTask = _sapClient.GetCreditNotesByDateRangeAsync(fromDate, toDate, cancellationToken);
+        var creditNotes = await creditNotesTask;
+        creditNotes = creditNotes.Where(cn => cn.Cancelled != "tYES").ToList();
+
+        List<SAPPurchaseOrder> purchaseOrders;
+        try
+        {
+            purchaseOrders = await _sapClient.GetPurchaseOrdersByDateRangeAsync(fromDate, toDate, cancellationToken);
+            purchaseOrders = purchaseOrders.Where(po => po.Cancelled != "tYES").ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not fetch purchase orders for profit overview");
+            purchaseOrders = new List<SAPPurchaseOrder>();
+        }
+
+        // Revenue
+        var revenueUSD = invoices.Where(i => i.DocCurrency == "USD" || i.DocCurrency == "$" || string.IsNullOrEmpty(i.DocCurrency)).Sum(i => i.DocTotal);
+        var revenueZIG = invoices.Where(i => i.DocCurrency == "ZIG" || i.DocCurrency == "ZiG").Sum(i => i.DocTotal);
+        var vatUSD = invoices.Where(i => i.DocCurrency == "USD" || i.DocCurrency == "$" || string.IsNullOrEmpty(i.DocCurrency)).Sum(i => i.VatSum);
+        var vatZIG = invoices.Where(i => i.DocCurrency == "ZIG" || i.DocCurrency == "ZiG").Sum(i => i.VatSum);
+
+        // Credit notes
+        var cnUSD = creditNotes.Where(cn => cn.DocCurrency == "USD" || cn.DocCurrency == "$" || string.IsNullOrEmpty(cn.DocCurrency)).Sum(cn => cn.DocTotal);
+        var cnZIG = creditNotes.Where(cn => cn.DocCurrency == "ZIG" || cn.DocCurrency == "ZiG").Sum(cn => cn.DocTotal);
+
+        // Payments collected
+        static decimal GetPaymentTotal(IncomingPayment p) => p.CashSum + p.CheckSum + p.TransferSum + p.CreditSum;
+        var collectedUSD = payments.Where(p => p.DocCurrency == "USD" || p.DocCurrency == "$" || string.IsNullOrEmpty(p.DocCurrency)).Sum(p => GetPaymentTotal(p));
+        var collectedZIG = payments.Where(p => p.DocCurrency == "ZIG" || p.DocCurrency == "ZiG").Sum(p => GetPaymentTotal(p));
+
+        // Purchase costs
+        var purchaseCostUSD = purchaseOrders.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => po.DocTotal ?? 0);
+        var purchaseCostZIG = purchaseOrders.Where(po => po.DocCurrency == "ZIG" || po.DocCurrency == "ZiG").Sum(po => po.DocTotal ?? 0);
+
+        var netRevenueUSD = revenueUSD - cnUSD;
+        var netRevenueZIG = revenueZIG - cnZIG;
+        var grossProfitUSD = netRevenueUSD - vatUSD - purchaseCostUSD;
+        var grossProfitZIG = netRevenueZIG - vatZIG - purchaseCostZIG;
+        var grossMargin = netRevenueUSD > 0 ? Math.Round(grossProfitUSD / netRevenueUSD * 100, 1) : 0;
+        var collectionRate = revenueUSD > 0 ? Math.Round(collectedUSD / revenueUSD * 100, 1) : 0;
+
+        // Monthly breakdown
+        var months = Enumerable.Range(0, (int)Math.Ceiling((toDate - fromDate).TotalDays / 30.0) + 1)
+            .Select(i => fromDate.AddMonths(i))
+            .Select(d => new { Year = d.Year, Month = d.Month })
+            .Distinct()
+            .ToList();
+
+        var monthlyBreakdown = months.Select(m =>
+        {
+            var mInvoices = invoices.Where(i => { var d = ParseSapDate(i.DocDate); return d.Year == m.Year && d.Month == m.Month; }).ToList();
+            var mPayments = payments.Where(p => { var d = ParseSapDate(p.DocDate); return d.Year == m.Year && d.Month == m.Month; }).ToList();
+            var mCreditNotes = creditNotes.Where(cn => { var d = ParseSapDate(cn.DocDate); return d.Year == m.Year && d.Month == m.Month; }).ToList();
+            var mPurchases = purchaseOrders.Where(po => { var d = ParseSapDate(po.DocDate); return d.Year == m.Year && d.Month == m.Month; }).ToList();
+
+            var mRevenueUSD = mInvoices.Where(i => i.DocCurrency == "USD" || i.DocCurrency == "$" || string.IsNullOrEmpty(i.DocCurrency)).Sum(i => i.DocTotal);
+            var mRevenueZIG = mInvoices.Where(i => i.DocCurrency == "ZIG" || i.DocCurrency == "ZiG").Sum(i => i.DocTotal);
+            var mCnUSD = mCreditNotes.Where(cn => cn.DocCurrency == "USD" || cn.DocCurrency == "$" || string.IsNullOrEmpty(cn.DocCurrency)).Sum(cn => cn.DocTotal);
+            var mCollectedUSD = mPayments.Where(p => p.DocCurrency == "USD" || p.DocCurrency == "$" || string.IsNullOrEmpty(p.DocCurrency)).Sum(p => GetPaymentTotal(p));
+            var mPurchaseCostUSD = mPurchases.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => po.DocTotal ?? 0);
+
+            return new MonthlyProfitDto
+            {
+                Month = new DateTime(m.Year, m.Month, 1).ToString("MMM yyyy"),
+                RevenueUSD = mRevenueUSD,
+                RevenueZIG = mRevenueZIG,
+                CreditNotesUSD = mCnUSD,
+                CollectedUSD = mCollectedUSD,
+                PurchaseCostUSD = mPurchaseCostUSD,
+                GrossProfitUSD = mRevenueUSD - mCnUSD - mPurchaseCostUSD,
+                InvoiceCount = mInvoices.Count,
+                PaymentCount = mPayments.Count
+            };
+        }).ToList();
+
+        return new ProfitOverviewReportDto
+        {
+            FromDate = fromDate,
+            ToDate = toDate,
+            TotalRevenueUSD = revenueUSD,
+            TotalRevenueZIG = revenueZIG,
+            TotalCreditNotesUSD = cnUSD,
+            TotalCreditNotesZIG = cnZIG,
+            NetRevenueUSD = netRevenueUSD,
+            NetRevenueZIG = netRevenueZIG,
+            TotalCollectedUSD = collectedUSD,
+            TotalCollectedZIG = collectedZIG,
+            CollectionRatePercent = collectionRate,
+            OutstandingReceivablesUSD = netRevenueUSD - collectedUSD,
+            OutstandingReceivablesZIG = netRevenueZIG - collectedZIG,
+            TotalVatUSD = vatUSD,
+            TotalVatZIG = vatZIG,
+            TotalPurchaseCostUSD = purchaseCostUSD,
+            TotalPurchaseCostZIG = purchaseCostZIG,
+            GrossProfitUSD = grossProfitUSD,
+            GrossProfitZIG = grossProfitZIG,
+            GrossMarginPercent = grossMargin,
+            TotalInvoices = invoices.Count,
+            TotalCreditNoteCount = creditNotes.Count,
+            TotalPayments = payments.Count,
+            UniqueCustomers = invoices.Select(i => i.CardCode).Distinct().Count(),
+            MonthlyBreakdown = monthlyBreakdown
         };
     }
 }

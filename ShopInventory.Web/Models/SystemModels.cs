@@ -206,26 +206,109 @@ public class WebhookDeliveryListResponse
 }
 
 /// <summary>
-/// Available webhook events
+/// Response containing a list of webhook event types from the API
+/// </summary>
+public class WebhookEventTypesResponse
+{
+    public List<WebhookEventTypeInfo> EventTypes { get; set; } = new();
+}
+
+/// <summary>
+/// Information about a webhook event type
+/// </summary>
+public class WebhookEventTypeInfo
+{
+    public string EventType { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Available webhook events - must match backend WebhookEventTypes
 /// </summary>
 public static class WebhookEvents
 {
+    // Invoice events
     public const string InvoiceCreated = "invoice.created";
     public const string InvoicePaid = "invoice.paid";
     public const string InvoiceCancelled = "invoice.cancelled";
+
+    // Payment events
     public const string PaymentReceived = "payment.received";
+    public const string PaymentFailed = "payment.failed";
+    public const string PaymentRefunded = "payment.refunded";
+
+    // Stock events
     public const string StockLow = "stock.low";
+    public const string StockOut = "stock.out";
+    public const string StockReplenished = "stock.replenished";
     public const string StockTransfer = "stock.transfer";
-    public const string OrderCreated = "order.created";
-    public const string OrderApproved = "order.approved";
-    public const string CreditNoteCreated = "creditnote.created";
-    public const string UserLogin = "user.login";
+
+    // Inventory events
+    public const string InventoryAdjusted = "inventory.adjusted";
+    public const string InventoryReceived = "inventory.received";
+
+    // Customer events
+    public const string CustomerCreated = "customer.created";
+    public const string CustomerUpdated = "customer.updated";
+
+    // SAP events
+    public const string SapSyncSuccess = "sap.sync.success";
+    public const string SapSyncFailed = "sap.sync.failed";
+    public const string SapConnectionLost = "sap.connection.lost";
+    public const string SapConnectionRestored = "sap.connection.restored";
 
     public static List<string> All => new()
     {
         InvoiceCreated, InvoicePaid, InvoiceCancelled,
-        PaymentReceived, StockLow, StockTransfer,
-        OrderCreated, OrderApproved, CreditNoteCreated, UserLogin
+        PaymentReceived, PaymentFailed, PaymentRefunded,
+        StockLow, StockOut, StockReplenished, StockTransfer,
+        InventoryAdjusted, InventoryReceived,
+        CustomerCreated, CustomerUpdated,
+        SapSyncSuccess, SapSyncFailed, SapConnectionLost, SapConnectionRestored
+    };
+
+    /// <summary>
+    /// Group events by category for display
+    /// </summary>
+    public static Dictionary<string, List<(string EventType, string Description)>> Grouped => new()
+    {
+        ["Invoice"] = new()
+        {
+            (InvoiceCreated, "New invoice is created"),
+            (InvoicePaid, "Invoice is fully paid"),
+            (InvoiceCancelled, "Invoice is cancelled")
+        },
+        ["Payment"] = new()
+        {
+            (PaymentReceived, "Payment is received"),
+            (PaymentFailed, "Payment fails"),
+            (PaymentRefunded, "Payment is refunded")
+        },
+        ["Stock"] = new()
+        {
+            (StockLow, "Stock falls below minimum level"),
+            (StockOut, "Stock reaches zero"),
+            (StockReplenished, "Stock is replenished"),
+            (StockTransfer, "Stock transferred between warehouses")
+        },
+        ["Inventory"] = new()
+        {
+            (InventoryAdjusted, "Inventory is adjusted"),
+            (InventoryReceived, "Inventory is received")
+        },
+        ["Customer"] = new()
+        {
+            (CustomerCreated, "New customer is created"),
+            (CustomerUpdated, "Customer details are updated")
+        },
+        ["SAP"] = new()
+        {
+            (SapSyncSuccess, "SAP sync completes successfully"),
+            (SapSyncFailed, "SAP sync fails"),
+            (SapConnectionLost, "SAP connection is lost"),
+            (SapConnectionRestored, "SAP connection is restored")
+        }
     };
 }
 

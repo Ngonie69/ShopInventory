@@ -100,6 +100,8 @@ try
     // Add audit and settings services
     builder.Services.AddScoped<IAuditService, AuditService>();
     builder.Services.AddScoped<IAppSettingsService, AppSettingsService>();
+    builder.Services.AddSingleton<IAppSettingsProvider, AppSettingsProvider>();
+    builder.Services.AddSingleton<IPrinterService, PrinterService>();
 
     // Add new feature services
     builder.Services.AddScoped<IReportService, ReportService>();
@@ -108,10 +110,11 @@ try
     builder.Services.AddScoped<INotificationClientService, NotificationClientService>();
     builder.Services.AddScoped<ISyncStatusClientService, SyncStatusClientService>();
 
-    // Add Sales Order, Purchase Order, and Credit Note services
+    // Add Sales Order, Purchase Order, Credit Note, and Quotation services
     builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
     builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
     builder.Services.AddScoped<ICreditNoteService, CreditNoteService>();
+    builder.Services.AddScoped<IQuotationService, QuotationService>();
 
     // Add System services (Exchange Rates, Backups, Webhooks)
     builder.Services.AddScoped<IExchangeRateService, ExchangeRateService>();
@@ -165,6 +168,9 @@ try
         await DatabaseInitializer.InitializeAsync(scope.ServiceProvider);
     }
 
+    // Load cached application settings (CompanyName, DateFormat, etc.)
+    await app.Services.GetRequiredService<IAppSettingsProvider>().ReloadAsync();
+
     // Configure the HTTP request pipeline.
 
     // ForwardedHeaders MUST be first - before any middleware that checks scheme/host/IP
@@ -176,6 +182,9 @@ try
         app.UseExceptionHandler("/Error", createScopeForErrors: true);
         app.UseHsts();
     }
+
+    // Swagger proxy - must be before security middleware to avoid interference
+    app.UseSwaggerProxy();
 
     // Security middleware - order matters!
     app.UseSimpleRateLimit();         // Rate limiting first (DDoS protection)
@@ -194,8 +203,36 @@ try
     app.UseAntiforgery();
 
     app.MapStaticAssets();
+    // AllowAnonymous at the endpoint level so the HTTP pipeline always renders the
+    // Blazor HTML shell (App.razor) regardless of [Authorize] attributes on pages.
+    // With prerender:false, no sensitive content is rendered during SSR anyway.
+    // Actual authorization is enforced by AuthorizeRouteView + CustomAuthStateProvider
+    // after the SignalR circuit connects and the JWT is read from localStorage.
     app.MapRazorComponents<App>()
-        .AddInteractiveServerRenderMode();
+        .AddInteractiveServerRenderMode()
+        .AllowAnonymous();
+
+    // Minimal API endpoint for backup file downloads.
+    // The browser navigates here directly, so we use the factory-configured HttpClient
+    // (which carries the API key) to stream the file from the backend API.
+    app.MapGet("/download/backup/{id:int}", async (int id, IHttpClientFactory clientFactory, CancellationToken ct) =>
+    {
+        var client = clientFactory.CreateClient("ShopInventoryApi");
+
+        var response = await client.GetAsync($"api/backup/{id}/download", HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return Results.StatusCode((int)response.StatusCode);
+        }
+
+        var stream = await response.Content.ReadAsStreamAsync(ct);
+        var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+        var fileName = response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
+                       ?? $"backup-{id}.bak";
+
+        return Results.File(stream, contentType, fileName);
+    });
 
     app.Run();
 }

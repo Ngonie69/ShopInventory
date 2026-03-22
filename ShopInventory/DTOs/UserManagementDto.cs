@@ -30,7 +30,9 @@ public class UserDto
     public DateTime? LockoutEnd { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
-    public string? AssignedWarehouseCode { get; set; }
+    public List<string> AssignedWarehouseCodes { get; set; } = new();
+    /// <summary>Backward compat — first warehouse code</summary>
+    public string? AssignedWarehouseCode => AssignedWarehouseCodes.FirstOrDefault();
 }
 
 /// <summary>
@@ -44,7 +46,7 @@ public class CreateUserRequest
     public string Role { get; set; } = "User";
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
-    public string? AssignedWarehouseCode { get; set; }
+    public List<string>? AssignedWarehouseCodes { get; set; }
 }
 
 /// <summary>
@@ -57,7 +59,7 @@ public class UpdateUserRequest
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
     public bool? IsActive { get; set; }
-    public string? AssignedWarehouseCode { get; set; }
+    public List<string>? AssignedWarehouseCodes { get; set; }
 }
 
 /// <summary>

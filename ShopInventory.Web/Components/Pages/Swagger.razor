@@ -5,6 +5,7 @@
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
+@inject IHttpClientFactory HttpClientFactory
 
 <PageTitle>API Documentation - Shop Inventory</PageTitle>
 
@@ -145,7 +146,10 @@
     protected override void OnInitialized()
     {
         _apiBaseUrl = Configuration["ApiSettings:BaseUrl"]?.TrimEnd('/') ?? "http://localhost:5106";
-        _swaggerUrl = $"{_apiBaseUrl}/swagger/index.html";
+        // Use the proxy endpoint so the iframe loads from the same origin
+        // This avoids mixed-content (HTTP/HTTPS) and localhost issues in production
+        var baseUri = NavigationManager.BaseUri.TrimEnd('/');
+        _swaggerUrl = $"{baseUri}/swagger-proxy/swagger/index.html";
         _apiKey = Configuration["ApiSettings:ApiKey"] ?? "";
     }
 
@@ -181,7 +185,8 @@
         StateHasChanged();
 
         // Force iframe refresh by updating URL with timestamp
-        _swaggerUrl = $"{_apiBaseUrl}/swagger/index.html?t={DateTime.Now.Ticks}";
+        var baseUri = NavigationManager.BaseUri.TrimEnd('/');
+        _swaggerUrl = $"{baseUri}/swagger-proxy/swagger/index.html?t={DateTime.Now.Ticks}";
 
         _ = Task.Run(async () =>
         {

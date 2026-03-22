@@ -116,7 +116,8 @@ public class BackupService : IBackupService
             var jsonOptions = new JsonSerializerOptions
             {
                 WriteIndented = true,
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles
             };
 
             // Export each table to JSON
@@ -309,6 +310,110 @@ public class BackupService : IBackupService
             return null;
 
         return new FileStream(backup.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+    }
+
+    public async Task ResetDatabaseAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogWarning("Database reset initiated by user {UserId}", userId);
+
+        // Use a transaction so the reset is atomic
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            // Delete all data from tables in dependency order (children first)
+            // Invoice-related
+            await _context.InvoiceLineBatches.ExecuteDeleteAsync(cancellationToken);
+            await _context.InvoiceLines.ExecuteDeleteAsync(cancellationToken);
+            await _context.Invoices.ExecuteDeleteAsync(cancellationToken);
+            await _context.InvoiceQueue.ExecuteDeleteAsync(cancellationToken);
+
+            // Inventory transfer-related
+            await _context.InventoryTransferLineBatches.ExecuteDeleteAsync(cancellationToken);
+            await _context.InventoryTransferLines.ExecuteDeleteAsync(cancellationToken);
+            await _context.InventoryTransfers.ExecuteDeleteAsync(cancellationToken);
+            await _context.InventoryTransferQueue.ExecuteDeleteAsync(cancellationToken);
+
+            // Stock reservations
+            await _context.StockReservationBatches.ExecuteDeleteAsync(cancellationToken);
+            await _context.StockReservationLines.ExecuteDeleteAsync(cancellationToken);
+            await _context.StockReservations.ExecuteDeleteAsync(cancellationToken);
+
+            // Sales orders
+            await _context.SalesOrderLines.ExecuteDeleteAsync(cancellationToken);
+            await _context.SalesOrders.ExecuteDeleteAsync(cancellationToken);
+
+            // Purchase orders
+            await _context.PurchaseOrderLines.ExecuteDeleteAsync(cancellationToken);
+            await _context.PurchaseOrders.ExecuteDeleteAsync(cancellationToken);
+
+            // Credit notes
+            await _context.CreditNoteLines.ExecuteDeleteAsync(cancellationToken);
+            await _context.CreditNotes.ExecuteDeleteAsync(cancellationToken);
+
+            // Payments
+            await _context.IncomingPaymentChecks.ExecuteDeleteAsync(cancellationToken);
+            await _context.IncomingPaymentCreditCards.ExecuteDeleteAsync(cancellationToken);
+            await _context.IncomingPaymentInvoices.ExecuteDeleteAsync(cancellationToken);
+            await _context.IncomingPayments.ExecuteDeleteAsync(cancellationToken);
+            await _context.PaymentTransactions.ExecuteDeleteAsync(cancellationToken);
+            await _context.PaymentGatewayConfigs.ExecuteDeleteAsync(cancellationToken);
+
+            // Products & pricing
+            await _context.ProductBatches.ExecuteDeleteAsync(cancellationToken);
+            await _context.Products.ExecuteDeleteAsync(cancellationToken);
+            await _context.ItemPrices.ExecuteDeleteAsync(cancellationToken);
+            await _context.PriceLists.ExecuteDeleteAsync(cancellationToken);
+
+            // Documents
+            await _context.DocumentSignatures.ExecuteDeleteAsync(cancellationToken);
+            await _context.DocumentAttachments.ExecuteDeleteAsync(cancellationToken);
+            await _context.DocumentHistory.ExecuteDeleteAsync(cancellationToken);
+            await _context.DocumentTemplates.ExecuteDeleteAsync(cancellationToken);
+            await _context.EmailTemplates.ExecuteDeleteAsync(cancellationToken);
+
+            // Notifications & queues
+            await _context.Notifications.ExecuteDeleteAsync(cancellationToken);
+            await _context.OfflineQueueItems.ExecuteDeleteAsync(cancellationToken);
+            await _context.EmailQueueItems.ExecuteDeleteAsync(cancellationToken);
+            await _context.UserNotificationSettings.ExecuteDeleteAsync(cancellationToken);
+
+            // Webhooks
+            await _context.WebhookDeliveries.ExecuteDeleteAsync(cancellationToken);
+            await _context.Webhooks.ExecuteDeleteAsync(cancellationToken);
+
+            // System tables
+            await _context.ExchangeRates.ExecuteDeleteAsync(cancellationToken);
+            await _context.SystemConfigs.ExecuteDeleteAsync(cancellationToken);
+            await _context.ApiRateLimits.ExecuteDeleteAsync(cancellationToken);
+            await _context.SapConnectionLogs.ExecuteDeleteAsync(cancellationToken);
+            await _context.Backups.ExecuteDeleteAsync(cancellationToken);
+
+            // Audit logs
+            await _context.AuditLogs.ExecuteDeleteAsync(cancellationToken);
+
+            // Permissions & roles (but keep admin user)
+            await _context.RolePermissions.ExecuteDeleteAsync(cancellationToken);
+            await _context.UserPermissions.ExecuteDeleteAsync(cancellationToken);
+            await _context.Roles.ExecuteDeleteAsync(cancellationToken);
+
+            // Auth tokens
+            await _context.RefreshTokens.ExecuteDeleteAsync(cancellationToken);
+            await _context.PasswordResetTokens.ExecuteDeleteAsync(cancellationToken);
+
+            // Delete all non-admin users
+            await _context.Users.Where(u => u.Role != "Admin").ExecuteDeleteAsync(cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+
+            _logger.LogWarning("Database reset completed successfully by user {UserId}. All transactional data has been deleted.", userId);
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            _logger.LogError(ex, "Database reset failed for user {UserId}", userId);
+            throw;
+        }
     }
 
     private static BackupDto MapToDto(BackupEntity entity)

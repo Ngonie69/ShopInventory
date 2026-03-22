@@ -42,6 +42,7 @@ public class PurchaseOrderDto
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public bool IsSynced { get; set; }
+    public string? Source { get; set; }
     public List<PurchaseOrderLineDto> Lines { get; set; } = new();
 }
 

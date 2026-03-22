@@ -1,207 +1,210 @@
 @page "/backups"
 @inject IBackupService BackupService
+@inject IJSRuntime JS
 @attribute [Authorize(Roles = "Admin")]
 @rendermode InteractiveServer
 
 <PageTitle>Backups - Shop Inventory</PageTitle>
 
-<div class="container-fluid">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="bi bi-cloud-arrow-up me-2"></i>Database Backups</h2>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => showCreateModal = true" Disabled="@isCreating">
-            <i class="bi bi-plus-circle me-2"></i>Create Backup
-        </MudButton>
+<div class="bak-page">
+    <!-- Page Header -->
+    <div class="bak-header">
+        <div class="bak-header-left">
+            <div class="bak-header-icon">
+                <i class="bi bi-shield-lock-fill"></i>
+            </div>
+            <div>
+                <h1 class="bak-title">Database Backups</h1>
+                <p class="bak-subtitle">Manage database backups and restore points</p>
+            </div>
+        </div>
+        <button class="bak-btn bak-btn-primary" @onclick="() => showCreateModal = true" disabled="@isCreating">
+            <i class="bi bi-plus-lg"></i>
+            <span>Create Backup</span>
+        </button>
     </div>
 
     <!-- Stats Cards -->
     @if (stats != null)
     {
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="card bg-primary text-white">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between">
-                            <div>
-                                <h4>@stats.TotalBackups</h4>
-                                <p class="mb-0">Total Backups</p>
-                            </div>
-                            <i class="bi bi-database fs-1 opacity-50"></i>
-                        </div>
-                    </div>
-                </div>
+        <div class="bak-stats-grid">
+            <div class="bak-stat-card">
+                <div class="bak-stat-icon bak-stat-purple"><i class="bi bi-database-fill"></i></div>
+                <div class="bak-stat-value">@stats.TotalBackups</div>
+                <div class="bak-stat-label">Total Backups</div>
             </div>
-            <div class="col-md-3">
-                <div class="card bg-success text-white">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between">
-                            <div>
-                                <h4>@stats.SuccessfulBackups</h4>
-                                <p class="mb-0">Successful</p>
-                            </div>
-                            <i class="bi bi-check-circle fs-1 opacity-50"></i>
-                        </div>
-                    </div>
-                </div>
+            <div class="bak-stat-card">
+                <div class="bak-stat-icon bak-stat-green"><i class="bi bi-check-circle-fill"></i></div>
+                <div class="bak-stat-value">@stats.SuccessfulBackups</div>
+                <div class="bak-stat-label">Successful</div>
             </div>
-            <div class="col-md-3">
-                <div class="card bg-danger text-white">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between">
-                            <div>
-                                <h4>@stats.FailedBackups</h4>
-                                <p class="mb-0">Failed</p>
-                            </div>
-                            <i class="bi bi-x-circle fs-1 opacity-50"></i>
-                        </div>
-                    </div>
-                </div>
+            <div class="bak-stat-card">
+                <div class="bak-stat-icon bak-stat-red"><i class="bi bi-x-circle-fill"></i></div>
+                <div class="bak-stat-value">@stats.FailedBackups</div>
+                <div class="bak-stat-label">Failed</div>
             </div>
-            <div class="col-md-3">
-                <div class="card bg-info text-white">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between">
-                            <div>
-                                <h4>@stats.TotalSizeFormatted</h4>
-                                <p class="mb-0">Total Size</p>
-                            </div>
-                            <i class="bi bi-hdd fs-1 opacity-50"></i>
-                        </div>
-                    </div>
-                </div>
+            <div class="bak-stat-card">
+                <div class="bak-stat-icon bak-stat-blue"><i class="bi bi-hdd-fill"></i></div>
+                <div class="bak-stat-value">@stats.TotalSizeFormatted</div>
+                <div class="bak-stat-label">Total Size</div>
             </div>
         </div>
 
         @if (stats.LastBackupAt.HasValue)
         {
-            <div class="alert alert-info mb-4">
-                <i class="bi bi-info-circle me-2"></i>
-                <strong>Last Backup:</strong> @stats.LastBackupAt.Value.ToString("dd MMM yyyy HH:mm")
+            <div class="bak-info-bar">
+                <div class="bak-info-item">
+                    <i class="bi bi-clock-history"></i>
+                    <span><strong>Last Backup:</strong> @stats.LastBackupAt.Value.ToString("dd MMM yyyy HH:mm")</span>
+                </div>
                 @if (stats.NextScheduledBackup.HasValue)
                 {
-                    <span class="ms-4">
-                        <strong>Next Scheduled:</strong> @stats.NextScheduledBackup.Value.ToString("dd MMM yyyy HH:mm")
-                    </span>
+                    <div class="bak-info-item">
+                        <i class="bi bi-calendar-event"></i>
+                        <span><strong>Next Scheduled:</strong> @stats.NextScheduledBackup.Value.ToString("dd MMM yyyy HH:mm")</span>
+                    </div>
                 }
             </div>
         }
     }
 
+    <!-- Content -->
     @if (isLoading)
     {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <p class="mt-2">Loading backups...</p>
+        <div class="bak-loading">
+            <div class="bak-spinner"></div>
+            <p>Loading backups...</p>
         </div>
     }
     else if (errorMessage != null)
     {
-        <div class="alert alert-danger">
-            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+        <div class="bak-error">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <div>
+                <strong>Error loading backups</strong>
+                <p>@errorMessage</p>
+            </div>
+            <button class="bak-btn bak-btn-ghost" @onclick="RetryLoad">
+                <i class="bi bi-arrow-clockwise"></i> Retry
+            </button>
         </div>
     }
     else if (backups?.Any() == true)
     {
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-list-ul me-2"></i>Backup History</h5>
+        <div class="bak-section-card">
+            <div class="bak-section-header">
+                <h3><i class="bi bi-clock-history me-2"></i>Backup History</h3>
+                <span class="bak-badge bak-badge-purple">@backups.Count records</span>
             </div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-hover">
-                        <thead class="table-light">
-                            <tr>
-                                <th>File Name</th>
-                                <th>Type</th>
-                                <th>Status</th>
-                                <th>Size</th>
-                                <th>Started</th>
-                                <th>Duration</th>
-                                <th>Created By</th>
-                                <th>Offsite</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var backup in backups)
-                            {
-                                <tr>
-                                    <td>
-                                        <strong>@backup.FileName</strong>
-                                        @if (!string.IsNullOrEmpty(backup.Description))
+            <div class="bak-table-wrap">
+                <table class="bak-table">
+                    <thead>
+                        <tr>
+                            <th>File Name</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Size</th>
+                            <th>Started</th>
+                            <th>Duration</th>
+                            <th>Created By</th>
+                            <th>Storage</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var backup in backups)
+                        {
+                            <tr class="bak-row">
+                                <td>
+                                    <div class="bak-file-name">@backup.FileName</div>
+                                    @if (!string.IsNullOrEmpty(backup.Description))
+                                    {
+                                        <div class="bak-file-desc">@backup.Description</div>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="bak-badge @GetTypeBadgeClass(backup.BackupType)">@backup.BackupType</span>
+                                </td>
+                                <td>
+                                    <span class="bak-badge @GetStatusBadgeClass(backup.Status)">
+                                        @if (backup.Status == "InProgress")
                                         {
-                                            <small class="d-block text-muted">@backup.Description</small>
+                                            <span class="bak-spinner-xs"></span>
                                         }
-                                    </td>
-                                    <td>
-                                        <span class="badge @GetTypeBadgeClass(backup.BackupType)">@backup.BackupType</span>
-                                    </td>
-                                    <td>
-                                        <span class="badge @GetStatusBadgeClass(backup.Status)">@backup.Status</span>
-                                        @if (!string.IsNullOrEmpty(backup.ErrorMessage))
+                                        @backup.Status
+                                    </span>
+                                    @if (!string.IsNullOrEmpty(backup.ErrorMessage))
+                                    {
+                                        <i class="bi bi-exclamation-triangle-fill text-danger ms-1"
+                                           title="@backup.ErrorMessage"></i>
+                                    }
+                                </td>
+                                <td class="bak-cell-mono">@backup.SizeFormatted</td>
+                                <td>@backup.StartedAt.ToString("dd MMM HH:mm")</td>
+                                <td>
+                                    @if (backup.Duration.HasValue)
+                                    {
+                                        @backup.Duration.Value.ToString(@"mm\:ss")
+                                    }
+                                    else if (backup.Status == "InProgress")
+                                    {
+                                        <span class="bak-spinner-xs"></span>
+                                    }
+                                    else
+                                    {
+                                        <span class="bak-cell-muted">—</span>
+                                    }
+                                </td>
+                                <td>@(backup.CreatedByUserName ?? "System")</td>
+                                <td>
+                                    @if (backup.IsOffsite)
+                                    {
+                                        <span class="bak-badge bak-badge-green">
+                                            <i class="bi bi-cloud-check-fill"></i> Cloud
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="bak-badge bak-badge-gray">
+                                            <i class="bi bi-hdd"></i> Local
+                                        </span>
+                                    }
+                                </td>
+                                <td>
+                                    <div class="bak-actions">
+                                        @if (backup.Status == "Completed")
                                         {
-                                            <i class="bi bi-exclamation-triangle text-danger ms-1" title="@backup.ErrorMessage"></i>
-                                        }
-                                    </td>
-                                    <td>@backup.SizeFormatted</td>
-                                    <td>@backup.StartedAt.ToString("dd MMM HH:mm")</td>
-                                    <td>
-                                        @if (backup.Duration.HasValue)
-                                        {
-                                            @backup.Duration.Value.ToString(@"mm\:ss")
-                                        }
-                                        else if (backup.Status == "InProgress")
-                                        {
-                                            <span class="spinner-border spinner-border-sm"></span>
-                                        }
-                                        else
-                                        {
-                                            <span>-</span>
-                                        }
-                                    </td>
-                                    <td>@(backup.CreatedByUserName ?? "System")</td>
-                                    <td>
-                                        @if (backup.IsOffsite)
-                                        {
-                                            <i class="bi bi-cloud-check text-success" title="Uploaded to cloud"></i>
-                                        }
-                                        else
-                                        {
-                                            <i class="bi bi-hdd text-muted" title="Local only"></i>
-                                        }
-                                    </td>
-                                    <td>
-                                        <div class="btn-group btn-group-sm">
-                                            @if (backup.Status == "Completed")
-                                            {
-                                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="() => DownloadBackup(backup.Id)"
+                                            <button class="bak-action-btn" @onclick="() => DownloadBackup(backup.Id)"
                                                     title="Download">
-                                                    <i class="bi bi-download"></i>
-                                                </MudButton>
-                                                <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="() => ConfirmRestore(backup)"
-                                                    title="Restore">
-                                                    <i class="bi bi-arrow-counterclockwise"></i>
-                                                </MudButton>
-                                            }
-                                            <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="() => ConfirmDelete(backup)"
+                                                <i class="bi bi-download"></i>
+                                            </button>
+                                            <button class="bak-action-btn bak-action-warning"
+                                                    @onclick="() => ConfirmRestore(backup)" title="Restore">
+                                                <i class="bi bi-arrow-counterclockwise"></i>
+                                            </button>
+                                        }
+                                        <button class="bak-action-btn bak-action-danger" @onclick="() => ConfirmDelete(backup)"
                                                 title="Delete">
-                                                <i class="bi bi-trash"></i>
-                                            </MudButton>
-                                        </div>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
+                                            <i class="bi bi-trash3"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
             </div>
         </div>
     }
     else
     {
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle me-2"></i>No backups found. Create your first backup to get started.
+        <div class="bak-empty">
+            <i class="bi bi-database-add"></i>
+            <h3>No backups yet</h3>
+            <p>Create your first backup to protect your data</p>
+            <button class="bak-btn bak-btn-primary" @onclick="() => showCreateModal = true">
+                <i class="bi bi-plus-lg"></i> Create First Backup
+            </button>
         </div>
     }
 </div>
@@ -209,44 +212,41 @@
 <!-- Create Backup Modal -->
 @if (showCreateModal)
 {
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Create Backup</h5>
-                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => showCreateModal = false" Size="Size.Small" />
+    <div class="bak-overlay" @onclick="() => showCreateModal = false">
+        <div class="bak-modal" @onclick:stopPropagation="true">
+            <div class="bak-modal-header">
+                <h2><i class="bi bi-plus-circle me-2"></i>Create Backup</h2>
+                <button class="bak-modal-close" @onclick="() => showCreateModal = false"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="bak-modal-body">
+                <div class="bak-form-field">
+                    <label>Backup Type</label>
+                    <select class="bak-input" @bind="newBackup.BackupType">
+                        <option value="Full">Full Backup</option>
+                        <option value="Incremental">Incremental</option>
+                        <option value="Differential">Differential</option>
+                    </select>
                 </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label">Backup Type</label>
-                        <select class="form-select" @bind="newBackup.BackupType">
-                            <option value="Full">Full Backup</option>
-                            <option value="Incremental">Incremental</option>
-                            <option value="Differential">Differential</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Description</label>
-                        <textarea class="form-control" @bind="newBackup.Description" rows="2"
-                        placeholder="Optional description"></textarea>
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" @bind="newBackup.UploadToCloud" id="cloudCheck">
-                        <label class="form-check-label" for="cloudCheck">
-                            <i class="bi bi-cloud-upload me-1"></i>Upload to Cloud Storage
-                        </label>
-                    </div>
+                <div class="bak-form-field">
+                    <label>Description</label>
+                    <textarea class="bak-input" @bind="newBackup.Description" rows="2"
+                              placeholder="Optional description for this backup"></textarea>
                 </div>
-                <div class="modal-footer">
-                    <MudButton Variant="Variant.Filled" Color="Color.Default" OnClick="() => showCreateModal = false">Cancel</MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateBackup" Disabled="@isCreating">
-                        @if (isCreating)
-                        {
-                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                        }
-                        Start Backup
-                    </MudButton>
-                </div>
+                <label class="bak-toggle">
+                    <input type="checkbox" @bind="newBackup.UploadToCloud" />
+                    <span class="bak-toggle-slider"></span>
+                    <span class="bak-toggle-label"><i class="bi bi-cloud-upload me-1"></i>Upload to Cloud Storage</span>
+                </label>
+            </div>
+            <div class="bak-modal-footer">
+                <button class="bak-btn bak-btn-ghost" @onclick="() => showCreateModal = false">Cancel</button>
+                <button class="bak-btn bak-btn-primary" @onclick="CreateBackup" disabled="@isCreating">
+                    @if (isCreating)
+                    {
+                        <span class="bak-spinner-sm"></span>
+                    }
+                    Start Backup
+                </button>
             </div>
         </div>
     </div>
@@ -255,63 +255,810 @@
 <!-- Restore Confirmation Modal -->
 @if (showRestoreModal && backupToRestore != null)
 {
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header bg-warning">
-                    <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>Confirm Restore</h5>
-                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => showRestoreModal = false" Size="Size.Small" />
+    <div class="bak-overlay" @onclick="() => showRestoreModal = false">
+        <div class="bak-modal" @onclick:stopPropagation="true">
+            <div class="bak-modal-header bak-modal-header-warning">
+                <h2><i class="bi bi-exclamation-triangle me-2"></i>Confirm Restore</h2>
+                <button class="bak-modal-close" @onclick="() => showRestoreModal = false"><i
+                    class="bi bi-x-lg"></i></button>
                 </div>
-                <div class="modal-body">
-                    <div class="alert alert-danger">
-                        <strong>Warning!</strong> Restoring a backup will overwrite all current data. This action cannot be
-                        undone.
+                <div class="bak-modal-body">
+                    <div class="bak-alert bak-alert-danger">
+                        <i class="bi bi-exclamation-octagon-fill"></i>
+                        <div>
+                            <strong>Warning!</strong> Restoring a backup will overwrite all current data. This action cannot be
+                            undone.
+                        </div>
                     </div>
-                    <p>Are you sure you want to restore from:</p>
-                    <ul>
-                        <li><strong>File:</strong> @backupToRestore.FileName</li>
-                        <li><strong>Created:</strong> @backupToRestore.StartedAt.ToString("dd MMM yyyy HH:mm")</li>
-                        <li><strong>Size:</strong> @backupToRestore.SizeFormatted</li>
-                    </ul>
+                    <p style="margin: 1rem 0 .5rem;">Are you sure you want to restore from:</p>
+                    <div class="bak-restore-details">
+                        <div class="bak-detail-row"><span>File:</span> <strong>@backupToRestore.FileName</strong></div>
+                        <div class="bak-detail-row"><span>Created:</span> <strong>@backupToRestore.StartedAt.ToString("dd MMM                        yyyy HH:mm")</strong></div>
+                        <div class="bak-detail-row"><span>Size:</span> <strong>@backupToRestore.SizeFormatted</strong></div>
+                    </div>
                 </div>
-                <div class="modal-footer">
-                    <MudButton Variant="Variant.Filled" Color="Color.Default"
-                        OnClick="() => showRestoreModal = false">Cancel</MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="RestoreBackup" Disabled="@isRestoring">
+                <div class="bak-modal-footer">
+                    <button class="bak-btn bak-btn-ghost" @onclick="() => showRestoreModal = false">Cancel</button>
+                    <button class="bak-btn bak-btn-danger" @onclick="RestoreBackup" disabled="@isRestoring">
                         @if (isRestoring)
                         {
-                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                            <span class="bak-spinner-sm"></span>
                         }
                         Restore Database
-                    </MudButton>
+                    </button>
                 </div>
             </div>
         </div>
-    </div>
-}
+    }
 
-<!-- Delete Confirmation Modal -->
-@if (showDeleteModal && backupToDelete != null)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-trash me-2"></i>Delete Backup</h5>
-                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => showDeleteModal = false" Size="Size.Small" />
+    <!-- Delete Confirmation Modal -->
+    @if (showDeleteModal && backupToDelete != null)
+    {
+        <div class="bak-overlay" @onclick="() => showDeleteModal = false">
+            <div class="bak-modal" @onclick:stopPropagation="true">
+                <div class="bak-modal-header">
+                    <h2><i class="bi bi-trash3 me-2"></i>Delete Backup</h2>
+                    <button class="bak-modal-close" @onclick="() => showDeleteModal = false"><i class="bi bi-x-lg"></i></button>
                 </div>
-                <div class="modal-body">
-                    <p>Are you sure you want to delete this backup?</p>
-                    <p><strong>@backupToDelete.FileName</strong></p>
+                <div class="bak-modal-body">
+                    <p>Are you sure you want to permanently delete this backup?</p>
+                    <div class="bak-restore-details">
+                        <div class="bak-detail-row"><span>File:</span> <strong>@backupToDelete.FileName</strong></div>
+                        <div class="bak-detail-row"><span>Size:</span> <strong>@backupToDelete.SizeFormatted</strong></div>
+                    </div>
                 </div>
-                <div class="modal-footer">
-                    <MudButton Variant="Variant.Filled" Color="Color.Default" OnClick="() => showDeleteModal = false">Cancel</MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="DeleteBackup">Delete</MudButton>
+                <div class="bak-modal-footer">
+                    <button class="bak-btn bak-btn-ghost" @onclick="() => showDeleteModal = false">Cancel</button>
+                    <button class="bak-btn bak-btn-danger" @onclick="DeleteBackup">Delete Backup</button>
                 </div>
             </div>
         </div>
-    </div>
-}
+    }
+
+    <!-- Toast -->
+    @if (!string.IsNullOrEmpty(toastMessage))
+    {
+        <div class="bak-toast @(toastIsError ? "bak-toast-error" : "bak-toast-success")">
+            <i class="bi @(toastIsError ? "bi-exclamation-circle-fill" : "bi-check-circle-fill")"></i>
+            <span>@toastMessage</span>
+            <button @onclick="() => toastMessage = string.Empty"><i class="bi bi-x"></i></button>
+        </div>
+    }
+
+    <style>
+        /* ── Base ─────────────────────────────── */
+        .bak-page {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1.5rem;
+        }
+
+        /* ── Header ──────────────────────────── */
+        .bak-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.75rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .bak-header-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .bak-header-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.4rem;
+            box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
+        }
+
+        .bak-title {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: #1a1a2e;
+            margin: 0;
+            line-height: 1.2;
+        }
+
+        .bak-subtitle {
+            font-size: .85rem;
+            color: #6b7280;
+            margin: .15rem 0 0;
+        }
+
+        /* ── Buttons ──────────────────────────── */
+        .bak-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: .5rem;
+            padding: .6rem 1.25rem;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: .85rem;
+            border: none;
+            cursor: pointer;
+            transition: all .2s;
+        }
+
+        .bak-btn:disabled {
+            opacity: .6;
+            cursor: not-allowed;
+        }
+
+        .bak-btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, .3);
+        }
+
+        .bak-btn-primary:hover:not(:disabled) {
+            box-shadow: 0 4px 15px rgba(102, 126, 234, .45);
+            transform: translateY(-1px);
+        }
+
+        .bak-btn-ghost {
+            background: transparent;
+            color: #6b7280;
+            border: 1px solid #e5e7eb;
+        }
+
+        .bak-btn-ghost:hover {
+            background: #f9fafb;
+            color: #374151;
+        }
+
+        .bak-btn-danger {
+            background: #dc2626;
+            color: white;
+            box-shadow: 0 2px 8px rgba(220, 38, 38, .25);
+        }
+
+        .bak-btn-danger:hover:not(:disabled) {
+            background: #b91c1c;
+            box-shadow: 0 4px 12px rgba(220, 38, 38, .35);
+        }
+
+        /* ── Stats Grid ──────────────────────── */
+        .bak-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .bak-stat-card {
+            background: white;
+            border-radius: 14px;
+            padding: 1.25rem;
+            border: 1px solid #e5e7eb;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            transition: all .2s;
+        }
+
+        .bak-stat-card:hover {
+            border-color: #c7d2fe;
+            box-shadow: 0 2px 12px rgba(102, 126, 234, .08);
+        }
+
+        .bak-stat-icon {
+            font-size: 1.6rem;
+            margin-bottom: .5rem;
+        }
+
+        .bak-stat-value {
+            font-size: 1.75rem;
+            font-weight: 800;
+            line-height: 1;
+            color: #1f2937;
+        }
+
+        .bak-stat-label {
+            font-size: .82rem;
+            color: #6b7280;
+            margin-top: .25rem;
+        }
+
+        .bak-stat-purple {
+            color: #7c3aed;
+        }
+
+        .bak-stat-green {
+            color: #059669;
+        }
+
+        .bak-stat-red {
+            color: #dc2626;
+        }
+
+        .bak-stat-blue {
+            color: #2563eb;
+        }
+
+        /* ── Info Bar ─────────────────────────── */
+        .bak-info-bar {
+            display: flex;
+            gap: 2rem;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: .85rem 1.25rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .bak-info-item {
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+            font-size: .85rem;
+            color: #6b7280;
+        }
+
+        .bak-info-item i {
+            color: #667eea;
+        }
+
+        /* ── Section Card ─────────────────────── */
+        .bak-section-card {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+            overflow: hidden;
+        }
+
+        .bak-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        .bak-section-header h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin: 0;
+        }
+
+        /* ── Table ────────────────────────────── */
+        .bak-table-wrap {
+            overflow-x: auto;
+        }
+
+        .bak-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: .85rem;
+        }
+
+        .bak-table thead th {
+            padding: .75rem 1rem;
+            text-align: left;
+            font-weight: 600;
+            font-size: .78rem;
+            text-transform: uppercase;
+            letter-spacing: .3px;
+            color: #6b7280;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+            white-space: nowrap;
+        }
+
+        .bak-table tbody td {
+            padding: .75rem 1rem;
+            border-bottom: 1px solid #f3f4f6;
+            color: #374151;
+            vertical-align: middle;
+        }
+
+        .bak-row {
+            transition: background .15s;
+        }
+
+        .bak-row:hover {
+            background: #f9fafb;
+        }
+
+        .bak-row:last-child td {
+            border-bottom: none;
+        }
+
+        .bak-file-name {
+            font-weight: 600;
+            color: #1f2937;
+            font-size: .84rem;
+        }
+
+        .bak-file-desc {
+            font-size: .75rem;
+            color: #9ca3af;
+            margin-top: .15rem;
+        }
+
+        .bak-cell-mono {
+            font-family: monospace;
+            font-size: .82rem;
+        }
+
+        .bak-cell-muted {
+            color: #d1d5db;
+        }
+
+        /* ── Badges ───────────────────────────── */
+        .bak-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: .3rem;
+            padding: .2rem .6rem;
+            border-radius: 6px;
+            font-size: .72rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .bak-badge-purple {
+            background: #ede9fe;
+            color: #7c3aed;
+        }
+
+        .bak-badge-green {
+            background: #ecfdf5;
+            color: #059669;
+        }
+
+        .bak-badge-red {
+            background: #fef2f2;
+            color: #dc2626;
+        }
+
+        .bak-badge-blue {
+            background: #eff6ff;
+            color: #2563eb;
+        }
+
+        .bak-badge-amber {
+            background: #fffbeb;
+            color: #d97706;
+        }
+
+        .bak-badge-gray {
+            background: #f3f4f6;
+            color: #6b7280;
+        }
+
+        /* ── Action Buttons ──────────────────── */
+        .bak-actions {
+            display: flex;
+            gap: .25rem;
+        }
+
+        .bak-action-btn {
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            background: transparent;
+            color: #6b7280;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all .15s;
+            font-size: .9rem;
+        }
+
+        .bak-action-btn:hover {
+            background: #f3f4f6;
+            color: #374151;
+            border-color: #e5e7eb;
+        }
+
+        .bak-action-warning:hover {
+            background: #fffbeb;
+            color: #d97706;
+            border-color: #fde68a;
+        }
+
+        .bak-action-danger:hover {
+            background: #fef2f2;
+            color: #dc2626;
+            border-color: #fecaca;
+        }
+
+        /* ── Error ────────────────────────────── */
+        .bak-error {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 12px;
+            padding: 1.25rem 1.5rem;
+            color: #991b1b;
+        }
+
+        .bak-error i {
+            font-size: 1.4rem;
+            flex-shrink: 0;
+        }
+
+        .bak-error div {
+            flex: 1;
+        }
+
+        .bak-error strong {
+            display: block;
+            margin-bottom: .2rem;
+        }
+
+        .bak-error p {
+            margin: 0;
+            font-size: .85rem;
+            opacity: .8;
+        }
+
+        /* ── Alert ────────────────────────────── */
+        .bak-alert {
+            display: flex;
+            align-items: flex-start;
+            gap: .75rem;
+            padding: 1rem;
+            border-radius: 10px;
+            font-size: .85rem;
+        }
+
+        .bak-alert i {
+            font-size: 1.1rem;
+            margin-top: .1rem;
+            flex-shrink: 0;
+        }
+
+        .bak-alert-danger {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #991b1b;
+        }
+
+        /* ── Restore Details ─────────────────── */
+        .bak-restore-details {
+            background: #f9fafb;
+            border-radius: 10px;
+            padding: .85rem 1rem;
+        }
+
+        .bak-detail-row {
+            display: flex;
+            gap: .5rem;
+            padding: .3rem 0;
+            font-size: .85rem;
+        }
+
+        .bak-detail-row span {
+            color: #6b7280;
+            min-width: 70px;
+        }
+
+        /* ── Modal ────────────────────────────── */
+        .bak-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, .4);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1050;
+            padding: 1rem;
+        }
+
+        .bak-modal {
+            background: white;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 500px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, .2);
+            overflow: hidden;
+        }
+
+        .bak-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        .bak-modal-header h2 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin: 0;
+        }
+
+        .bak-modal-header-warning {
+            background: #fffbeb;
+            border-bottom-color: #fde68a;
+        }
+
+        .bak-modal-header-warning h2 {
+            color: #92400e;
+        }
+
+        .bak-modal-close {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: none;
+            background: #f3f4f6;
+            color: #6b7280;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all .15s;
+        }
+
+        .bak-modal-close:hover {
+            background: #e5e7eb;
+            color: #374151;
+        }
+
+        .bak-modal-body {
+            padding: 1.5rem;
+        }
+
+        .bak-modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: .75rem;
+            padding: 1rem 1.5rem;
+            border-top: 1px solid #f3f4f6;
+            background: #f9fafb;
+        }
+
+        /* ── Form ─────────────────────────────── */
+        .bak-form-field {
+            margin-bottom: 1rem;
+        }
+
+        .bak-form-field label {
+            display: block;
+            font-size: .78rem;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: .3rem;
+            text-transform: uppercase;
+            letter-spacing: .3px;
+        }
+
+        .bak-input {
+            width: 100%;
+            padding: .6rem .85rem;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: .85rem;
+            color: #374151;
+            outline: none;
+            transition: border-color .2s;
+            background: white;
+            box-sizing: border-box;
+        }
+
+        .bak-input:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, .1);
+        }
+
+        /* ── Toggle ───────────────────────────── */
+        .bak-toggle {
+            display: flex;
+            align-items: center;
+            gap: .7rem;
+            cursor: pointer;
+            padding-top: .4rem;
+        }
+
+        .bak-toggle input {
+            display: none;
+        }
+
+        .bak-toggle-slider {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            background: #d1d5db;
+            border-radius: 24px;
+            transition: background .2s;
+            flex-shrink: 0;
+        }
+
+        .bak-toggle-slider::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            transition: transform .2s;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, .15);
+        }
+
+        .bak-toggle input:checked+.bak-toggle-slider {
+            background: #667eea;
+        }
+
+        .bak-toggle input:checked+.bak-toggle-slider::after {
+            transform: translateX(20px);
+        }
+
+        .bak-toggle-label {
+            font-size: .85rem;
+            color: #374151;
+        }
+
+        /* ── Loading / Empty ──────────────────── */
+        .bak-loading {
+            text-align: center;
+            padding: 4rem 1rem;
+        }
+
+        .bak-loading p {
+            color: #9ca3af;
+            margin-top: .75rem;
+            font-size: .85rem;
+        }
+
+        .bak-spinner {
+            width: 36px;
+            height: 36px;
+            border: 3px solid #e5e7eb;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: bak-spin .6s linear infinite;
+            margin: 0 auto;
+        }
+
+        .bak-spinner-sm {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, .3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: bak-spin .6s linear infinite;
+        }
+
+        .bak-spinner-xs {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(0, 0, 0, .15);
+            border-top-color: currentColor;
+            border-radius: 50%;
+            animation: bak-spin .6s linear infinite;
+            vertical-align: middle;
+        }
+
+        @@keyframes bak-spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .bak-empty {
+            text-align: center;
+            padding: 5rem 1rem;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+        }
+
+        .bak-empty i {
+            font-size: 3.5rem;
+            color: #d1d5db;
+        }
+
+        .bak-empty h3 {
+            font-size: 1.15rem;
+            color: #6b7280;
+            margin: 1rem 0 .25rem;
+            font-weight: 600;
+        }
+
+        .bak-empty p {
+            font-size: .85rem;
+            color: #9ca3af;
+            margin-bottom: 1.5rem;
+        }
+
+        /* ── Toast ────────────────────────────── */
+        .bak-toast {
+            position: fixed;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: .6rem;
+            padding: .75rem 1.25rem;
+            border-radius: 12px;
+            font-size: .85rem;
+            font-weight: 500;
+            z-index: 1200;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, .15);
+            animation: bak-slide-in .3s ease;
+        }
+
+        .bak-toast button {
+            background: none;
+            border: none;
+            color: inherit;
+            opacity: .6;
+            cursor: pointer;
+            font-size: 1rem;
+            padding: 0 0 0 .5rem;
+        }
+
+        .bak-toast-success {
+            background: #059669;
+            color: white;
+        }
+
+        .bak-toast-error {
+            background: #dc2626;
+            color: white;
+        }
+
+        @@keyframes bak-slide-in {
+            from {
+                transform: translateY(20px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        /* ── Responsive ───────────────────────── */
+        @@media (max-width: 768px) {
+            .bak-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .bak-stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .bak-info-bar {
+                flex-direction: column;
+                gap: .75rem;
+            }
+        }
+
+        @@media (max-width: 480px) {
+            .bak-stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 
 @code {
     private List<BackupDto>? backups;
@@ -325,30 +1072,37 @@
     private bool showRestoreModal = false;
     private bool showDeleteModal = false;
     private string? errorMessage;
+    private string toastMessage = string.Empty;
+    private bool toastIsError = false;
 
     private CreateBackupRequest newBackup = new();
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadBackups();
-        await LoadStats();
+        await LoadData();
     }
 
-    private async Task LoadBackups()
+    private async Task LoadData()
     {
         isLoading = true;
         errorMessage = null;
 
         try
         {
-            var response = await BackupService.GetAllBackupsAsync();
+            var backupTask = BackupService.GetAllBackupsAsync();
+            var statsTask = BackupService.GetStatsAsync();
+            await Task.WhenAll(backupTask, statsTask);
+
+            var response = await backupTask;
+            stats = await statsTask;
+
             if (response != null)
             {
                 backups = response.Backups.OrderByDescending(b => b.StartedAt).ToList();
             }
             else
             {
-                errorMessage = "Failed to load backups.";
+                errorMessage = "Failed to load backups. The API may be unavailable.";
             }
         }
         catch (Exception ex)
@@ -361,9 +1115,9 @@
         }
     }
 
-    private async Task LoadStats()
+    private async Task RetryLoad()
     {
-        stats = await BackupService.GetStatsAsync();
+        await LoadData();
     }
 
     private async Task CreateBackup()
@@ -376,9 +1130,17 @@
             {
                 showCreateModal = false;
                 newBackup = new();
-                await LoadBackups();
-                await LoadStats();
+                ShowToast("Backup created successfully");
+                await LoadData();
             }
+            else
+            {
+                ShowToast("Failed to create backup", true);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Error creating backup: {ex.Message}", true);
         }
         finally
         {
@@ -404,7 +1166,17 @@
             {
                 showRestoreModal = false;
                 backupToRestore = null;
+                ShowToast("Backup restored successfully");
+                await LoadData();
             }
+            else
+            {
+                ShowToast("Failed to restore backup", true);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Error restoring backup: {ex.Message}", true);
         }
         finally
         {
@@ -422,36 +1194,69 @@
     {
         if (backupToDelete == null) return;
 
-        var success = await BackupService.DeleteBackupAsync(backupToDelete.Id);
-        if (success)
+        try
         {
-            showDeleteModal = false;
-            backupToDelete = null;
-            await LoadBackups();
-            await LoadStats();
+            var success = await BackupService.DeleteBackupAsync(backupToDelete.Id);
+            if (success)
+            {
+                showDeleteModal = false;
+                backupToDelete = null;
+                ShowToast("Backup deleted successfully");
+                await LoadData();
+            }
+            else
+            {
+                ShowToast("Failed to delete backup", true);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Error deleting backup: {ex.Message}", true);
         }
     }
 
     private async Task DownloadBackup(int id)
     {
-        // In a real implementation, this would trigger a file download
-        var stream = await BackupService.DownloadBackupAsync(id);
-        // Handle download
+        try
+        {
+            var backup = backups?.FirstOrDefault(b => b.Id == id);
+            if (backup == null) return;
+
+            await JS.InvokeVoidAsync("open", $"/download/backup/{id}", "_blank");
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Error downloading backup: {ex.Message}", true);
+        }
+    }
+
+    private void ShowToast(string message, bool isError = false)
+    {
+        toastMessage = message;
+        toastIsError = isError;
+        StateHasChanged();
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(5000);
+            toastMessage = string.Empty;
+            await InvokeAsync(StateHasChanged);
+        });
     }
 
     private string GetStatusBadgeClass(string status) => status switch
     {
-        "Completed" => "bg-success",
-        "InProgress" => "bg-info",
-        "Failed" => "bg-danger",
-        _ => "bg-secondary"
+        "Completed" => "bak-badge-green",
+        "InProgress" => "bak-badge-blue",
+        "Failed" => "bak-badge-red",
+        _ => "bak-badge-gray"
     };
 
     private string GetTypeBadgeClass(string type) => type switch
     {
-        "Full" => "bg-primary",
-        "Incremental" => "bg-info",
-        "Differential" => "bg-warning text-dark",
-        _ => "bg-secondary"
+        "Full" => "bak-badge-purple",
+        "Incremental" => "bak-badge-blue",
+        "Differential" => "bak-badge-amber",
+        _ => "bak-badge-gray"
     };
 }

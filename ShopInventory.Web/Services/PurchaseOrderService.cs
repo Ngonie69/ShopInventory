@@ -6,6 +6,7 @@ namespace ShopInventory.Web.Services;
 public interface IPurchaseOrderService
 {
     Task<PurchaseOrderListResponse?> GetPurchaseOrdersAsync(int page = 1, int pageSize = 20, PurchaseOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
+    Task<PurchaseOrderListResponse?> GetPurchaseOrdersFromSAPAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
     Task<PurchaseOrderDto?> GetPurchaseOrderByIdAsync(int id);
     Task<PurchaseOrderDto?> GetPurchaseOrderByNumberAsync(string orderNumber);
     Task<PurchaseOrderDto?> CreatePurchaseOrderAsync(CreatePurchaseOrderRequest request);
@@ -71,6 +72,47 @@ public class PurchaseOrderService : IPurchaseOrderService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching purchase orders");
+            return null;
+        }
+    }
+
+    public async Task<PurchaseOrderListResponse?> GetPurchaseOrdersFromSAPAsync(int page = 1, int pageSize = 20,
+        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null)
+    {
+        try
+        {
+            var queryParams = new List<string> { $"page={page}", $"pageSize={pageSize}" };
+
+            if (!string.IsNullOrEmpty(cardCode))
+                queryParams.Add($"cardCode={Uri.EscapeDataString(cardCode)}");
+            if (fromDate.HasValue)
+                queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+            if (toDate.HasValue)
+                queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+
+            var url = $"api/purchaseorder/sap?{string.Join("&", queryParams)}";
+            _logger.LogInformation("Fetching purchase orders from SAP API: {Url}", url);
+
+            var response = await _httpClient.GetAsync(url);
+            var content = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("SAP API returned error: {StatusCode} - {Content}", response.StatusCode, content);
+                return null;
+            }
+
+            var result = System.Text.Json.JsonSerializer.Deserialize<PurchaseOrderListResponse>(content, new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            _logger.LogInformation("Fetched {Count} purchase orders from SAP", result?.Orders?.Count ?? 0);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching purchase orders from SAP");
             return null;
         }
     }

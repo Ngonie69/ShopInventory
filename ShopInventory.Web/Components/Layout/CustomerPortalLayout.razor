@@ -36,8 +36,8 @@
         </MudButton>
     </MudAppBar>
 
-    <MudDrawer @bind-Open="@_drawerOpen" Elevation="2" Variant="@DrawerVariant.Mini" OpenMiniOnHover="true"
-        ClipMode="DrawerClipMode.Always" Breakpoint="Breakpoint.Lg" Class="customer-drawer">
+    <MudDrawer @bind-Open="@_drawerOpen" Elevation="2" Variant="@DrawerVariant.Responsive"
+        ClipMode="DrawerClipMode.Always" Breakpoint="Breakpoint.Md" Class="customer-drawer">
         <MudDrawerHeader Dense="true" Class="customer-drawer-header" Style="background: #000000;">
             <MudText Typo="Typo.h6" Style="color: white;">
                 @if (_drawerOpen)

@@ -256,6 +256,9 @@
                     }
                 </div>
                 <div class="modal-footer">
+                    <MudButton ButtonType="ButtonType.Button" Variant="Variant.Outlined" Color="Color.Primary" OnClick="DownloadInvoicePdf" Disabled="@isPdfLoading">
+                        <i class="bi bi-download me-1"></i> Download PDF
+                    </MudButton>
                     <MudButton ButtonType="ButtonType.Button" Variant="Variant.Filled" Color="Color.Default" OnClick="CloseInvoiceModal">Close</MudButton>
                 </div>
             </div>
@@ -276,6 +279,7 @@
     private bool showInvoiceModal;
     private bool isDetailLoading;
     private string? detailError;
+    private bool isPdfLoading;
 
     protected override async Task OnInitializedAsync()
     {
@@ -353,6 +357,33 @@
         selectedInvoice = null;
         podAttachments = new List<DocumentAttachmentDto>();
         detailError = null;
+    }
+
+    private async Task DownloadInvoicePdf()
+    {
+        if (selectedInvoice == null || isPdfLoading) return;
+        isPdfLoading = true;
+        try
+        {
+            var pdfBytes = await InvoiceService.GetInvoicePdfAsync(selectedInvoice.DocEntry);
+            if (pdfBytes == null || pdfBytes.Length == 0)
+            {
+                detailError = "Failed to retrieve invoice PDF.";
+                return;
+            }
+            var base64 = Convert.ToBase64String(pdfBytes);
+            var fileName = $"Invoice_{selectedInvoice.DocNum}.pdf";
+            await JSRuntime.InvokeVoidAsync("downloadPdfFromBase64", base64, fileName);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error downloading invoice PDF for DocEntry {DocEntry}", selectedInvoice.DocEntry);
+            detailError = "Failed to download invoice PDF.";
+        }
+        finally
+        {
+            isPdfLoading = false;
+        }
     }
 
     private async Task DownloadAttachment(DocumentAttachmentDto attachment)

@@ -19,11 +19,13 @@ namespace ShopInventory.Controllers;
 public class PurchaseOrderController : ControllerBase
 {
     private readonly IPurchaseOrderService _purchaseOrderService;
+    private readonly ISAPServiceLayerClient _sapClient;
     private readonly ILogger<PurchaseOrderController> _logger;
 
-    public PurchaseOrderController(IPurchaseOrderService purchaseOrderService, ILogger<PurchaseOrderController> logger)
+    public PurchaseOrderController(IPurchaseOrderService purchaseOrderService, ISAPServiceLayerClient sapClient, ILogger<PurchaseOrderController> logger)
     {
         _purchaseOrderService = purchaseOrderService;
+        _sapClient = sapClient;
         _logger = logger;
     }
 
@@ -44,6 +46,98 @@ public class PurchaseOrderController : ControllerBase
     {
         var result = await _purchaseOrderService.GetAllAsync(page, pageSize, status, cardCode, fromDate, toDate, cancellationToken);
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Get purchase orders from SAP with pagination and optional filtering
+    /// </summary>
+    [HttpGet("sap")]
+    [RequirePermission(Permission.ViewPurchaseOrders)]
+    [ProducesResponseType(typeof(PurchaseOrderListResponseDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetFromSAP(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? cardCode = null,
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            List<SAPPurchaseOrder> sapOrders;
+
+            if (fromDate.HasValue && toDate.HasValue)
+            {
+                sapOrders = await _sapClient.GetPurchaseOrdersByDateRangeAsync(fromDate.Value, toDate.Value, cancellationToken);
+            }
+            else if (!string.IsNullOrEmpty(cardCode))
+            {
+                sapOrders = await _sapClient.GetPurchaseOrdersBySupplierAsync(cardCode, cancellationToken);
+            }
+            else
+            {
+                sapOrders = await _sapClient.GetPagedPurchaseOrdersFromSAPAsync(page, pageSize, cancellationToken);
+            }
+
+            // Apply additional filters
+            if (!string.IsNullOrEmpty(cardCode) && fromDate.HasValue)
+            {
+                sapOrders = sapOrders.Where(o => o.CardCode == cardCode).ToList();
+            }
+
+            var totalCount = sapOrders.Count;
+
+            // If we fetched by date range or supplier (non-paged), apply local pagination
+            if (fromDate.HasValue || !string.IsNullOrEmpty(cardCode))
+            {
+                sapOrders = sapOrders
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToList();
+            }
+
+            var orders = sapOrders.Select(MapSAPToPurchaseOrderDto).ToList();
+
+            var result = new PurchaseOrderListResponseDto
+            {
+                Page = page,
+                PageSize = pageSize,
+                TotalCount = totalCount,
+                TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
+                Orders = orders
+            };
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching purchase orders from SAP");
+            return StatusCode(500, new { message = "Failed to fetch purchase orders from SAP", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Get a specific purchase order from SAP by document entry
+    /// </summary>
+    [HttpGet("sap/{docEntry}")]
+    [RequirePermission(Permission.ViewPurchaseOrders)]
+    [ProducesResponseType(typeof(PurchaseOrderDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetFromSAPByDocEntry(int docEntry, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var sapOrder = await _sapClient.GetPurchaseOrderByDocEntryAsync(docEntry, cancellationToken);
+            if (sapOrder == null)
+                return NotFound(new { message = $"Purchase order with DocEntry {docEntry} not found in SAP" });
+
+            return Ok(MapSAPToPurchaseOrderDto(sapOrder));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching purchase order {DocEntry} from SAP", docEntry);
+            return StatusCode(500, new { message = "Failed to fetch purchase order from SAP", error = ex.Message });
+        }
     }
 
     /// <summary>
@@ -225,5 +319,60 @@ public class PurchaseOrderController : ControllerBase
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         return Guid.TryParse(userIdClaim, out var userId) ? userId : null;
+    }
+
+    private static PurchaseOrderDto MapSAPToPurchaseOrderDto(SAPPurchaseOrder sap)
+    {
+        var isCancelled = sap.Cancelled == "tYES";
+        var isClosed = sap.DocumentStatus == "bost_Close";
+
+        PurchaseOrderStatus status;
+        if (isCancelled)
+            status = PurchaseOrderStatus.Cancelled;
+        else if (isClosed)
+            status = PurchaseOrderStatus.Received;
+        else
+            status = PurchaseOrderStatus.Approved;
+
+        DateTime.TryParse(sap.DocDate, out var orderDate);
+        DateTime.TryParse(sap.DocDueDate, out var deliveryDate);
+
+        var lines = sap.DocumentLines?.Select((l, idx) => new PurchaseOrderLineDto
+        {
+            Id = idx,
+            LineNum = l.LineNum,
+            ItemCode = l.ItemCode ?? "",
+            ItemDescription = l.ItemDescription ?? "",
+            Quantity = l.Quantity ?? 0,
+            QuantityReceived = l.DeliveredQuantity ?? 0,
+            UnitPrice = l.UnitPrice ?? 0,
+            LineTotal = l.LineTotal ?? 0,
+            WarehouseCode = l.WarehouseCode,
+            DiscountPercent = l.DiscountPercent ?? 0,
+            UoMCode = l.UoMCode
+        }).ToList() ?? new List<PurchaseOrderLineDto>();
+
+        return new PurchaseOrderDto
+        {
+            Id = sap.DocEntry,
+            SAPDocEntry = sap.DocEntry,
+            SAPDocNum = sap.DocNum,
+            OrderNumber = $"SAP-{sap.DocNum}",
+            OrderDate = orderDate,
+            DeliveryDate = deliveryDate == default ? null : deliveryDate,
+            CardCode = sap.CardCode ?? "",
+            CardName = sap.CardName,
+            SupplierRefNo = sap.NumAtCard,
+            Status = status,
+            Currency = sap.DocCurrency ?? "USD",
+            SubTotal = (sap.DocTotal ?? 0) - (sap.VatSum ?? 0),
+            TaxAmount = sap.VatSum ?? 0,
+            DiscountAmount = sap.TotalDiscount ?? 0,
+            DocTotal = sap.DocTotal ?? 0,
+            Comments = sap.Comments,
+            Lines = lines,
+            CreatedByUserName = "SAP",
+            Source = "SAP"
+        };
     }
 }

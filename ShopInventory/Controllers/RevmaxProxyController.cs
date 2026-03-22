@@ -18,7 +18,7 @@ namespace ShopInventory.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/revmax")]
-[Authorize(Policy = "RequireApiKey")]
+[Authorize(Policy = "ApiAccess")]
 public class RevmaxProxyController : ControllerBase
 {
     private readonly IRevmaxClient _revmaxClient;
@@ -59,11 +59,20 @@ public class RevmaxProxyController : ControllerBase
 
             var result = await _revmaxClient.GetCardDetailsAsync(cancellationToken);
 
+            if (result != null && result.Code != "1")
+            {
+                return CreateDeviceErrorResponse(result.Code, result.Message, "GetCardDetails", correlationId, result);
+            }
+
             return Ok(result);
         }
         catch (HttpRequestException ex)
         {
             return CreateUpstreamErrorResponse(ex, "GetCardDetails", correlationId);
+        }
+        catch (Exception ex)
+        {
+            return CreateUnexpectedErrorResponse(ex, "GetCardDetails", correlationId);
         }
     }
 
@@ -83,11 +92,20 @@ public class RevmaxProxyController : ControllerBase
 
             var result = await _revmaxClient.GetDayStatusAsync(cancellationToken);
 
+            if (result != null && result.Code != "1")
+            {
+                return CreateDeviceErrorResponse(result.Code, result.Message, "GetDayStatus", correlationId, result);
+            }
+
             return Ok(result);
         }
         catch (HttpRequestException ex)
         {
             return CreateUpstreamErrorResponse(ex, "GetDayStatus", correlationId);
+        }
+        catch (Exception ex)
+        {
+            return CreateUnexpectedErrorResponse(ex, "GetDayStatus", correlationId);
         }
     }
 
@@ -112,6 +130,10 @@ public class RevmaxProxyController : ControllerBase
         catch (HttpRequestException ex)
         {
             return CreateUpstreamErrorResponse(ex, "GetLicense", correlationId);
+        }
+        catch (Exception ex)
+        {
+            return CreateUnexpectedErrorResponse(ex, "GetLicense", correlationId);
         }
     }
 
@@ -149,6 +171,10 @@ public class RevmaxProxyController : ControllerBase
         {
             return CreateUpstreamErrorResponse(ex, "SetLicense", correlationId);
         }
+        catch (Exception ex)
+        {
+            return CreateUnexpectedErrorResponse(ex, "SetLicense", correlationId);
+        }
     }
 
     /// <summary>
@@ -172,6 +198,10 @@ public class RevmaxProxyController : ControllerBase
         catch (HttpRequestException ex)
         {
             return CreateUpstreamErrorResponse(ex, "ZReport", correlationId);
+        }
+        catch (Exception ex)
+        {
+            return CreateUnexpectedErrorResponse(ex, "ZReport", correlationId);
         }
     }
 
@@ -218,6 +248,10 @@ public class RevmaxProxyController : ControllerBase
         {
             return CreateUpstreamErrorResponse(ex, "GetInvoice", correlationId);
         }
+        catch (Exception ex)
+        {
+            return CreateUnexpectedErrorResponse(ex, "GetInvoice", correlationId);
+        }
     }
 
     /// <summary>
@@ -241,6 +275,10 @@ public class RevmaxProxyController : ControllerBase
         catch (HttpRequestException ex)
         {
             return CreateUpstreamErrorResponse(ex, "GetUnprocessedInvoicesSummary", correlationId);
+        }
+        catch (Exception ex)
+        {
+            return CreateUnexpectedErrorResponse(ex, "GetUnprocessedInvoicesSummary", correlationId);
         }
     }
 
@@ -325,6 +363,10 @@ public class RevmaxProxyController : ControllerBase
         catch (HttpRequestException ex)
         {
             return CreateUpstreamErrorResponse(ex, "TransactM", correlationId);
+        }
+        catch (Exception ex)
+        {
+            return CreateUnexpectedErrorResponse(ex, "TransactM", correlationId);
         }
     }
 
@@ -417,6 +459,10 @@ public class RevmaxProxyController : ControllerBase
         catch (HttpRequestException ex)
         {
             return CreateUpstreamErrorResponse(ex, "TransactMExt", correlationId);
+        }
+        catch (Exception ex)
+        {
+            return CreateUnexpectedErrorResponse(ex, "TransactMExt", correlationId);
         }
     }
 
@@ -750,6 +796,98 @@ public class RevmaxProxyController : ControllerBase
                 ["operation"] = operation
             }
         });
+    }
+
+    private IActionResult CreateUnexpectedErrorResponse(Exception ex, string operation, string correlationId)
+    {
+        _logger.LogError(ex, "Unexpected error during {Operation}. CorrelationId: {CorrelationId}", operation, correlationId);
+
+        return StatusCode(500, new ProblemDetails
+        {
+            Status = 500,
+            Title = "Unexpected Error",
+            Detail = ex.Message,
+            Instance = HttpContext.Request.Path,
+            Extensions =
+            {
+                ["correlationId"] = correlationId,
+                ["operation"] = operation
+            }
+        });
+    }
+
+    private IActionResult CreateDeviceErrorResponse(string? code, string? message, string operation, string correlationId, object rawResponse)
+    {
+        var diagnosis = InterpretDeviceError(code, message);
+
+        _logger.LogWarning("REVMax device error during {Operation}: Code={Code}, Message={Message}, Diagnosis={Diagnosis}. CorrelationId: {CorrelationId}",
+            operation, code, message, diagnosis, correlationId);
+
+        return StatusCode(502, new
+        {
+            status = 502,
+            title = "Fiscal Device Error",
+            deviceCode = code,
+            deviceMessage = message,
+            diagnosis,
+            correlationId,
+            operation,
+            rawResponse
+        });
+    }
+
+    private static string InterpretDeviceError(string? code, string? message)
+    {
+        if (string.IsNullOrEmpty(message))
+            return "The fiscal device returned an empty error. Check the device connection and power status.";
+
+        var msg = message.Trim().ToLowerInvariant();
+
+        // Init errors
+        if (msg.Contains("init error"))
+        {
+            return "The fiscal device is not initialized. This typically means: " +
+                   "(1) The device license has expired or is not activated — go to the REVMax portal to check license status; " +
+                   "(2) The device has not been registered with ZIMRA — contact your REVMax provider to complete registration; " +
+                   "(3) The device may need a power cycle — restart the fiscal device and try again.";
+        }
+
+        // Communication errors
+        if (msg.Contains("timeout") || msg.Contains("timed out"))
+        {
+            return "The fiscal device is taking too long to respond. Check network connectivity to the device and ensure it is powered on.";
+        }
+
+        if (msg.Contains("connection") || msg.Contains("connect"))
+        {
+            return "Cannot establish a connection to the fiscal device. Verify the device is powered on, connected to the network, and the configured IP/port is correct.";
+        }
+
+        // License errors
+        if (msg.Contains("license"))
+        {
+            return "There is a license issue with the fiscal device. Check the license status and expiry date via the REVMax portal or the /api/revmax/license endpoint.";
+        }
+
+        // Day not open
+        if (msg.Contains("day") && (msg.Contains("not open") || msg.Contains("closed")))
+        {
+            return "The fiscal day is not open. A Z-Report may need to be generated first, or a new fiscal day needs to be opened on the device.";
+        }
+
+        // Duplicate
+        if (msg.Contains("duplicate"))
+        {
+            return "This transaction has already been fiscalized. The invoice number already exists on the fiscal device.";
+        }
+
+        // Generic code-based interpretation
+        return code switch
+        {
+            "0" => $"The fiscal device reported an error: \"{message}\". Check the device status, power cycle if needed, and verify the license is active.",
+            "-1" => $"The fiscal device returned a system-level error: \"{message}\". This may require physical inspection of the device or contacting REVMax support.",
+            _ => $"The fiscal device returned an unexpected response (Code: {code}): \"{message}\". Review device logs or contact REVMax support."
+        };
     }
 
     #endregion

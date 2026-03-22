@@ -1,9 +1,11 @@
 @page "/inventory-transfers"
 @using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Services
 @attribute [Authorize(Roles = "Admin,StockController,DepotController")]
 @inject IInventoryTransferService TransferService
 @inject IMasterDataCacheService CacheService
 @inject ILogger<InventoryTransfers> Logger
+@inject IAppSettingsProvider AppSettings
 @rendermode InteractiveServer
 
 <PageTitle>Inventory Transfers - Shop Inventory</PageTitle>
@@ -1459,6 +1461,11 @@
     };
 
     // ── Lifecycle ───────────────────────────────────────
+    protected override void OnInitialized()
+    {
+        pageSize = AppSettings.PageSize;
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender && !_hasLoadedData)

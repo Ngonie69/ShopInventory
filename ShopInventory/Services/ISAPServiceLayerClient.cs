@@ -18,6 +18,12 @@ public interface ISAPServiceLayerClient
     /// </summary>
     Task<InventoryTransfer> CreateInventoryTransferAsync(CreateInventoryTransferRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Creates a new inventory transfer in SAP Business One, reusing pre-fetched data from validation
+    /// to avoid redundant SAP API calls for item metadata, batches, and serial numbers.
+    /// </summary>
+    Task<InventoryTransfer> CreateInventoryTransferAsync(CreateInventoryTransferRequest request, TransferPreFetchedData? preFetchedData, CancellationToken cancellationToken = default);
+
     // Inventory Transfer Request Operations
     /// <summary>
     /// Creates a new inventory transfer request in SAP Business One.
@@ -54,6 +60,7 @@ public interface ISAPServiceLayerClient
     // Invoice Operations
     Task<Invoice> CreateInvoiceAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default);
     Task<Invoice?> GetInvoiceByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
+    Task<Invoice?> GetInvoiceByDocNumAsync(int docNum, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetPagedInvoicesAsync(int page, int pageSize, CancellationToken cancellationToken = default);
@@ -146,6 +153,14 @@ public interface ISAPServiceLayerClient
     /// </summary>
     Task<CostCentreDto?> GetCostCentreByCodeAsync(string centerCode, CancellationToken cancellationToken = default);
 
+    // Purchase Order Operations (from SAP)
+    Task<List<SAPPurchaseOrder>> GetPurchaseOrdersFromSAPAsync(CancellationToken cancellationToken = default);
+    Task<List<SAPPurchaseOrder>> GetPagedPurchaseOrdersFromSAPAsync(int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<SAPPurchaseOrder?> GetPurchaseOrderByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
+    Task<List<SAPPurchaseOrder>> GetPurchaseOrdersBySupplierAsync(string cardCode, CancellationToken cancellationToken = default);
+    Task<List<SAPPurchaseOrder>> GetPurchaseOrdersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<int> GetPurchaseOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+
     // Sales Order Operations (from SAP)
     Task<List<SAPSalesOrder>> GetSalesOrdersAsync(CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetPagedSalesOrdersAsync(int page, int pageSize, CancellationToken cancellationToken = default);
@@ -190,4 +205,12 @@ public interface ISAPServiceLayerClient
     /// Tests the connection to SAP Business One Service Layer
     /// </summary>
     Task<bool> TestConnectionAsync(CancellationToken cancellationToken = default);
+
+    // Quotation Operations (from SAP)
+    Task<List<SAPQuotation>> GetQuotationsFromSAPAsync(CancellationToken cancellationToken = default);
+    Task<List<SAPQuotation>> GetPagedQuotationsFromSAPAsync(int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<SAPQuotation?> GetQuotationByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
+    Task<List<SAPQuotation>> GetQuotationsByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
+    Task<List<SAPQuotation>> GetQuotationsByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<int> GetQuotationsCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
 }

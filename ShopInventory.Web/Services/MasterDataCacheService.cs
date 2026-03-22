@@ -21,6 +21,8 @@ public interface IMasterDataCacheService
     Task<List<GLAccountDto>> GetGLAccountsAsync(bool forceRefresh = false);
     Task<List<CostCentreDto>> GetCostCentresAsync(bool forceRefresh = false);
     Task<List<ItemPriceDto>> GetItemPricesAsync(bool forceRefresh = false);
+    Task<Dictionary<string, decimal>> GetPricesByPriceListAsync(int priceListNum, bool forceRefresh = false);
+    void StorePriceListPrices(int priceListNum, Dictionary<string, decimal> prices);
     void InvalidateCache(string? cacheKey = null);
     DateTime? GetLastRefreshTime(string cacheKey);
     bool IsCacheReady { get; }
@@ -39,6 +41,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     private readonly ILogger<MasterDataCacheService> _logger;
     private readonly IDbContextFactory<WebAppDbContext> _dbContextFactory;
     private readonly ILocalStorageService _localStorage;
+    private readonly IAppSettingsProvider _appSettings;
 
     private const string BusinessPartnersCacheKey = "BusinessPartners";
     private const string ProductsCacheKey = "Products_All";
@@ -68,13 +71,16 @@ public class MasterDataCacheService : IMasterDataCacheService
     private static List<GLAccountDto>? _cachedGLAccounts;
     private static List<CostCentreDto>? _cachedCostCentres;
     private static List<ItemPriceDto>? _cachedPrices;
+    private static readonly ConcurrentDictionary<int, (Dictionary<string, decimal> Prices, DateTime LoadedAt)> _cachedPriceListPrices = new();
     private static DateTime _productsLoadedAt = DateTime.MinValue;
     private static DateTime _bpLoadedAt = DateTime.MinValue;
     private static DateTime _warehousesLoadedAt = DateTime.MinValue;
     private static DateTime _glAccountsLoadedAt = DateTime.MinValue;
     private static DateTime _costCentresLoadedAt = DateTime.MinValue;
     private static DateTime _pricesLoadedAt = DateTime.MinValue;
-    private static readonly TimeSpan MemoryCacheDuration = TimeSpan.FromMinutes(30);
+
+    private TimeSpan PriceListCacheDuration => TimeSpan.FromMinutes(_appSettings.CacheDurationMinutes);
+    private TimeSpan MemoryCacheDuration => TimeSpan.FromMinutes(_appSettings.CacheDurationMinutes);
 
     public bool IsCacheReady => _isPreloaded;
 
@@ -82,12 +88,14 @@ public class MasterDataCacheService : IMasterDataCacheService
         HttpClient httpClient,
         ILogger<MasterDataCacheService> logger,
         IDbContextFactory<WebAppDbContext> dbContextFactory,
-        ILocalStorageService localStorage)
+        ILocalStorageService localStorage,
+        IAppSettingsProvider appSettings)
     {
         _httpClient = httpClient;
         _logger = logger;
         _dbContextFactory = dbContextFactory;
         _localStorage = localStorage;
+        _appSettings = appSettings;
     }
 
     /// <summary>
@@ -782,6 +790,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                             .SetProperty(cp => cp.Currency, partner.Currency)
                             .SetProperty(cp => cp.Balance, partner.Balance)
                             .SetProperty(cp => cp.IsActive, partner.IsActive)
+                            .SetProperty(cp => cp.PriceListNum, partner.PriceListNum)
                             .SetProperty(cp => cp.LastSyncedAt, syncTime));
                     updatedCount++;
                 }
@@ -802,6 +811,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                         Currency = partner.Currency,
                         Balance = partner.Balance,
                         IsActive = partner.IsActive,
+                        PriceListNum = partner.PriceListNum,
                         LastSyncedAt = syncTime
                     });
                     insertedCount++;
@@ -828,6 +838,29 @@ public class MasterDataCacheService : IMasterDataCacheService
         {
             loadLock.Release();
         }
+    }
+
+    public async Task<Dictionary<string, decimal>> GetPricesByPriceListAsync(int priceListNum, bool forceRefresh = false)
+    {
+        // Return from memory cache if valid
+        if (!forceRefresh && _cachedPriceListPrices.TryGetValue(priceListNum, out var cached) &&
+            (DateTime.Now - cached.LoadedAt) < PriceListCacheDuration)
+        {
+            _logger.LogDebug("Returning {Count} prices for price list {PriceListNum} from memory cache",
+                cached.Prices.Count, priceListNum);
+            return cached.Prices;
+        }
+
+        // Not in cache — return empty (caller will fetch from API and store via StorePriceListPrices)
+        _logger.LogDebug("No cached prices for price list {PriceListNum} in memory", priceListNum);
+        return new Dictionary<string, decimal>();
+    }
+
+    public void StorePriceListPrices(int priceListNum, Dictionary<string, decimal> prices)
+    {
+        _cachedPriceListPrices[priceListNum] = (prices, DateTime.Now);
+        _logger.LogDebug("Stored {Count} prices for price list {PriceListNum} in memory cache",
+            prices.Count, priceListNum);
     }
 
     public async Task<List<BusinessPartnerDto>> GetBusinessPartnersAsync(bool forceRefresh = false)
@@ -871,7 +904,8 @@ public class MasterDataCacheService : IMasterDataCacheService
                     Country = p.Country,
                     Currency = p.Currency,
                     Balance = p.Balance,
-                    IsActive = p.IsActive
+                    IsActive = p.IsActive,
+                    PriceListNum = p.PriceListNum
                 })
                 .ToListAsync();
 
@@ -915,7 +949,8 @@ public class MasterDataCacheService : IMasterDataCacheService
                                     Country = p.Country,
                                     Currency = p.Currency,
                                     Balance = p.Balance,
-                                    IsActive = p.IsActive
+                                    IsActive = p.IsActive,
+                                    PriceListNum = p.PriceListNum
                                 })
                                 .ToListAsync();
                             _cachedBusinessPartners = updatedPartners;
@@ -962,7 +997,8 @@ public class MasterDataCacheService : IMasterDataCacheService
                                     Country = p.Country,
                                     Currency = p.Currency,
                                     Balance = p.Balance,
-                                    IsActive = p.IsActive
+                                    IsActive = p.IsActive,
+                                    PriceListNum = p.PriceListNum
                                 })
                                 .ToListAsync();
                             _cachedBusinessPartners = updatedPartners;
@@ -1792,6 +1828,7 @@ public class MasterDataCacheService : IMasterDataCacheService
             _cachedGLAccounts = null;
             _cachedCostCentres = null;
             _cachedPrices = null;
+            _cachedPriceListPrices.Clear();
 
             // Reset load times
             _productsLoadedAt = DateTime.MinValue;

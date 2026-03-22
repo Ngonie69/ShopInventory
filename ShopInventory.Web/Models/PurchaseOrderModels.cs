@@ -116,6 +116,9 @@ public class PurchaseOrderDto
     [JsonPropertyName("isSynced")]
     public bool IsSynced { get; set; }
 
+    [JsonPropertyName("source")]
+    public string? Source { get; set; }
+
     [JsonPropertyName("lines")]
     public List<PurchaseOrderLineDto> Lines { get; set; } = new();
 }

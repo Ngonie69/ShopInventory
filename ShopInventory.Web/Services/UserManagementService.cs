@@ -51,10 +51,14 @@ public class UserManagementService : IUserManagementService
     {
         try
         {
-            var url = $"api/user?page={page}&pageSize={pageSize}";
+            var url = $"api/usermanagement?page={page}&pageSize={pageSize}";
             if (!string.IsNullOrEmpty(search)) url += $"&search={Uri.EscapeDataString(search)}";
             if (!string.IsNullOrEmpty(role)) url += $"&role={role}";
-            if (!string.IsNullOrEmpty(status)) url += $"&status={status}";
+            if (!string.IsNullOrEmpty(status))
+            {
+                if (status == "active") url += "&isActive=true";
+                else if (status == "inactive") url += "&isActive=false";
+            }
             return await _httpClient.GetFromJsonAsync<UserListResponse>(url) ?? new UserListResponse();
         }
         catch (Exception ex)
@@ -126,8 +130,26 @@ public class UserManagementService : IUserManagementService
 
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadAsStringAsync();
-            throw new Exception($"Failed to change password: {error}");
+            var errorBody = await response.Content.ReadAsStringAsync();
+            var message = "An unexpected error occurred";
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(errorBody))
+                {
+                    var errorObj = System.Text.Json.JsonDocument.Parse(errorBody);
+                    if (errorObj.RootElement.TryGetProperty("message", out var msgProp))
+                        message = msgProp.GetString() ?? message;
+                    else if (errorObj.RootElement.TryGetProperty("Message", out var msgProp2))
+                        message = msgProp2.GetString() ?? message;
+                }
+            }
+            catch { /* not JSON, use default */ }
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
+                response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                message = "Authentication failed. Please log out and log in again.";
+
+            throw new Exception(message);
         }
     }
 
@@ -187,7 +209,8 @@ public class UserManagementService : IUserManagementService
             FirstName = model.FirstName,
             LastName = model.LastName,
             Role = model.Role,
-            AssignedWarehouseCode = model.AssignedWarehouseCode
+            AssignedWarehouseCodes = model.AssignedWarehouseCodes,
+            AllowedPaymentMethods = model.AllowedPaymentMethods
         });
 
         if (!response.IsSuccessStatusCode)
@@ -206,7 +229,8 @@ public class UserManagementService : IUserManagementService
             LastName = model.LastName,
             Role = model.Role,
             IsActive = model.IsActive,
-            AssignedWarehouseCode = model.AssignedWarehouseCode
+            AssignedWarehouseCodes = model.AssignedWarehouseCodes,
+            AllowedPaymentMethods = model.AllowedPaymentMethods
         });
 
         if (!response.IsSuccessStatusCode)

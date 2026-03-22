@@ -21,6 +21,8 @@ public class UserInfo
     public string Role { get; set; } = string.Empty;
     public string? Email { get; set; }
     public string? AssignedWarehouseCode { get; set; }
+    public List<string> AssignedWarehouseCodes { get; set; } = new();
+    public List<string> AllowedPaymentMethods { get; set; } = new();
 }
 
 public class RefreshTokenRequest

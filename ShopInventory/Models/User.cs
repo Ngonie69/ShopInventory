@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json;
 
 namespace ShopInventory.Models;
 
@@ -115,15 +117,72 @@ public class User
     public bool PhoneNumberVerified { get; set; } = false;
 
     /// <summary>
-    /// Assigned warehouse code for StockController/DepotController roles
+    /// JSON array of assigned warehouse codes (e.g. ["WH01","WH02"])
     /// </summary>
-    [MaxLength(50)]
-    public string? AssignedWarehouseCode { get; set; }
+    public string? AssignedWarehouseCodes { get; set; }
+
+    /// <summary>
+    /// Backward-compatible helper — returns first assigned warehouse code.
+    /// </summary>
+    [NotMapped]
+    public string? AssignedWarehouseCode
+    {
+        get => GetWarehouseCodes().FirstOrDefault();
+        set
+        {
+            if (string.IsNullOrEmpty(value))
+                AssignedWarehouseCodes = null;
+            else
+                AssignedWarehouseCodes = JsonSerializer.Serialize(new[] { value });
+        }
+    }
+
+    /// <summary>
+    /// Deserialize warehouse codes from JSON.
+    /// </summary>
+    public List<string> GetWarehouseCodes()
+    {
+        if (string.IsNullOrEmpty(AssignedWarehouseCodes)) return new();
+        try { return JsonSerializer.Deserialize<List<string>>(AssignedWarehouseCodes) ?? new(); }
+        catch { return new(); }
+    }
+
+    /// <summary>
+    /// Serialize warehouse codes to JSON.
+    /// </summary>
+    public void SetWarehouseCodes(List<string>? codes)
+    {
+        AssignedWarehouseCodes = codes == null || codes.Count == 0 ? null : JsonSerializer.Serialize(codes);
+    }
 
     /// <summary>
     /// JSON serialized list of granular permissions
     /// </summary>
     public string? Permissions { get; set; }
+
+    /// <summary>
+    /// JSON array of allowed payment methods (e.g. ["cash","transfer","check","credit"]).
+    /// If null/empty, the user inherits the system default. Admin users always have all methods.
+    /// </summary>
+    public string? AllowedPaymentMethods { get; set; }
+
+    /// <summary>
+    /// Deserialize allowed payment methods from JSON.
+    /// </summary>
+    public List<string> GetAllowedPaymentMethods()
+    {
+        if (string.IsNullOrEmpty(AllowedPaymentMethods)) return new();
+        try { return JsonSerializer.Deserialize<List<string>>(AllowedPaymentMethods) ?? new(); }
+        catch { return new(); }
+    }
+
+    /// <summary>
+    /// Serialize allowed payment methods to JSON.
+    /// </summary>
+    public void SetAllowedPaymentMethods(List<string>? methods)
+    {
+        AllowedPaymentMethods = methods == null || methods.Count == 0 ? null : JsonSerializer.Serialize(methods);
+    }
 
     /// <summary>
     /// Navigation property for refresh tokens

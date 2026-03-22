@@ -34,8 +34,8 @@ public class SecurityHeadersMiddleware
         var path = context.Request.Path.Value?.ToLowerInvariant() ?? "";
         var isSwaggerPath = path.StartsWith("/swagger");
 
-        // Prevent clickjacking - DENY for all API endpoints, Swagger only in development
-        if (!isSwaggerPath || !_isDevelopment)
+        // Prevent clickjacking - DENY for all API endpoints, allow framing for Swagger
+        if (!isSwaggerPath)
         {
             headers["X-Frame-Options"] = "DENY";
         }
@@ -50,8 +50,8 @@ public class SecurityHeadersMiddleware
         headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
 
         // Strict Content Security Policy - NO unsafe-inline/unsafe-eval for API
-        // Swagger needs relaxed CSP in development only
-        if (isSwaggerPath && _isDevelopment)
+        // Swagger needs relaxed CSP for inline scripts and styles to render
+        if (isSwaggerPath)
         {
             headers["Content-Security-Policy"] =
                 "default-src 'self'; " +
@@ -87,8 +87,8 @@ public class SecurityHeadersMiddleware
         headers["Pragma"] = "no-cache";
         headers["Expires"] = "0";
 
-        // Cross-Origin policies (relaxed for Swagger in development)
-        if (isSwaggerPath && _isDevelopment)
+        // Cross-Origin policies (relaxed for Swagger to load UI assets)
+        if (isSwaggerPath)
         {
             headers["Cross-Origin-Opener-Policy"] = "unsafe-none";
             headers["Cross-Origin-Resource-Policy"] = "cross-origin";
@@ -149,6 +149,17 @@ public class RequestValidationMiddleware
     // Maximum request body size to scan (10 KB) - avoid DoS from huge payloads
     private const int MaxBodyScanSize = 10240;
 
+    // Paths whose request bodies contain credentials/secrets and should NOT be scanned
+    // (passwords with special characters trigger false-positive injection detections)
+    private static readonly string[] BodyScanExcludedPaths =
+    {
+        "/api/user/",          // admin password reset: /api/user/{id}/change-password
+        "/api/auth/login",     // login credentials
+        "/api/auth/register",  // registration passwords
+        "/api/password/",      // self-service password change/reset
+        "/api/customerportal/auth" // customer portal login/password
+    };
+
     // Headers to check for injection
     private static readonly HashSet<string> SensitiveHeaders = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -207,7 +218,10 @@ public class RequestValidationMiddleware
         }
 
         // 5. Validate request body for non-GET/HEAD methods with content
-        if (context.Request.ContentLength > 0 &&
+        // Skip body scanning for endpoints that contain credentials (passwords trigger false positives)
+        var skipBodyScan = BodyScanExcludedPaths.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+        if (!skipBodyScan &&
+            context.Request.ContentLength > 0 &&
             !HttpMethods.IsGet(context.Request.Method) &&
             !HttpMethods.IsHead(context.Request.Method) &&
             !HttpMethods.IsOptions(context.Request.Method))

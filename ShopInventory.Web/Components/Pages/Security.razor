@@ -1,5 +1,6 @@
 @page "/security"
 @using ShopInventory.Web.Services
+@using Microsoft.AspNetCore.Authorization
 @inject ITwoFactorWebService TwoFactorService
 @inject IAuditService AuditService
 @inject IJSRuntime JS
@@ -9,238 +10,1152 @@
 
 <PageTitle>Security Settings - Shop Inventory</PageTitle>
 
-<div class="container-fluid">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="bi bi-shield-lock me-2"></i>Security Settings</h2>
+<style>
+    /* ── Page ─────────────────────────────────────────── */
+    .sec-page {
+        min-height: 100vh;
+        padding: 1.5rem;
+    }
+
+    /* ── Header ───────────────────────────────────────── */
+    .sec-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .sec-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .sec-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .sec-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+        letter-spacing: -.3px;
+    }
+
+    .sec-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: .88rem;
+    }
+
+    /* ── Stat Cards ────────────────────────────────────── */
+    .stat-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .stat-card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 1.1rem 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        transition: box-shadow .2s;
+    }
+
+    .stat-card:hover {
+        box-shadow: 0 4px 14px rgba(0, 0, 0, .08);
+    }
+
+    .stat-icon {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        flex-shrink: 0;
+    }
+
+    .stat-icon.green {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+    .stat-icon.red {
+        background: #fee2e2;
+        color: #dc2626;
+    }
+
+    .stat-icon.purple {
+        background: #ede9fe;
+        color: #7c3aed;
+    }
+
+    .stat-icon.amber {
+        background: #fef3c7;
+        color: #d97706;
+    }
+
+    .stat-icon.blue {
+        background: #dbeafe;
+        color: #2563eb;
+    }
+
+    .stat-info .stat-value {
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        line-height: 1.2;
+    }
+
+    .stat-info .stat-label {
+        font-size: .78rem;
+        color: #6b7280;
+        font-weight: 500;
+    }
+
+    /* ── Section Card ──────────────────────────────────── */
+    .sec-card {
+        background: #fff;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        margin-bottom: 1.25rem;
+        overflow: hidden;
+    }
+
+    .sec-card-header {
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid #f1f5f9;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .sec-card-header h5 {
+        margin: 0;
+        font-weight: 700;
+        font-size: .95rem;
+        color: #1a1a2e;
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+    }
+
+    .sec-card-body {
+        padding: 1.25rem;
+    }
+
+    /* ── Status Badges ─────────────────────────────────── */
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        padding: 4px 12px;
+        border-radius: 8px;
+        font-size: .78rem;
+        font-weight: 600;
+    }
+
+    .status-badge.enabled {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .status-badge.disabled {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    /* ── Info Alert ─────────────────────────────────────── */
+    .sec-info {
+        padding: .85rem 1rem;
+        border-radius: 10px;
+        display: flex;
+        align-items: flex-start;
+        gap: .5rem;
+        font-size: .88rem;
+        margin-bottom: 1rem;
+    }
+
+    .sec-info.info {
+        background: #eff6ff;
+        color: #1e40af;
+        border: 1px solid #bfdbfe;
+    }
+
+    .sec-info.warning {
+        background: #fffbeb;
+        color: #92400e;
+        border: 1px solid #fde68a;
+    }
+
+    .sec-info.success {
+        background: #ecfdf5;
+        color: #065f46;
+        border: 1px solid #a7f3d0;
+    }
+
+    .sec-info.error {
+        background: #fef2f2;
+        color: #991b1b;
+        border: 1px solid #fca5a5;
+    }
+
+    /* ── Buttons ───────────────────────────────────────── */
+    .btn-sec-gradient {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
+        cursor: pointer;
+    }
+
+    .btn-sec-gradient:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .4);
+        color: #fff;
+    }
+
+    .btn-sec-gradient:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .btn-sec-outline {
+        background: #fff;
+        color: #6b7280;
+        border: 1px solid #d1d5db;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .btn-sec-outline:hover {
+        background: #f3f4f6;
+    }
+
+    .btn-sec-outline:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+    }
+
+    .btn-sec-danger {
+        background: #dc2626;
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .btn-sec-danger:hover {
+        background: #b91c1c;
+    }
+
+    .btn-sec-danger:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+    }
+
+    .btn-sec-sm {
+        padding: .35rem .85rem;
+        font-size: .82rem;
+        border-radius: 8px;
+    }
+
+    /* ── Form Inputs ───────────────────────────────────── */
+    .sec-input {
+        width: 100%;
+        padding: .55rem .85rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        font-size: .88rem;
+        color: #374151;
+        background: #f8fafc;
+        transition: border-color .2s, box-shadow .2s;
+        outline: none;
+    }
+
+    .sec-input:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, .12);
+        background: #fff;
+    }
+
+    .sec-input.mono {
+        font-family: 'Courier New', monospace;
+        letter-spacing: 2px;
+        text-align: center;
+        font-size: 1.1rem;
+    }
+
+    .sec-input-group {
+        display: flex;
+        gap: 0;
+    }
+
+    .sec-input-group .sec-input {
+        border-radius: 8px 0 0 8px;
+    }
+
+    .sec-input-group .btn-copy {
+        border-radius: 0 8px 8px 0;
+        padding: .55rem .85rem;
+        border: 1px solid #e5e7eb;
+        border-left: none;
+        background: #f8fafc;
+        color: #6b7280;
+        cursor: pointer;
+        transition: all .15s;
+    }
+
+    .sec-input-group .btn-copy:hover {
+        background: #ede9fe;
+        color: #7c3aed;
+    }
+
+    .sec-label {
+        display: block;
+        font-size: .78rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .4px;
+        margin-bottom: .35rem;
+    }
+
+    /* ── Two-Col Layout ────────────────────────────────── */
+    .sec-columns {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.25rem;
+    }
+
+    .sec-main-col {
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+    }
+
+    .sec-side-col {
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+    }
+
+    @@media (max-width: 992px) {
+        .sec-columns {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* ── Setup Card ────────────────────────────────────── */
+    .setup-card {
+        border: 2px solid #667eea;
+    }
+
+    .setup-card .sec-card-header {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+    }
+
+    .setup-card .sec-card-header h5 {
+        color: #fff;
+    }
+
+    .setup-steps {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+    }
+
+    @@media (max-width: 768px) {
+        .setup-steps {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .step-label {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        font-weight: 700;
+        font-size: .85rem;
+        color: #1a1a2e;
+        margin-bottom: .5rem;
+    }
+
+    .step-num {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        font-size: .7rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .qr-wrap {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 1rem;
+        text-align: center;
+    }
+
+    .backup-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .35rem;
+        background: #f8fafc;
+        padding: .75rem;
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+    }
+
+    .backup-grid code {
+        font-size: .88rem;
+        color: #374151;
+    }
+
+    /* ── Modal ──────────────────────────────────────────── */
+    .sec-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, .4);
+        backdrop-filter: blur(4px);
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .sec-modal {
+        background: #fff;
+        border-radius: 14px;
+        width: 95%;
+        max-width: 460px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, .2);
+        overflow: hidden;
+    }
+
+    .sec-modal-header {
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid #f1f5f9;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .sec-modal-header h5 {
+        margin: 0;
+        font-weight: 700;
+        font-size: .95rem;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .sec-modal-header.danger {
+        background: #fef2f2;
+    }
+
+    .sec-modal-header.danger h5 {
+        color: #991b1b;
+    }
+
+    .sec-modal-body {
+        padding: 1.25rem;
+    }
+
+    .sec-modal-footer {
+        padding: .85rem 1.25rem;
+        border-top: 1px solid #f1f5f9;
+        display: flex;
+        justify-content: flex-end;
+        gap: .5rem;
+    }
+
+    .sec-modal-close {
+        border: none;
+        background: transparent;
+        color: #9ca3af;
+        cursor: pointer;
+        padding: 4px;
+        border-radius: 6px;
+        font-size: 1.1rem;
+    }
+
+    .sec-modal-close:hover {
+        color: #374151;
+        background: #f3f4f6;
+    }
+
+    /* ── Activity Table ────────────────────────────────── */
+    .activity-list {
+        max-height: 340px;
+        overflow-y: auto;
+    }
+
+    .activity-item {
+        display: flex;
+        align-items: center;
+        gap: .75rem;
+        padding: .65rem 0;
+        border-bottom: 1px solid #f8fafc;
+    }
+
+    .activity-item:last-child {
+        border-bottom: none;
+    }
+
+    .activity-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .activity-dot.success {
+        background: #10b981;
+    }
+
+    .activity-dot.fail {
+        background: #ef4444;
+    }
+
+    .activity-detail {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .activity-action {
+        font-weight: 600;
+        font-size: .85rem;
+        color: #1a1a2e;
+    }
+
+    .activity-meta {
+        font-size: .78rem;
+        color: #9ca3af;
+    }
+
+    .activity-time {
+        font-size: .76rem;
+        color: #9ca3af;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    /* ── Tips ───────────────────────────────────────────── */
+    .tip-item {
+        display: flex;
+        gap: .5rem;
+        margin-bottom: .85rem;
+    }
+
+    .tip-item:last-child {
+        margin-bottom: 0;
+    }
+
+    .tip-icon {
+        color: #10b981;
+        margin-top: 2px;
+        flex-shrink: 0;
+    }
+
+    .tip-text strong {
+        display: block;
+        font-size: .85rem;
+        color: #1a1a2e;
+    }
+
+    .tip-text span {
+        font-size: .8rem;
+        color: #6b7280;
+    }
+
+    /* ── Password Strength ─────────────────────────────── */
+    .pwd-rules {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .3rem;
+        margin-top: .5rem;
+    }
+
+    .pwd-rule {
+        font-size: .78rem;
+        display: flex;
+        align-items: center;
+        gap: .3rem;
+    }
+
+    .pwd-rule.pass {
+        color: #059669;
+    }
+
+    .pwd-rule.fail {
+        color: #9ca3af;
+    }
+
+    /* ── Loading ───────────────────────────────────────── */
+    .sec-loading {
+        text-align: center;
+        padding: 4rem 2rem;
+    }
+
+    .sec-loading .spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid #e5e7eb;
+        border-top-color: #667eea;
+        border-radius: 50%;
+        animation: spin .7s linear infinite;
+        display: inline-block;
+    }
+
+    @@keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+</style>
+
+<div class="sec-page fade-in">
+    <!-- Header -->
+    <div class="sec-header">
+        <div class="sec-header-left">
+            <div class="sec-header-icon">
+                <i class="bi bi-shield-lock-fill"></i>
+            </div>
+            <div>
+                <h2>Security Settings</h2>
+                <p>Manage your account security, authentication, and privacy</p>
+            </div>
+        </div>
     </div>
 
     @if (!string.IsNullOrEmpty(successMessage))
     {
-        <div class="alert alert-success alert-dismissible fade show">
-            <i class="bi bi-check-circle me-2"></i>@successMessage
-            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => successMessage = null" Size="Size.Small" />
+        <div class="sec-info success">
+            <i class="bi bi-check-circle-fill"></i>
+            <span>@successMessage</span>
         </div>
     }
-
     @if (!string.IsNullOrEmpty(errorMessage))
     {
-        <div class="alert alert-danger alert-dismissible fade show">
-            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
-            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => errorMessage = null" Size="Size.Small" />
+        <div class="sec-info error">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <span>@errorMessage</span>
         </div>
     }
 
     @if (isLoading)
     {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <p class="mt-2">Loading security settings...</p>
+        <div class="sec-loading">
+            <div class="spinner"></div>
+            <p style="color: #6b7280; margin-top: .75rem;">Loading security settings...</p>
         </div>
     }
     else
     {
-        <div class="row">
-            <div class="col-lg-8">
-                <!-- Two-Factor Authentication Card -->
-                <div class="card mb-4">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0"><i class="bi bi-phone me-2"></i>Two-Factor Authentication</h5>
+        <!-- Stat Cards -->
+        <div class="stat-row">
+            <div class="stat-card">
+                <div class="stat-icon @(twoFactorStatus?.IsEnabled == true ? "green" : "amber")">
+                    <i class="bi bi-shield-@(twoFactorStatus?.IsEnabled == true ? "check" : "exclamation")"></i>
+                </div>
+                <div class="stat-info">
+                    <div class="stat-value">@(twoFactorStatus?.IsEnabled == true ? "On" : "Off")</div>
+                    <div class="stat-label">Two-Factor Auth</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon purple">
+                    <i class="bi bi-key-fill"></i>
+                </div>
+                <div class="stat-info">
+                    <div class="stat-value">@(twoFactorStatus?.BackupCodesRemaining ?? 0)</div>
+                    <div class="stat-label">Backup Codes</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon blue">
+                    <i class="bi bi-clock-history"></i>
+                </div>
+                <div class="stat-info">
+                    <div class="stat-value">@(activitySummary?.ActionsToday ?? 0)</div>
+                    <div class="stat-label">Actions Today</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div
+                    class="stat-icon @(activitySummary?.RecentActivities.Any(a => !a.IsSuccess && a.Action.Contains("Login", StringComparison.OrdinalIgnoreCase)) == true ? "red" : "green")">
+                    <i class="bi bi-person-check-fill"></i>
+                </div>
+                <div class="stat-info">
+                    <div class="stat-value">@(activitySummary?.ActionsThisWeek ?? 0)</div>
+                    <div class="stat-label">This Week</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2FA Setup Section (shown when setting up) -->
+        @if (isSettingUp && setupData != null)
+        {
+            <div class="sec-card setup-card">
+                <div class="sec-card-header">
+                    <h5><i class="bi bi-qr-code"></i> Set Up Two-Factor Authentication</h5>
+                </div>
+                <div class="sec-card-body">
+                    <div class="setup-steps">
+                        <div>
+                            <div class="step-label"><span class="step-num">1</span> Scan QR Code</div>
+                            <p style="color: #6b7280; font-size: .84rem; margin: 0 0 .75rem;">
+                                Scan with your authenticator app (Google Authenticator, Authy, etc.)
+                            </p>
+                            <div class="qr-wrap">
+                                <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=@Uri.EscapeDataString(setupData.QrCodeUri)"
+                                     alt="2FA QR Code" style="max-width: 200px;" />
+                            </div>
+                            <div style="margin-top: .75rem;">
+                                <label class="sec-label">Can't scan? Enter manually:</label>
+                                <div class="sec-input-group">
+                                    <input type="text" class="sec-input mono" value="@setupData.ManualEntryKey" readonly
+                                           style="font-size: .85rem; letter-spacing: 1px;" />
+                                    <button class="btn-copy" @onclick="() => CopyToClipboard(setupData.ManualEntryKey)">
+                                        <i class="bi bi-clipboard"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="step-label"><span class="step-num">2</span> Enter Verification Code</div>
+                            <p style="color: #6b7280; font-size: .84rem; margin: 0 0 .75rem;">
+                                Enter the 6-digit code from your authenticator app.
+                            </p>
+                            <div style="margin-bottom: .75rem;">
+                                <label class="sec-label">Verification Code</label>
+                                <input type="text" class="sec-input mono" maxlength="6" placeholder="000000"
+                                       @bind="verificationCode" @bind:event="oninput" />
+                            </div>
+                            <div style="display: flex; gap: .5rem; margin-bottom: 1.25rem;">
+                                <button class="btn-sec-gradient" @onclick="VerifyAndEnable2FA"
+                                        disabled="@(string.IsNullOrEmpty(verificationCode) || verificationCode.Length != 6 || isVerifying)">
+                                    @if (isVerifying)
+                                    {
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                    }
+                                    <i class="bi bi-check-circle"></i> Verify & Enable
+                                </button>
+                                <button class="btn-sec-outline" @onclick="CancelSetup">
+                                    <i class="bi bi-x-circle"></i> Cancel
+                                </button>
+                            </div>
+
+                            <div class="step-label"><span class="step-num">3</span> Save Backup Codes</div>
+                            <p style="color: #6b7280; font-size: .84rem; margin: 0 0 .5rem;">
+                                Store these securely — use if you lose your phone.
+                            </p>
+                            <div class="backup-grid">
+                                @foreach (var bc in setupData.BackupCodes)
+                                {
+                                    <span
+                                    style="font-family: 'Courier New', monospace; font-size: .88rem; color: #374151;">@bc</span>
+                                }
+                            </div>
+                            <button class="btn-sec-outline btn-sec-sm" style="margin-top: .5rem;"
+                                    @onclick="CopyBackupCodesToClipboard">
+                                <i class="bi bi-clipboard"></i> Copy Codes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="sec-columns">
+            <!-- Main Column -->
+            <div class="sec-main-col">
+                <!-- Two-Factor Auth Card -->
+                <div class="sec-card">
+                    <div class="sec-card-header">
+                        <h5><i class="bi bi-phone"></i> Two-Factor Authentication</h5>
                         @if (twoFactorStatus?.IsEnabled == true)
                         {
-                            <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Enabled</span>
+                            <span class="status-badge enabled"><i class="bi bi-check-circle-fill"></i> Enabled</span>
                         }
                         else
                         {
-                            <span class="badge bg-warning text-dark"><i
-                                class="bi bi-exclamation-triangle me-1"></i>Disabled</span>
-                            }
-                        </div>
-                        <div class="card-body">
-                            @if (twoFactorStatus?.IsEnabled == true)
-                            {
-                                <!-- 2FA Enabled State -->
-                                <p class="text-muted">
-                                    Two-factor authentication is currently enabled for your account.
-                                    This adds an extra layer of security by requiring a code from your authenticator app when
-                                    signing in.
-                                </p>
-
-                                <div class="alert alert-info">
-                                    <i class="bi bi-info-circle me-2"></i>
+                            <span class="status-badge disabled"><i class="bi bi-exclamation-triangle-fill"></i> Disabled</span>
+                        }
+                    </div>
+                    <div class="sec-card-body">
+                        @if (twoFactorStatus?.IsEnabled == true)
+                        {
+                            <p style="color: #6b7280; font-size: .88rem; margin: 0 0 .75rem;">
+                                Two-factor authentication is active. A code from your authenticator app is required at login.
+                            </p>
+                            <div class="sec-info info">
+                                <i class="bi bi-info-circle-fill"></i>
+                                <div>
                                     <strong>Backup Codes Remaining:</strong> @twoFactorStatus.BackupCodesRemaining
                                     @if (twoFactorStatus.EnabledAt.HasValue)
                                     {
                                         <br />
-                                        <small class="text-muted">Enabled on: @twoFactorStatus.EnabledAt.Value.ToString("MMMM dd,                   yyyy")</small>
-                                    }
+                            
+                                        <span style="font-size: .82rem; opacity: .8;">Enabled on
+                                            @twoFactorStatus.EnabledAt.Value.ToString("MMMM dd, yyyy")</span>
+                                        }
+                                    </div>
                                 </div>
-
-                                <div class="d-flex gap-2 mt-3">
-                                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="ShowRegenerateBackupCodes">
-                                        <i class="bi bi-key me-1"></i>Regenerate Backup Codes
-                                    </MudButton>
-                                    <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="ShowDisable2FA">
-                                        <i class="bi bi-shield-x me-1"></i>Disable 2FA
-                                    </MudButton>
+                                <div style="display: flex; gap: .5rem; flex-wrap: wrap;">
+                                    <button class="btn-sec-outline" @onclick="ShowRegenerateBackupCodes">
+                                        <i class="bi bi-key"></i> Regenerate Backup Codes
+                                    </button>
+                                    <button class="btn-sec-danger btn-sec-sm" @onclick="ShowDisable2FA">
+                                        <i class="bi bi-shield-x"></i> Disable 2FA
+                                    </button>
                                 </div>
                             }
-                            else
+                    else
                             {
-                                <!-- 2FA Disabled State -->
-                                <p class="text-muted">
-                                    Two-factor authentication adds an extra layer of security to your account.
-                                    When enabled, you'll need to enter a code from your authenticator app in addition to your
-                                    password when signing in.
+                                <p style="color: #6b7280; font-size: .88rem; margin: 0 0 .75rem;">
+                                    Add an extra layer of security by requiring a code from your authenticator app when signing in.
                                 </p>
+                                <div class="sec-info warning">
+                                    <i class="bi bi-shield-exclamation"></i>
+                                    <span><strong>Recommended:</strong> Enable two-factor authentication to protect your
+                                        account.</span>
+                                    </div>
+                                    <button class="btn-sec-gradient" @onclick="StartSetup2FA">
+                                        <i class="bi bi-shield-check"></i> Enable Two-Factor Authentication
+                                    </button>
+                                }
+                            </div>
+                        </div>
 
-                                <div class="alert alert-warning">
-                                    <i class="bi bi-shield-exclamation me-2"></i>
-                                    <strong>Recommended:</strong> Enable two-factor authentication to protect your account from
-                                    unauthorized access.
+                        <!-- Change Password Card -->
+                        <div class="sec-card">
+                            <div class="sec-card-header">
+                                <h5><i class="bi bi-lock-fill"></i> Change Password</h5>
+                            </div>
+                            <div class="sec-card-body">
+                                <p style="color: #6b7280; font-size: .88rem; margin: 0 0 1rem;">
+                                    Keep your account secure by using a strong, unique password.
+                                </p>
+                                <div style="display: grid; gap: .85rem; max-width: 400px;">
+                                    <div>
+                                        <label class="sec-label">Current Password</label>
+                                        <input type="password" class="sec-input" placeholder="Enter current password"
+                                               @bind="currentPassword" />
+                                    </div>
+                                    <div>
+                                        <label class="sec-label">New Password</label>
+                                        <input type="password" class="sec-input" placeholder="Enter new password"
+                                               @bind="newPassword" @bind:event="oninput" />
+                                        <div class="pwd-rules">
+                                            <span class="pwd-rule @(newPassword.Length >= 8 ? "pass" : "fail")">
+                                                <i class="bi bi-@(newPassword.Length >= 8 ? "check-circle-fill" : "circle")"></i> 8+
+                                                characters
+                                            </span>
+                                            <span
+                                                class="pwd-rule @(System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[A-Z]") ? "pass" : "fail")">
+                                                <i
+                                                class="bi bi-@(System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[A-Z]") ? "check-circle-fill" : "circle")"></i>
+                                                Uppercase
+                                            </span>
+                                            <span
+                                                class="pwd-rule @(System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[a-z]") ? "pass" : "fail")">
+                                                <i
+                                                class="bi bi-@(System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[a-z]") ? "check-circle-fill" : "circle")"></i>
+                                                Lowercase
+                                            </span>
+                                            <span
+                                                class="pwd-rule @(System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[0-9]") ? "pass" : "fail")">
+                                                <i
+                                                class="bi bi-@(System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[0-9]") ? "check-circle-fill" : "circle")"></i>
+                                                Number
+                                            </span>
+                                            <span
+                                                class="pwd-rule @(System.Text.RegularExpressions.Regex.IsMatch(newPassword, @"[^a-zA-Z0-9]") ? "pass" : "fail")">
+                                                <i
+                                                class="bi bi-@(System.Text.RegularExpressions.Regex.IsMatch(newPassword, @"[^a-zA-Z0-9]") ? "check-circle-fill" : "circle")"></i>
+                                                Special char
+                                            </span>
+                                            <span
+                                                class="pwd-rule @(newPassword == confirmPassword && confirmPassword.Length > 0 ? "pass" : "fail")">
+                                                <i
+                                                class="bi bi-@(newPassword == confirmPassword && confirmPassword.Length > 0 ? "check-circle-fill" : "circle")"></i>
+                                                Matches
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="sec-label">Confirm New Password</label>
+                                        <input type="password" class="sec-input" placeholder="Confirm new password"
+                                               @bind="confirmPassword" />
+                                    </div>
+                                    <div>
+                                        <button class="btn-sec-gradient" @onclick="ChangePassword"
+                                                disabled="@(!IsPasswordValid || isChangingPassword)">
+                                            @if (isChangingPassword)
+                                            {
+                                                <span class="spinner-border spinner-border-sm"></span>
+                                            }
+                                            <i class="bi bi-check-lg"></i> Update Password
+                                        </button>
+                                    </div>
                                 </div>
+                            </div>
+                        </div>
 
-                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="StartSetup2FA">
-                                    <i class="bi bi-shield-check me-1"></i>Enable Two-Factor Authentication
-                                </MudButton>
-                            }
+                        <!-- Recent Activity Card -->
+                        <div class="sec-card">
+                            <div class="sec-card-header">
+                                <h5><i class="bi bi-clock-history"></i> Recent Activity</h5>
+                                <a href="/user-activity"
+                                       style="font-size: .82rem; color: #667eea; text-decoration: none; font-weight: 600;">
+                                    View all <i class="bi bi-arrow-right"></i>
+                                </a>
+                            </div>
+                            <div class="sec-card-body" style="padding-top: .5rem;">
+                                @if (recentActivity.Any())
+                                {
+                                    <div class="activity-list">
+                                        @foreach (var activity in recentActivity)
+                                        {
+                                            <div class="activity-item">
+                                                <div class="activity-dot @(activity.IsSuccess ? "success" : "fail")"></div>
+                                                <div class="activity-detail">
+                                                    <div class="activity-action">@FormatAction(activity.Action)</div>
+                                                    <div class="activity-meta">
+                                                        @if (!string.IsNullOrEmpty(activity.EntityType))
+                                                        {
+                                                            <span>@activity.EntityType</span>
+                                                        }
+                                                        @if (!string.IsNullOrEmpty(activity.Details))
+                                                        {
+                                                            <span> &middot; @TruncateText(activity.Details, 60)</span>
+                                                        }
+                                                    </div>
+                                                </div>
+                                                <span class="activity-time">@activity.TimeAgo</span>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <p style="color: #9ca3af; font-size: .88rem; text-align: center; padding: 1.5rem 0; margin: 0;">
+                                        <i class="bi bi-clock" style="font-size: 1.5rem; display: block; margin-bottom: .5rem;"></i>
+                                        No recent activity found
+                                    </p>
+                                }
+                            </div>
                         </div>
                     </div>
 
-                    <!-- 2FA Setup Section (shown when setting up) -->
-                    @if (isSettingUp && setupData != null)
-                    {
-                        <div class="card mb-4 border-primary">
-                            <div class="card-header bg-primary text-white">
-                                <h5 class="mb-0"><i class="bi bi-qr-code me-2"></i>Set Up Two-Factor Authentication</h5>
+                    <!-- Side Column -->
+                    <div class="sec-side-col">
+                        <!-- Security Score Card -->
+                        <div class="sec-card">
+                            <div class="sec-card-header">
+                                <h5><i class="bi bi-speedometer2"></i> Security Score</h5>
                             </div>
-                            <div class="card-body">
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <h6 class="mb-3">Step 1: Scan QR Code</h6>
-                                        <p class="text-muted small">
-                                            Scan this QR code with your authenticator app (Google Authenticator, Microsoft
-                                            Authenticator, Authy, etc.)
+                            <div class="sec-card-body" style="text-align: center; padding: 1.5rem;">
+                                @{
+                                    var score = CalculateSecurityScore();
+                                    var scoreColor = score >= 80 ? "#10b981" : score >= 50 ? "#f59e0b" : "#ef4444";
+                                }
+                                <div style="position: relative; width: 120px; height: 120px; margin: 0 auto 1rem;">
+                                    <svg viewBox="0 0 36 36" style="width: 120px; height: 120px; transform: rotate(-90deg);">
+                                        <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                              fill="none" stroke="#e5e7eb" stroke-width="3" />
+                                        <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                              fill="none" stroke="@scoreColor" stroke-width="3" stroke-dasharray="@score, 100"
+                                              stroke-linecap="round" />
+                                    </svg>
+                                    <div
+                                        style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column;">
+                                        <span style="font-size: 1.6rem; font-weight: 800; color: @scoreColor;">@score</span>
+                                        <span style="font-size: .7rem; color: #9ca3af; font-weight: 600;">/ 100</span>
+                                    </div>
+                                </div>
+                                <p style="font-size: .85rem; color: #6b7280; margin: 0;">
+                                    @if (score >= 80)
+                                    {
+                                        <span style="color: #059669; font-weight: 600;">Excellent!</span>
+                                        <span>Your
+                                            account is well protected.</span>
+                                        }
+                        else if (score >= 50)
+                                        {
+                                            <span style="color: #d97706; font-weight: 600;">Good.</span>
+                                            <span>Consider enabling 2FA for better security.</span>
+                                        }
+                                        else
+                                        {
+                                            <span style="color: #dc2626; font-weight: 600;">Needs attention.</span>
+                                            <span>Enable 2FA
+                                                and check recommendations below.</span>
+                                            }
                                         </p>
+                                    </div>
+                                </div>
 
-                                        <!-- QR Code Display -->
-                                        <div class="text-center mb-3 p-3 bg-white rounded border">
-                                            <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=@Uri.EscapeDataString(setupData.QrCodeUri)"
-                                                 alt="2FA QR Code" class="img-fluid" style="max-width: 200px;" />
+                                <!-- Security Tips Card -->
+                                <div class="sec-card">
+                                    <div class="sec-card-header">
+                                        <h5><i class="bi bi-lightbulb-fill"></i> Security Checklist</h5>
+                                    </div>
+                                    <div class="sec-card-body">
+                                        <div class="tip-item">
+                                            <i class="bi bi-@(twoFactorStatus?.IsEnabled == true ? "check-circle-fill" : "circle") tip-icon"
+                                               style="color: @(twoFactorStatus?.IsEnabled == true ? "#10b981" : "#d1d5db");"></i>
+                                            <div class="tip-text">
+                                                <strong>Enable 2FA</strong>
+                                                <span>Adds an extra layer of protection</span>
+                                            </div>
                                         </div>
-
-                                        <div class="mb-3">
-                                            <label class="form-label text-muted small">Can't scan? Enter this key manually:</label>
-                                            <div class="input-group">
-                                                <input type="text" class="form-control font-monospace"
-                                                       value="@setupData.ManualEntryKey" readonly />
-                                                <MudButton Variant="Variant.Outlined" Color="Color.Default"
-                                                           ButtonType="ButtonType.Button"
-                                                           OnClick="() => CopyToClipboard(setupData.ManualEntryKey)">
-                                                    <i class="bi bi-clipboard"></i>
-                                                </MudButton>
+                                        <div class="tip-item">
+                                            <i class="bi bi-check-circle-fill tip-icon"></i>
+                                            <div class="tip-text">
+                                                <strong>Use a strong password</strong>
+                                                <span>At least 8 characters with mixed types</span>
+                                            </div>
+                                        </div>
+                                        <div class="tip-item">
+                                            <i class="bi bi-@(twoFactorStatus?.BackupCodesRemaining > 0 ? "check-circle-fill" : "circle") tip-icon"
+                                               style="color: @(twoFactorStatus?.BackupCodesRemaining > 0 ? "#10b981" : "#d1d5db");"></i>
+                                            <div class="tip-text">
+                                                <strong>Save backup codes</strong>
+                                                <span>Store them securely offline</span>
+                                            </div>
+                                        </div>
+                                        <div class="tip-item">
+                                            <i class="bi bi-check-circle-fill tip-icon"></i>
+                                            <div class="tip-text">
+                                                <strong>Don't share credentials</strong>
+                                                <span>Never share your password or 2FA codes</span>
+                                            </div>
+                                        </div>
+                                        <div class="tip-item">
+                                            <i class="bi bi-check-circle-fill tip-icon"></i>
+                                            <div class="tip-text">
+                                                <strong>Review activity regularly</strong>
+                                                <span>Monitor for unexpected logins</span>
                                             </div>
                                         </div>
                                     </div>
+                                </div>
 
-                                    <div class="col-md-6">
-                                        <h6 class="mb-3">Step 2: Enter Verification Code</h6>
-                                        <p class="text-muted small">
-                                            Enter the 6-digit code displayed in your authenticator app to verify setup.
-                                        </p>
-
-                                        <div class="mb-3">
-                                            <label class="form-label">Verification Code</label>
-                                            <input type="text" class="form-control form-control-lg text-center font-monospace"
-                                                   maxlength="6" placeholder="000000" @bind="verificationCode" @bind:event="oninput" />
-                                        </div>
-
-                                        <div class="d-grid gap-2">
-                                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="VerifyAndEnable2FA"
-                                                       Disabled="@(string.IsNullOrEmpty(verificationCode) || verificationCode.Length != 6 || isVerifying)">
-                                                @if (isVerifying)
-                                                {
-                                                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                                                }
-                                                <i class="bi bi-check-circle me-1"></i>Verify and Enable
-                                            </MudButton>
-                                            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="CancelSetup">
-                                                <i class="bi bi-x-circle me-1"></i>Cancel
-                                            </MudButton>
-                                        </div>
-
-                                        <hr class="my-3" />
-
-                                        <h6 class="mb-3">Step 3: Save Backup Codes</h6>
-                                        <p class="text-muted small">
-                                            Save these backup codes in a safe place. You can use them to access your account if you
-                                            lose your phone.
-                                        </p>
-
-                                        <div class="bg-light p-3 rounded border mb-2">
-                                            <div class="row">
-                                                @foreach (var backupCode in setupData.BackupCodes)
-                                                {
-                                                    <div class="col-6 mb-1">
-                                                        <code class="text-dark">@backupCode</code>
-                                                    </div>
-                                                }
-                                            </div>
-                                        </div>
-
-                                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
-                                                   OnClick="() => CopyBackupCodesToClipboard()">
-                                            <i class="bi bi-clipboard me-1"></i>Copy Backup Codes
-                                        </MudButton>
+                                <!-- Quick Links Card -->
+                                <div class="sec-card">
+                                    <div class="sec-card-header">
+                                        <h5><i class="bi bi-link-45deg"></i> Quick Links</h5>
+                                    </div>
+                                    <div class="sec-card-body" style="display: flex; flex-direction: column; gap: .5rem;">
+                                        <a href="/user-activity"
+                                               style="display: flex; align-items: center; gap: .5rem; padding: .55rem .85rem; border-radius: 8px; text-decoration: none; color: #374151; font-size: .88rem; font-weight: 500; border: 1px solid #e5e7eb; transition: all .15s;">
+                                            <i class="bi bi-clock-history" style="color: #667eea;"></i> Login History & Audit Trail
+                                            <i class="bi bi-chevron-right" style="margin-left: auto; color: #d1d5db;"></i>
+                                        </a>
+                                        <a href="/settings"
+                                               style="display: flex; align-items: center; gap: .5rem; padding: .55rem .85rem; border-radius: 8px; text-decoration: none; color: #374151; font-size: .88rem; font-weight: 500; border: 1px solid #e5e7eb; transition: all .15s;">
+                                            <i class="bi bi-gear" style="color: #667eea;"></i> Account Settings
+                                            <i class="bi bi-chevron-right" style="margin-left: auto; color: #d1d5db;"></i>
+                                        </a>
+                                        <a href="/notifications"
+                                               style="display: flex; align-items: center; gap: .5rem; padding: .55rem .85rem; border-radius: 8px; text-decoration: none; color: #374151; font-size: .88rem; font-weight: 500; border: 1px solid #e5e7eb; transition: all .15s;">
+                                            <i class="bi bi-bell" style="color: #667eea;"></i> Notification Preferences
+                                            <i class="bi bi-chevron-right" style="margin-left: auto; color: #d1d5db;"></i>
+                                        </a>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     }
+                </div>
 
-                    <!-- Disable 2FA Modal -->
-                    @if (showDisableModal)
-                    {
-                        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-                            <div class="modal-dialog modal-dialog-centered">
-                                <div class="modal-content">
-                                    <div class="modal-header bg-danger text-white">
-                                        <h5 class="modal-title"><i class="bi bi-shield-x me-2"></i>Disable Two-Factor Authentication
-                                        </h5>
-                                        <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => showDisableModal = false"
-                                                       Size="Size.Small" />
+                <!-- Disable 2FA Modal -->
+                @if (showDisableModal)
+                {
+                    <div class="sec-overlay" @onclick="() => showDisableModal = false">
+                        <div class="sec-modal" @onclick:stopPropagation="true">
+                            <div class="sec-modal-header danger">
+                                <h5><i class="bi bi-shield-x"></i> Disable Two-Factor Authentication</h5>
+                                <button class="sec-modal-close" @onclick="() => showDisableModal = false"><i
+                                    class="bi bi-x-lg"></i></button>
+                                </div>
+                                <div class="sec-modal-body">
+                                    <div class="sec-info warning" style="margin-bottom: .85rem;">
+                                        <i class="bi bi-exclamation-triangle-fill"></i>
+                                        <span><strong>Warning:</strong> Disabling 2FA will make your account less secure.</span>
                                     </div>
-                                    <div class="modal-body">
-                                        <div class="alert alert-warning">
-                                            <i class="bi bi-exclamation-triangle me-2"></i>
-                                            <strong>Warning:</strong> Disabling 2FA will make your account less secure.
+                                    <div style="display: grid; gap: .75rem;">
+                                        <div>
+                                            <label class="sec-label">Current Password</label>
+                                            <input type="password" class="sec-input" @bind="disablePassword"
+                                                   placeholder="Enter your password" />
                                         </div>
-
-                                        <div class="mb-3">
-                                            <label class="form-label">Current Password</label>
-                                            <input type="password" class="form-control" @bind="disablePassword" />
-                                        </div>
-
-                                        <div class="mb-3">
-                                            <label class="form-label">Authenticator Code</label>
-                                            <input type="text" class="form-control text-center font-monospace" maxlength="6"
-                                                   placeholder="000000" @bind="disableCode" />
+                                        <div>
+                                            <label class="sec-label">Authenticator Code</label>
+                                            <input type="text" class="sec-input mono" maxlength="6" placeholder="000000" @bind="disableCode" />
                                         </div>
                                     </div>
-                                    <div class="modal-footer">
-                                        <MudButton Variant="Variant.Filled" Color="Color.Default" ButtonType="ButtonType.Button"
-                                                   OnClick="() => showDisableModal = false">Cancel</MudButton>
-                                        <MudButton Variant="Variant.Filled" Color="Color.Error" ButtonType="ButtonType.Button"
-                                                   OnClick="Disable2FA"
-                                                   Disabled="@(string.IsNullOrEmpty(disablePassword) || string.IsNullOrEmpty(disableCode) || isDisabling)">
-                                            @if (isDisabling)
-                                            {
-                                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                                            }
-                                            Disable 2FA
-                                        </MudButton>
-                                    </div>
+                                </div>
+                                <div class="sec-modal-footer">
+                                    <button class="btn-sec-outline" @onclick="() => showDisableModal = false">Cancel</button>
+                                    <button class="btn-sec-danger" @onclick="Disable2FA"
+                                            disabled="@(string.IsNullOrEmpty(disablePassword) || string.IsNullOrEmpty(disableCode) || isDisabling)">
+                                        @if (isDisabling)
+                                        {
+                                            <span class="spinner-border spinner-border-sm"></span>
+                                        }
+                                        Disable 2FA
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -249,139 +1164,74 @@
                     <!-- Regenerate Backup Codes Modal -->
                     @if (showRegenerateModal)
                     {
-                        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-                            <div class="modal-dialog modal-dialog-centered">
-                                <div class="modal-content">
-                                    <div class="modal-header">
-                                        <h5 class="modal-title"><i class="bi bi-key me-2"></i>Regenerate Backup Codes</h5>
-                                        <MudIconButton Icon="@Icons.Material.Filled.Close"
-                                                       OnClick="() => showRegenerateModal = false" Size="Size.Small" />
+                        <div class="sec-overlay" @onclick="() => showRegenerateModal = false">
+                            <div class="sec-modal" @onclick:stopPropagation="true">
+                                <div class="sec-modal-header">
+                                    <h5><i class="bi bi-key-fill"></i> Regenerate Backup Codes</h5>
+                                    <button class="sec-modal-close" @onclick="() => showRegenerateModal = false"><i
+                                        class="bi bi-x-lg"></i></button>
                                     </div>
-                                    <div class="modal-body">
+                                    <div class="sec-modal-body">
                                         @if (newBackupCodes == null)
                                         {
-                                            <div class="alert alert-info">
-                                                <i class="bi bi-info-circle me-2"></i>
-                                                This will invalidate all your existing backup codes and generate new ones.
+                                            <div class="sec-info info" style="margin-bottom: .85rem;">
+                                                <i class="bi bi-info-circle-fill"></i>
+                                                <span>This will invalidate all existing backup codes and generate new ones.</span>
                                             </div>
-
-                                            <div class="mb-3">
-                                                <label class="form-label">Enter Authenticator Code to Confirm</label>
-                                                <input type="text" class="form-control text-center font-monospace" maxlength="6"
-                                                       placeholder="000000" @bind="regenerateCode" />
+                                            <div>
+                                                <label class="sec-label">Enter Authenticator Code to Confirm</label>
+                                                <input type="text" class="sec-input mono" maxlength="6" placeholder="000000" @bind="regenerateCode" />
                                             </div>
                                         }
                                         else
                                         {
-                                            <p class="text-muted">Your new backup codes are below. Save them in a safe place.</p>
-                                            <div class="bg-light p-3 rounded border mb-2">
-                                                <div class="row">
-                                                    @foreach (var backupCode in newBackupCodes)
-                                                    {
-                                                        <div class="col-6 mb-1">
-                                                            <code class="text-dark">@backupCode</code>
-                                                        </div>
-                                                    }
-                                                </div>
+                                            <p style="color: #6b7280; font-size: .88rem; margin: 0 0 .75rem;">Your new backup codes:</p>
+                                            <div class="backup-grid">
+                                                @foreach (var bc in newBackupCodes)
+                                                {
+                                                    <span style="font-family: 'Courier New', monospace; font-size: .88rem; color: #374151;">@bc</span>
+                                                }
                                             </div>
                                         }
                                     </div>
-                                    <div class="modal-footer">
+                                    <div class="sec-modal-footer">
                                         @if (newBackupCodes == null)
                                         {
-                                            <MudButton Variant="Variant.Filled" Color="Color.Default" ButtonType="ButtonType.Button"
-                                                       OnClick="() => showRegenerateModal = false">Cancel</MudButton>
-                                            <MudButton Variant="Variant.Filled" Color="Color.Primary" ButtonType="ButtonType.Button"
-                                                       OnClick="RegenerateBackupCodes"
-                                                       Disabled="@(string.IsNullOrEmpty(regenerateCode) || isRegenerating)">
+                                            <button class="btn-sec-outline" @onclick="() => showRegenerateModal = false">Cancel</button>
+                                            <button class="btn-sec-gradient" @onclick="RegenerateBackupCodes"
+                                                    disabled="@(string.IsNullOrEmpty(regenerateCode) || isRegenerating)">
                                                 @if (isRegenerating)
                                                 {
-                                                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                                    <span class="spinner-border spinner-border-sm"></span>
                                                 }
                                                 Regenerate
-                                            </MudButton>
+                                            </button>
                                         }
                                         else
                                         {
-                                            <MudButton Variant="Variant.Outlined" Color="Color.Default" ButtonType="ButtonType.Button"
-                                                       OnClick="() => CopyNewBackupCodesToClipboard()">
-                                                <i class="bi bi-clipboard me-1"></i>Copy Codes
-                                            </MudButton>
-                                            <MudButton Variant="Variant.Filled" Color="Color.Primary" ButtonType="ButtonType.Button"
-                                                       OnClick="CloseRegenerateModal">Done</MudButton>
+                                            <button class="btn-sec-outline btn-sec-sm" @onclick="CopyNewBackupCodesToClipboard">
+                                                <i class="bi bi-clipboard"></i> Copy Codes
+                                            </button>
+                                            <button class="btn-sec-gradient" @onclick="CloseRegenerateModal">Done</button>
                                         }
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                    }
-                </div>
-
-                <!-- Security Tips Sidebar -->
-                <div class="col-lg-4">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5 class="mb-0"><i class="bi bi-lightbulb me-2"></i>Security Tips</h5>
-                        </div>
-                        <div class="card-body">
-                            <ul class="list-unstyled mb-0">
-                                <li class="mb-3">
-                                    <i class="bi bi-check-circle text-success me-2"></i>
-                                    <strong>Use a strong password</strong>
-                                    <p class="text-muted small mb-0">At least 12 characters with numbers and symbols</p>
-                                </li>
-                                <li class="mb-3">
-                                    <i class="bi bi-check-circle text-success me-2"></i>
-                                    <strong>Enable 2FA</strong>
-                                    <p class="text-muted small mb-0">Adds an extra layer of protection</p>
-                                </li>
-                                <li class="mb-3">
-                                    <i class="bi bi-check-circle text-success me-2"></i>
-                                    <strong>Save backup codes</strong>
-                                    <p class="text-muted small mb-0">Store them securely offline</p>
-                                </li>
-                                <li class="mb-0">
-                                    <i class="bi bi-check-circle text-success me-2"></i>
-                                    <strong>Don't share credentials</strong>
-                                    <p class="text-muted small mb-0">Never share your password or 2FA codes</p>
-                                </li>
-                            </ul>
-                        </div>
-                    </div>
-
-                    <div class="card mt-3">
-                        <div class="card-header">
-                            <h5 class="mb-0"><i class="bi bi-question-circle me-2"></i>Need Help?</h5>
-                        </div>
-                        <div class="card-body">
-                            <p class="text-muted small">
-                                If you're having trouble with two-factor authentication, contact your system administrator for
-                                assistance.
-                            </p>
-                            <a href="/user-activity" class="btn btn-outline-primary btn-sm">
-                                <i class="bi bi-clock-history me-1"></i>View Login History
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        }
-    </div>
+                        }
 
 @code {
     private bool isLoading = true;
     private string? successMessage;
     private string? errorMessage;
 
+    // 2FA state
     private TwoFactorStatusModel? twoFactorStatus;
-
-    // Setup state
     private bool isSettingUp = false;
     private TwoFactorSetupModel? setupData;
     private string verificationCode = "";
     private bool isVerifying = false;
 
-    // Disable state
+    // Disable 2FA state
     private bool showDisableModal = false;
     private string disablePassword = "";
     private string disableCode = "";
@@ -393,21 +1243,49 @@
     private bool isRegenerating = false;
     private List<string>? newBackupCodes;
 
+    // Password change state
+    private string currentPassword = "";
+    private string newPassword = "";
+    private string confirmPassword = "";
+    private bool isChangingPassword = false;
+
+    // Activity state
+    private List<LoginActivityModel> recentActivity = new();
+    private UserActivityMeResponse? activitySummary;
+
+    private bool IsPasswordValid =>
+    !string.IsNullOrEmpty(currentPassword) &&
+    newPassword.Length >= 8 &&
+    System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[A-Z]") &&
+    System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[a-z]") &&
+    System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[0-9]") &&
+    System.Text.RegularExpressions.Regex.IsMatch(newPassword, @"[^a-zA-Z0-9]") &&
+    newPassword == confirmPassword;
+
     protected override async Task OnInitializedAsync()
     {
-        await LoadTwoFactorStatus();
+        await LoadAllData();
     }
 
-    private async Task LoadTwoFactorStatus()
+    private async Task LoadAllData()
     {
         isLoading = true;
         try
         {
-            twoFactorStatus = await TwoFactorService.GetStatusAsync();
+            var statusTask = TwoFactorService.GetStatusAsync();
+            var activityTask = TwoFactorService.GetRecentLoginActivityAsync(10);
+
+            await Task.WhenAll(statusTask, activityTask);
+
+            twoFactorStatus = statusTask.Result;
+            recentActivity = activityTask.Result;
+
+            // Also load summary from the data we already have
+            activitySummary = BuildActivitySummaryFromRecent();
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to load 2FA status: {ex.Message}";
+            errorMessage = $"Failed to load security settings: {ex.Message}";
         }
         finally
         {
@@ -415,22 +1293,29 @@
         }
     }
 
+    private UserActivityMeResponse? BuildActivitySummaryFromRecent()
+    {
+        return new UserActivityMeResponse
+        {
+            ActionsToday = recentActivity.Count(a => a.Timestamp.Date == DateTime.UtcNow.Date),
+            ActionsThisWeek = recentActivity.Count,
+            RecentActivities = recentActivity
+        };
+    }
+
+    // ── 2FA Methods ──────────────────────────────────────
+
     private async Task StartSetup2FA()
     {
         isLoading = true;
         errorMessage = null;
-
         try
         {
             setupData = await TwoFactorService.InitiateSetupAsync();
             if (setupData != null)
-            {
                 isSettingUp = true;
-            }
             else
-            {
                 errorMessage = "Failed to initiate 2FA setup. Please try again.";
-            }
         }
         catch (Exception ex)
         {
@@ -451,23 +1336,19 @@
 
     private async Task VerifyAndEnable2FA()
     {
-        if (string.IsNullOrEmpty(verificationCode) || verificationCode.Length != 6)
-            return;
-
+        if (string.IsNullOrEmpty(verificationCode) || verificationCode.Length != 6) return;
         isVerifying = true;
         errorMessage = null;
-
         try
         {
             var (success, message) = await TwoFactorService.EnableTwoFactorAsync(verificationCode);
-
             if (success)
             {
                 successMessage = "Two-factor authentication has been enabled successfully!";
                 isSettingUp = false;
                 setupData = null;
                 verificationCode = "";
-                await LoadTwoFactorStatus();
+                await LoadAllData();
                 await AuditService.LogAsync("Enable2FA", "Security", "Two-factor authentication enabled");
             }
             else
@@ -494,23 +1375,19 @@
 
     private async Task Disable2FA()
     {
-        if (string.IsNullOrEmpty(disablePassword) || string.IsNullOrEmpty(disableCode))
-            return;
-
+        if (string.IsNullOrEmpty(disablePassword) || string.IsNullOrEmpty(disableCode)) return;
         isDisabling = true;
         errorMessage = null;
-
         try
         {
             var (success, message) = await TwoFactorService.DisableTwoFactorAsync(disablePassword, disableCode);
-
             if (success)
             {
                 successMessage = "Two-factor authentication has been disabled.";
                 showDisableModal = false;
                 disablePassword = "";
                 disableCode = "";
-                await LoadTwoFactorStatus();
+                await LoadAllData();
                 await AuditService.LogAsync("Disable2FA", "Security", "Two-factor authentication disabled");
             }
             else
@@ -537,23 +1414,19 @@
 
     private async Task RegenerateBackupCodes()
     {
-        if (string.IsNullOrEmpty(regenerateCode))
-            return;
-
+        if (string.IsNullOrEmpty(regenerateCode)) return;
         isRegenerating = true;
         errorMessage = null;
-
         try
         {
             newBackupCodes = await TwoFactorService.RegenerateBackupCodesAsync(regenerateCode);
-
             if (newBackupCodes == null)
             {
                 errorMessage = "Failed to regenerate backup codes. Please check your code and try again.";
             }
             else
             {
-                await LoadTwoFactorStatus();
+                await LoadAllData();
                 await AuditService.LogAsync("RegenerateBackupCodes", "Security", "Backup codes regenerated");
             }
         }
@@ -574,6 +1447,61 @@
         newBackupCodes = null;
     }
 
+    // ── Password Change ──────────────────────────────────
+
+    private async Task ChangePassword()
+    {
+        if (!IsPasswordValid) return;
+        isChangingPassword = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            var (success, message) = await TwoFactorService.ChangePasswordAsync(currentPassword, newPassword, confirmPassword);
+            if (success)
+            {
+                successMessage = "Password changed successfully!";
+                currentPassword = "";
+                newPassword = "";
+                confirmPassword = "";
+                await AuditService.LogAsync("ChangePassword", "Security", "Password changed");
+            }
+            else
+            {
+                errorMessage = message;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error changing password: {ex.Message}";
+        }
+        finally
+        {
+            isChangingPassword = false;
+        }
+    }
+
+    // ── Helpers ──────────────────────────────────────────
+
+    private int CalculateSecurityScore()
+    {
+        var score = 30; // Base score for having an account
+        if (twoFactorStatus?.IsEnabled == true) score += 40;
+        if (twoFactorStatus?.BackupCodesRemaining > 0) score += 15;
+        if (twoFactorStatus?.BackupCodesRemaining >= 5) score += 5;
+        if (recentActivity.All(a => a.IsSuccess)) score += 10;
+        return Math.Min(100, score);
+    }
+
+    private static string FormatAction(string action)
+    {
+        // Convert PascalCase to readable: "ViewInvoice" → "View Invoice"
+        return System.Text.RegularExpressions.Regex.Replace(action, "(?<=[a-z])(?=[A-Z])", " ");
+    }
+
+    private static string TruncateText(string text, int maxLen) =>
+    text.Length <= maxLen ? text : text[..maxLen] + "...";
+
     private async Task CopyToClipboard(string text)
     {
         try
@@ -581,18 +1509,14 @@
             await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
             successMessage = "Copied to clipboard!";
         }
-        catch
-        {
-            // Fallback if clipboard API fails
-        }
+        catch { }
     }
 
     private async Task CopyBackupCodesToClipboard()
     {
         if (setupData?.BackupCodes != null)
         {
-            var codes = string.Join("\n", setupData.BackupCodes);
-            await CopyToClipboard(codes);
+            await CopyToClipboard(string.Join("\n", setupData.BackupCodes));
         }
     }
 
@@ -600,8 +1524,7 @@
     {
         if (newBackupCodes != null)
         {
-            var codes = string.Join("\n", newBackupCodes);
-            await CopyToClipboard(codes);
+            await CopyToClipboard(string.Join("\n", newBackupCodes));
         }
     }
 }

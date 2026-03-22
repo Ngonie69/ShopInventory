@@ -19,17 +19,20 @@ public class PriceController : ControllerBase
     private readonly ApplicationDbContext _context;
     private readonly SAPSettings _settings;
     private readonly ILogger<PriceController> _logger;
+    private readonly IBusinessPartnerService _businessPartnerService;
 
     public PriceController(
         ISAPServiceLayerClient sapClient,
         ApplicationDbContext context,
         IOptions<SAPSettings> settings,
-        ILogger<PriceController> logger)
+        ILogger<PriceController> logger,
+        IBusinessPartnerService businessPartnerService)
     {
         _sapClient = sapClient;
         _context = context;
         _settings = settings.Value;
         _logger = logger;
+        _businessPartnerService = businessPartnerService;
     }
 
     /// <summary>
@@ -752,6 +755,65 @@ public class PriceController : ControllerBase
         {
             _logger.LogError(ex, "Error retrieving price for item {ItemCode} from price list {PriceListNum}", itemCode, priceListNum);
             return StatusCode(500, new { message = "Error retrieving item price from price list", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Gets all item prices for a business partner's assigned price list.
+    /// Looks up the business partner by CardCode, resolves their PriceListNum,
+    /// and returns all item prices from that price list.
+    /// </summary>
+    /// <param name="cardCode">The business partner card code</param>
+    /// <param name="forceRefresh">If true, syncs from SAP before returning data</param>
+    /// <returns>Item prices from the business partner's price list</returns>
+    [HttpGet("businesspartner/{cardCode}")]
+    [ProducesResponseType(typeof(ItemPricesByListResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetPricesByBusinessPartner(
+        string cardCode,
+        [FromQuery] bool forceRefresh = false,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(cardCode))
+            {
+                return BadRequest(new { message = "Business partner card code is required" });
+            }
+
+            // Look up the business partner to get their price list number
+            var bp = await _businessPartnerService.GetBusinessPartnerByCodeAsync(cardCode, cancellationToken);
+            if (bp == null)
+            {
+                return NotFound(new { message = $"Business partner '{cardCode}' not found" });
+            }
+
+            if (!bp.PriceListNum.HasValue || bp.PriceListNum.Value <= 0)
+            {
+                return Ok(new ItemPricesByListResponseDto
+                {
+                    TotalCount = 0,
+                    PriceListNum = 0,
+                    PriceListName = null,
+                    Currency = bp.Currency,
+                    Prices = new List<ItemPriceByListDto>()
+                });
+            }
+
+            var priceListNum = bp.PriceListNum.Value;
+
+            _logger.LogInformation(
+                "Fetching prices for business partner {CardCode} using price list {PriceListNum}",
+                cardCode, priceListNum);
+
+            // Delegate to the existing price list endpoint logic
+            return await GetPricesByPriceList(priceListNum, forceRefresh, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving prices for business partner {CardCode}", cardCode);
+            return StatusCode(500, new { message = "Error retrieving prices for business partner", error = ex.Message });
         }
     }
 }

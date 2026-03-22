@@ -539,6 +539,52 @@ public class InvoiceController : ControllerBase
     }
 
     /// <summary>
+    /// Gets an invoice by its DocNum
+    /// </summary>
+    /// <param name="docNum">The document number</param>
+    /// <returns>The invoice details</returns>
+    [HttpGet("by-docnum/{docNum:int}")]
+    [ProducesResponseType(typeof(InvoiceDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetInvoiceByDocNum(
+        int docNum,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!_settings.Enabled)
+            {
+                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+            }
+
+            var invoice = await _sapClient.GetInvoiceByDocNumAsync(docNum, cancellationToken);
+
+            if (invoice == null)
+            {
+                return NotFound(new ErrorResponseDto { Message = $"Invoice with DocNum {docNum} not found" });
+            }
+
+            return Ok(invoice.ToDto());
+        }
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        {
+            _logger.LogError(ex, "Timeout connecting to SAP Service Layer");
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out." });
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
+            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer.", Errors = new List<string> { ex.Message } });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving invoice by DocNum {DocNum}", docNum);
+            return StatusCode(500, new ErrorResponseDto { Message = "Error retrieving invoice", Errors = new List<string> { ex.Message } });
+        }
+    }
+
+    /// <summary>
     /// Downloads the invoice as a formatted A4 PDF (Fiscal Tax Invoice)
     /// </summary>
     /// <param name="docEntry">The document entry number</param>
@@ -829,9 +875,13 @@ public class InvoiceController : ControllerBase
                 errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Quantity must be greater than zero. Current value: {line.Quantity}");
             }
 
-            if (line.UnitPrice.HasValue && line.UnitPrice.Value < 0)
+            if (line.UnitPrice.HasValue && line.UnitPrice.Value <= 0)
             {
-                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Unit price cannot be negative. Current value: {line.UnitPrice.Value}");
+                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Unit price must be greater than zero. Current value: {line.UnitPrice.Value}");
+            }
+            else if (!line.UnitPrice.HasValue)
+            {
+                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Unit price is required and must be greater than zero.");
             }
 
             // Validate batch quantities if specified

@@ -32,6 +32,16 @@ public interface ITwoFactorWebService
     /// Regenerate backup codes
     /// </summary>
     Task<List<string>?> RegenerateBackupCodesAsync(string code);
+
+    /// <summary>
+    /// Change password for current user
+    /// </summary>
+    Task<(bool Success, string Message)> ChangePasswordAsync(string currentPassword, string newPassword, string confirmPassword);
+
+    /// <summary>
+    /// Get recent login activity for the current user
+    /// </summary>
+    Task<List<LoginActivityModel>> GetRecentLoginActivityAsync(int count = 10);
 }
 
 /// <summary>
@@ -178,6 +188,56 @@ public class TwoFactorWebService : ITwoFactorWebService
             return null;
         }
     }
+
+    public async Task<(bool Success, string Message)> ChangePasswordAsync(string currentPassword, string newPassword, string confirmPassword)
+    {
+        try
+        {
+            var request = new { CurrentPassword = currentPassword, NewPassword = newPassword, ConfirmPassword = confirmPassword };
+            var response = await _httpClient.PostAsJsonAsync("api/password/change", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return (true, "Password changed successfully");
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            try
+            {
+                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return (false, errorResponse?.Message ?? "Failed to change password");
+            }
+            catch
+            {
+                return (false, "Failed to change password");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error changing password");
+            return (false, $"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<List<LoginActivityModel>> GetRecentLoginActivityAsync(int count = 10)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"api/useractivity/me?recentCount={count}");
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<UserActivityMeResponse>();
+                return result?.RecentActivities ?? new List<LoginActivityModel>();
+            }
+            return new List<LoginActivityModel>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching login activity");
+            return new List<LoginActivityModel>();
+        }
+    }
 }
 
 // Models for 2FA
@@ -194,4 +254,40 @@ public class TwoFactorSetupModel
     public string QrCodeUri { get; set; } = string.Empty;
     public string ManualEntryKey { get; set; } = string.Empty;
     public List<string> BackupCodes { get; set; } = new();
+}
+
+public class LoginActivityModel
+{
+    public string Action { get; set; } = string.Empty;
+    public string? EntityType { get; set; }
+    public string? EntityId { get; set; }
+    public string? Details { get; set; }
+    public string? PageUrl { get; set; }
+    public bool IsSuccess { get; set; }
+    public DateTime Timestamp { get; set; }
+
+    public string TimeAgo
+    {
+        get
+        {
+            var diff = DateTime.UtcNow - Timestamp;
+            if (diff.TotalMinutes < 1) return "Just now";
+            if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
+            if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
+            if (diff.TotalDays < 7) return $"{(int)diff.TotalDays}d ago";
+            return Timestamp.ToString("MMM dd, yyyy");
+        }
+    }
+}
+
+public class UserActivityMeResponse
+{
+    public Guid UserId { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public int TotalActions { get; set; }
+    public int ActionsToday { get; set; }
+    public int ActionsThisWeek { get; set; }
+    public DateTime? LastActivityAt { get; set; }
+    public string? LastAction { get; set; }
+    public List<LoginActivityModel> RecentActivities { get; set; } = new();
 }

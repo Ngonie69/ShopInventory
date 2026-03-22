@@ -385,18 +385,34 @@ public class CreditNoteService : ICreditNoteService
             _logger.LogInformation("Processing credit line: Item={ItemCode}, OriginalLineId={LineId}",
                 line.ItemCode, line.OriginalInvoiceLineId);
 
+            // Match by LineNum first, then fallback to ItemCode
             var invoiceLine = sapInvoice.DocumentLines?.FirstOrDefault(l => l.LineNum == line.OriginalInvoiceLineId);
 
             if (invoiceLine == null)
             {
-                _logger.LogWarning("Could not find invoice line {LineNum} for item {ItemCode}",
-                    line.OriginalInvoiceLineId, line.ItemCode);
+                // Fallback: match by ItemCode when LineNum doesn't match
+                invoiceLine = sapInvoice.DocumentLines?.FirstOrDefault(l =>
+                    string.Equals(l.ItemCode, line.ItemCode, StringComparison.OrdinalIgnoreCase));
+
+                if (invoiceLine != null)
+                {
+                    _logger.LogInformation("Matched invoice line by ItemCode {ItemCode} (LineNum {OriginalLineId} not found, using LineNum {MatchedLineNum})",
+                        line.ItemCode, line.OriginalInvoiceLineId, invoiceLine.LineNum);
+                    // Update the line reference to the matched line
+                    line.OriginalInvoiceLineId = invoiceLine.LineNum;
+                }
+                else
+                {
+                    _logger.LogWarning("Could not find invoice line for item {ItemCode} (LineNum={LineNum}). Available lines: {AvailableLines}",
+                        line.ItemCode, line.OriginalInvoiceLineId,
+                        string.Join(", ", sapInvoice.DocumentLines?.Select(l => $"{l.LineNum}:{l.ItemCode}") ?? Array.Empty<string>()));
+                }
             }
 
             var enrichedLine = new CreateCreditNoteLineRequest
             {
                 ItemCode = line.ItemCode,
-                ItemDescription = line.ItemDescription,
+                ItemDescription = line.ItemDescription ?? invoiceLine?.ItemDescription,
                 Quantity = line.Quantity,
                 UnitPrice = line.UnitPrice,
                 DiscountPercent = line.DiscountPercent,
@@ -410,28 +426,40 @@ public class CreditNoteService : ICreditNoteService
             // Copy batch numbers from the original invoice line
             if (invoiceLine?.BatchNumbers != null && invoiceLine.BatchNumbers.Any())
             {
-                // Scale batch quantities proportionally if partial return
-                var originalQty = invoiceLine.Quantity;
-                var returnQty = line.Quantity;
-                var ratio = returnQty / originalQty;
-
-                enrichedLine.BatchNumbers = invoiceLine.BatchNumbers
+                var batchesWithNumbers = invoiceLine.BatchNumbers
                     .Where(b => !string.IsNullOrEmpty(b.BatchNumber))
-                    .Select(b => new CreditNoteBatchRequest
-                    {
-                        BatchNumber = b.BatchNumber,
-                        Quantity = Math.Round(b.Quantity * ratio, 4)
-                    })
                     .ToList();
 
-                _logger.LogInformation("Added {BatchCount} batch numbers to credit note line for item {ItemCode}: {Batches}",
-                    enrichedLine.BatchNumbers.Count, line.ItemCode,
-                    string.Join(", ", enrichedLine.BatchNumbers.Select(b => $"{b.BatchNumber}:{b.Quantity}")));
+                if (batchesWithNumbers.Any())
+                {
+                    // Scale batch quantities proportionally if partial return
+                    var originalQty = invoiceLine.Quantity;
+                    var returnQty = line.Quantity;
+                    var ratio = originalQty != 0 ? returnQty / originalQty : 1m;
+
+                    enrichedLine.BatchNumbers = batchesWithNumbers
+                        .Select(b => new CreditNoteBatchRequest
+                        {
+                            BatchNumber = b.BatchNumber,
+                            Quantity = Math.Round(b.Quantity * ratio, 4)
+                        })
+                        .ToList();
+
+                    _logger.LogInformation("Added {BatchCount} batch numbers to credit note line for item {ItemCode}: {Batches}",
+                        enrichedLine.BatchNumbers.Count, line.ItemCode,
+                        string.Join(", ", enrichedLine.BatchNumbers.Select(b => $"{b.BatchNumber}:{b.Quantity}")));
+                }
+                else
+                {
+                    _logger.LogWarning("Invoice line {LineNum} for item {ItemCode} has BatchNumbers collection but all entries have empty batch numbers",
+                        invoiceLine.LineNum, line.ItemCode);
+                }
             }
             else
             {
-                _logger.LogWarning("No batch numbers found for item {ItemCode} on invoice line {LineNum}",
-                    line.ItemCode, line.OriginalInvoiceLineId);
+                _logger.LogWarning("No batch numbers found for item {ItemCode} on invoice line {LineNum}. BatchNumbers is {State}",
+                    line.ItemCode, line.OriginalInvoiceLineId,
+                    invoiceLine?.BatchNumbers == null ? "null" : "empty");
             }
 
             enrichedLines.Add(enrichedLine);

@@ -1,8 +1,10 @@
 @page "/payments"
 @using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Services
 @attribute [Authorize(Roles = "Admin,Cashier,DepotController")]
 @inject IPaymentService PaymentService
 @inject ILogger<Payments> Logger
+@inject IAppSettingsProvider AppSettings
 @rendermode InteractiveServer
 
 <PageTitle>Incoming Payments - Shop Inventory</PageTitle>
@@ -954,6 +956,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        pageSize = AppSettings.PageSize;
         Logger.LogInformation("Payments page: OnInitializedAsync started");
         await LoadPayments();
     }

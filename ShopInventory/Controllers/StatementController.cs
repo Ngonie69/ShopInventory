@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.DTOs;
 using ShopInventory.Services;
@@ -8,6 +9,7 @@ namespace ShopInventory.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Policy = "ApiAccess")]
     public class StatementController : ControllerBase
     {
         private readonly IBusinessPartnerService _businessPartnerService;

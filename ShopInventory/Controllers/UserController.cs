@@ -73,7 +73,7 @@ public class UserController : ControllerBase
                 LockoutEnd = u.LockoutEnd,
                 CreatedAt = u.CreatedAt,
                 LastLoginAt = u.LastLoginAt,
-                AssignedWarehouseCode = u.AssignedWarehouseCode
+                AssignedWarehouseCodes = u.GetWarehouseCodes()
             })
             .ToListAsync(cancellationToken);
 
@@ -115,7 +115,7 @@ public class UserController : ControllerBase
             LockoutEnd = user.LockoutEnd,
             CreatedAt = user.CreatedAt,
             LastLoginAt = user.LastLoginAt,
-            AssignedWarehouseCode = user.AssignedWarehouseCode
+            AssignedWarehouseCodes = user.GetWarehouseCodes()
         });
     }
 
@@ -153,9 +153,9 @@ public class UserController : ControllerBase
         }
 
         // Validate warehouse assignment for StockController/DepotController
-        if ((request.Role == "StockController" || request.Role == "DepotController") && string.IsNullOrWhiteSpace(request.AssignedWarehouseCode))
+        if ((request.Role == "StockController" || request.Role == "DepotController") && (request.AssignedWarehouseCodes == null || request.AssignedWarehouseCodes.Count == 0))
         {
-            return BadRequest(new ErrorResponseDto { Message = $"Assigned warehouse code is required for {request.Role} role" });
+            return BadRequest(new ErrorResponseDto { Message = $"At least one assigned warehouse code is required for {request.Role} role" });
         }
 
         var user = new User
@@ -167,10 +167,12 @@ public class UserController : ControllerBase
             Role = request.Role,
             FirstName = request.FirstName,
             LastName = request.LastName,
-            AssignedWarehouseCode = (request.Role == "StockController" || request.Role == "DepotController") ? request.AssignedWarehouseCode : null,
             IsActive = true,
             CreatedAt = DateTime.UtcNow
         };
+
+        if (request.Role == "StockController" || request.Role == "DepotController")
+            user.SetWarehouseCodes(request.AssignedWarehouseCodes);
 
         _context.Users.Add(user);
         await _context.SaveChangesAsync(cancellationToken);
@@ -190,7 +192,7 @@ public class UserController : ControllerBase
                 LastName = user.LastName,
                 IsActive = user.IsActive,
                 CreatedAt = user.CreatedAt,
-                AssignedWarehouseCode = user.AssignedWarehouseCode
+                AssignedWarehouseCodes = user.GetWarehouseCodes()
             }
         });
     }
@@ -236,15 +238,18 @@ public class UserController : ControllerBase
         if (request.LastName != null) user.LastName = request.LastName;
         if (request.IsActive.HasValue) user.IsActive = request.IsActive.Value;
 
-        // Update assigned warehouse
-        if (request.AssignedWarehouseCode != null)
+        // Update assigned warehouses
+        if (request.AssignedWarehouseCodes != null)
         {
-            user.AssignedWarehouseCode = (user.Role == "StockController" || user.Role == "DepotController") ? request.AssignedWarehouseCode : null;
+            if (user.Role == "StockController" || user.Role == "DepotController")
+                user.SetWarehouseCodes(request.AssignedWarehouseCodes);
+            else
+                user.SetWarehouseCodes(null);
         }
-        // Validate warehouse is set for warehouse-dependent roles
-        if ((user.Role == "StockController" || user.Role == "DepotController") && string.IsNullOrWhiteSpace(user.AssignedWarehouseCode))
+        // Validate warehouses are set for warehouse-dependent roles
+        if ((user.Role == "StockController" || user.Role == "DepotController") && user.GetWarehouseCodes().Count == 0)
         {
-            return BadRequest(new ErrorResponseDto { Message = $"Assigned warehouse code is required for {user.Role} role" });
+            return BadRequest(new ErrorResponseDto { Message = $"At least one assigned warehouse code is required for {user.Role} role" });
         }
 
         user.UpdatedAt = DateTime.UtcNow;
@@ -267,7 +272,7 @@ public class UserController : ControllerBase
             LockoutEnd = user.LockoutEnd,
             CreatedAt = user.CreatedAt,
             LastLoginAt = user.LastLoginAt,
-            AssignedWarehouseCode = user.AssignedWarehouseCode
+            AssignedWarehouseCodes = user.GetWarehouseCodes()
         });
     }
 

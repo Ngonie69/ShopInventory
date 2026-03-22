@@ -1,0 +1,437 @@
+@page "/gl-accounts"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Models
+@attribute [Authorize]
+@inject IMasterDataCacheService MasterDataCacheService
+@inject IDbContextFactory<WebAppDbContext> DbContextFactory
+@inject IAppSettingsProvider AppSettings
+@rendermode InteractiveServer
+
+<PageTitle>G/L Accounts - Shop Inventory</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-journal-text me-2"></i>G/L Accounts</h2>
+        <div>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Class="me-2"
+                       OnClick="SyncFromSAP" Disabled="@isSyncing">
+                @if (isSyncing)
+                {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                }
+                <i class="bi bi-cloud-download me-1"></i>Sync from SAP
+            </MudButton>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    @if (accounts != null)
+    {
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title text-muted">Total Accounts</h5>
+                        <h3 class="mb-0">@accounts.Count</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title text-muted">Revenue</h5>
+                        <h3 class="mb-0 text-success">@accounts.Count(a => a.AccountType == "at_Revenues")</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title text-muted">Expenses</h5>
+                        <h3 class="mb-0 text-danger">@accounts.Count(a => a.AccountType == "at_Expenses")</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title text-muted">Other</h5>
+                        <h3 class="mb-0 text-info">@accounts.Count(a => a.AccountType != "at_Revenues" && a.AccountType != "at_Expenses")</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Filters -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label">Search</label>
+                    <input type="text" class="form-control" placeholder="Search by code or name..."
+                           @bind="searchTerm" @bind:event="oninput" @onkeyup="OnSearchChanged" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Account Type</label>
+                    <select class="form-select" @bind="selectedAccountType" @bind:after="ApplyFilters">
+                        <option value="">All Types</option>
+                        <option value="at_Revenues">Revenue</option>
+                        <option value="at_Expenses">Expenses</option>
+                        <option value="at_Other">Other</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Currency</label>
+                    <select class="form-select" @bind="selectedCurrency" @bind:after="ApplyFilters">
+                        <option value="">All Currencies</option>
+                        @foreach (var currency in availableCurrencies)
+                        {
+                            <option value="@currency">@currency</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" OnClick="ClearFilters">
+                        <i class="bi bi-x-circle me-1"></i>Clear
+                    </MudButton>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading G/L accounts...</p>
+        </div>
+    }
+    else if (errorMessage != null)
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+        </div>
+    }
+    else if (filteredAccounts?.Any() == true)
+    {
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>
+                    <i class="bi bi-table me-1"></i>
+                    Showing @filteredAccounts.Count of @accounts?.Count accounts
+                </span>
+                @if (lastSyncTime.HasValue)
+                {
+                    <small class="text-muted">
+                        <i class="bi bi-clock me-1"></i>Last synced: @lastSyncTime.Value.ToString("dd MMM yyyy HH:mm")
+                    </small>
+                }
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-striped mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="cursor: pointer" @onclick="() => SortBy(nameof(GLAccountDto.Code))">
+                                    Code
+                                    @if (sortColumn == nameof(GLAccountDto.Code))
+                                    {
+                                        <i class="bi bi-chevron-@(sortAscending ? "up" : "down") ms-1"></i>
+                                    }
+                                </th>
+                                <th style="cursor: pointer" @onclick="() => SortBy(nameof(GLAccountDto.Name))">
+                                    Name
+                                    @if (sortColumn == nameof(GLAccountDto.Name))
+                                    {
+                                        <i class="bi bi-chevron-@(sortAscending ? "up" : "down") ms-1"></i>
+                                    }
+                                </th>
+                                <th style="cursor: pointer" @onclick="() => SortBy(nameof(GLAccountDto.AccountType))">
+                                    Type
+                                    @if (sortColumn == nameof(GLAccountDto.AccountType))
+                                    {
+                                        <i class="bi bi-chevron-@(sortAscending ? "up" : "down") ms-1"></i>
+                                    }
+                                </th>
+                                <th>Currency</th>
+                                <th class="text-end" style="cursor: pointer" @onclick="() => SortBy(nameof(GLAccountDto.Balance))">
+                                    Balance
+                                    @if (sortColumn == nameof(GLAccountDto.Balance))
+                                    {
+                                        <i class="bi bi-chevron-@(sortAscending ? "up" : "down") ms-1"></i>
+                                    }
+                                </th>
+                                <th class="text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var account in pagedAccounts)
+                            {
+                                <tr>
+                                    <td><strong>@account.Code</strong></td>
+                                    <td>@account.Name</td>
+                                    <td>
+                                        <span class="badge @GetAccountTypeBadgeClass(account.AccountType)">
+                                            @GetAccountTypeLabel(account.AccountType)
+                                        </span>
+                                    </td>
+                                    <td>@account.Currency</td>
+                                    <td class="text-end @(account.Balance < 0 ? "text-danger" : "")">
+                                        @account.Balance.ToString("N2")
+                                    </td>
+                                    <td class="text-center">
+                                        @if (account.IsActive)
+                                        {
+                                            <span class="badge bg-success">Active</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary">Inactive</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            @if (totalPages > 1)
+            {
+                <div class="card-footer d-flex justify-content-between align-items-center">
+                    <span class="text-muted">
+                        Page @currentPage of @totalPages
+                    </span>
+                    <div>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                   Disabled="@(currentPage <= 1)" OnClick="PreviousPage" Class="me-1">
+                            <i class="bi bi-chevron-left"></i> Previous
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                   Disabled="@(currentPage >= totalPages)" OnClick="NextPage">
+                            Next <i class="bi bi-chevron-right"></i>
+                        </MudButton>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>
+            @if (accounts?.Any() == true)
+            {
+                <span>No accounts match the current filters.</span>
+            }
+            else
+            {
+                <span>No G/L accounts found. Click <strong>Sync from SAP</strong> to fetch accounts.</span>
+            }
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(syncMessage))
+    {
+        <div class="alert @(syncSuccess ? "alert-success" : "alert-danger") mt-3 alert-dismissible fade show">
+            <i class="bi @(syncSuccess ? "bi-check-circle" : "bi-exclamation-triangle") me-2"></i>
+            @syncMessage
+            <button type="button" class="btn-close" @onclick="() => syncMessage = null"></button>
+        </div>
+    }
+</div>
+
+@code {
+    private List<GLAccountDto>? accounts;
+    private List<GLAccountDto> filteredAccounts = new();
+    private bool isLoading = true;
+    private bool isSyncing = false;
+    private string? errorMessage;
+    private string? syncMessage;
+    private bool syncSuccess;
+    private DateTime? lastSyncTime;
+
+    // Filters
+    private string searchTerm = "";
+    private string selectedAccountType = "";
+    private string selectedCurrency = "";
+    private List<string> availableCurrencies = new();
+
+    // Sorting
+    private string sortColumn = nameof(GLAccountDto.Code);
+    private bool sortAscending = true;
+
+    // Pagination
+    private int currentPage = 1;
+    private const int PageSize = 50;
+    private int totalPages => (int)Math.Ceiling((double)filteredAccounts.Count / PageSize);
+    private List<GLAccountDto> pagedAccounts => filteredAccounts
+        .Skip((currentPage - 1) * PageSize)
+        .Take(PageSize)
+        .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAccounts();
+    }
+
+    private async Task LoadAccounts()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            accounts = await MasterDataCacheService.GetGLAccountsAsync();
+
+            // Get last sync time
+            lastSyncTime = MasterDataCacheService.GetLastRefreshTime("GLAccounts");
+
+            // Extract available currencies for filter
+            availableCurrencies = accounts
+                .Where(a => !string.IsNullOrEmpty(a.Currency))
+                .Select(a => a.Currency!)
+                .Distinct()
+                .OrderBy(c => c)
+                .ToList();
+
+            ApplyFilters();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load G/L accounts: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SyncFromSAP()
+    {
+        isSyncing = true;
+        syncMessage = null;
+
+        try
+        {
+            var count = await MasterDataCacheService.SyncGLAccountsFromApiAsync();
+            syncSuccess = true;
+            syncMessage = $"Successfully synced {count} G/L accounts from SAP.";
+            await LoadAccounts();
+        }
+        catch (Exception ex)
+        {
+            syncSuccess = false;
+            syncMessage = $"Sync failed: {ex.Message}";
+        }
+        finally
+        {
+            isSyncing = false;
+        }
+    }
+
+    private void OnSearchChanged()
+    {
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        if (accounts == null)
+        {
+            filteredAccounts = new();
+            return;
+        }
+
+        var query = accounts.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            var term = searchTerm.Trim();
+            query = query.Where(a =>
+                (a.Code?.Contains(term, StringComparison.OrdinalIgnoreCase) == true) ||
+                (a.Name?.Contains(term, StringComparison.OrdinalIgnoreCase) == true));
+        }
+
+        if (!string.IsNullOrEmpty(selectedAccountType))
+        {
+            query = query.Where(a => a.AccountType == selectedAccountType);
+        }
+
+        if (!string.IsNullOrEmpty(selectedCurrency))
+        {
+            query = query.Where(a => a.Currency == selectedCurrency);
+        }
+
+        // Apply sorting
+        query = sortColumn switch
+        {
+            nameof(GLAccountDto.Name) => sortAscending ? query.OrderBy(a => a.Name) : query.OrderByDescending(a => a.Name),
+            nameof(GLAccountDto.AccountType) => sortAscending ? query.OrderBy(a => a.AccountType) : query.OrderByDescending(a => a.AccountType),
+            nameof(GLAccountDto.Balance) => sortAscending ? query.OrderBy(a => a.Balance) : query.OrderByDescending(a => a.Balance),
+            _ => sortAscending ? query.OrderBy(a => a.Code) : query.OrderByDescending(a => a.Code),
+        };
+
+        filteredAccounts = query.ToList();
+        currentPage = 1;
+    }
+
+    private void SortBy(string column)
+    {
+        if (sortColumn == column)
+        {
+            sortAscending = !sortAscending;
+        }
+        else
+        {
+            sortColumn = column;
+            sortAscending = true;
+        }
+
+        ApplyFilters();
+    }
+
+    private void ClearFilters()
+    {
+        searchTerm = "";
+        selectedAccountType = "";
+        selectedCurrency = "";
+        ApplyFilters();
+    }
+
+    private void PreviousPage()
+    {
+        if (currentPage > 1)
+        {
+            currentPage--;
+        }
+    }
+
+    private void NextPage()
+    {
+        if (currentPage < totalPages)
+        {
+            currentPage++;
+        }
+    }
+
+    private static string GetAccountTypeBadgeClass(string? accountType) => accountType switch
+    {
+        "at_Revenues" => "bg-success",
+        "at_Expenses" => "bg-danger",
+        "at_Other" => "bg-info",
+        _ => "bg-secondary"
+    };
+
+    private static string GetAccountTypeLabel(string? accountType) => accountType switch
+    {
+        "at_Revenues" => "Revenue",
+        "at_Expenses" => "Expenses",
+        "at_Other" => "Other",
+        _ => accountType ?? "Unknown"
+    };
+}

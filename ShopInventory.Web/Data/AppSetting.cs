@@ -92,6 +92,12 @@ public static class SettingKeys
     public const string AutoPrintInvoice = "AutoPrintInvoice";
     public const string PrinterName = "PrinterName";
     public const string PrintCopies = "PrintCopies";
+    public const string SavedPrinters = "SavedPrinters";
+
+    // Payment settings
+    public const string IncomingPaymentGLAccount = "IncomingPaymentGLAccount";
+    public const string AllowedPaymentBusinessPartners = "AllowedPaymentBusinessPartners";
+    public const string DefaultPaymentMethod = "DefaultPaymentMethod";
 }
 
 /// <summary>
@@ -106,4 +112,5 @@ public static class SettingCategories
     public const string Security = "Security";
     public const string Notifications = "Notifications";
     public const string Printing = "Printing";
+    public const string Payments = "Payments";
 }

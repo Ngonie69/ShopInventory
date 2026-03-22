@@ -3,40 +3,93 @@
 @using ShopInventory.Web.Services
 @inject IAuditService AuditService
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IAppSettingsProvider AppSettings
 @attribute [Authorize(Roles = "Admin")]
 @rendermode InteractiveServer
 
 <PageTitle>Audit Trail - Shop Inventory</PageTitle>
 
-<div class="container-fluid">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="bi bi-journal-text me-2"></i>Audit Trail</h2>
-        <div>
-            <MudButton Variant="Variant.Outlined" Color="Color.Default" Class="me-2" OnClick="RefreshLogs">
-                <i class="bi bi-arrow-clockwise me-1"></i>Refresh
-            </MudButton>
-            <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="ExportLogs">
-                <i class="bi bi-download me-1"></i>Export
-            </MudButton>
+<div class="audit-page">
+    <!-- Page Header -->
+    <div class="audit-header">
+        <div class="header-left">
+            <div class="header-icon">
+                <i class="bi bi-shield-check"></i>
+            </div>
+            <div>
+                <h1 class="header-title">Audit Trail</h1>
+                <p class="header-subtitle">Monitor system activity, user actions, and security events</p>
+            </div>
+        </div>
+        <div class="header-actions">
+            <button class="btn-audit btn-audit-outline" @onclick="RefreshLogs">
+                <i class="bi bi-arrow-clockwise"></i>
+                <span>Refresh</span>
+            </button>
+            <button class="btn-audit btn-audit-gradient" @onclick="ExportLogs">
+                <i class="bi bi-download"></i>
+                <span>Export CSV</span>
+            </button>
         </div>
     </div>
 
-    <!-- Filters -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5 class="mb-0"><i class="bi bi-funnel me-2"></i>Filters</h5>
+    <!-- Stat Cards -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon stat-icon-purple">
+                <i class="bi bi-list-check"></i>
+            </div>
+            <div class="stat-content">
+                <span class="stat-value">@totalCount.ToString("N0")</span>
+                <span class="stat-label">Total Events</span>
+            </div>
         </div>
-        <div class="card-body">
-            <div class="row g-3">
-                <div class="col-md-2">
+        <div class="stat-card">
+            <div class="stat-icon stat-icon-blue">
+                <i class="bi bi-people"></i>
+            </div>
+            <div class="stat-content">
+                <span class="stat-value">@distinctUsers.Count</span>
+                <span class="stat-label">Unique Users</span>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon stat-icon-amber">
+                <i class="bi bi-lightning"></i>
+            </div>
+            <div class="stat-content">
+                <span class="stat-value">@distinctActions.Count</span>
+                <span class="stat-label">Action Types</span>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon stat-icon-red">
+                <i class="bi bi-exclamation-triangle"></i>
+            </div>
+            <div class="stat-content">
+                <span class="stat-value">@failedCount</span>
+                <span class="stat-label">Failed Actions</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters Panel -->
+    <div class="filter-panel">
+        <div class="filter-header">
+            <i class="bi bi-funnel"></i>
+            <span>Filters</span>
+        </div>
+        <div class="filter-body">
+            <div class="filter-row">
+                <div class="filter-group">
                     <FlexibleDatePicker Label="From Date" @bind-Date="fromDate" />
                 </div>
-                <div class="col-md-2">
+                <div class="filter-group">
                     <FlexibleDatePicker Label="To Date" @bind-Date="toDate" />
                 </div>
-                <div class="col-md-2">
-                    <label class="form-label">User</label>
-                    <select class="form-select" @bind="selectedUser">
+                <div class="filter-group">
+                    <label class="filter-label">User</label>
+                    <select class="filter-select" @bind="selectedUser">
                         <option value="">All Users</option>
                         @foreach (var user in distinctUsers)
                         {
@@ -44,9 +97,9 @@
                         }
                     </select>
                 </div>
-                <div class="col-md-2">
-                    <label class="form-label">Action</label>
-                    <select class="form-select" @bind="selectedAction">
+                <div class="filter-group">
+                    <label class="filter-label">Action</label>
+                    <select class="filter-select" @bind="selectedAction">
                         <option value="">All Actions</option>
                         @foreach (var action in distinctActions)
                         {
@@ -54,24 +107,22 @@
                         }
                     </select>
                 </div>
-                <div class="col-md-2 d-flex align-items-end">
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="me-2" OnClick="ApplyFilters">
-                        <i class="bi bi-search me-1"></i>Search
-                    </MudButton>
-                    <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ClearFilters">
-                        <i class="bi bi-x-circle me-1"></i>Clear
-                    </MudButton>
-                </div>
-            </div>
-            <div class="row mt-3">
-                <div class="col-md-2">
-                    <label class="form-label">Records per page</label>
-                    <select class="form-select" @bind="pageSize" @bind:after="OnPageSizeChanged">
+                <div class="filter-group">
+                    <label class="filter-label">Per Page</label>
+                    <select class="filter-select" @bind="pageSize" @bind:after="OnPageSizeChanged">
                         <option value="25">25</option>
                         <option value="50">50</option>
                         <option value="100">100</option>
                         <option value="200">200</option>
                     </select>
+                </div>
+                <div class="filter-actions">
+                    <button class="btn-audit btn-search" @onclick="ApplyFilters">
+                        <i class="bi bi-search"></i> Search
+                    </button>
+                    <button class="btn-audit btn-clear" @onclick="ClearFilters">
+                        <i class="bi bi-x-lg"></i> Clear
+                    </button>
                 </div>
             </div>
         </div>
@@ -79,158 +130,1291 @@
 
     @if (isLoading)
     {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <p class="mt-2">Loading audit logs...</p>
+        <div class="loading-state">
+            <div class="spinner"></div>
+            <p>Loading audit logs...</p>
         </div>
     }
     else if (errorMessage != null)
     {
-        <div class="alert alert-danger">
-            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+        <div class="alert-banner alert-error">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <span>@errorMessage</span>
+            <button class="alert-close" @onclick="() => errorMessage = null">
+                <i class="bi bi-x-lg"></i>
+            </button>
         </div>
     }
     else
     {
-        <!-- Stats -->
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="card bg-light">
-                    <div class="card-body text-center">
-                        <h3 class="mb-0">@totalCount</h3>
-                        <small class="text-muted">Total Events</small>
-                    </div>
+        <!-- Search Bar + Logs Table -->
+        <div class="table-container">
+            <div class="table-toolbar">
+                <div class="table-title">
+                    <i class="bi bi-journal-text"></i>
+                    <span>Activity Log</span>
+                    <span class="record-count">@totalCount records</span>
+                </div>
+                <div class="search-box">
+                    <i class="bi bi-search"></i>
+                    <input type="text" placeholder="Quick search across all columns..." @bind="_searchString"
+                           @bind:event="oninput" />
                 </div>
             </div>
-            <div class="col-md-3">
-                <div class="card bg-light">
-                    <div class="card-body text-center">
-                        <h3 class="mb-0">@distinctUsers.Count</h3>
-                        <small class="text-muted">Unique Users</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card bg-light">
-                    <div class="card-body text-center">
-                        <h3 class="mb-0">@distinctActions.Count</h3>
-                        <small class="text-muted">Action Types</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card bg-light">
-                    <div class="card-body text-center">
-                        <h3 class="mb-0">@logs.Count(l => !l.IsSuccess)</h3>
-                        <small class="text-muted">Failed Actions</small>
-                    </div>
-                </div>
-            </div>
-        </div>
 
-        <!-- Logs Table -->
-        <div class="card">
-            <div class="card-body">
-                @if (logs.Any())
-                {
-                    <MudDataGrid T="AuditLog" Items="@logs" SortMode="SortMode.Multiple" Filterable="true"
-                                 QuickFilter="@_quickFilter" Hideable="true" Dense="true" Hover="true" Striped="true">
-                        <ToolBarContent>
-                            <MudText Typo="Typo.h6">Audit Logs</MudText>
-                            <MudSpacer />
-                            <MudTextField @bind-Value="_searchString" Placeholder="Search" Adornment="Adornment.Start"
-                                          Immediate="true" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium"
-                                          Class="mt-0"></MudTextField>
-                        </ToolBarContent>
-                        <Columns>
-                            <PropertyColumn Property="x => x.Timestamp" Title="Timestamp">
-                                <CellTemplate>
-                                    <div>
-                                        <MudText Typo="Typo.body2">@IAuditService.ToCAT(context.Item.Timestamp).ToString("dd MMM                                    yyyy")</MudText>
-                                        <MudText Typo="Typo.caption" Class="text-muted">
-                                            @IAuditService.ToCAT(context.Item.Timestamp).ToString("HH:mm:ss")</MudText>
-                                        </div>
-                                    </CellTemplate>
-                                </PropertyColumn>
-                                <PropertyColumn Property="x => x.Username" Title="User">
-                                    <CellTemplate>
-                                        <MudText Typo="Typo.body2"><strong>@context.Item.Username</strong></MudText>
-                                    </CellTemplate>
-                                </PropertyColumn>
-                                <PropertyColumn Property="x => x.UserRole" Title="Role">
-                                    <CellTemplate>
-                                        <MudChip T="string" Color="@GetRoleChipColor(context.Item.UserRole)" Size="Size.Small">
-                                            @context.Item.UserRole</MudChip>
-                                        </CellTemplate>
-                                    </PropertyColumn>
-                                    <PropertyColumn Property="x => x.Action" Title="Action">
-                                        <CellTemplate>
-                                            <MudChip T="string" Color="@GetActionChipColor(context.Item.Action)" Size="Size.Small">
-                                                @context.Item.Action</MudChip>
-                                            </CellTemplate>
-                                        </PropertyColumn>
-                                        <PropertyColumn Property="x => x.Details" Title="Details">
-                                            <CellTemplate>
-                                                @if (!string.IsNullOrEmpty(context.Item.EntityType))
-                                                {
-                                                    <span class="text-muted">@context.Item.EntityType</span>
-                                                    @if (!string.IsNullOrEmpty(context.Item.EntityId))
-                                                    {
-                                                        <span class="text-muted">: @context.Item.EntityId</span>
-                                                    }
-                                                }
-                                                @if (!string.IsNullOrEmpty(context.Item.Details))
-                                                {
-                                                    <MudText Typo="Typo.caption" Class="d-block text-muted">@context.Item.Details</MudText>
-                                                }
-                                                @if (!context.Item.IsSuccess && !string.IsNullOrEmpty(context.Item.ErrorMessage))
-                                                {
-                                                    <MudText Typo="Typo.caption" Class="d-block" Color="Color.Error">@context.Item.ErrorMessage
-                                                    </MudText>
-                                                }
-                                            </CellTemplate>
-                                        </PropertyColumn>
-                                        <PropertyColumn Property="x => x.IsSuccess" Title="Status">
-                                            <CellTemplate>
-                                                @if (context.Item.IsSuccess)
-                                                {
-                                                    <MudChip T="string" Color="Color.Success" Size="Size.Small">
-                                                        <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small" /> OK
-                                                    </MudChip>
-                                                }
-                                                else
-                                                {
-                                                    <MudChip T="string" Color="Color.Error" Size="Size.Small">
-                                                        <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" /> Failed
-                                                    </MudChip>
-                                                }
-                                            </CellTemplate>
-                                        </PropertyColumn>
-                                    </Columns>
-                                    <PagerContent>
-                                        <div class="d-flex flex-column align-items-center px-4 py-2">
-                                            <MudPagination Color="Color.Primary" Count="totalPages" Selected="currentPage"
-                                                           SelectedChanged="OnPageChanged" ShowFirstButton="true" ShowLastButton="true" />
-                                            <MudText Typo="Typo.caption" Class="text-muted mt-2">
-                                                Page @currentPage of @totalPages (@totalCount total records)
-                                            </MudText>
-                                        </div>
-                                    </PagerContent>
-                                </MudDataGrid>
-                            }
-                else
+            @if (filteredLogs.Any())
+            {
+                <div class="audit-table-wrap">
+                    <table class="audit-table">
+                        <thead>
+                            <tr>
+                                <th class="col-timestamp">Timestamp</th>
+                                <th class="col-user">User</th>
+                                <th class="col-role">Role</th>
+                                <th class="col-action">Action</th>
+                                <th class="col-details">Details</th>
+                                <th class="col-status">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var log in filteredLogs)
                             {
-                                <div class="text-center py-5 text-muted">
-                                    <i class="bi bi-journal-x" style="font-size: 3rem;"></i>
-                                    <p class="mt-3">No audit logs found matching your criteria.</p>
+                                <tr class="@(log.IsSuccess ? "" : "row-failed")" @onclick="() => SelectLog(log)">
+                                    <td class="col-timestamp">
+                                        <div class="timestamp-cell">
+                                            <span class="ts-date">@IAuditService.ToCAT(log.Timestamp).ToString("dd MMM yyyy")</span>
+                                            <span class="ts-time">@IAuditService.ToCAT(log.Timestamp).ToString("HH:mm:ss")</span>
+                                        </div>
+                                    </td>
+                                    <td class="col-user">
+                                        <div class="user-cell">
+                                            <div class="user-avatar">@GetInitials(log.Username)</div>
+                                            <span class="user-name">@log.Username</span>
+                                        </div>
+                                    </td>
+                                    <td class="col-role">
+                                        <span class="role-badge @GetRoleBadgeClass(log.UserRole)">@log.UserRole</span>
+                                    </td>
+                                    <td class="col-action">
+                                        <span class="action-badge @GetActionBadgeClass(log.Action)">@FormatAction(log.Action)</span>
+                                    </td>
+                                    <td class="col-details">
+                                        <div class="details-cell">
+                                            @if (!string.IsNullOrEmpty(log.EntityType))
+                                            {
+                                                <span class="entity-tag">
+                                                    @log.EntityType@(string.IsNullOrEmpty(log.EntityId) ? "" : $" #{log.EntityId}")
+                                                </span>
+                                            }
+                                            @if (!string.IsNullOrEmpty(log.Details))
+                                            {
+                                                <span class="detail-text">@TruncateText(log.Details, 60)</span>
+                                            }
+                                            @if (!log.IsSuccess && !string.IsNullOrEmpty(log.ErrorMessage))
+                                            {
+                                                <span class="error-text">@TruncateText(log.ErrorMessage, 50)</span>
+                                            }
+                                        </div>
+                                    </td>
+                                    <td class="col-status">
+                                        @if (log.IsSuccess)
+                                        {
+                                            <span class="status-badge status-success">
+                                                <i class="bi bi-check-circle-fill"></i> OK
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="status-badge status-failed">
+                                                <i class="bi bi-x-circle-fill"></i> Failed
+                                            </span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination -->
+                <div class="table-footer">
+                    <span class="page-info">
+                        Showing @(((currentPage - 1) * pageSize) + 1)–@Math.Min(currentPage * pageSize, totalCount) of
+                        @totalCount
+                    </span>
+                    <div class="pagination-controls">
+                        <button class="page-btn" disabled="@(currentPage <= 1)" @onclick="() => GoToPage(1)">
+                            <i class="bi bi-chevron-double-left"></i>
+                        </button>
+                        <button class="page-btn" disabled="@(currentPage <= 1)" @onclick="() => GoToPage(currentPage - 1)">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                        @foreach (var p in GetPageNumbers())
+                        {
+                            <button class="page-btn @(p == currentPage ? "page-active" : "")"
+                                    @onclick="() => GoToPage(p)">@p</button>
+                        }
+                        <button class="page-btn" disabled="@(currentPage >= totalPages)"
+                                @onclick="() => GoToPage(currentPage + 1)">
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
+                        <button class="page-btn" disabled="@(currentPage >= totalPages)" @onclick="() => GoToPage(totalPages)">
+                            <i class="bi bi-chevron-double-right"></i>
+                        </button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="empty-state">
+                    <i class="bi bi-journal-x"></i>
+                    <h3>No audit logs found</h3>
+                    <p>Try adjusting your filters or date range.</p>
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Detail Drawer -->
+    @if (selectedLog != null)
+    {
+        <div class="drawer-backdrop" @onclick="CloseDrawer"></div>
+        <div class="detail-drawer">
+            <div class="drawer-header">
+                <h3>Event Details</h3>
+                <button class="drawer-close" @onclick="CloseDrawer">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="drawer-body">
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <span class="detail-label">Timestamp</span>
+                        <span class="detail-value">@IAuditService.ToCAT(selectedLog.Timestamp).ToString("dd MMM yyyy,      HH:mm:ss") CAT</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">User</span>
+                        <span class="detail-value">@selectedLog.Username</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Role</span>
+                        <span class="detail-value"><span
+                            class="role-badge @GetRoleBadgeClass(selectedLog.UserRole)">@selectedLog.UserRole</span></span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Action</span>
+                            <span class="detail-value"><span
+                                class="action-badge @GetActionBadgeClass(selectedLog.Action)">@FormatAction(selectedLog.Action)</span></span>
+                            </div>
+                            @if (!string.IsNullOrEmpty(selectedLog.EntityType))
+                            {
+                                <div class="detail-item">
+                                    <span class="detail-label">Entity</span>
+                                    <span class="detail-value">@selectedLog.EntityType @(string.IsNullOrEmpty(selectedLog.EntityId) ? "" : $"#{selectedLog.EntityId}")</span>
+                                </div>
+                            }
+                            <div class="detail-item">
+                                <span class="detail-label">Status</span>
+                                <span class="detail-value">
+                                    @if (selectedLog.IsSuccess)
+                                    {
+                                        <span class="status-badge status-success"><i class="bi bi-check-circle-fill"></i> Success</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="status-badge status-failed"><i class="bi bi-x-circle-fill"></i> Failed</span>
+                                    }
+                                </span>
+                            </div>
+                            @if (!string.IsNullOrEmpty(selectedLog.Details))
+                            {
+                                <div class="detail-item detail-full">
+                                    <span class="detail-label">Details</span>
+                                    <span class="detail-value detail-pre">@selectedLog.Details</span>
+                                </div>
+                            }
+                            @if (!string.IsNullOrEmpty(selectedLog.ErrorMessage))
+                            {
+                                <div class="detail-item detail-full">
+                                    <span class="detail-label">Error</span>
+                                    <span class="detail-value error-text">@selectedLog.ErrorMessage</span>
+                                </div>
+                            }
+                            @if (!string.IsNullOrEmpty(selectedLog.IpAddress))
+                            {
+                                <div class="detail-item">
+                                    <span class="detail-label">IP Address</span>
+                                    <span class="detail-value"
+                                          style="font-family:'Space Grotesk',monospace;">@selectedLog.IpAddress</span>
+                                </div>
+                            }
+                            @if (!string.IsNullOrEmpty(selectedLog.PageUrl))
+                            {
+                                <div class="detail-item">
+                                    <span class="detail-label">Page URL</span>
+                                    <span class="detail-value"
+                                          style="font-family:'Space Grotesk',monospace;">@selectedLog.PageUrl</span>
                                 </div>
                             }
                         </div>
                     </div>
+                </div>
+            }
+        </div>
+
+        <style>
+            /* ===== Base ===== */
+            .audit-page {
+                padding: 1.5rem 2rem 3rem;
+                max-width: 1440px;
+                margin: 0 auto;
+                animation: fadeIn .3s ease;
+            }
+
+            @@keyframes fadeIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(8px);
                 }
-            </div>
+
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+
+            @@keyframes slideInRight {
+                from {
+                    transform: translateX(100%);
+                }
+
+                to {
+                    transform: translateX(0);
+                }
+            }
+
+            /* ===== Header ===== */
+            .audit-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 1.5rem;
+                flex-wrap: wrap;
+                gap: 1rem;
+            }
+
+            .header-left {
+                display: flex;
+                align-items: center;
+                gap: 1rem;
+            }
+
+            .header-icon {
+                width: 48px;
+                height: 48px;
+                border-radius: 12px;
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: white;
+                font-size: 1.25rem;
+                flex-shrink: 0;
+            }
+
+            .header-title {
+                font-size: 1.5rem;
+                font-weight: 700;
+                color: #1a1a2e;
+                margin: 0;
+                line-height: 1.2;
+            }
+
+            .header-subtitle {
+                font-size: .82rem;
+                color: #6b7280;
+                margin: 2px 0 0;
+            }
+
+            .header-actions {
+                display: flex;
+                gap: .5rem;
+            }
+
+            /* ===== Buttons ===== */
+            .btn-audit {
+                display: inline-flex;
+                align-items: center;
+                gap: .4rem;
+                padding: .5rem 1rem;
+                border-radius: 8px;
+                font-size: .82rem;
+                font-weight: 600;
+                cursor: pointer;
+                border: none;
+                transition: all .15s ease;
+            }
+
+            .btn-audit-gradient {
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                color: white;
+            }
+
+            .btn-audit-gradient:hover {
+                opacity: .9;
+                transform: translateY(-1px);
+            }
+
+            .btn-audit-outline {
+                background: white;
+                color: #374151;
+                border: 1px solid #d1d5db;
+            }
+
+            .btn-audit-outline:hover {
+                background: #f9fafb;
+                border-color: #9ca3af;
+            }
+
+            .btn-search {
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                color: white;
+            }
+
+            .btn-search:hover {
+                opacity: .9;
+            }
+
+            .btn-clear {
+                background: white;
+                color: #6b7280;
+                border: 1px solid #d1d5db;
+            }
+
+            .btn-clear:hover {
+                background: #f3f4f6;
+            }
+
+            /* ===== Stats ===== */
+            .stats-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+                gap: 1rem;
+                margin-bottom: 1.5rem;
+            }
+
+            .stat-card {
+                background: white;
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+                padding: 1.1rem 1.25rem;
+                display: flex;
+                align-items: center;
+                gap: 1rem;
+                transition: box-shadow .2s ease, transform .2s ease;
+            }
+
+            .stat-card:hover {
+                box-shadow: 0 4px 12px rgba(0, 0, 0, .06);
+                transform: translateY(-2px);
+            }
+
+            .stat-icon {
+                width: 42px;
+                height: 42px;
+                border-radius: 10px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 1.15rem;
+                flex-shrink: 0;
+            }
+
+            .stat-icon-purple {
+                background: #ede9fe;
+                color: #7c3aed;
+            }
+
+            .stat-icon-blue {
+                background: #dbeafe;
+                color: #2563eb;
+            }
+
+            .stat-icon-amber {
+                background: #fef3c7;
+                color: #d97706;
+            }
+
+            .stat-icon-red {
+                background: #fee2e2;
+                color: #dc2626;
+            }
+
+            .stat-content {
+                display: flex;
+                flex-direction: column;
+            }
+
+            .stat-value {
+                font-size: 1.35rem;
+                font-weight: 700;
+                color: #1a1a2e;
+                line-height: 1.2;
+            }
+
+            .stat-label {
+                font-size: .72rem;
+                font-weight: 500;
+                color: #6b7280;
+                text-transform: uppercase;
+                letter-spacing: .5px;
+            }
+
+            /* ===== Filters ===== */
+            .filter-panel {
+                background: white;
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+                margin-bottom: 1.5rem;
+                overflow: hidden;
+            }
+
+            .filter-header {
+                padding: .75rem 1.25rem;
+                background: #f8fafc;
+                border-bottom: 1px solid #e5e7eb;
+                font-weight: 600;
+                font-size: .85rem;
+                color: #374151;
+                display: flex;
+                align-items: center;
+                gap: .5rem;
+            }
+
+            .filter-body {
+                padding: 1.25rem;
+            }
+
+            .filter-row {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 1rem;
+                align-items: flex-end;
+            }
+
+            .filter-group {
+                flex: 1;
+                min-width: 140px;
+            }
+
+            .filter-label {
+                display: block;
+                font-size: .75rem;
+                font-weight: 600;
+                color: #6b7280;
+                text-transform: uppercase;
+                letter-spacing: .4px;
+                margin-bottom: .35rem;
+            }
+
+            .filter-select {
+                width: 100%;
+                padding: .5rem .75rem;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                font-size: .85rem;
+                color: #374151;
+                background: white;
+                transition: border-color .15s;
+            }
+
+            .filter-select:focus {
+                outline: none;
+                border-color: #667eea;
+                box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
+            }
+
+            .filter-actions {
+                display: flex;
+                gap: .5rem;
+                align-items: flex-end;
+                padding-bottom: 1px;
+            }
+
+            /* ===== Loading ===== */
+            .loading-state {
+                text-align: center;
+                padding: 4rem 1rem;
+                color: #6b7280;
+            }
+
+            .spinner {
+                width: 36px;
+                height: 36px;
+                border: 3px solid #e5e7eb;
+                border-top-color: #667eea;
+                border-radius: 50%;
+                animation: spin .7s linear infinite;
+                margin: 0 auto 1rem;
+            }
+
+            @@keyframes spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+
+            /* ===== Alert Banner ===== */
+            .alert-banner {
+                display: flex;
+                align-items: center;
+                gap: .75rem;
+                padding: .85rem 1.25rem;
+                border-radius: 10px;
+                font-size: .88rem;
+                margin-bottom: 1.5rem;
+                animation: fadeIn .3s ease;
+            }
+
+            .alert-error {
+                background: #fef2f2;
+                color: #991b1b;
+                border: 1px solid #fecaca;
+            }
+
+            .alert-close {
+                margin-left: auto;
+                background: none;
+                border: none;
+                cursor: pointer;
+                color: inherit;
+                opacity: .6;
+                font-size: .8rem;
+            }
+
+            .alert-close:hover {
+                opacity: 1;
+            }
+
+            /* ===== Table Container ===== */
+            .table-container {
+                background: white;
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+                overflow: hidden;
+            }
+
+            .table-toolbar {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 1rem 1.25rem;
+                border-bottom: 1px solid #e5e7eb;
+                gap: 1rem;
+                flex-wrap: wrap;
+            }
+
+            .table-title {
+                display: flex;
+                align-items: center;
+                gap: .5rem;
+                font-weight: 600;
+                font-size: .95rem;
+                color: #1a1a2e;
+            }
+
+            .record-count {
+                font-weight: 400;
+                font-size: .78rem;
+                color: #9ca3af;
+                margin-left: .25rem;
+            }
+
+            .search-box {
+                display: flex;
+                align-items: center;
+                gap: .5rem;
+                background: #f9fafb;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+                padding: .4rem .75rem;
+                min-width: 260px;
+                transition: border-color .15s;
+            }
+
+            .search-box:focus-within {
+                border-color: #667eea;
+                box-shadow: 0 0 0 3px rgba(102, 126, 234, .1);
+            }
+
+            .search-box i {
+                color: #9ca3af;
+                font-size: .85rem;
+            }
+
+            .search-box input {
+                border: none;
+                background: transparent;
+                outline: none;
+                font-size: .85rem;
+                color: #374151;
+                width: 100%;
+            }
+
+            /* ===== Audit Table ===== */
+            .audit-table-wrap {
+                overflow-x: auto;
+            }
+
+            .audit-table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+
+            .audit-table thead th {
+                background: #f8fafc;
+                padding: .65rem 1rem;
+                font-size: .72rem;
+                font-weight: 600;
+                color: #6b7280;
+                text-transform: uppercase;
+                letter-spacing: .5px;
+                text-align: left;
+                border-bottom: 1px solid #e5e7eb;
+                white-space: nowrap;
+            }
+
+            .audit-table tbody tr {
+                border-bottom: 1px solid #f3f4f6;
+                cursor: pointer;
+                transition: background .1s;
+            }
+
+            .audit-table tbody tr:hover {
+                background: #f9fafb;
+            }
+
+            .audit-table tbody tr.row-failed {
+                background: #fef2f2;
+            }
+
+            .audit-table tbody tr.row-failed:hover {
+                background: #fee2e2;
+            }
+
+            .audit-table td {
+                padding: .7rem 1rem;
+                font-size: .85rem;
+                color: #374151;
+                vertical-align: middle;
+            }
+
+            .col-timestamp {
+                width: 140px;
+            }
+
+            .col-user {
+                width: 160px;
+            }
+
+            .col-role {
+                width: 110px;
+            }
+
+            .col-action {
+                width: 130px;
+            }
+
+            .col-status {
+                width: 90px;
+            }
+
+            /* Timestamp Cell */
+            .timestamp-cell {
+                display: flex;
+                flex-direction: column;
+                gap: 1px;
+            }
+
+            .ts-date {
+                font-size: .82rem;
+                font-weight: 500;
+                color: #374151;
+            }
+
+            .ts-time {
+                font-size: .72rem;
+                color: #9ca3af;
+                font-family: 'Space Grotesk', monospace;
+            }
+
+            /* User Cell */
+            .user-cell {
+                display: flex;
+                align-items: center;
+                gap: .6rem;
+            }
+
+            .user-avatar {
+                width: 30px;
+                height: 30px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                color: white;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: .65rem;
+                font-weight: 700;
+                flex-shrink: 0;
+                text-transform: uppercase;
+            }
+
+            .user-name {
+                font-weight: 600;
+                color: #1a1a2e;
+                font-size: .84rem;
+            }
+
+            /* Role Badge */
+            .role-badge {
+                display: inline-block;
+                padding: .2rem .6rem;
+                border-radius: 6px;
+                font-size: .72rem;
+                font-weight: 600;
+                white-space: nowrap;
+            }
+
+            .role-admin {
+                background: #fee2e2;
+                color: #dc2626;
+            }
+
+            .role-cashier {
+                background: #dbeafe;
+                color: #2563eb;
+            }
+
+            .role-stock {
+                background: #e0f2fe;
+                color: #0284c7;
+            }
+
+            .role-depot {
+                background: #fef3c7;
+                color: #d97706;
+            }
+
+            .role-default {
+                background: #f3f4f6;
+                color: #6b7280;
+            }
+
+            /* Action Badge */
+            .action-badge {
+                display: inline-block;
+                padding: .2rem .6rem;
+                border-radius: 6px;
+                font-size: .72rem;
+                font-weight: 600;
+                white-space: nowrap;
+            }
+
+            .action-auth {
+                background: #d1fae5;
+                color: #059669;
+            }
+
+            .action-fail {
+                background: #fee2e2;
+                color: #dc2626;
+            }
+
+            .action-create {
+                background: #dbeafe;
+                color: #2563eb;
+            }
+
+            .action-update {
+                background: #fef3c7;
+                color: #d97706;
+            }
+
+            .action-delete {
+                background: #fee2e2;
+                color: #dc2626;
+            }
+
+            .action-view {
+                background: #e0f2fe;
+                color: #0284c7;
+            }
+
+            .action-sync {
+                background: #ede9fe;
+                color: #7c3aed;
+            }
+
+            .action-default {
+                background: #f3f4f6;
+                color: #6b7280;
+            }
+
+            /* Details Cell */
+            .details-cell {
+                display: flex;
+                flex-direction: column;
+                gap: 3px;
+                max-width: 350px;
+            }
+
+            .entity-tag {
+                display: inline-block;
+                background: #f3f4f6;
+                color: #6b7280;
+                padding: .1rem .5rem;
+                border-radius: 4px;
+                font-size: .72rem;
+                font-weight: 500;
+                font-family: 'Space Grotesk', monospace;
+                width: fit-content;
+            }
+
+            .detail-text {
+                font-size: .78rem;
+                color: #6b7280;
+                line-height: 1.3;
+            }
+
+            .error-text {
+                font-size: .75rem;
+                color: #dc2626;
+                line-height: 1.3;
+            }
+
+            /* Status Badge */
+            .status-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: .3rem;
+                padding: .2rem .55rem;
+                border-radius: 6px;
+                font-size: .72rem;
+                font-weight: 600;
+                white-space: nowrap;
+            }
+
+            .status-success {
+                background: #d1fae5;
+                color: #059669;
+            }
+
+            .status-failed {
+                background: #fee2e2;
+                color: #dc2626;
+            }
+
+            /* ===== Pagination ===== */
+            .table-footer {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: .85rem 1.25rem;
+                border-top: 1px solid #e5e7eb;
+                flex-wrap: wrap;
+                gap: .5rem;
+            }
+
+            .page-info {
+                font-size: .78rem;
+                color: #6b7280;
+            }
+
+            .pagination-controls {
+                display: flex;
+                gap: .25rem;
+            }
+
+            .page-btn {
+                width: 32px;
+                height: 32px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border: 1px solid #e5e7eb;
+                border-radius: 6px;
+                background: white;
+                color: #374151;
+                font-size: .8rem;
+                font-weight: 500;
+                cursor: pointer;
+                transition: all .15s;
+            }
+
+            .page-btn:hover:not(:disabled) {
+                background: #f3f4f6;
+                border-color: #d1d5db;
+            }
+
+            .page-btn:disabled {
+                opacity: .4;
+                cursor: not-allowed;
+            }
+
+            .page-active {
+                background: linear-gradient(135deg, #667eea, #764ba2) !important;
+                color: white !important;
+                border-color: transparent !important;
+            }
+
+            /* ===== Empty State ===== */
+            .empty-state {
+                text-align: center;
+                padding: 4rem 2rem;
+                color: #9ca3af;
+            }
+
+            .empty-state i {
+                font-size: 3rem;
+                opacity: .4;
+            }
+
+            .empty-state h3 {
+                font-size: 1.1rem;
+                color: #6b7280;
+                margin: 1rem 0 .3rem;
+                font-weight: 600;
+            }
+
+            .empty-state p {
+                font-size: .85rem;
+            }
+
+            /* ===== Detail Drawer ===== */
+            .drawer-backdrop {
+                position: fixed;
+                inset: 0;
+                background: rgba(0, 0, 0, .4);
+                z-index: 1040;
+                animation: fadeIn .2s ease;
+            }
+
+            .detail-drawer {
+                position: fixed;
+                top: 0;
+                right: 0;
+                bottom: 0;
+                width: 480px;
+                max-width: 90vw;
+                background: white;
+                z-index: 1050;
+                display: flex;
+                flex-direction: column;
+                box-shadow: -4px 0 24px rgba(0, 0, 0, .12);
+                animation: slideInRight .25s ease;
+            }
+
+            .drawer-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 1.25rem 1.5rem;
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                color: white;
+            }
+
+            .drawer-header h3 {
+                margin: 0;
+                font-size: 1.1rem;
+                font-weight: 600;
+            }
+
+            .drawer-close {
+                background: rgba(255, 255, 255, .2);
+                border: none;
+                color: white;
+                width: 32px;
+                height: 32px;
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                transition: background .15s;
+            }
+
+            .drawer-close:hover {
+                background: rgba(255, 255, 255, .35);
+            }
+
+            .drawer-body {
+                flex: 1;
+                overflow-y: auto;
+                padding: 1.5rem;
+            }
+
+            .detail-grid {
+                display: flex;
+                flex-direction: column;
+                gap: 1.1rem;
+            }
+
+            .detail-item {
+                display: flex;
+                flex-direction: column;
+                gap: .25rem;
+            }
+
+            .detail-full {
+                grid-column: 1 / -1;
+            }
+
+            .detail-label {
+                font-size: .72rem;
+                font-weight: 600;
+                color: #6b7280;
+                text-transform: uppercase;
+                letter-spacing: .5px;
+            }
+
+            .detail-value {
+                font-size: .88rem;
+                color: #1a1a2e;
+                font-weight: 500;
+            }
+
+            .detail-pre {
+                white-space: pre-wrap;
+                word-break: break-word;
+                background: #f9fafb;
+                padding: .6rem .85rem;
+                border-radius: 8px;
+                font-size: .82rem;
+                border: 1px solid #f3f4f6;
+            }
+
+            /* ===== Dark Theme ===== */
+            [data-theme="dark"] .audit-page {
+                color: #e2e8f0;
+            }
+
+            [data-theme="dark"] .header-title {
+                color: #f1f5f9;
+            }
+
+            [data-theme="dark"] .header-subtitle {
+                color: #94a3b8;
+            }
+
+            [data-theme="dark"] .stat-card {
+                background: #1e293b;
+                border-color: #334155;
+            }
+
+            [data-theme="dark"] .stat-value {
+                color: #f1f5f9;
+            }
+
+            [data-theme="dark"] .stat-label {
+                color: #94a3b8;
+            }
+
+            [data-theme="dark"] .filter-panel {
+                background: #1e293b;
+                border-color: #334155;
+            }
+
+            [data-theme="dark"] .filter-header {
+                background: #0f172a;
+                border-color: #334155;
+                color: #cbd5e1;
+            }
+
+            [data-theme="dark"] .filter-select {
+                background: #0f172a;
+                border-color: #334155;
+                color: #e2e8f0;
+            }
+
+            [data-theme="dark"] .filter-label {
+                color: #94a3b8;
+            }
+
+            [data-theme="dark"] .btn-audit-outline {
+                background: #1e293b;
+                color: #cbd5e1;
+                border-color: #475569;
+            }
+
+            [data-theme="dark"] .btn-audit-outline:hover {
+                background: #334155;
+            }
+
+            [data-theme="dark"] .btn-clear {
+                background: #1e293b;
+                color: #94a3b8;
+                border-color: #475569;
+            }
+
+            [data-theme="dark"] .btn-clear:hover {
+                background: #334155;
+            }
+
+            [data-theme="dark"] .table-container {
+                background: #1e293b;
+                border-color: #334155;
+            }
+
+            [data-theme="dark"] .table-toolbar {
+                border-color: #334155;
+            }
+
+            [data-theme="dark"] .table-title {
+                color: #f1f5f9;
+            }
+
+            [data-theme="dark"] .search-box {
+                background: #0f172a;
+                border-color: #334155;
+            }
+
+            [data-theme="dark"] .search-box input {
+                color: #e2e8f0;
+            }
+
+            [data-theme="dark"] .audit-table thead th {
+                background: #0f172a;
+                color: #94a3b8;
+                border-color: #334155;
+            }
+
+            [data-theme="dark"] .audit-table tbody tr {
+                border-color: #1e293b;
+            }
+
+            [data-theme="dark"] .audit-table tbody tr:hover {
+                background: #334155;
+            }
+
+            [data-theme="dark"] .audit-table td {
+                color: #cbd5e1;
+            }
+
+            [data-theme="dark"] .ts-date {
+                color: #e2e8f0;
+            }
+
+            [data-theme="dark"] .user-name {
+                color: #f1f5f9;
+            }
+
+            [data-theme="dark"] .entity-tag {
+                background: #334155;
+                color: #94a3b8;
+            }
+
+            [data-theme="dark"] .detail-text {
+                color: #94a3b8;
+            }
+
+            [data-theme="dark"] .page-btn {
+                background: #1e293b;
+                border-color: #475569;
+                color: #cbd5e1;
+            }
+
+            [data-theme="dark"] .page-btn:hover:not(:disabled) {
+                background: #334155;
+            }
+
+            [data-theme="dark"] .page-info {
+                color: #94a3b8;
+            }
+
+            [data-theme="dark"] .table-footer {
+                border-color: #334155;
+            }
+
+            [data-theme="dark"] .empty-state h3 {
+                color: #94a3b8;
+            }
+
+            [data-theme="dark"] .detail-drawer {
+                background: #1e293b;
+            }
+
+            [data-theme="dark"] .detail-value {
+                color: #f1f5f9;
+            }
+
+            [data-theme="dark"] .detail-label {
+                color: #94a3b8;
+            }
+
+            [data-theme="dark"] .detail-pre {
+                background: #0f172a;
+                border-color: #334155;
+            }
+
+            [data-theme="dark"] .alert-error {
+                background: #450a0a;
+                color: #fca5a5;
+                border-color: #7f1d1d;
+            }
+
+            [data-theme="dark"] .audit-table tbody tr.row-failed {
+                background: #450a0a33;
+            }
+
+            [data-theme="dark"] .audit-table tbody tr.row-failed:hover {
+                background: #450a0a55;
+            }
+
+            /* ===== Responsive ===== */
+            @@media (max-width: 768px) {
+                .audit-page {
+                    padding: 1rem;
+                }
+
+                .audit-header {
+                    flex-direction: column;
+                    align-items: flex-start;
+                }
+
+                .filter-row {
+                    flex-direction: column;
+                }
+
+                .filter-group {
+                    min-width: 100%;
+                }
+
+                .filter-actions {
+                    flex-direction: row;
+                    width: 100%;
+                    justify-content: flex-start;
+                }
+
+                .stats-grid {
+                    grid-template-columns: repeat(2, 1fr);
+                }
+
+                .table-footer {
+                    flex-direction: column;
+                    align-items: center;
+                }
+
+                .col-details {
+                    display: none;
+                }
+
+                .detail-drawer {
+                    width: 100%;
+                    max-width: 100%;
+                }
+            }
+        </style>
 
 @code {
     private List<AuditLog> logs = new();
@@ -239,6 +1423,8 @@
     private bool isLoading = true;
     private string? errorMessage;
     private string _searchString = string.Empty;
+    private AuditLog? selectedLog;
+    private int failedCount;
 
     // Filters
     private DateTime? fromDate;
@@ -250,58 +1436,72 @@
     private int currentPage = 1;
     private int pageSize = 50;
     private int totalCount = 0;
-    private int totalPages => (int)Math.Ceiling((double)totalCount / pageSize);
+    private int totalPages => Math.Max(1, (int)Math.Ceiling((double)totalCount / pageSize));
 
-    // Quick filter - filter globally across multiple columns with the same input
-    private Func<AuditLog, bool> _quickFilter => x =>
+    private IEnumerable<AuditLog> filteredLogs => string.IsNullOrWhiteSpace(_searchString)
+        ? logs
+        : logs.Where(x =>
+            (x.Username?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
+            (x.UserRole?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
+            (x.Action?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
+            (x.EntityType?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
+            (x.Details?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true));
+
+    private string GetRoleBadgeClass(string? role) => role switch
     {
-        if (string.IsNullOrWhiteSpace(_searchString))
-            return true;
-
-        if (x.Username?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        if (x.UserRole?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        if (x.Action?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        if (x.EntityType?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        if (x.Details?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        return false;
+        UserRoles.Admin => "role-admin",
+        UserRoles.Cashier => "role-cashier",
+        UserRoles.StockController => "role-stock",
+        UserRoles.DepotController => "role-depot",
+        _ => "role-default"
     };
 
-    // Helper for role chip color
-    private Color GetRoleChipColor(string role) => role switch
+    private string GetActionBadgeClass(string? action) => action switch
     {
-        UserRoles.Admin => Color.Error,
-        UserRoles.Cashier => Color.Primary,
-        UserRoles.StockController => Color.Info,
-        UserRoles.DepotController => Color.Warning,
-        _ => Color.Default
+        AuditActions.Login or AuditActions.Logout => "action-auth",
+        AuditActions.LoginFailed => "action-fail",
+        var a when a != null && a.StartsWith("Create") => "action-create",
+        var a when a != null && a.StartsWith("Update") => "action-update",
+        var a when a != null && a.StartsWith("Delete") => "action-delete",
+        var a when a != null && a.StartsWith("View") => "action-view",
+        var a when a != null && a.StartsWith("Sync") => "action-sync",
+        _ => "action-default"
     };
 
-    // Helper for action chip color
-    private Color GetActionChipColor(string action) => action switch
+    private static string GetInitials(string? name)
     {
-        AuditActions.Login or AuditActions.Logout => Color.Success,
-        AuditActions.LoginFailed => Color.Error,
-        var a when a.StartsWith("Create") => Color.Primary,
-        var a when a.StartsWith("Update") => Color.Warning,
-        var a when a.StartsWith("Delete") => Color.Error,
-        var a when a.StartsWith("View") => Color.Info,
-        var a when a.StartsWith("Sync") => Color.Default,
-        _ => Color.Default
-    };
+        if (string.IsNullOrWhiteSpace(name)) return "?";
+        var parts = name.Split('.', ' ', '_');
+        return parts.Length >= 2
+            ? $"{parts[0][0]}{parts[1][0]}"
+            : name[..Math.Min(2, name.Length)];
+    }
+
+    private static string FormatAction(string? action)
+    {
+        if (string.IsNullOrEmpty(action)) return "";
+        // Insert space before uppercase letters: "ViewInvoice" → "View Invoice"
+        return System.Text.RegularExpressions.Regex.Replace(action, "(?<=[a-z])(?=[A-Z])", " ");
+    }
+
+    private static string TruncateText(string text, int maxLen) =>
+        text.Length <= maxLen ? text : text[..maxLen] + "...";
+
+    private IEnumerable<int> GetPageNumbers()
+    {
+        const int maxVisible = 5;
+        var start = Math.Max(1, currentPage - maxVisible / 2);
+        var end = Math.Min(totalPages, start + maxVisible - 1);
+        start = Math.Max(1, end - maxVisible + 1);
+        return Enumerable.Range(start, end - start + 1);
+    }
+
+    private void SelectLog(AuditLog log) => selectedLog = log;
+    private void CloseDrawer() => selectedLog = null;
 
     protected override async Task OnInitializedAsync()
     {
-        // Set default date range to last 7 days in CAT timezone
+        pageSize = AppSettings.PageSize;
         var catNow = IAuditService.ToCAT(DateTime.UtcNow);
         toDate = catNow.Date;
         fromDate = catNow.Date.AddDays(-7);
@@ -333,6 +1533,7 @@
         {
             totalCount = await AuditService.GetLogCountAsync(fromDate, toDate, selectedUser, selectedAction);
             logs = await AuditService.GetLogsAsync(fromDate, toDate, selectedUser, selectedAction, currentPage, pageSize);
+            failedCount = logs.Count(l => !l.IsSuccess);
         }
         catch (Exception ex)
         {
@@ -367,10 +1568,7 @@
         await LoadLogs();
     }
 
-    private async Task OnPageChanged(int page)
-    {
-        await GoToPage(page);
-    }
+    private async Task OnPageChanged(int page) => await GoToPage(page);
 
     private async Task GoToPage(int page)
     {
@@ -384,32 +1582,12 @@
         currentPage = 1;
         await LoadLogs();
     }
+
     private Task ExportLogs()
     {
         // TODO: Implement CSV export
         return Task.CompletedTask;
     }
-
-    private string GetRoleBadgeClass(string role) => role switch
-    {
-        UserRoles.Admin => "bg-danger",
-        UserRoles.Cashier => "bg-primary",
-        UserRoles.StockController => "bg-info",
-        UserRoles.DepotController => "bg-warning",
-        _ => "bg-secondary"
-    };
-
-    private string GetActionBadgeClass(string action) => action switch
-    {
-        AuditActions.Login or AuditActions.Logout => "bg-success",
-        AuditActions.LoginFailed => "bg-danger",
-        var a when a.StartsWith("Create") => "bg-primary",
-        var a when a.StartsWith("Update") => "bg-warning text-dark",
-        var a when a.StartsWith("Delete") => "bg-danger",
-        var a when a.StartsWith("View") => "bg-info",
-        var a when a.StartsWith("Sync") => "bg-secondary",
-        _ => "bg-light text-dark"
-    };
 
     private async Task LogViewAudit()
     {

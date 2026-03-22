@@ -15,182 +15,580 @@
 
 <PageTitle>Customer Portal Management - Shop Inventory</PageTitle>
 
-<div class="container-fluid fade-in">
-    <div class="page-header d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h2>
-                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16"
-                     style="color: #0d9488;">
-                    <path d="M11 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
-                    <path fill-rule="evenodd"
-                          d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8zm8-7a7 7 0 0 0-5.468 11.37C3.242 11.226 4.805 10 8 10s4.757 1.225 5.468 2.37A7 7 0 0 0 8 1z" />
-                </svg>
-                Customer Portal Management
-            </h2>
-            <span class="text-muted">Manage customer portal access and credentials</span>
-        </div>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ShowCreateModal"
-                   Style="background: #0d9488; border-color: #0d9488;">
-            <i class="bi bi-plus-circle me-2"></i>Add Customer Account
-        </MudButton>
-    </div>
-
-    <!-- Stats Cards -->
-    <div class="row mb-4">
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <h6 class="text-muted mb-1">Total Accounts</h6>
-                            <h3 class="mb-0">@totalAccounts</h3>
-                        </div>
-                        <div class="rounded-circle p-3" style="background: rgba(13, 148, 136, 0.1);">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="#0d9488"
-                                 viewBox="0 0 16 16">
-                                <path d="M15 14s1 0 1-1-1-4-5-4-5 3-5 4 1 1 1 1h8Z" />
-                                <path
-                                d="M11 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-9 7s-1 0-1-1 1-4 5-4 5 3 5 4-1 1-1 1H2Zm4-8a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" />
-                            </svg>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <h6 class="text-muted mb-1">Active</h6>
-                            <h3 class="mb-0 text-success">@activeAccounts</h3>
-                        </div>
-                        <div class="rounded-circle p-3" style="background: rgba(34, 197, 94, 0.1);">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="#22c55e"
-                                 viewBox="0 0 16 16">
-                                <path
-                                d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z" />
-                            </svg>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <h6 class="text-muted mb-1">Inactive</h6>
-                            <h3 class="mb-0 text-secondary">@inactiveAccounts</h3>
-                        </div>
-                        <div class="rounded-circle p-3" style="background: rgba(107, 114, 128, 0.1);">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="#6b7280"
-                                 viewBox="0 0 16 16">
-                                <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z" />
-                                <path
-                                d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
-                            </svg>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <h6 class="text-muted mb-1">Locked</h6>
-                            <h3 class="mb-0 text-danger">@lockedAccounts</h3>
-                        </div>
-                        <div class="rounded-circle p-3" style="background: rgba(239, 68, 68, 0.1);">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="#ef4444"
-                                 viewBox="0 0 16 16">
-                                <path
-                                d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
-                            </svg>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Alerts -->
-    @if (!string.IsNullOrEmpty(successMessage))
-    {
-        <div class="alert alert-success alert-dismissible fade show" role="alert">
-            <i class="bi bi-check-circle me-2"></i>@successMessage
-            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => successMessage = null)" Size="Size.Small" />
-        </div>
+<style>
+    /* ── Page ────────────────────────────────────────── */
+    .cpm-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
     }
 
-    @if (!string.IsNullOrEmpty(errorMessage))
-    {
-        <div class="alert alert-danger alert-dismissible fade show" role="alert">
-            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
-            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => errorMessage = null)" Size="Size.Small" />
-        </div>
+    /* ── Header ──────────────────────────────────────── */
+    .cpm-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
     }
 
-    <!-- Search and Filter -->
-    <div class="card mb-4 border-0 shadow-sm">
-        <div class="card-body">
-            <div class="row g-3">
-                <div class="col-md-4">
-                    <div class="input-group">
-                        <span class="input-group-text"><i class="bi bi-search"></i></span>
-                        <input type="text" class="form-control" placeholder="Search by card code or name..."
-                               @bind="searchTerm" @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
-                    </div>
+    .cpm-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .cpm-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #0d9488, #0f766e);
+        box-shadow: 0 4px 14px rgba(13, 148, 136, .3);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .cpm-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+        letter-spacing: -.3px;
+    }
+
+    .cpm-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: .88rem;
+    }
+
+    .btn-cpm-gradient {
+        background: linear-gradient(135deg, #0d9488, #0f766e);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        box-shadow: 0 2px 8px rgba(13, 148, 136, .25);
+        cursor: pointer;
+    }
+
+    .btn-cpm-gradient:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(13, 148, 136, .4);
+        color: #fff;
+    }
+
+    /* ── Stat Cards ───────────────────────────────────── */
+    .stat-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .stat-card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1rem 1.15rem;
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        transition: transform .15s, box-shadow .15s;
+    }
+
+    .stat-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, .06);
+    }
+
+    .stat-icon {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.15rem;
+        flex-shrink: 0;
+    }
+
+    .stat-icon.total {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+    .stat-icon.active {
+        background: #dcfce7;
+        color: #22c55e;
+    }
+
+    .stat-icon.inactive {
+        background: #f3f4f6;
+        color: #6b7280;
+    }
+
+    .stat-icon.locked {
+        background: #fee2e2;
+        color: #ef4444;
+    }
+
+    .stat-info .stat-value {
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        line-height: 1.1;
+    }
+
+    .stat-info .stat-label {
+        font-size: .72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #9ca3af;
+    }
+
+    /* ── Filter Bar ──────────────────────────────────── */
+    .filter-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .75rem;
+        align-items: flex-end;
+        padding: 1rem 1.25rem;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        margin-bottom: 1.25rem;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .filter-bar .filter-field {
+        flex: 1;
+        min-width: 140px;
+    }
+
+    .filter-bar .filter-field label {
+        display: block;
+        font-size: .72rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        margin-bottom: .3rem;
+    }
+
+    .filter-bar .filter-field input,
+    .filter-bar .filter-field select {
+        width: 100%;
+        padding: .5rem .75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: .88rem;
+        color: #374151;
+        background: #fff;
+        transition: all .15s;
+    }
+
+    .filter-bar .filter-field input:focus,
+    .filter-bar .filter-field select:focus {
+        outline: none;
+        border-color: #0d9488;
+        box-shadow: 0 0 0 3px rgba(13, 148, 136, .15);
+    }
+
+    .btn-filter {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        color: #374151;
+        padding: .5rem 1rem;
+        border-radius: 8px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all .15s;
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        font-size: .85rem;
+    }
+
+    .btn-filter:hover {
+        background: #f3f4f6;
+        border-color: #d1d5db;
+    }
+
+    /* ── Table ────────────────────────────────────────── */
+    .cpm-table-card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 14px;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .06);
+        overflow: hidden;
+    }
+
+    .cpm-table {
+        width: 100%;
+        font-size: .85rem;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .cpm-table th {
+        background: #f8fafc;
+        font-size: .72rem;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #6b7280;
+        font-weight: 600;
+        padding: .7rem .85rem;
+        border-bottom: 2px solid #e5e7eb;
+        white-space: nowrap;
+    }
+
+    .cpm-table td {
+        padding: .65rem .85rem;
+        border-bottom: 1px solid #f3f4f6;
+        vertical-align: middle;
+        color: #374151;
+    }
+
+    .cpm-table tbody tr:hover {
+        background: #f8fafb;
+    }
+
+    .cpm-table tbody tr:last-child td {
+        border-bottom: none;
+    }
+
+    .cpm-code {
+        font-family: 'SF Mono', 'Fira Code', monospace;
+        background: #f3f4f6;
+        padding: .15rem .45rem;
+        border-radius: 4px;
+        font-size: .82rem;
+        font-weight: 500;
+        color: #1f2937;
+    }
+
+    .cpm-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .25rem;
+        padding: .2rem .55rem;
+        border-radius: 6px;
+        font-size: .72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .3px;
+    }
+
+    .badge-active {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .badge-inactive {
+        background: #f3f4f6;
+        color: #6b7280;
+    }
+
+    .badge-locked {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+
+    .badge-multi {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    .badge-single {
+        background: #f3f4f6;
+        color: #6b7280;
+    }
+
+    .badge-enabled {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .badge-disabled {
+        background: #f9fafb;
+        color: #9ca3af;
+    }
+
+    .cpm-actions {
+        display: flex;
+        gap: .3rem;
+        justify-content: flex-end;
+    }
+
+    .cpm-action-btn {
+        width: 30px;
+        height: 30px;
+        border-radius: 6px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all .15s;
+        font-size: .8rem;
+        color: #374151;
+        padding: 0;
+        min-width: 30px !important;
+    }
+
+    .cpm-action-btn:hover {
+        background: #f3f4f6;
+        border-color: #d1d5db;
+    }
+
+    .cpm-action-btn.edit:hover {
+        background: #eff6ff;
+        border-color: #93c5fd;
+        color: #2563eb;
+    }
+
+    .cpm-action-btn.key:hover {
+        background: #fffbeb;
+        border-color: #fcd34d;
+        color: #d97706;
+    }
+
+    .cpm-action-btn.stmt:hover {
+        background: #ecfdf5;
+        border-color: #6ee7b7;
+        color: #059669;
+    }
+
+    .cpm-action-btn.link:hover {
+        background: #eef2ff;
+        border-color: #a5b4fc;
+        color: #6366f1;
+    }
+
+    .cpm-action-btn.unlock:hover {
+        background: #f0fdf4;
+        border-color: #86efac;
+        color: #22c55e;
+    }
+
+    .cpm-action-btn.delete:hover {
+        background: #fef2f2;
+        border-color: #fca5a5;
+        color: #dc2626;
+    }
+
+    /* ── Alert ────────────────────────────────────────── */
+    .alert-banner {
+        border-radius: 10px;
+        padding: .75rem 1rem;
+        display: flex;
+        align-items: flex-start;
+        gap: .6rem;
+        margin-bottom: 1rem;
+        font-size: .88rem;
+        animation: slideDown .3s ease;
+    }
+
+    .alert-banner.success-alert {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        color: #166534;
+    }
+
+    .alert-banner.error-alert {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #991b1b;
+    }
+
+    /* ── Empty State ─────────────────────────────────── */
+    .cpm-empty {
+        text-align: center;
+        padding: 3rem 1rem;
+        color: #9ca3af;
+    }
+
+    .cpm-empty-icon {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        background: #f3f4f6;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        margin-bottom: .75rem;
+        color: #d1d5db;
+    }
+
+    .cpm-empty h5 {
+        color: #6b7280;
+        font-weight: 600;
+        margin-bottom: .3rem;
+    }
+
+    .cpm-empty p {
+        font-size: .85rem;
+    }
+
+    @@keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-6px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @@media (max-width: 768px) {
+        .cpm-header {
+            flex-direction: column;
+        }
+
+        .stat-row {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .filter-bar {
+            flex-direction: column;
+        }
+
+        .cpm-actions {
+            flex-wrap: wrap;
+        }
+    }
+</style>
+
+<div class="cpm-page">
+    <div class="container-fluid" style="max-width: 1400px;">
+
+        <!-- Header -->
+        <div class="cpm-header">
+            <div class="cpm-header-left">
+                <div class="cpm-header-icon">
+                    <i class="bi bi-people"></i>
                 </div>
-                <div class="col-md-3">
-                    <select class="form-select" @bind="statusFilter" @bind:after="LoadCustomers">
-                        <option value="">All Status</option>
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                        <option value="locked">Locked</option>
-                    </select>
+                <div>
+                    <h2>Customer Portal Management</h2>
+                    <p>Manage customer portal access and credentials</p>
                 </div>
-                <div class="col-md-3">
-                    <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="LoadCustomers">
-                        <i class="bi bi-arrow-clockwise me-1"></i>Refresh
-                    </MudButton>
+            </div>
+            <button class="btn-cpm-gradient" @onclick="ShowCreateModal">
+                <i class="bi bi-plus-circle"></i> Add Customer Account
+            </button>
+        </div>
+
+        <!-- Stats -->
+        <div class="stat-row">
+            <div class="stat-card">
+                <div class="stat-icon total"><i class="bi bi-people-fill"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@totalAccounts</div>
+                    <div class="stat-label">Total Accounts</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon active"><i class="bi bi-check-circle-fill"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@activeAccounts</div>
+                    <div class="stat-label">Active</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon inactive"><i class="bi bi-x-circle-fill"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@inactiveAccounts</div>
+                    <div class="stat-label">Inactive</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon locked"><i class="bi bi-lock-fill"></i></div>
+                <div class="stat-info">
+                    <div class="stat-value">@lockedAccounts</div>
+                    <div class="stat-label">Locked</div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- Customer Accounts Table -->
-    <div class="card border-0 shadow-sm">
-        <div class="card-body p-0">
+        <!-- Alerts -->
+        @if (!string.IsNullOrEmpty(successMessage))
+        {
+            <div class="alert-banner success-alert">
+                <i class="bi bi-check-circle-fill"></i>
+                <div style="flex:1;">@successMessage</div>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => successMessage = null)"
+                               Size="Size.Small" Style="color:inherit;opacity:.45;" />
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert-banner error-alert">
+                <i class="bi bi-exclamation-octagon-fill"></i>
+                <div style="flex:1;">@errorMessage</div>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => errorMessage = null)" Size="Size.Small"
+                               Style="color:inherit;opacity:.45;" />
+            </div>
+        }
+
+        <!-- Filter Bar -->
+        <div class="filter-bar">
+            <div class="filter-field" style="flex:2;">
+                <label>Search</label>
+                <input type="text" placeholder="Search by card code, name or email…" @bind="searchTerm"
+                       @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
+            </div>
+            <div class="filter-field" style="flex:1;">
+                <label>Status</label>
+                <select @bind="statusFilter" @bind:after="LoadCustomers">
+                    <option value="">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="locked">Locked</option>
+                </select>
+            </div>
+            <button class="btn-filter" @onclick="LoadCustomers" style="margin-bottom:1px;">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+        </div>
+
+        <!-- Table -->
+        <div class="cpm-table-card">
             @if (isLoading)
             {
-                <div class="text-center py-5">
-                    <div class="spinner-border text-primary" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                    <p class="mt-2 text-muted">Loading customer accounts...</p>
+                <div style="text-align:center; padding:3rem;">
+                    <div class="spinner-border" style="color:#0d9488;" role="status"></div>
+                    <p style="color:#6b7280; font-size:.88rem; margin-top:.75rem;">Loading customer accounts…</p>
                 </div>
             }
             else if (customers == null || !customers.Any())
             {
-                <div class="text-center py-5">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="#ccc" viewBox="0 0 16 16">
-                        <path d="M11 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
-                        <path fill-rule="evenodd"
-                              d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8zm8-7a7 7 0 0 0-5.468 11.37C3.242 11.226 4.805 10 8 10s4.757 1.225 5.468 2.37A7 7 0 0 0 8 1z" />
-                    </svg>
-                    <h5 class="mt-3 text-muted">No Customer Accounts</h5>
-                    <p class="text-muted">Click "Add Customer Account" to create a new customer portal account.</p>
+                <div class="cpm-empty">
+                    <div class="cpm-empty-icon"><i class="bi bi-people"></i></div>
+                    <h5>No Customer Accounts</h5>
+                    <p>Click "Add Customer Account" to create a new customer portal account.</p>
                 </div>
             }
             else
             {
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead class="table-light">
+                <div style="overflow-x:auto;">
+                    <table class="cpm-table">
+                        <thead>
                             <tr>
                                 <th>Card Code</th>
                                 <th>Customer Name</th>
@@ -201,93 +599,106 @@
                                 <th>2FA</th>
                                 <th>Last Login</th>
                                 <th>Created</th>
-                                <th class="text-end">Actions</th>
+                                <th style="text-align:right;">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach (var customer in customers)
                             {
                                 <tr>
-                                    <td><code>@customer.CardCode</code></td>
-                                    <td>@customer.CardName</td>
-                                    <td>@(customer.Email ?? "-")</td>
+                                    <td><span class="cpm-code">@customer.CardCode</span></td>
+                                    <td style="font-weight:500;">@customer.CardName</td>
+                                    <td>@(customer.Email ?? "—")</td>
                                     <td>
                                         @if (customer.AccountStructure == "Multi")
                                         {
-                                            <span class="badge bg-info"
-                                                  title="Multiple linked accounts (main + sub)">Multi-Account</span>
-                                            <small class="d-block text-muted">@(customer.LinkedAccounts?.Count ?? 0) linked</small>
+                                            <span class="cpm-badge badge-multi">
+                                                <i class="bi bi-diagram-3"></i> Multi
+                                            </span>
+                                            <div style="font-size:.72rem; color:#9ca3af; margin-top:.15rem;">
+                                                @(customer.LinkedAccounts?.Count ?? 0) linked
+                                            </div>
                                         }
                                         else
                                         {
-                                            <span class="badge bg-secondary">Single</span>
+                                            <span class="cpm-badge badge-single">Single</span>
                                         }
                                     </td>
                                     <td>
                                         @if (customer.ReceiveStatements)
                                         {
-                                            <span class="badge bg-success">Enabled</span>
+                                            <span class="cpm-badge badge-enabled">
+                                                <i class="bi bi-bell-fill"></i> On
+                                            </span>
                                         }
                                         else
                                         {
-                                            <span class="badge bg-secondary">Opted out</span>
+                                            <span class="cpm-badge badge-disabled">Off</span>
                                         }
                                     </td>
                                     <td>
                                         @if (customer.LockedUntil.HasValue && customer.LockedUntil > DateTime.UtcNow)
                                         {
-                                            <span class="badge bg-danger">Locked</span>
+                                            <span class="cpm-badge badge-locked">
+                                                <i class="bi bi-lock-fill"></i> Locked
+                                            </span>
                                         }
                                         else if (customer.IsActive)
                                         {
-                                            <span class="badge bg-success">Active</span>
+                                            <span class="cpm-badge badge-active">
+                                                <i class="bi bi-check-circle"></i> Active
+                                            </span>
                                         }
                                         else
                                         {
-                                            <span class="badge bg-secondary">Inactive</span>
+                                            <span class="cpm-badge badge-inactive">Inactive</span>
                                         }
                                     </td>
                                     <td>
                                         @if (customer.TwoFactorEnabled)
                                         {
-                                            <span class="badge bg-info">Enabled</span>
+                                            <span class="cpm-badge badge-enabled">
+                                                <i class="bi bi-shield-check"></i> On
+                                            </span>
                                         }
                                         else
                                         {
-                                            <span class="text-muted">-</span>
+                                            <span style="color:#d1d5db;">—</span>
                                         }
                                     </td>
-                                    <td>@(customer.LastLoginAt?.ToString("MMM dd, yyyy HH:mm") ?? "Never")</td>
-                                    <td>@customer.CreatedAt.ToString("MMM dd, yyyy")</td>
-                                    <td class="text-end">
-                                        <div class="btn-group btn-group-sm">
-                                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" title="Edit"
+                                    <td style="font-size:.82rem; color:#6b7280;">
+                                        @(customer.LastLoginAt?.ToString("MMM dd, yyyy HH:mm") ?? "Never")
+                                    </td>
+                                    <td style="font-size:.82rem; color:#6b7280;">
+                                        @customer.CreatedAt.ToString("MMM dd, yyyy")
+                                    </td>
+                                    <td>
+                                        <div class="cpm-actions">
+                                            <MudButton Class="cpm-action-btn edit" title="Edit"
                                                        OnClick="@(() => ShowEditModal(customer))">
                                                 <i class="bi bi-pencil"></i>
                                             </MudButton>
-                                            <MudButton Variant="Variant.Outlined" Color="Color.Warning" title="Reset Password"
+                                            <MudButton Class="cpm-action-btn key" title="Reset Password"
                                                        OnClick="@(() => ShowResetPasswordModal(customer))">
                                                 <i class="bi bi-key"></i>
                                             </MudButton>
-                                            <MudButton Variant="Variant.Outlined" Color="Color.Info"
-                                                       title="Toggle statement emails"
+                                            <MudButton Class="cpm-action-btn stmt" title="Toggle Statements"
                                                        OnClick="@(() => ToggleStatementPreference(customer))">
                                                 <i
-                                                class="@((customer.ReceiveStatements) ? "bi-bell-fill" : "bi-bell-slash")"></i>
+                                                class="bi @(customer.ReceiveStatements ? "bi-bell-fill" : "bi-bell-slash")"></i>
                                             </MudButton>
-                                            <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                                                       title="Manage Linked Accounts"
+                                            <MudButton Class="cpm-action-btn link" title="Manage Linked Accounts"
                                                        OnClick="@(() => ShowLinkedAccountsModal(customer))">
                                                 <i class="bi bi-diagram-3"></i>
                                             </MudButton>
                                             @if (customer.LockedUntil.HasValue && customer.LockedUntil > DateTime.UtcNow)
                                             {
-                                                <MudButton Variant="Variant.Outlined" Color="Color.Success" title="Unlock Account"
+                                                <MudButton Class="cpm-action-btn unlock" title="Unlock Account"
                                                            OnClick="@(() => UnlockAccount(customer))">
                                                     <i class="bi bi-unlock"></i>
                                                 </MudButton>
                                             }
-                                            <MudButton Variant="Variant.Outlined" Color="Color.Error" title="Delete"
+                                            <MudButton Class="cpm-action-btn delete" title="Delete"
                                                        OnClick="@(() => ShowDeleteConfirmation(customer))">
                                                 <i class="bi bi-trash"></i>
                                             </MudButton>
@@ -575,127 +986,128 @@
                                     <strong>Account Structure Guide:</strong>
                                     <ul class="mb-0 mt-1">
                                         <li><strong>Main Accounts</strong> - Used for <strong>invoicing</strong> and
-                                            <strong>incoming payments</strong>. Typically one per currency (e.g. ZiG, USD).</li>
-                                            <li><strong>Sub Accounts</strong> - Used for <strong>sales orders only</strong>. Derive from
-                                                a main account.</li>
-                                            </ul>
-                                        </div>
+                                            <strong>incoming payments</strong>. Typically one per currency (e.g. ZiG, USD).
+                                        </li>
+                                        <li><strong>Sub Accounts</strong> - Used for <strong>sales orders only</strong>. Derive from
+                                            a main account.</li>
+                                        </ul>
                                     </div>
+                                </div>
 
-                                    <!-- Current Linked Accounts -->
-                                    @if (linkedAccounts != null && linkedAccounts.Any())
-                                    {
-                                        <h6 class="mb-3">Current Linked Accounts</h6>
-                                        <div class="table-responsive mb-4">
-                                            <table class="table table-sm table-bordered">
-                                                <thead class="table-light">
-                                                    <tr>
-                                                        <th>Card Code</th>
-                                                        <th>Name</th>
-                                                        <th>Type</th>
-                                                        <th>Currency</th>
-                                                        <th>Parent</th>
-                                                        <th>Allowed Transactions</th>
-                                                        <th>Description</th>
-                                                        <th></th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    @foreach (var acct in linkedAccounts)
-                                                    {
-                                                        <tr>
-                                                            <td><code>@acct.CardCode</code></td>
-                                                            <td>@acct.CardName</td>
-                                                            <td>
-                                                                <span
-                                                                    class="badge @(acct.AccountType == "Main" ? "bg-primary" : "bg-warning text-dark")">
-                                                                    @acct.AccountType
-                                                                </span>
-                                                            </td>
-                                                            <td>@(acct.Currency ?? "-")</td>
-                                                            <td>@(acct.ParentCardCode ?? "-")</td>
-                                                            <td>
-                                                                @foreach (var tx in acct.AllowedTransactions)
-                                                                {
-                                                                    <span class="badge bg-outline-secondary me-1"
-                                                                          style="border: 1px solid #ccc; color: #555;">@tx</span>
-                                                                }
-                                                            </td>
-                                                            <td>@(acct.Description ?? "-")</td>
-                                                            <td>
-                                                                <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
-                                                                           title="Remove" OnClick="@(() => RemoveLinkedAccount(acct.CardCode))">
-                                                                    <i class="bi bi-x-lg"></i>
-                                                                </MudButton>
-                                                            </td>
-                                                        </tr>
-                                                    }
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    }
-
-                                    <!-- Add New Linked Account -->
-                                    <h6 class="mb-3">Add Linked Account</h6>
-                                    <div class="row g-3 align-items-end">
-                                        <div class="col-md-3">
-                                            <label class="form-label">Select BP</label>
-                                            <MudAutocomplete T="CachedBusinessPartner" Label="Search BP" @bind-Value="linkedAccountBP"
-                                                             SearchFunc="@SearchCustomersFromDbAsync"
-                                                             ToStringFunc="@(bp => bp == null ? string.Empty : $"{bp.CardCode} - {bp.CardName}")"
-                                                             ShowProgressIndicator="true" MinCharacters="1" Dense="true" Variant="Variant.Outlined"
-                                                             Margin="Margin.Dense" Clearable="true" />
-                                        </div>
-                                        <div class="col-md-2">
-                                            <label class="form-label">Account Type</label>
-                                            <select class="form-select form-select-sm" @bind="newLinkedAccountType">
-                                                <option value="Main">Main</option>
-                                                <option value="Sub">Sub</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-2">
-                                            <label class="form-label">Currency</label>
-                                            <select class="form-select form-select-sm" @bind="newLinkedAccountCurrency">
-                                                <option value="">-- Select --</option>
-                                                <option value="USD">USD</option>
-                                                <option value="ZiG">ZiG</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-2">
-                                            <label class="form-label">Parent (for Sub)</label>
-                                            <select class="form-select form-select-sm" @bind="newLinkedAccountParent">
-                                                <option value="">-- None --</option>
-                                                @if (linkedAccounts != null)
+                                <!-- Current Linked Accounts -->
+                                @if (linkedAccounts != null && linkedAccounts.Any())
+                                {
+                                    <h6 class="mb-3">Current Linked Accounts</h6>
+                                    <div class="table-responsive mb-4">
+                                        <table class="table table-sm table-bordered">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>Card Code</th>
+                                                    <th>Name</th>
+                                                    <th>Type</th>
+                                                    <th>Currency</th>
+                                                    <th>Parent</th>
+                                                    <th>Allowed Transactions</th>
+                                                    <th>Description</th>
+                                                    <th></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var acct in linkedAccounts)
                                                 {
-                                                    @foreach (var main in linkedAccounts.Where(a => a.AccountType == "Main"))
-                                                    {
-                                                        <option value="@main.CardCode">@main.CardCode (@main.Currency)</option>
-                                                    }
+                                                    <tr>
+                                                        <td><code>@acct.CardCode</code></td>
+                                                        <td>@acct.CardName</td>
+                                                        <td>
+                                                            <span
+                                                                class="badge @(acct.AccountType == "Main" ? "bg-primary" : "bg-warning text-dark")">
+                                                                @acct.AccountType
+                                                            </span>
+                                                        </td>
+                                                        <td>@(acct.Currency ?? "-")</td>
+                                                        <td>@(acct.ParentCardCode ?? "-")</td>
+                                                        <td>
+                                                            @foreach (var tx in acct.AllowedTransactions)
+                                                            {
+                                                                <span class="badge bg-outline-secondary me-1"
+                                                                      style="border: 1px solid #ccc; color: #555;">@tx</span>
+                                                            }
+                                                        </td>
+                                                        <td>@(acct.Description ?? "-")</td>
+                                                        <td>
+                                                            <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                                                                       title="Remove" OnClick="@(() => RemoveLinkedAccount(acct.CardCode))">
+                                                                <i class="bi bi-x-lg"></i>
+                                                            </MudButton>
+                                                        </td>
+                                                    </tr>
                                                 }
-                                            </select>
-                                        </div>
-                                        <div class="col-md-2">
-                                            <label class="form-label">Description</label>
-                                            <input type="text" class="form-control form-control-sm" @bind="newLinkedAccountDesc"
-                                                   placeholder="e.g. ZiG Main" />
-                                        </div>
-                                        <div class="col-md-1">
-                                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Class="w-100"
-                                                       OnClick="AddLinkedAccount" Disabled="@isSaving"
-                                                       Style="background: #6366f1; border-color: #6366f1;">
-                                                <i class="bi bi-plus"></i> Add
-                                            </MudButton>
-                                        </div>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+
+                                <!-- Add New Linked Account -->
+                                <h6 class="mb-3">Add Linked Account</h6>
+                                <div class="row g-3 align-items-end">
+                                    <div class="col-md-3">
+                                        <label class="form-label">Select BP</label>
+                                        <MudAutocomplete T="CachedBusinessPartner" Label="Search BP" @bind-Value="linkedAccountBP"
+                                                         SearchFunc="@SearchCustomersFromDbAsync"
+                                                         ToStringFunc="@(bp => bp == null ? string.Empty : $"{bp.CardCode} - {bp.CardName}")"
+                                                         ShowProgressIndicator="true" MinCharacters="1" Dense="true" Variant="Variant.Outlined"
+                                                         Margin="Margin.Dense" Clearable="true" />
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Account Type</label>
+                                        <select class="form-select form-select-sm" @bind="newLinkedAccountType">
+                                            <option value="Main">Main</option>
+                                            <option value="Sub">Sub</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Currency</label>
+                                        <select class="form-select form-select-sm" @bind="newLinkedAccountCurrency">
+                                            <option value="">-- Select --</option>
+                                            <option value="USD">USD</option>
+                                            <option value="ZiG">ZiG</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Parent (for Sub)</label>
+                                        <select class="form-select form-select-sm" @bind="newLinkedAccountParent">
+                                            <option value="">-- None --</option>
+                                            @if (linkedAccounts != null)
+                                            {
+                                                @foreach (var main in linkedAccounts.Where(a => a.AccountType == "Main"))
+                                                {
+                                                    <option value="@main.CardCode">@main.CardCode (@main.Currency)</option>
+                                                }
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Description</label>
+                                        <input type="text" class="form-control form-control-sm" @bind="newLinkedAccountDesc"
+                                               placeholder="e.g. ZiG Main" />
+                                    </div>
+                                    <div class="col-md-1">
+                                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Class="w-100"
+                                                   OnClick="AddLinkedAccount" Disabled="@isSaving"
+                                                   Style="background: #6366f1; border-color: #6366f1;">
+                                            <i class="bi bi-plus"></i> Add
+                                        </MudButton>
                                     </div>
                                 </div>
-                                <div class="modal-footer">
-                                    <MudButton Variant="Variant.Filled" Color="Color.Default" OnClick="CloseLinkedAccountsModal">Close
-                                    </MudButton>
-                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <MudButton Variant="Variant.Filled" Color="Color.Default" OnClick="CloseLinkedAccountsModal">Close
+                                </MudButton>
                             </div>
                         </div>
                     </div>
-                }
+                </div>
+            }
 
 @code {
     private List<CustomerPortalUser>? customers;
@@ -1111,9 +1523,14 @@
             {
                 customer.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword, 12);
                 customer.LastPasswordChangeAt = DateTime.UtcNow;
+                customer.PasswordExpiresAt = DateTime.UtcNow.AddDays(90);
                 customer.UpdatedAt = DateTime.UtcNow;
                 customer.FailedLoginAttempts = 0;
                 customer.LockedUntil = null;
+                customer.MustChangePassword = false;
+                customer.PasswordResetToken = null;
+                customer.PasswordResetTokenExpiry = null;
+                customer.Status = "Active";
 
                 await dbContext.SaveChangesAsync();
                 successMessage = $"Password reset successfully for {customer.CardCode}.";

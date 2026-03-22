@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
+using ShopInventory.Web.Services;
 
 namespace ShopInventory.Web.Models;
 
@@ -128,10 +129,10 @@ public class CustomerTwoFactorRequest
 public class CustomerStatementRequest
 {
     [Required]
-    public DateTime FromDate { get; set; } = DateTime.Now.AddMonths(-3);
+    public DateTime FromDate { get; set; } = IAuditService.ToCAT(DateTime.UtcNow).AddMonths(-3);
 
     [Required]
-    public DateTime ToDate { get; set; } = DateTime.Now;
+    public DateTime ToDate { get; set; } = IAuditService.ToCAT(DateTime.UtcNow);
 
     public string? Currency { get; set; }
     public bool IncludeClosedInvoices { get; set; } = false;
@@ -145,7 +146,7 @@ public class CustomerStatementResponse
     public CustomerInfo Customer { get; set; } = new();
     public DateTime FromDate { get; set; }
     public DateTime ToDate { get; set; }
-    public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
+    public DateTime GeneratedAt { get; set; } = IAuditService.ToCAT(DateTime.UtcNow);
 
     public decimal OpeningBalance { get; set; }
     public decimal TotalInvoices { get; set; }

@@ -56,6 +56,8 @@ public class UserInfo
     public required string Role { get; set; }
     public string? Email { get; set; }
     public string? AssignedWarehouseCode { get; set; }
+    public List<string> AssignedWarehouseCodes { get; set; } = new();
+    public List<string> AllowedPaymentMethods { get; set; } = new();
 }
 
 /// <summary>

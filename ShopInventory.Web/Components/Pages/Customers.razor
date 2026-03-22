@@ -5,6 +5,7 @@
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
+@inject IAppSettingsProvider AppSettings
 @rendermode InteractiveServer
 
 <PageTitle>Customers - Shop Inventory</PageTitle>
@@ -859,9 +860,9 @@
                     }
                 </MudButton>
                 <div class="type-toggle">
-                    <MudButton Class="@(selectedType == "C" ? "active" : "")"                               OnClick='() => FilterByType("C")'>
+                    <MudButton Class="@(selectedType == "C" ? "active" : "")" OnClick='() => FilterByType("C")'>
                         Customers</MudButton>
-                        <MudButton Class="@(selectedType == "S" ? "active" : "")"                               OnClick='() => FilterByType("S")'>
+                        <MudButton Class="@(selectedType == "S" ? "active" : "")" OnClick='() => FilterByType("S")'>
                             Suppliers</MudButton>
                             <MudButton Class="@(selectedType == "" ? "active" : "")" OnClick='() => FilterByType("")'>All
                             </MudButton>
@@ -1000,7 +1001,7 @@
                                 <MudTd DataLabel="Currency">
                                     <span
                                         style="font-size:.82rem;padding:.15rem .45rem;border-radius:4px;background:#f3f4f6;color:#374151;font-weight:600;">@(context.Currency
-                                                                                                    ?? "USD")</span>
+                                                                    ?? "USD")</span>
                                     </MudTd>
                                     <MudTd DataLabel="Balance" Style="text-align:right">
                                         <span class="@(context.Balance > 0 ? "balance-positive" : "balance-zero")">
@@ -1020,7 +1021,7 @@
                                     <MudTd DataLabel="Actions">
                                         <div style="display:flex;gap:.3rem;">
                                             <MudIconButton Icon="@Icons.Material.Filled.Visibility" Class="action-btn primary"
-                                                           OnClick="@(() => ViewCustomer(context))"                                           Title="View Details" />
+                                                           OnClick="@(() => ViewCustomer(context))" Title="View Details" />
                                             <MudIconButton Icon="@Icons.Material.Filled.Receipt" Class="action-btn info"
                                                            OnClick="@(() => NavigateToInvoices(context.CardCode ?? string.Empty))"
                                                            Title="View Invoices" />
@@ -1064,12 +1065,12 @@
                             <div class="stmt-field">
                                 <label>Statement From</label>
                                 <MudDatePicker @bind-Date="statementFromDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                               DateFormat="dd.MM.yyyy" Editable="true" />
+                                               DateFormat="@AppSettings.DateFormat" Editable="true" />
                             </div>
                             <div class="stmt-field">
                                 <label>Statement To</label>
                                 <MudDatePicker @bind-Date="statementToDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                               DateFormat="dd.MM.yyyy" Editable="true" />
+                                               DateFormat="@AppSettings.DateFormat" Editable="true" />
                             </div>
                             <MudButton Class="btn-drawer-warning" Style="align-self:flex-end;"
                                        OnClick="() => GenerateStatement(selectedCustomer.CardCode ?? string.Empty)"

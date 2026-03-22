@@ -410,3 +410,191 @@ public class LowStockAlertRequest
 }
 
 #endregion
+
+#region Credit Notes Report
+
+public class CreditNoteSummaryReportDto
+{
+    public DateTime FromDate { get; set; }
+    public DateTime ToDate { get; set; }
+    public int TotalCreditNotes { get; set; }
+    public decimal TotalCreditAmountUSD { get; set; }
+    public decimal TotalCreditAmountZIG { get; set; }
+    public decimal TotalVatUSD { get; set; }
+    public decimal TotalVatZIG { get; set; }
+    public decimal AverageCreditNoteValueUSD { get; set; }
+    public int UniqueCustomers { get; set; }
+    public decimal CreditToSalesRatioPercent { get; set; }
+    public List<CreditNoteByCustomerDto> ByCustomer { get; set; } = new();
+    public List<DailyCreditNoteDto> DailyBreakdown { get; set; } = new();
+    public List<CreditNoteByProductDto> TopProductsReturned { get; set; } = new();
+}
+
+public class CreditNoteByCustomerDto
+{
+    public string CardCode { get; set; } = string.Empty;
+    public string CardName { get; set; } = string.Empty;
+    public int CreditNoteCount { get; set; }
+    public decimal TotalAmountUSD { get; set; }
+    public decimal TotalAmountZIG { get; set; }
+}
+
+public class DailyCreditNoteDto
+{
+    public DateTime Date { get; set; }
+    public int Count { get; set; }
+    public decimal TotalAmountUSD { get; set; }
+    public decimal TotalAmountZIG { get; set; }
+}
+
+public class CreditNoteByProductDto
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public string ItemName { get; set; } = string.Empty;
+    public decimal TotalQuantityReturned { get; set; }
+    public decimal TotalCreditAmountUSD { get; set; }
+    public decimal TotalCreditAmountZIG { get; set; }
+    public int TimesReturned { get; set; }
+}
+
+#endregion
+
+#region Purchase Orders Report
+
+public class PurchaseOrderSummaryReportDto
+{
+    public DateTime FromDate { get; set; }
+    public DateTime ToDate { get; set; }
+    public int TotalPurchaseOrders { get; set; }
+    public int OpenOrders { get; set; }
+    public int ClosedOrders { get; set; }
+    public int CancelledOrders { get; set; }
+    public decimal TotalOrderValueUSD { get; set; }
+    public decimal TotalOrderValueZIG { get; set; }
+    public decimal TotalPendingValueUSD { get; set; }
+    public decimal TotalPendingValueZIG { get; set; }
+    public decimal AverageOrderValueUSD { get; set; }
+    public int UniqueSuppliers { get; set; }
+    public List<PurchaseOrderBySupplierDto> BySupplier { get; set; } = new();
+    public List<DailyPurchaseOrderDto> DailyBreakdown { get; set; } = new();
+    public List<TopPurchasedProductDto> TopProducts { get; set; } = new();
+}
+
+public class PurchaseOrderBySupplierDto
+{
+    public string CardCode { get; set; } = string.Empty;
+    public string CardName { get; set; } = string.Empty;
+    public int OrderCount { get; set; }
+    public decimal TotalValueUSD { get; set; }
+    public decimal TotalValueZIG { get; set; }
+    public int OpenOrders { get; set; }
+    public decimal PendingValueUSD { get; set; }
+}
+
+public class DailyPurchaseOrderDto
+{
+    public DateTime Date { get; set; }
+    public int Count { get; set; }
+    public decimal TotalValueUSD { get; set; }
+    public decimal TotalValueZIG { get; set; }
+}
+
+public class TopPurchasedProductDto
+{
+    public int Rank { get; set; }
+    public string ItemCode { get; set; } = string.Empty;
+    public string ItemName { get; set; } = string.Empty;
+    public decimal TotalQuantityOrdered { get; set; }
+    public decimal TotalCostUSD { get; set; }
+    public decimal TotalCostZIG { get; set; }
+    public int TimesOrdered { get; set; }
+}
+
+#endregion
+
+#region Receivables Aging Report
+
+public class ReceivablesAgingReportDto
+{
+    public DateTime ReportDate { get; set; }
+    public int TotalCustomers { get; set; }
+    public decimal TotalOutstandingUSD { get; set; }
+    public decimal TotalOutstandingZIG { get; set; }
+    public AgingBucketDto Current { get; set; } = new();
+    public AgingBucketDto Days31To60 { get; set; } = new();
+    public AgingBucketDto Days61To90 { get; set; } = new();
+    public AgingBucketDto Over90Days { get; set; } = new();
+    public List<CustomerAgingDto> CustomerAging { get; set; } = new();
+}
+
+public class AgingBucketDto
+{
+    public string Label { get; set; } = string.Empty;
+    public int InvoiceCount { get; set; }
+    public decimal AmountUSD { get; set; }
+    public decimal AmountZIG { get; set; }
+    public decimal PercentOfTotal { get; set; }
+}
+
+public class CustomerAgingDto
+{
+    public string CardCode { get; set; } = string.Empty;
+    public string CardName { get; set; } = string.Empty;
+    public decimal CurrentUSD { get; set; }
+    public decimal Days31To60USD { get; set; }
+    public decimal Days61To90USD { get; set; }
+    public decimal Over90DaysUSD { get; set; }
+    public decimal TotalOutstandingUSD { get; set; }
+    public decimal TotalOutstandingZIG { get; set; }
+    public int TotalInvoices { get; set; }
+}
+
+#endregion
+
+#region Profit Overview Report
+
+public class ProfitOverviewReportDto
+{
+    public DateTime FromDate { get; set; }
+    public DateTime ToDate { get; set; }
+    public decimal TotalRevenueUSD { get; set; }
+    public decimal TotalRevenueZIG { get; set; }
+    public decimal TotalCreditNotesUSD { get; set; }
+    public decimal TotalCreditNotesZIG { get; set; }
+    public decimal NetRevenueUSD { get; set; }
+    public decimal NetRevenueZIG { get; set; }
+    public decimal TotalCollectedUSD { get; set; }
+    public decimal TotalCollectedZIG { get; set; }
+    public decimal CollectionRatePercent { get; set; }
+    public decimal OutstandingReceivablesUSD { get; set; }
+    public decimal OutstandingReceivablesZIG { get; set; }
+    public decimal TotalVatUSD { get; set; }
+    public decimal TotalVatZIG { get; set; }
+    public decimal TotalPurchaseCostUSD { get; set; }
+    public decimal TotalPurchaseCostZIG { get; set; }
+    public decimal GrossProfitUSD { get; set; }
+    public decimal GrossProfitZIG { get; set; }
+    public decimal GrossMarginPercent { get; set; }
+    public int TotalInvoices { get; set; }
+    public int TotalCreditNoteCount { get; set; }
+    public int TotalPayments { get; set; }
+    public int UniqueCustomers { get; set; }
+    public List<MonthlyProfitDto> MonthlyBreakdown { get; set; } = new();
+}
+
+public class MonthlyProfitDto
+{
+    public string Month { get; set; } = string.Empty;
+    public decimal RevenueUSD { get; set; }
+    public decimal RevenueZIG { get; set; }
+    public decimal CreditNotesUSD { get; set; }
+    public decimal CollectedUSD { get; set; }
+    public decimal PurchaseCostUSD { get; set; }
+    public decimal GrossProfitUSD { get; set; }
+    public int InvoiceCount { get; set; }
+    public int PaymentCount { get; set; }
+}
+
+#endregion
+
+

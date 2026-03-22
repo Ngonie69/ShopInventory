@@ -291,6 +291,46 @@ public class AppSettingsService : IAppSettingsService
                 DataType = "int",
                 Description = "Number of copies to print",
                 DisplayOrder = 3
+            },
+            new()
+            {
+                Category = SettingCategories.Printing,
+                Key = SettingKeys.SavedPrinters,
+                Value = "[]",
+                DataType = "string",
+                Description = "JSON array of saved printer names for quick selection",
+                DisplayOrder = 4
+            },
+
+            // Payment settings
+            new()
+            {
+                Category = SettingCategories.Payments,
+                Key = SettingKeys.IncomingPaymentGLAccount,
+                Value = "",
+                DataType = "string",
+                Description = "Default G/L account code used for posting incoming payments",
+                DisplayOrder = 1
+            },
+            new()
+            {
+                Category = SettingCategories.Payments,
+                Key = SettingKeys.AllowedPaymentBusinessPartners,
+                Value = "[]",
+                DataType = "string",
+                Description = "JSON array of business partner codes allowed for incoming payments",
+                DisplayOrder = 2,
+                IsVisible = false,
+                IsEditable = true
+            },
+            new()
+            {
+                Category = SettingCategories.Payments,
+                Key = SettingKeys.DefaultPaymentMethod,
+                Value = "cash",
+                DataType = "string",
+                Description = "Default payment method for incoming payments (cash, transfer, check, credit)",
+                DisplayOrder = 3
             }
         };
 

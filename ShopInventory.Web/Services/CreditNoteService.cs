@@ -100,7 +100,8 @@ public class CreditNoteService : ICreditNoteService
             {
                 return await response.Content.ReadFromJsonAsync<CreditNoteDto>();
             }
-            _logger.LogWarning("Failed to create credit note: {StatusCode}", response.StatusCode);
+            var errorBody = await response.Content.ReadAsStringAsync();
+            _logger.LogWarning("Failed to create credit note: {StatusCode} - {Error}", response.StatusCode, errorBody);
             return null;
         }
         catch (Exception ex)
@@ -129,7 +130,8 @@ public class CreditNoteService : ICreditNoteService
             string errorMessage = "Failed to create credit note.";
             try
             {
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent);
+                var jsonOptions = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent, jsonOptions);
                 if (!string.IsNullOrEmpty(errorResponse?.Message))
                 {
                     errorMessage = errorResponse.Message;

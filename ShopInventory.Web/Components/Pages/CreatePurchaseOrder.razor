@@ -2,8 +2,10 @@
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize(Roles = "Admin,Manager")]
 @inject IPurchaseOrderService PurchaseOrderService
+@inject IMasterDataCacheService CacheService
 @inject NavigationManager NavigationManager
 @inject ILogger<CreatePurchaseOrder> Logger
+@inject IAppSettingsProvider AppSettings
 @rendermode InteractiveServer
 
 <PageTitle>Create Purchase Order - Shop Inventory</PageTitle>
@@ -455,6 +457,80 @@
         }
     }
 
+    /* ── BP Search Dropdown ──────────────────────────── */
+    .bp-search-wrapper {
+        position: relative;
+    }
+
+    .bp-dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+        z-index: 50;
+        max-height: 260px;
+        overflow-y: auto;
+        margin-top: 4px;
+    }
+
+    .bp-dropdown-item {
+        padding: .5rem .75rem;
+        cursor: pointer;
+        font-size: .85rem;
+        border-bottom: 1px solid #f3f4f6;
+        transition: background .1s;
+    }
+
+    .bp-dropdown-item:hover {
+        background: #f0fdf4;
+    }
+
+    .bp-dropdown-item:last-child {
+        border-bottom: none;
+    }
+
+    .bp-dropdown-empty {
+        padding: .75rem;
+        text-align: center;
+        color: #9ca3af;
+        font-size: .85rem;
+    }
+
+    .bp-dropdown-more {
+        padding: .5rem .75rem;
+        text-align: center;
+        color: #9ca3af;
+        font-size: .8rem;
+        border-top: 1px solid #f3f4f6;
+    }
+
+    .selected-bp-badge {
+        background: #f0fdf4;
+        border: 1px solid #6ee7b7;
+        border-radius: 8px;
+        padding: .5rem .75rem;
+    }
+
+    .bp-clear-btn {
+        background: none !important;
+        border: 1px solid #fecaca !important;
+        color: #dc2626 !important;
+        min-width: 28px !important;
+        width: 28px;
+        height: 28px;
+        padding: 0 !important;
+        border-radius: 6px !important;
+        font-size: .8rem;
+    }
+
+    .bp-clear-btn:hover {
+        background: #fef2f2 !important;
+    }
+
     @@media (max-width:768px) {
 
         .form-grid,
@@ -527,204 +603,265 @@
             <div class="po-card-header">
                 <i class="bi bi-building" style="color:#059669;font-size:1.1rem;"></i>
                 <h5>Supplier Details</h5>
+                @if (isLoadingBPs)
+                {
+                    <div
+                        style="margin-left:auto; display:flex; align-items:center; gap:.4rem; font-size:.82rem; color:#6b7280;">
+                        <span class="spinner-border spinner-border-sm"></span> Loading suppliers…
+                    </div>
+                }
             </div>
             <div class="po-card-body">
                 <div class="form-grid cols-4">
-                    <div class="form-field @(HasError("CardCode") ? "has-error" : "")">
-                        <label>Supplier Code <span class="req">*</span></label>
-                        <input type="text" @bind="purchaseOrder.CardCode" placeholder="e.g., V001" />
-                        @if (HasError("CardCode"))
+                    <div class="form-field @(HasError("CardCode") ? "has-error" : "")" style="grid-column: span 2;">
+                        <label>Supplier <span class="req">*</span></label>
+                        @if (selectedBusinessPartner != null)
                         {
-                            <span class="field-error">@GetError("CardCode")</span>
-                        }
-                    </div>
-                    <div class="form-field">
-                        <label>Supplier Name</label>
-                        <input type="text" @bind="purchaseOrder.CardName" placeholder="Supplier name" />
-                    </div>
-                    <div class="form-field">
-                        <label>Supplier Reference</label>
-                        <input type="text" @bind="purchaseOrder.SupplierRefNo" placeholder="Quote / Ref number" />
-                    </div>
-                    <div class="form-field">
-                        <label>Delivery Date</label>
-                        <MudDatePicker @bind-Date="deliveryDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                       DateFormat="dd.MM.yyyy" Editable="true" />
-                    </div>
-                    <div class="form-field">
-                        <label>Currency</label>
-                        <select @bind="purchaseOrder.Currency">
-                            <option value="USD">USD</option>
-                            <option value="ZIG">ZIG</option>
-                        </select>
-                    </div>
-                    <div class="form-field">
-                        <label>Receiving Warehouse</label>
-                        <input type="text" @bind="purchaseOrder.WarehouseCode" placeholder="e.g., WH01" />
-                    </div>
-                    <div class="form-field">
-                        <label>Discount %</label>
-                        <input type="number" @bind="purchaseOrder.DiscountPercent" min="0" max="100" step="0.5" />
-                    </div>
-                    <div class="form-field">
-                        <label>&nbsp;</label>
-                        <span style="font-size:.8rem;color:#9ca3af;padding-top:.5rem;">
-                            Applied to subtotal
-                        </span>
-                    </div>
-                    <div class="form-field full">
-                        <label>Comments / Notes</label>
-                        <textarea @bind="purchaseOrder.Comments" rows="2"
-                                  placeholder="Optional notes for this order..."></textarea>
+                            <div class="selected-bp-badge d-flex justify-content-between align-items-center">
+                                <div>
+                                    <div style="font-weight:700; color:#065f46;">
+                                        <i class="bi bi-check-circle-fill" style="color:#059669; margin-right:.3rem;"></i>
+                                        @selectedBusinessPartner.CardCode
+                                    </div>
+                                    <div style="font-size:.85rem; color:#065f46; opacity:.8;">
+                                        @selectedBusinessPartner.CardName</div>
+                                        @if (!string.IsNullOrEmpty(selectedBusinessPartner.Phone1))
+                                        {
+                                            <div style="font-size:.82rem; color:#065f46; opacity:.7; margin-top:.15rem;">
+                                                <i class="bi bi-telephone"
+                                                   style="margin-right:.25rem;"></i>@selectedBusinessPartner.Phone1
+                                            </div>
+                                        }
+                                    </div>
+                                    <MudButton ButtonType="ButtonType.Button" Class="bp-clear-btn" OnClick="ClearSelectedBP">
+                                        <i class="bi bi-x"></i>
+                                    </MudButton>
+                                </div>
+                            }
+                        else
+                            {
+                                <div class="bp-search-wrapper">
+                                    <input type="text" @bind="bpSearchTerm" @bind:event="oninput"
+                                           @onfocus="() => showBPDropdown = true" @onblur="OnBPSearchBlur"
+                                           placeholder="Search by code or name…" autocomplete="off"
+                                           style="@(HasError("CardCode") ? "border-color:#dc2626;" : "")" />
+                                    @if (showBPDropdown && filteredBusinessPartners.Any())
+                                    {
+                                        <div class="bp-dropdown" @onmousedown:preventDefault>
+                                            @foreach (var bp in filteredBusinessPartners.Take(15))
+                                            {
+                                                <div class="bp-dropdown-item" @onmousedown="() => SelectBusinessPartner(bp)">
+                                                    <strong>@bp.CardCode</strong> — <span style="color:#6b7280;">@bp.CardName</span>
+                                                </div>
+                                            }
+                                            @if (filteredBusinessPartners.Count() > 15)
+                                            {
+                                                <div class="bp-dropdown-more">
+                                                    <i class="bi bi-info-circle" style="margin-right:.25rem;"></i>
+                                                    @filteredBusinessPartners.Count() total — type more to filter
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                    else if (showBPDropdown && !string.IsNullOrWhiteSpace(bpSearchTerm) &&
+                                    !filteredBusinessPartners.Any())
+                                    {
+                                        <div class="bp-dropdown">
+                                            <div class="bp-dropdown-empty">
+                                                <i class="bi bi-search" style="margin-right:.25rem;"></i>No suppliers found
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            @if (HasError("CardCode"))
+                            {
+                                <span class="field-error">@GetError("CardCode")</span>
+                            }
+                        </div>
+                        <div class="form-field">
+                            <label>Supplier Reference</label>
+                            <input type="text" @bind="purchaseOrder.SupplierRefNo" placeholder="Quote / Ref number" />
+                        </div>
+                        <div class="form-field">
+                            <label>Delivery Date</label>
+                            <MudDatePicker @bind-Date="deliveryDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                           DateFormat="@AppSettings.DateFormat" Editable="true" />
+                        </div>
+                        <div class="form-field">
+                            <label>Currency</label>
+                            <select @bind="purchaseOrder.Currency">
+                                <option value="USD">USD</option>
+                                <option value="ZIG">ZIG</option>
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label>Receiving Warehouse</label>
+                            <input type="text" @bind="purchaseOrder.WarehouseCode" placeholder="e.g., WH01" />
+                        </div>
+                        <div class="form-field">
+                            <label>Discount %</label>
+                            <input type="number" @bind="purchaseOrder.DiscountPercent" min="0" max="100" step="0.5" />
+                        </div>
+                        <div class="form-field">
+                            <label>&nbsp;</label>
+                            <span style="font-size:.8rem;color:#9ca3af;padding-top:.5rem;">
+                                Applied to subtotal
+                            </span>
+                        </div>
+                        <div class="form-field full">
+                            <label>Comments / Notes</label>
+                            <textarea @bind="purchaseOrder.Comments" rows="2"
+                                      placeholder="Optional notes for this order..."></textarea>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Line Items Card -->
-        <div class="po-card">
-            <div class="po-card-header">
-                <i class="bi bi-list-ul" style="color:#059669;font-size:1.1rem;"></i>
-                <h5>Line Items</h5>
-                <div style="flex:1;"></div>
-                <MudButton Class="btn-add-line" OnClick="AddLine">
-                    <i class="bi bi-plus-lg"></i> Add Line
-                </MudButton>
-            </div>
-            <div class="po-card-body" style="overflow-x:auto;padding:.75rem;">
-                @if (validationErrors.ContainsKey("Lines"))
-                {
-                    <div class="alert-banner error-alert" style="margin-bottom:.75rem;">
-                        <i class="bi bi-exclamation-triangle-fill"></i>
-                        <span>@validationErrors["Lines"]</span>
-                    </div>
-                }
-                <table class="line-table">
-                    <thead>
-                        <tr>
-                            <th style="width:36px;">#</th>
-                            <th style="min-width:130px;">Item Code <span style="color:#dc2626;">*</span></th>
-                            <th style="min-width:170px;">Description</th>
-                            <th style="width:90px;">Qty <span style="color:#dc2626;">*</span></th>
-                            <th style="width:110px;">Unit Price <span style="color:#dc2626;">*</span></th>
-                            <th style="width:80px;">Tax %</th>
-                            <th style="width:80px;">Disc %</th>
-                            <th style="width:110px;">Warehouse</th>
-                            <th style="width:110px;text-align:right;">Line Total</th>
-                            <th style="width:36px;"></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @for (int i = 0; i < purchaseOrder.Lines.Count; i++)
-                        {
-                            var idx = i;
-                            var line = purchaseOrder.Lines[idx];
-                            var lineTotal = CalculateLineTotal(line);
-                            <tr>
-                                <td class="line-num">@(idx + 1)</td>
-                                <td>
-                                    <input type="text" @bind="line.ItemCode" placeholder="Item code"
-                                           style="@(HasError($"Line{idx}_ItemCode") ? "border-color:#dc2626;" : "")" />
-                                    @if (HasError($"Line{idx}_ItemCode"))
-                                    {
-                                        <span class="line-error">@GetError($"Line{idx}_ItemCode")</span>
-                                    }
-                                </td>
-                                <td>
-                                    <input type="text" @bind="line.ItemDescription" placeholder="Description" />
-                                </td>
-                                <td>
-                                    <input type="number" @bind="line.Quantity" min="0.0001" step="any"
-                                           style="@(HasError($"Line{idx}_Quantity") ? "border-color:#dc2626;" : "")" />
-                                    @if (HasError($"Line{idx}_Quantity"))
-                                    {
-                                        <span class="line-error">@GetError($"Line{idx}_Quantity")</span>
-                                    }
-                                </td>
-                                <td>
-                                    <input type="number" @bind="line.UnitPrice" min="0" step="any" />
-                                </td>
-                                <td>
-                                    <input type="number" @bind="line.TaxPercent" min="0" max="100" step="0.5" />
-                                </td>
-                                <td>
-                                    <input type="number" @bind="line.DiscountPercent" min="0" max="100" step="0.5" />
-                                </td>
-                                <td>
-                                    <input type="text" @bind="line.WarehouseCode"
-                                           placeholder="@(purchaseOrder.WarehouseCode ?? "WH")" />
-                                </td>
-                                <td class="line-total">@lineTotal.ToString("N2")</td>
-                                <td>
-                                    @if (purchaseOrder.Lines.Count > 1)
-                                    {
-                                        <MudButton Class="btn-remove-line" OnClick="() => RemoveLine(idx)">
-                                            <i class="bi bi-x"></i>
-                                        </MudButton>
-                                    }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Totals -->
-            <div class="po-totals">
-                <div class="totals-grid">
-                    <div class="totals-row">
-                        <span class="t-label">Subtotal:</span>
-                        <span class="t-value">@CalculateSubTotal().ToString("N2")</span>
-                    </div>
-                    @if (purchaseOrder.DiscountPercent > 0)
+            <!-- Line Items Card -->
+            <div class="po-card">
+                <div class="po-card-header">
+                    <i class="bi bi-list-ul" style="color:#059669;font-size:1.1rem;"></i>
+                    <h5>Line Items</h5>
+                    <div style="flex:1;"></div>
+                    <MudButton Class="btn-add-line" OnClick="AddLine">
+                        <i class="bi bi-plus-lg"></i> Add Line
+                    </MudButton>
+                </div>
+                <div class="po-card-body" style="overflow-x:auto;padding:.75rem;">
+                    @if (validationErrors.ContainsKey("Lines"))
                     {
-                        <div class="totals-row">
-                            <span class="t-label">Discount (@purchaseOrder.DiscountPercent%):</span>
-                            <span class="t-value" style="color:#dc2626;">-@CalculateDiscount().ToString("N2")</span>
+                        <div class="alert-banner error-alert" style="margin-bottom:.75rem;">
+                            <i class="bi bi-exclamation-triangle-fill"></i>
+                            <span>@validationErrors["Lines"]</span>
                         </div>
                     }
-                    <div class="totals-row">
-                        <span class="t-label">Tax:</span>
-                        <span class="t-value">@CalculateTax().ToString("N2")</span>
-                    </div>
-                    <hr style="width:260px;margin:.3rem 0;border-color:#e5e7eb;" />
-                    <div class="totals-row grand">
-                        <span class="t-label">Grand Total:</span>
-                        <span class="t-value">@purchaseOrder.Currency @CalculateGrandTotal().ToString("N2")</span>
+                    <table class="line-table">
+                        <thead>
+                            <tr>
+                                <th style="width:36px;">#</th>
+                                <th style="min-width:130px;">Item Code <span style="color:#dc2626;">*</span></th>
+                                <th style="min-width:170px;">Description</th>
+                                <th style="width:90px;">Qty <span style="color:#dc2626;">*</span></th>
+                                <th style="width:110px;">Unit Price <span style="color:#dc2626;">*</span></th>
+                                <th style="width:80px;">Tax %</th>
+                                <th style="width:80px;">Disc %</th>
+                                <th style="width:110px;">Warehouse</th>
+                                <th style="width:110px;text-align:right;">Line Total</th>
+                                <th style="width:36px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (int i = 0; i < purchaseOrder.Lines.Count; i++)
+                            {
+                                var idx = i;
+                                var line = purchaseOrder.Lines[idx];
+                                var lineTotal = CalculateLineTotal(line);
+                                <tr>
+                                    <td class="line-num">@(idx + 1)</td>
+                                    <td>
+                                        <input type="text" @bind="line.ItemCode" placeholder="Item code"
+                                               style="@(HasError($"Line{idx}_ItemCode") ? "border-color:#dc2626;" : "")" />
+                                        @if (HasError($"Line{idx}_ItemCode"))
+                                        {
+                                            <span class="line-error">@GetError($"Line{idx}_ItemCode")</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <input type="text" @bind="line.ItemDescription" placeholder="Description" />
+                                    </td>
+                                    <td>
+                                        <input type="number" @bind="line.Quantity" min="0.0001" step="any"
+                                               style="@(HasError($"Line{idx}_Quantity") ? "border-color:#dc2626;" : "")" />
+                                        @if (HasError($"Line{idx}_Quantity"))
+                                        {
+                                            <span class="line-error">@GetError($"Line{idx}_Quantity")</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <input type="number" @bind="line.UnitPrice" min="0" step="any" />
+                                    </td>
+                                    <td>
+                                        <input type="number" @bind="line.TaxPercent" min="0" max="100" step="0.5" />
+                                    </td>
+                                    <td>
+                                        <input type="number" @bind="line.DiscountPercent" min="0" max="100" step="0.5" />
+                                    </td>
+                                    <td>
+                                        <input type="text" @bind="line.WarehouseCode"
+                                               placeholder="@(purchaseOrder.WarehouseCode ?? "WH")" />
+                                    </td>
+                                    <td class="line-total">@lineTotal.ToString("N2")</td>
+                                    <td>
+                                        @if (purchaseOrder.Lines.Count > 1)
+                                        {
+                                            <MudButton Class="btn-remove-line" OnClick="() => RemoveLine(idx)">
+                                                <i class="bi bi-x"></i>
+                                            </MudButton>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Totals -->
+                <div class="po-totals">
+                    <div class="totals-grid">
+                        <div class="totals-row">
+                            <span class="t-label">Subtotal:</span>
+                            <span class="t-value">@CalculateSubTotal().ToString("N2")</span>
+                        </div>
+                        @if (purchaseOrder.DiscountPercent > 0)
+                        {
+                            <div class="totals-row">
+                                <span class="t-label">Discount (@purchaseOrder.DiscountPercent%):</span>
+                                <span class="t-value" style="color:#dc2626;">-@CalculateDiscount().ToString("N2")</span>
+                            </div>
+                        }
+                        <div class="totals-row">
+                            <span class="t-label">Tax:</span>
+                            <span class="t-value">@CalculateTax().ToString("N2")</span>
+                        </div>
+                        <hr style="width:260px;margin:.3rem 0;border-color:#e5e7eb;" />
+                        <div class="totals-row grand">
+                            <span class="t-label">Grand Total:</span>
+                            <span class="t-value">@purchaseOrder.Currency @CalculateGrandTotal().ToString("N2")</span>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Action Buttons -->
-        <div class="action-bar">
-            <MudButton Class="btn-cancel" OnClick="GoBack">Cancel</MudButton>
-            <MudButton Class="btn-draft" OnClick="SaveAsDraft" Disabled="@isSubmitting">
-                @if (isSubmitting && !submitForApproval)
-                {
-                    <span class="spinner-border spinner-border-sm"></span>
-                }
-                <i class="bi bi-save"></i> Save as Draft
-            </MudButton>
-            <MudButton Class="btn-submit" OnClick="SaveAndSubmit" Disabled="@isSubmitting">
-                @if (isSubmitting && submitForApproval)
-                {
-                    <span class="spinner-border spinner-border-sm"></span>
-                }
-                <i class="bi bi-send"></i> Save &amp; Submit for Approval
-            </MudButton>
+            <!-- Action Buttons -->
+            <div class="action-bar">
+                <MudButton Class="btn-cancel" OnClick="GoBack">Cancel</MudButton>
+                <MudButton Class="btn-draft" OnClick="SaveAsDraft" Disabled="@isSubmitting">
+                    @if (isSubmitting && !submitForApproval)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                    }
+                    <i class="bi bi-save"></i> Save as Draft
+                </MudButton>
+                <MudButton Class="btn-submit" OnClick="SaveAndSubmit" Disabled="@isSubmitting">
+                    @if (isSubmitting && submitForApproval)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                    }
+                    <i class="bi bi-send"></i> Save &amp; Submit for Approval
+                </MudButton>
+            </div>
         </div>
     </div>
-</div>
 
 @code {
     private CreatePurchaseOrderRequest purchaseOrder = new()
     {
         Currency = "USD",
         Lines = new List<CreatePurchaseOrderLineRequest>
-        {
-            new CreatePurchaseOrderLineRequest()
-        }
+{
+new CreatePurchaseOrderLineRequest()
+}
     };
 
     private DateTime? deliveryDate;
@@ -733,6 +870,89 @@
     private string? errorMessage;
     private Dictionary<string, string> validationErrors = new();
     private bool submitForApproval = false;
+
+    // Business Partner fields
+    private List<BusinessPartnerDto> allBusinessPartners = new();
+    private BusinessPartnerDto? selectedBusinessPartner;
+    private string? bpSearchTerm;
+    private bool showBPDropdown = false;
+    private bool isLoadingBPs = true;
+    private bool _hasInitialized = false;
+
+    private IEnumerable<BusinessPartnerDto> filteredBusinessPartners
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(bpSearchTerm))
+                return allBusinessPartners.Take(50);
+
+            var search = bpSearchTerm.ToLowerInvariant();
+            return allBusinessPartners.Where(bp =>
+            (bp.CardCode?.ToLowerInvariant().Contains(search) ?? false) ||
+            (bp.CardName?.ToLowerInvariant().Contains(search) ?? false));
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_hasInitialized)
+        {
+            _hasInitialized = true;
+            await LoadBusinessPartnersAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadBusinessPartnersAsync()
+    {
+        isLoadingBPs = true;
+        StateHasChanged();
+
+        try
+        {
+            allBusinessPartners = await CacheService.GetBusinessPartnersAsync();
+            Logger.LogInformation("Loaded {Count} business partners for PO creation", allBusinessPartners.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading business partners");
+            errorMessage = "Failed to load suppliers. You can still type the supplier code manually.";
+        }
+        finally
+        {
+            isLoadingBPs = false;
+        }
+    }
+
+    private void SelectBusinessPartner(BusinessPartnerDto bp)
+    {
+        selectedBusinessPartner = bp;
+        purchaseOrder.CardCode = bp.CardCode ?? string.Empty;
+        purchaseOrder.CardName = bp.CardName;
+        bpSearchTerm = bp.DisplayName;
+        showBPDropdown = false;
+
+        if (!string.IsNullOrEmpty(bp.Currency))
+        {
+            purchaseOrder.Currency = bp.Currency;
+        }
+
+        validationErrors.Remove("CardCode");
+    }
+
+    private void ClearSelectedBP()
+    {
+        selectedBusinessPartner = null;
+        purchaseOrder.CardCode = string.Empty;
+        purchaseOrder.CardName = null;
+        bpSearchTerm = null;
+    }
+
+    private async Task OnBPSearchBlur()
+    {
+        await Task.Delay(200);
+        showBPDropdown = false;
+    }
 
     private bool HasError(string key) => validationErrors.ContainsKey(key);
     private string? GetError(string key) => validationErrors.GetValueOrDefault(key);
@@ -826,7 +1046,7 @@
             purchaseOrder.DeliveryDate = deliveryDate;
 
             Logger.LogInformation("Submitting PO for supplier {CardCode} with {Lines} lines",
-                purchaseOrder.CardCode, purchaseOrder.Lines.Count);
+            purchaseOrder.CardCode, purchaseOrder.Lines.Count);
 
             var result = await PurchaseOrderService.CreatePurchaseOrderAsync(purchaseOrder);
             if (result != null)
@@ -854,6 +1074,8 @@
                 };
                 deliveryDate = null;
                 validationErrors.Clear();
+                selectedBusinessPartner = null;
+                bpSearchTerm = null;
 
                 // Navigate to list after brief delay
                 await Task.Delay(1500);

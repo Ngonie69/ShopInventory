@@ -73,12 +73,35 @@ public class StockValidationResult
     public List<string> Warnings { get; set; } = new();
     public List<string> Suggestions { get; set; } = new();
 
+    /// <summary>
+    /// Pre-fetched data from validation that can be reused by CreateInventoryTransferAsync
+    /// to avoid redundant SAP calls.
+    /// </summary>
+    public TransferPreFetchedData? PreFetchedData { get; set; }
+
     public static StockValidationResult Success() => new();
 
     public static StockValidationResult Failure(List<StockValidationError> errors)
     {
         return new StockValidationResult { Errors = errors };
     }
+}
+
+/// <summary>
+/// Holds pre-fetched SAP data from stock validation that can be reused during transfer creation,
+/// eliminating redundant SAP API calls.
+/// </summary>
+public class TransferPreFetchedData
+{
+    /// <summary>
+    /// Stock quantities per warehouse (key: warehouse code)
+    /// </summary>
+    public Dictionary<string, List<StockQuantityDto>?> WarehouseStock { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Batch numbers per warehouse (key: warehouse code)
+    /// </summary>
+    public Dictionary<string, List<BatchNumber>?> WarehouseBatches { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary>
@@ -528,6 +551,54 @@ public class StockValidationService : IStockValidationService
         // Validate source warehouse has sufficient stock
         // Cache stock quantities per warehouse to avoid repeated expensive SAP queries
         var warehouseStockCache = new Dictionary<string, List<StockQuantityDto>?>(StringComparer.OrdinalIgnoreCase);
+        // Cache batch numbers per warehouse to avoid N+1 SAP calls
+        var warehouseBatchCache = new Dictionary<string, List<BatchNumber>?>(StringComparer.OrdinalIgnoreCase);
+
+        // Pre-fetch warehouse stock and batch data for all unique source warehouses in parallel
+        var uniqueWarehouses = request.Lines
+            .Select(l => l.FromWarehouseCode ?? request.FromWarehouse ?? "01")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var hasBatchLines = request.Lines.Any(l => l.BatchNumbers != null && l.BatchNumbers.Count > 0);
+
+        var prefetchTasks = uniqueWarehouses.Select(async wh =>
+        {
+            // Fetch stock quantities for this warehouse
+            List<StockQuantityDto>? stock = null;
+            try
+            {
+                stock = await _sapClient.GetStockQuantitiesInWarehouseAsync(wh, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to get stock quantities for warehouse {Warehouse}", wh);
+            }
+
+            // Fetch all batch numbers for this warehouse if any lines use batches
+            List<BatchNumber>? batches = null;
+            if (hasBatchLines)
+            {
+                try
+                {
+                    batches = await _sapClient.GetAllBatchNumbersInWarehouseAsync(wh, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get batch numbers for warehouse {Warehouse}", wh);
+                }
+            }
+
+            return (wh, stock, batches);
+        });
+
+        var prefetchResults = await Task.WhenAll(prefetchTasks);
+        foreach (var (wh, stock, batches) in prefetchResults)
+        {
+            warehouseStockCache[wh] = stock;
+            if (batches != null)
+                warehouseBatchCache[wh] = batches;
+        }
 
         for (int i = 0; i < request.Lines.Count; i++)
         {
@@ -551,6 +622,9 @@ public class StockValidationService : IStockValidationService
             // Check batch quantities if specified
             if (line.BatchNumbers != null && line.BatchNumbers.Count > 0)
             {
+                // Use pre-fetched batch data for the warehouse instead of per-batch SAP calls
+                warehouseBatchCache.TryGetValue(fromWarehouse, out var cachedBatches);
+
                 foreach (var batch in line.BatchNumbers)
                 {
                     if (batch.Quantity <= 0)
@@ -560,8 +634,21 @@ public class StockValidationService : IStockValidationService
                         continue;
                     }
 
-                    var hasSufficient = await HasSufficientBatchQuantityAsync(
-                        itemCode, batch.BatchNumber ?? "", fromWarehouse, batch.Quantity, cancellationToken);
+                    bool hasSufficient;
+                    if (cachedBatches != null)
+                    {
+                        // Look up batch from pre-fetched data
+                        var matchedBatch = cachedBatches.FirstOrDefault(b =>
+                            string.Equals(b.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(b.BatchNum, batch.BatchNumber, StringComparison.OrdinalIgnoreCase));
+                        hasSufficient = matchedBatch != null && matchedBatch.Quantity >= batch.Quantity;
+                    }
+                    else
+                    {
+                        // Fallback to individual lookup if pre-fetch failed
+                        hasSufficient = await HasSufficientBatchQuantityAsync(
+                            itemCode, batch.BatchNumber ?? "", fromWarehouse, batch.Quantity, cancellationToken);
+                    }
 
                     if (!hasSufficient)
                     {
@@ -579,23 +666,10 @@ public class StockValidationService : IStockValidationService
             }
             else
             {
-                // Check overall item stock using cached warehouse data
+                // Check overall item stock using pre-fetched warehouse data
                 decimal availableQty;
 
-                // Try to use cached stock quantities for this warehouse
-                if (!warehouseStockCache.TryGetValue(fromWarehouse, out var cachedStock))
-                {
-                    try
-                    {
-                        cachedStock = await _sapClient.GetStockQuantitiesInWarehouseAsync(fromWarehouse, cancellationToken);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to get stock quantities for warehouse {Warehouse}, falling back to per-item lookup", fromWarehouse);
-                        cachedStock = null;
-                    }
-                    warehouseStockCache[fromWarehouse] = cachedStock;
-                }
+                warehouseStockCache.TryGetValue(fromWarehouse, out var cachedStock);
 
                 if (cachedStock != null)
                 {
@@ -628,6 +702,13 @@ public class StockValidationService : IStockValidationService
             result.Suggestions.Add("Verify source warehouse has sufficient stock before transfer");
             result.Suggestions.Add("For batch-managed items, ensure specified batches have sufficient quantities");
         }
+
+        // Attach pre-fetched data so the controller can pass it to CreateInventoryTransferAsync
+        result.PreFetchedData = new TransferPreFetchedData
+        {
+            WarehouseStock = warehouseStockCache,
+            WarehouseBatches = warehouseBatchCache
+        };
 
         return result;
     }

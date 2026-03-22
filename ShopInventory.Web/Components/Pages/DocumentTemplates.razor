@@ -1,280 +1,595 @@
 @page "/document-templates"
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
 @attribute [Authorize]
 @inject HttpClient Http
 @inject IJSRuntime JS
+@inject IAppSettingsProvider AppSettings
 @rendermode InteractiveServer
 
 <PageTitle>Document Templates - Shop Inventory</PageTitle>
 
-<div class="container-fluid fade-in">
-    <div class="page-header">
-        <h2>
-            <i class="bi bi-file-earmark-text me-2" style="color: var(--primary-color);"></i>
-            Document Templates
-        </h2>
-        <span class="text-muted">Manage customizable templates for invoices, quotes, and other documents</span>
-    </div>
+<style>
+    /* ── Page ────────────────────────────────────────── */
+    .dt-page { background:#f0f2f5; min-height:100vh; padding:1.5rem; }
 
-    <!-- Action Bar -->
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div class="btn-group">
-            <MudButton Variant="@(selectedDocumentType == null ? Variant.Filled : Variant.Outlined)"
-                       Color="Color.Primary"    OnClick='() => FilterByType(null)'>
-                All Templates
-            </MudButton>
-            <MudButton Variant="@(selectedDocumentType == "Invoice" ? Variant.Filled : Variant.Outlined)"
-                       Color="Color.Primary"        OnClick='() => FilterByType("Invoice")'>
-                Invoice
-            </MudButton>
-            <MudButton Variant="@(selectedDocumentType == "Quote" ? Variant.Filled : Variant.Outlined)"
-                       Color="Color.Primary"           OnClick='() => FilterByType("Quote")'>
-                Quote
-            </MudButton>
-            <MudButton Variant="@(selectedDocumentType == "SalesOrder" ? Variant.Filled : Variant.Outlined)"
-                       Color="Color.Primary"               OnClick='() => FilterByType("SalesOrder")'>
-                Sales Order
-            </MudButton>
-            <MudButton Variant="@(selectedDocumentType == "DeliveryNote" ? Variant.Filled : Variant.Outlined)"
-                       Color="Color.Primary"   OnClick='() => FilterByType("DeliveryNote")'>
-                Delivery Note
-            </MudButton>
-        </div>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenCreateModal">
-            <i class="bi bi-plus-circle me-2"></i>Create Template
-        </MudButton>
-    </div>
+    /* ── Header ──────────────────────────────────────── */
+    .dt-header { display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem; }
+    .dt-header-left { display:flex; align-items:center; gap:.85rem; }
+    .dt-header-icon { width:48px; height:48px; border-radius:14px; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#667eea,#764ba2); box-shadow:0 4px 14px rgba(102,126,234,.3); color:#fff; font-size:1.4rem; }
+    .dt-header h2 { font-weight:700; color:#1a1a2e; margin:0; letter-spacing:-.3px; }
+    .dt-header p { color:#6b7280; margin:0; font-size:.88rem; }
+    .header-chips { display:flex; gap:.5rem; flex-wrap:wrap; }
+    .header-chip { display:inline-flex; align-items:center; gap:.3rem; padding:.3rem .7rem; border-radius:8px; font-size:.78rem; font-weight:600; }
+    .header-chip.primary { background:#ede9fe; color:#7c3aed; }
+    .header-chip.info { background:#dbeafe; color:#2563eb; }
+    .header-chip.success { background:#d1fae5; color:#059669; }
 
-    @if (isLoading)
-    {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
+    .btn-dt-gradient { background:linear-gradient(135deg,#667eea,#764ba2); border:none; color:#fff; padding:.55rem 1.35rem; border-radius:10px; font-weight:600; font-size:.88rem; text-decoration:none; transition:all .2s; display:inline-flex; align-items:center; gap:.4rem; box-shadow:0 2px 8px rgba(102,126,234,.25); cursor:pointer; }
+    .btn-dt-gradient:hover { transform:translateY(-1px); box-shadow:0 4px 14px rgba(102,126,234,.35); color:#fff; }
+
+    /* ── Stat Cards ───────────────────────────────────── */
+    .stat-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1rem; margin-bottom:1.25rem; }
+    .stat-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem 1.15rem; display:flex; align-items:center; gap:.85rem; box-shadow:0 1px 4px rgba(0,0,0,.04); transition:transform .15s,box-shadow .15s; }
+    .stat-card:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,.06); }
+    .stat-icon { width:42px; height:42px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1.15rem; flex-shrink:0; }
+    .stat-icon.total { background:#ede9fe; color:#7c3aed; }
+    .stat-icon.active { background:#d1fae5; color:#059669; }
+    .stat-icon.default-t { background:#dbeafe; color:#2563eb; }
+    .stat-icon.types { background:#fef3c7; color:#d97706; }
+    .stat-info .stat-value { font-size:1.35rem; font-weight:700; color:#1a1a2e; line-height:1.1; font-family:'Space Grotesk',monospace; }
+    .stat-info .stat-label { font-size:.72rem; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#9ca3af; }
+
+    /* ── Filter Bar ───────────────────────────────────── */
+    .filter-bar { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem 1.25rem; margin-bottom:1.25rem; display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; box-shadow:0 1px 4px rgba(0,0,0,.04); }
+    .filter-bar-label { font-size:.75rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; white-space:nowrap; }
+    .filter-chips { display:flex; gap:.4rem; flex-wrap:wrap; }
+    .filter-chip { padding:.35rem .85rem; border-radius:8px; font-size:.82rem; font-weight:600; border:1px solid #e5e7eb; background:#fff; color:#6b7280; cursor:pointer; transition:all .15s; display:inline-flex; align-items:center; gap:.3rem; }
+    .filter-chip:hover { background:#f3f4f6; border-color:#d1d5db; }
+    .filter-chip.active { background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; border-color:transparent; box-shadow:0 2px 8px rgba(102,126,234,.25); }
+
+    /* ── Template Cards ───────────────────────────────── */
+    .templates-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:1rem; margin-bottom:1.5rem; }
+    .template-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; transition:all .2s; box-shadow:0 1px 4px rgba(0,0,0,.04); display:flex; flex-direction:column; }
+    .template-card:hover { transform:translateY(-2px); box-shadow:0 6px 20px rgba(0,0,0,.08); }
+    .template-card.is-default { border-color:#667eea; box-shadow:0 2px 10px rgba(102,126,234,.15); }
+    .template-card-header { padding:1rem 1.25rem .75rem; display:flex; justify-content:space-between; align-items:flex-start; gap:.5rem; }
+    .template-card-title { font-weight:700; color:#1a1a2e; font-size:.95rem; margin:0; line-height:1.3; }
+    .template-card-badges { display:flex; gap:.35rem; flex-wrap:wrap; flex-shrink:0; }
+    .badge-default { background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; padding:.2rem .55rem; border-radius:6px; font-size:.7rem; font-weight:600; }
+    .badge-inactive { background:#f3f4f6; color:#9ca3af; padding:.2rem .55rem; border-radius:6px; font-size:.7rem; font-weight:600; }
+    .template-card-body { padding:0 1.25rem 1rem; flex:1; }
+    .template-meta { display:flex; align-items:center; gap:.5rem; margin-bottom:.75rem; flex-wrap:wrap; }
+    .doc-type-badge { padding:.25rem .65rem; border-radius:6px; font-size:.75rem; font-weight:600; }
+    .doc-type-badge.invoice { background:#dbeafe; color:#2563eb; }
+    .doc-type-badge.quote { background:#d1fae5; color:#059669; }
+    .doc-type-badge.salesorder { background:#ede9fe; color:#7c3aed; }
+    .doc-type-badge.purchaseorder { background:#fef3c7; color:#d97706; }
+    .doc-type-badge.deliverynote { background:#e0e7ff; color:#4338ca; }
+    .doc-type-badge.creditnote { background:#fee2e2; color:#dc2626; }
+    .paper-info { font-size:.78rem; color:#9ca3af; font-weight:500; }
+    .template-dates { font-size:.78rem; color:#9ca3af; display:flex; flex-direction:column; gap:.15rem; }
+    .template-dates i { font-size:.72rem; margin-right:.25rem; }
+    .template-card-footer { padding:.75rem 1.25rem; border-top:1px solid #f3f4f6; display:flex; gap:.35rem; }
+    .action-btn { width:34px; height:34px; border-radius:8px; border:1px solid #e5e7eb; background:#fff; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:all .15s; font-size:.85rem; color:#6b7280; }
+    .action-btn:hover { background:#f3f4f6; }
+    .action-btn.primary { color:#667eea; border-color:#c7d2fe; }
+    .action-btn.primary:hover { background:#ede9fe; }
+    .action-btn.success { color:#059669; border-color:#a7f3d0; }
+    .action-btn.success:hover { background:#d1fae5; }
+    .action-btn.danger { color:#dc2626; border-color:#fecaca; }
+    .action-btn.danger:hover { background:#fee2e2; }
+    .action-btn-label { flex:1; }
+
+    /* ── Pagination ───────────────────────────────────── */
+    .pagination-wrap { display:flex; justify-content:center; }
+
+    /* ── Create/Edit Modal ────────────────────────────── */
+    .create-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:10000; display:flex; justify-content:center; align-items:center; animation:fadeIn .2s ease; padding:1rem; }
+    .create-modal { background:#fff; border-radius:14px; width:min(880px,95vw); max-height:90vh; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,.2); animation:scaleIn .25s ease; }
+    .create-modal-header { padding:1.15rem 1.5rem; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center; }
+    .create-modal-header h5 { margin:0; font-weight:600; font-size:1rem; color:#1a1a2e; display:flex; align-items:center; gap:.4rem; }
+    .create-modal-header .btn-close-modal { background:#f3f4f6; border:none; width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; cursor:pointer; color:#6b7280; transition:all .15s; font-size:.9rem; }
+    .create-modal-header .btn-close-modal:hover { background:#e5e7eb; color:#374151; }
+    .create-modal-body { flex:1; overflow-y:auto; padding:1.5rem; }
+    .create-modal-footer { padding:1rem 1.5rem; border-top:1px solid #e5e7eb; display:flex; gap:.5rem; justify-content:flex-end; }
+    .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:.85rem; }
+    .form-grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:.85rem; }
+    .form-field { display:flex; flex-direction:column; }
+    .form-field.full { grid-column:span 2; }
+    .form-field.full-3 { grid-column:span 3; }
+    .form-field label { font-size:.75rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.25rem; }
+    .form-field input, .form-field select, .form-field textarea { padding:.5rem .75rem; border:1px solid #d1d5db; border-radius:8px; font-size:.88rem; color:#374151; transition:all .15s; background:#fff; font-family:inherit; }
+    .form-field textarea { font-family:'SF Mono','Fira Code',monospace; font-size:.82rem; line-height:1.5; }
+    .form-field input:focus, .form-field select:focus, .form-field textarea:focus { outline:none; border-color:#667eea; box-shadow:0 0 0 3px rgba(102,126,234,.15); }
+    .form-field .field-hint { font-size:.72rem; color:#9ca3af; margin-top:.2rem; }
+    .checkbox-row { display:flex; gap:1.5rem; align-items:center; padding-top:.5rem; }
+    .checkbox-item { display:flex; align-items:center; gap:.4rem; font-size:.88rem; color:#374151; cursor:pointer; }
+    .checkbox-item input[type="checkbox"] { width:16px; height:16px; accent-color:#667eea; cursor:pointer; }
+    .btn-create { background:linear-gradient(135deg,#667eea,#764ba2); border:none; color:#fff; padding:.55rem 1.35rem; border-radius:8px; font-weight:600; font-size:.88rem; cursor:pointer; transition:all .2s; display:inline-flex; align-items:center; gap:.4rem; }
+    .btn-create:hover { transform:translateY(-1px); box-shadow:0 4px 14px rgba(102,126,234,.3); }
+    .btn-create:disabled { opacity:.5; cursor:not-allowed; transform:none; }
+    .btn-secondary-action { background:#fff; color:#374151; border:1px solid #d1d5db; padding:.55rem 1.35rem; border-radius:8px; font-weight:600; font-size:.88rem; cursor:pointer; transition:all .15s; }
+    .btn-secondary-action:hover { background:#f9fafb; }
+    .btn-placeholder { background:#f0fdf4; color:#059669; border:1px solid #a7f3d0; padding:.35rem .85rem; border-radius:8px; font-weight:600; font-size:.8rem; cursor:pointer; transition:all .15s; display:inline-flex; align-items:center; gap:.3rem; }
+    .btn-placeholder:hover { background:#d1fae5; }
+    .section-divider { font-size:.8rem; font-weight:700; color:#1a1a2e; text-transform:uppercase; letter-spacing:.5px; padding:.5rem 0; margin-top:.5rem; border-top:1px solid #e5e7eb; display:flex; align-items:center; gap:.4rem; }
+
+    /* ── Placeholder Drawer ───────────────────────────── */
+    .modal-backdrop-custom { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:10001; animation:fadeIn .2s ease; }
+    .placeholder-drawer { position:fixed; top:0; right:0; width:min(480px,95vw); height:100vh; background:#fff; z-index:10002; box-shadow:-8px 0 30px rgba(0,0,0,.12); display:flex; flex-direction:column; animation:slideInRight .25s ease; }
+    .drawer-header { padding:1.15rem 1.5rem; background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; display:flex; justify-content:space-between; align-items:center; flex-shrink:0; }
+    .drawer-header h5 { margin:0; font-weight:600; font-size:1.05rem; }
+    .drawer-header .btn-close-drawer { background:rgba(255,255,255,.15); border:none; color:#fff; width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background .15s; font-size:1rem; }
+    .drawer-header .btn-close-drawer:hover { background:rgba(255,255,255,.25); }
+    .drawer-body { flex:1; overflow-y:auto; padding:1.5rem; }
+    .placeholder-group { margin-bottom:1.25rem; }
+    .placeholder-group-title { font-size:.78rem; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:#667eea; margin-bottom:.5rem; display:flex; align-items:center; gap:.35rem; }
+    .placeholder-item { display:flex; justify-content:space-between; align-items:flex-start; padding:.5rem .65rem; border-radius:8px; margin-bottom:.25rem; transition:background .1s; }
+    .placeholder-item:hover { background:#f8fafc; }
+    .placeholder-key { font-family:'SF Mono','Fira Code',monospace; font-size:.82rem; font-weight:600; color:#1a1a2e; background:#f3f4f6; padding:.15rem .45rem; border-radius:4px; }
+    .placeholder-desc { font-size:.78rem; color:#6b7280; margin-top:.15rem; }
+    .placeholder-copy { background:none; border:1px solid #e5e7eb; border-radius:6px; padding:.2rem .5rem; cursor:pointer; font-size:.7rem; color:#6b7280; transition:all .15s; white-space:nowrap; flex-shrink:0; }
+    .placeholder-copy:hover { background:#ede9fe; color:#667eea; border-color:#c7d2fe; }
+
+    /* ── Preview Drawer ───────────────────────────────── */
+    .preview-drawer { position:fixed; top:0; right:0; width:min(700px,95vw); height:100vh; background:#fff; z-index:10002; box-shadow:-8px 0 30px rgba(0,0,0,.12); display:flex; flex-direction:column; animation:slideInRight .25s ease; }
+    .preview-frame { flex:1; border:none; background:#fff; }
+    .drawer-footer { padding:1rem 1.5rem; border-top:1px solid #e5e7eb; display:flex; gap:.5rem; justify-content:flex-end; flex-shrink:0; }
+
+    /* ── Empty / Loading States ────────────────────────── */
+    .empty-state { text-align:center; padding:3rem 1.5rem; background:#fff; border-radius:12px; border:1px solid #e5e7eb; }
+    .empty-icon { width:72px; height:72px; border-radius:50%; background:#f3f4f6; display:inline-flex; align-items:center; justify-content:center; margin-bottom:1rem; font-size:1.8rem; color:#9ca3af; }
+    .empty-state h6 { font-weight:600; color:#374151; margin-bottom:.35rem; }
+    .empty-state p { color:#9ca3af; font-size:.88rem; margin:0; }
+    .loading-state { text-align:center; padding:3rem; background:#fff; border-radius:12px; border:1px solid #e5e7eb; }
+
+    /* ── Alert ───────────────────────────────────────── */
+    .alert-banner { border-radius:10px; padding:.75rem 1rem; display:flex; align-items:flex-start; gap:.6rem; margin-bottom:1rem; font-size:.88rem; animation:slideDown .3s ease; }
+    .alert-banner.error-alert { background:#fef2f2; border:1px solid #fecaca; color:#991b1b; }
+    .alert-banner.success-alert { background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; }
+
+    /* ── Animations ──────────────────────────────────── */
+    @@keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+    @@keyframes slideInRight { from { transform:translateX(100%); } to { transform:translateX(0); } }
+    @@keyframes slideDown { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
+    @@keyframes scaleIn { from { opacity:0; transform:scale(.95); } to { opacity:1; transform:scale(1); } }
+
+    /* ── Responsive ──────────────────────────────────── */
+    @@media (max-width:768px) {
+        .dt-header { flex-direction:column; }
+        .stat-row { grid-template-columns:1fr 1fr; }
+        .templates-grid { grid-template-columns:1fr; }
+        .form-grid, .form-grid-3 { grid-template-columns:1fr; }
+        .form-field.full, .form-field.full-3 { grid-column:span 1; }
+        .filter-chips { gap:.3rem; }
+    }
+</style>
+
+<div class="dt-page">
+    <div class="container-fluid">
+
+        <!-- ━━━ Header ━━━ -->
+        <div class="dt-header">
+            <div class="dt-header-left">
+                <div class="dt-header-icon"><i class="bi bi-file-earmark-text"></i></div>
+                <div>
+                    <h2>Document Templates</h2>
+                    <p>Manage customizable templates for invoices, quotes, and other documents</p>
+                </div>
             </div>
-            <p class="mt-2">Loading templates...</p>
-        </div>
-    }
-    else if (errorMessage != null)
-    {
-        <div class="alert alert-danger">
-            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
-        </div>
-    }
-    else if (templates?.Any() == true)
-    {
-        <div class="row g-4">
-            @foreach (var template in templates)
+            @if (templates?.Any() == true)
             {
-                <div class="col-md-6 col-lg-4">
-                    <div class="card h-100 @(template.IsDefault ? "border-primary" : "")">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between align-items-start mb-3">
-                                <h5 class="card-title mb-0">@template.Name</h5>
-                                @if (template.IsDefault)
-                                {
-                                    <span class="badge bg-primary">Default</span>
-                                }
-                                @if (!template.IsActive)
-                                {
-                                    <span class="badge bg-secondary">Inactive</span>
-                                }
-                            </div>
-                            <p class="card-text">
-                                <span class="badge bg-info">@template.DocumentType</span>
-                                <small class="text-muted ms-2">@template.PaperSize - @template.Orientation</small>
-                            </p>
-                            <div class="mb-3">
-                                <small class="text-muted">
-                                    <i class="bi bi-calendar me-1"></i>Created: @template.CreatedAt.ToLocalTime().ToString("g")
-                                </small>
-                                @if (template.UpdatedAt.HasValue)
-                                {
-                                    <br />
-                                    <small class="text-muted">
-                                        <i class="bi bi-pencil me-1"></i>Updated:
-                                        @template.UpdatedAt.Value.ToLocalTime().ToString("g")
-                                    </small>
-                                }
-                            </div>
-                        </div>
-                        <div class="card-footer bg-transparent">
-                            <div class="btn-group w-100">
-                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
-                                           OnClick="() => PreviewTemplate(template)">
-                                    <i class="bi bi-eye"></i> Preview
-                                </MudButton>
-                                <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
-                                           OnClick="() => EditTemplate(template)">
-                                    <i class="bi bi-pencil"></i> Edit
-                                </MudButton>
-                                @if (!template.IsDefault)
-                                {
-                                    <MudButton Variant="Variant.Outlined" Color="Color.Success" Size="Size.Small"
-                                               OnClick="() => SetAsDefault(template.Id)">
-                                        <i class="bi bi-star"></i>
-                                    </MudButton>
-                                }
-                                <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
-                                           OnClick="() => DeleteTemplate(template.Id)">
-                                    <i class="bi bi-trash"></i>
-                                </MudButton>
-                            </div>
-                        </div>
-                    </div>
+                <div class="header-chips">
+                    <span class="header-chip primary"><i class="bi bi-collection"></i> @totalCount templates</span>
+                    <span class="header-chip success"><i class="bi bi-check-circle"></i> @templates.Count(t => t.IsActive) active</span>
                 </div>
             }
         </div>
 
-        <!-- Pagination -->
-        @if (totalPages > 1)
+        <!-- ━━━ Stat Cards ━━━ -->
+        @if (!isLoading && templates != null)
         {
-            <nav aria-label="Page navigation" class="mt-4">
-                <ul class="pagination justify-content-center">
-                    <li class="page-item @(currentPage == 1 ? "disabled" : "")">
-                        <MudButton Class="page-link" OnClick="() => ChangePage(currentPage - 1)" Disabled="@(currentPage == 1)">
-                            Previous
-                        </MudButton>
-                    </li>
-                    @for (int i = 1; i <= totalPages; i++)
-                    {
-                        var pageNum = i;
-                        <li class="page-item @(currentPage == pageNum ? "active" : "")">
-                            <MudButton Class="page-link" OnClick="() => ChangePage(pageNum)">@pageNum</MudButton>
-                        </li>
-                    }
-                    <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
-                        <MudButton Class="page-link" OnClick="() => ChangePage(currentPage + 1)"
-                                   Disabled="@(currentPage == totalPages)">
-                            Next
-                        </MudButton>
-                    </li>
-                </ul>
-            </nav>
-        }
-    }
-    else
-    {
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle me-2"></i>No templates found. Create your first template to get started.
-        </div>
-    }
-</div>
-
-<!-- Create/Edit Template Modal -->
-@if (showTemplateModal)
-{
-    <div class="modal fade show" style="display: block;" tabindex="-1">
-        <div class="modal-dialog modal-xl">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">@(editingTemplate == null ? "Create Template" : "Edit Template")</h5>
-                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CloseTemplateModal" Size="Size.Small" />
+            <div class="stat-row">
+                <div class="stat-card">
+                    <div class="stat-icon total"><i class="bi bi-collection"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value">@totalCount</div>
+                        <div class="stat-label">TOTAL TEMPLATES</div>
+                    </div>
                 </div>
-                <div class="modal-body">
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Template Name *</label>
-                            <input type="text" class="form-control" @bind="templateName"
-                                   placeholder="e.g., Default Invoice Template" />
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Document Type *</label>
-                            <select class="form-select" @bind="templateDocumentType">
-                                <option value="">Select type...</option>
-                                <option value="Invoice">Invoice</option>
-                                <option value="Quote">Quote</option>
-                                <option value="SalesOrder">Sales Order</option>
-                                <option value="PurchaseOrder">Purchase Order</option>
-                                <option value="DeliveryNote">Delivery Note</option>
-                                <option value="CreditNote">Credit Note</option>
-                            </select>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Paper Size</label>
-                            <select class="form-select" @bind="templatePaperSize">
-                                <option value="A4">A4</option>
-                                <option value="Letter">Letter</option>
-                                <option value="Legal">Legal</option>
-                            </select>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Orientation</label>
-                            <select class="form-select" @bind="templateOrientation">
-                                <option value="Portrait">Portrait</option>
-                                <option value="Landscape">Landscape</option>
-                            </select>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-check mt-4">
-                                <input class="form-check-input" type="checkbox" @bind="templateIsDefault"
-                                       id="templateIsDefault">
-                                    <label class="form-check-label" for="templateIsDefault">
-                                        Set as default template
-                                    </label>
-                                </div>
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" @bind="templateIsActive"
-                                           id="templateIsActive">
-                                        <label class="form-check-label" for="templateIsActive">
-                                            Active
-                                        </label>
-                                    </div>
-                                </div>
-                                <div class="col-12">
-                                    <label class="form-label">Header Content (HTML)</label>
-                                    <textarea class="form-control" @bind="templateHeaderContent" rows="3"
-                                              placeholder="Company logo, address, contact info..."></textarea>
-                                </div>
-                                <div class="col-12">
-                                    <label class="form-label">Main Content (HTML) *</label>
-                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small" Class="float-end"
-                                               OnClick="ShowPlaceholders">
-                                        <i class="bi bi-question-circle"></i> Placeholders
-                                    </MudButton>
-                                    <textarea class="form-control" @bind="templateHtmlContent" rows="10"
-                                              placeholder="Use {{PlaceholderName}} for dynamic content..."></textarea>
-                                </div>
-                                <div class="col-12">
-                                    <label class="form-label">Footer Content (HTML)</label>
-                                    <textarea class="form-control" @bind="templateFooterContent" rows="3"
-                                              placeholder="Terms, conditions, signature blocks..."></textarea>
-                                </div>
-                                <div class="col-12">
-                                    <label class="form-label">CSS Styles</label>
-                                    <textarea class="form-control" @bind="templateCssStyles" rows="5"
-                                              placeholder=".header { font-size: 24px; } ..."></textarea>
-                                </div>
-                            </div>
-                            @if (savingError != null)
-                            {
-                                <div class="alert alert-danger mt-3">
-                                    <i class="bi bi-exclamation-triangle me-2"></i>@savingError
-                                </div>
-                            }
-                        </div>
-                        <div class="modal-footer">
-                            <MudButton ButtonType="ButtonType.Button" Variant="Variant.Filled" Color="Color.Default"
-                                       OnClick="CloseTemplateModal">Cancel</MudButton>
-                            <MudButton ButtonType="ButtonType.Button" Variant="Variant.Filled" Color="Color.Primary"
-                                       OnClick="SaveTemplate" Disabled="@isSaving">
-                                @if (isSaving)
-                                {
-                                    <span class="spinner-border spinner-border-sm me-2"></span>
-                                }
-                                Save Template
-                            </MudButton>
-                        </div>
+                <div class="stat-card">
+                    <div class="stat-icon active"><i class="bi bi-check-circle"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value">@templates.Count(t => t.IsActive)</div>
+                        <div class="stat-label">ACTIVE</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon default-t"><i class="bi bi-star-fill"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value">@templates.Count(t => t.IsDefault)</div>
+                        <div class="stat-label">DEFAULTS SET</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon types"><i class="bi bi-diagram-3"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value">@templates.Select(t => t.DocumentType).Distinct().Count()</div>
+                        <div class="stat-label">DOC TYPES</div>
                     </div>
                 </div>
             </div>
-            <div class="modal-backdrop fade show"></div>
         }
+
+        <!-- ━━━ Filter Bar ━━━ -->
+        <div class="filter-bar">
+            <span class="filter-bar-label"><i class="bi bi-funnel"></i> Filter:</span>
+            <div class="filter-chips">
+                <button class="filter-chip @(selectedDocumentType == null ? "active" : "")"
+                        @onclick='() => FilterByType(null)'>
+                    All
+                </button>
+                <button class="filter-chip @(selectedDocumentType == "Invoice" ? "active" : "")"
+                        @onclick='() => FilterByType("Invoice")'>
+                    <i class="bi bi-receipt"></i> Invoice
+                </button>
+                <button class="filter-chip @(selectedDocumentType == "Quote" ? "active" : "")"
+                        @onclick='() => FilterByType("Quote")'>
+                    <i class="bi bi-chat-square-quote"></i> Quote
+                </button>
+                <button class="filter-chip @(selectedDocumentType == "SalesOrder" ? "active" : "")"
+                        @onclick='() => FilterByType("SalesOrder")'>
+                    <i class="bi bi-cart-check"></i> Sales Order
+                </button>
+                <button class="filter-chip @(selectedDocumentType == "PurchaseOrder" ? "active" : "")"
+                        @onclick='() => FilterByType("PurchaseOrder")'>
+                    <i class="bi bi-bag-check"></i> Purchase Order
+                </button>
+                <button class="filter-chip @(selectedDocumentType == "DeliveryNote" ? "active" : "")"
+                        @onclick='() => FilterByType("DeliveryNote")'>
+                    <i class="bi bi-truck"></i> Delivery Note
+                </button>
+                <button class="filter-chip @(selectedDocumentType == "CreditNote" ? "active" : "")"
+                        @onclick='() => FilterByType("CreditNote")'>
+                    <i class="bi bi-arrow-return-left"></i> Credit Note
+                </button>
+            </div>
+            <div style="flex:1;"></div>
+            <button class="btn-dt-gradient" @onclick="OpenCreateModal">
+                <i class="bi bi-plus-lg"></i> New Template
+            </button>
+        </div>
+
+        <!-- ━━━ Alerts ━━━ -->
+        @if (successMessage != null)
+        {
+            <div class="alert-banner success-alert">
+                <i class="bi bi-check-circle-fill"></i>
+                <div style="flex:1;">@successMessage</div>
+                <button style="background:none;border:none;opacity:.45;cursor:pointer;" @onclick="() => successMessage = null">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+        }
+        @if (errorMessage != null)
+        {
+            <div class="alert-banner error-alert">
+                <i class="bi bi-exclamation-octagon-fill"></i>
+                <div style="flex:1;">@errorMessage</div>
+                <button style="background:none;border:none;opacity:.45;cursor:pointer;" @onclick="() => errorMessage = null">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+        }
+
+        <!-- ━━━ Content ━━━ -->
+        @if (isLoading)
+        {
+            <div class="loading-state">
+                <div class="spinner-border" style="color:#667eea;width:2.5rem;height:2.5rem;" role="status"></div>
+                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading templates...</p>
+            </div>
+        }
+        else if (templates?.Any() == true)
+        {
+            <div class="templates-grid">
+                @foreach (var template in templates)
+                {
+                    <div class="template-card @(template.IsDefault ? "is-default" : "")">
+                        <div class="template-card-header">
+                            <h6 class="template-card-title">@template.Name</h6>
+                            <div class="template-card-badges">
+                                @if (template.IsDefault)
+                                {
+                                    <span class="badge-default"><i class="bi bi-star-fill" style="font-size:.6rem;"></i> Default</span>
+                                }
+                                @if (!template.IsActive)
+                                {
+                                    <span class="badge-inactive">Inactive</span>
+                                }
+                            </div>
+                        </div>
+                        <div class="template-card-body">
+                            <div class="template-meta">
+                                <span class="doc-type-badge @GetDocTypeCss(template.DocumentType)">@FormatDocType(template.DocumentType)</span>
+                                <span class="paper-info"><i class="bi bi-file-earmark"></i> @template.PaperSize &middot; @template.Orientation</span>
+                            </div>
+                            <div class="template-dates">
+                                <span><i class="bi bi-calendar3"></i> Created @template.CreatedAt.ToLocalTime().ToString("MMM dd, yyyy")</span>
+                                @if (template.UpdatedAt.HasValue)
+                                {
+                                    <span><i class="bi bi-pencil-square"></i> Updated @template.UpdatedAt.Value.ToLocalTime().ToString("MMM dd, yyyy")</span>
+                                }
+                            </div>
+                        </div>
+                        <div class="template-card-footer">
+                            <button class="action-btn primary" title="Preview" @onclick="() => PreviewTemplate(template)">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                            <button class="action-btn primary" title="Edit" @onclick="() => EditTemplate(template)">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            @if (!template.IsDefault)
+                            {
+                                <button class="action-btn success" title="Set as Default" @onclick="() => SetAsDefault(template.Id)">
+                                    <i class="bi bi-star"></i>
+                                </button>
+                            }
+                            <div class="action-btn-label"></div>
+                            <button class="action-btn danger" title="Delete" @onclick="() => DeleteTemplate(template.Id)">
+                                <i class="bi bi-trash3"></i>
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- Pagination -->
+            @if (totalPages > 1)
+            {
+                <div class="pagination-wrap">
+                    <MudPagination Count="@totalPages" Selected="@currentPage" SelectedChanged="OnPageChanged"
+                                   Color="Color.Primary" Variant="Variant.Outlined" />
+                </div>
+            }
+        }
+        else
+        {
+            <div class="empty-state">
+                <div class="empty-icon"><i class="bi bi-file-earmark-plus"></i></div>
+                <h6>No templates found</h6>
+                <p>Create your first document template to get started, or adjust your filter.</p>
+                <button class="btn-dt-gradient" style="margin-top:1rem;" @onclick="OpenCreateModal">
+                    <i class="bi bi-plus-lg"></i> Create Template
+                </button>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- ━━━ Create/Edit Template Modal ━━━ -->
+@if (showTemplateModal)
+{
+    <div class="create-modal-overlay" @onclick="CloseTemplateModal">
+        <div class="create-modal" @onclick:stopPropagation="true">
+            <div class="create-modal-header">
+                <h5>
+                    <i class="bi bi-@(editingTemplate == null ? "plus-circle" : "pencil-square")" style="color:#667eea;"></i>
+                    @(editingTemplate == null ? "Create Template" : "Edit Template")
+                </h5>
+                <button class="btn-close-modal" @onclick="CloseTemplateModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="create-modal-body">
+                @if (savingError != null)
+                {
+                    <div class="alert-banner error-alert" style="margin-bottom:1rem;">
+                        <i class="bi bi-exclamation-octagon-fill"></i>
+                        <div style="flex:1;">@savingError</div>
+                    </div>
+                }
+
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label>Template Name *</label>
+                        <input type="text" @bind="templateName" placeholder="e.g., Default Invoice Template" />
+                    </div>
+                    <div class="form-field">
+                        <label>Document Type *</label>
+                        <select @bind="templateDocumentType">
+                            <option value="">Select type...</option>
+                            <option value="Invoice">Invoice</option>
+                            <option value="Quote">Quote</option>
+                            <option value="SalesOrder">Sales Order</option>
+                            <option value="PurchaseOrder">Purchase Order</option>
+                            <option value="DeliveryNote">Delivery Note</option>
+                            <option value="CreditNote">Credit Note</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-grid-3" style="margin-top:.85rem;">
+                    <div class="form-field">
+                        <label>Paper Size</label>
+                        <select @bind="templatePaperSize">
+                            <option value="A4">A4</option>
+                            <option value="Letter">Letter</option>
+                            <option value="Legal">Legal</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label>Orientation</label>
+                        <select @bind="templateOrientation">
+                            <option value="Portrait">Portrait</option>
+                            <option value="Landscape">Landscape</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label>Options</label>
+                        <div class="checkbox-row">
+                            <label class="checkbox-item">
+                                <input type="checkbox" @bind="templateIsDefault" /> Default
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" @bind="templateIsActive" /> Active
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-divider" style="margin-top:1rem;">
+                    <i class="bi bi-code-slash"></i> Template Content
+                </div>
+
+                <div class="form-grid" style="margin-top:.75rem;">
+                    <div class="form-field full">
+                        <label>Header Content (HTML)</label>
+                        <textarea @bind="templateHeaderContent" rows="3"
+                                  placeholder="Company logo, address, contact info..."></textarea>
+                        <span class="field-hint">Appears at the top of the document</span>
+                    </div>
+                    <div class="form-field full">
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <label style="margin-bottom:0;">Main Content (HTML) *</label>
+                            <button class="btn-placeholder" @onclick="ShowPlaceholders">
+                                <i class="bi bi-braces"></i> View Placeholders
+                            </button>
+                        </div>
+                        <textarea @bind="templateHtmlContent" rows="12" style="margin-top:.25rem;"
+                                  placeholder="Use {{PlaceholderName}} for dynamic content..."></textarea>
+                        <span class="field-hint">Use &#123;&#123;PlaceholderName&#125;&#125; syntax for dynamic values</span>
+                    </div>
+                    <div class="form-field full">
+                        <label>Footer Content (HTML)</label>
+                        <textarea @bind="templateFooterContent" rows="3"
+                                  placeholder="Terms, conditions, signature blocks..."></textarea>
+                    </div>
+                    <div class="form-field full">
+                        <label>CSS Styles</label>
+                        <textarea @bind="templateCssStyles" rows="5"
+                                  placeholder=".header { font-size: 24px; } ..."></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="create-modal-footer">
+                <button class="btn-secondary-action" @onclick="CloseTemplateModal">Cancel</button>
+                <button class="btn-create" @onclick="SaveTemplate" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                    }
+                    <i class="bi bi-check-lg"></i> Save Template
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ━━━ Placeholder Drawer ━━━ -->
+@if (showPlaceholderDrawer)
+{
+    <div class="modal-backdrop-custom" @onclick="ClosePlaceholderDrawer"></div>
+    <div class="placeholder-drawer">
+        <div class="drawer-header">
+            <h5><i class="bi bi-braces" style="margin-right:.4rem;"></i> Template Placeholders</h5>
+            <button class="btn-close-drawer" @onclick="ClosePlaceholderDrawer"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="drawer-body">
+            @if (placeholders != null)
+            {
+                @foreach (var group in placeholders.Placeholders.GroupBy(p => p.Category))
+                {
+                    <div class="placeholder-group">
+                        <div class="placeholder-group-title">
+                            <i class="bi bi-folder2"></i> @group.Key
+                        </div>
+                        @foreach (var p in group)
+                        {
+                            <div class="placeholder-item">
+                                <div>
+                                    <span class="placeholder-key">@($"{{{{{p.Key}}}}}")</span>
+                                    <div class="placeholder-desc">@p.Description</div>
+                                </div>
+                                <button class="placeholder-copy" @onclick="() => CopyPlaceholder(p.Key)" title="Copy to clipboard">
+                                    <i class="bi bi-clipboard"></i> Copy
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="loading-state">
+                    <div class="spinner-border" style="color:#667eea;width:2rem;height:2rem;" role="status"></div>
+                    <p style="margin-top:.5rem;color:#6b7280;font-size:.88rem;">Loading placeholders...</p>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<!-- ━━━ Preview Drawer ━━━ -->
+@if (showPreviewDrawer && previewTemplate != null)
+{
+    <div class="modal-backdrop-custom" @onclick="ClosePreviewDrawer"></div>
+    <div class="preview-drawer">
+        <div class="drawer-header">
+            <h5><i class="bi bi-eye" style="margin-right:.4rem;"></i> @previewTemplate.Name</h5>
+            <button class="btn-close-drawer" @onclick="ClosePreviewDrawer"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="drawer-body" style="padding:0;">
+            <div style="padding:1rem 1.25rem;border-bottom:1px solid #e5e7eb;display:flex;gap:.5rem;flex-wrap:wrap;">
+                <span class="doc-type-badge @GetDocTypeCss(previewTemplate.DocumentType)">@FormatDocType(previewTemplate.DocumentType)</span>
+                <span class="paper-info"><i class="bi bi-file-earmark"></i> @previewTemplate.PaperSize &middot; @previewTemplate.Orientation</span>
+                @if (previewTemplate.IsDefault)
+                {
+                    <span class="badge-default"><i class="bi bi-star-fill" style="font-size:.6rem;"></i> Default</span>
+                }
+            </div>
+            <div style="padding:1.5rem;overflow-y:auto;flex:1;">
+                @if (!string.IsNullOrWhiteSpace(previewTemplate.CssStyles))
+                {
+                    <div class="placeholder-group">
+                        <div class="placeholder-group-title"><i class="bi bi-palette"></i> CSS Styles</div>
+                        <pre style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:.75rem;font-size:.8rem;overflow-x:auto;color:#374151;">@previewTemplate.CssStyles</pre>
+                    </div>
+                }
+                @if (!string.IsNullOrWhiteSpace(previewTemplate.HeaderContent))
+                {
+                    <div class="placeholder-group">
+                        <div class="placeholder-group-title"><i class="bi bi-layout-text-window"></i> Header</div>
+                        <pre style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:.75rem;font-size:.8rem;overflow-x:auto;color:#374151;">@previewTemplate.HeaderContent</pre>
+                    </div>
+                }
+                <div class="placeholder-group">
+                    <div class="placeholder-group-title"><i class="bi bi-code-slash"></i> Main Content</div>
+                    <pre style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:.75rem;font-size:.8rem;overflow-x:auto;color:#374151;">@previewTemplate.HtmlContent</pre>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(previewTemplate.FooterContent))
+                {
+                    <div class="placeholder-group">
+                        <div class="placeholder-group-title"><i class="bi bi-layout-text-window-reverse"></i> Footer</div>
+                        <pre style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:.75rem;font-size:.8rem;overflow-x:auto;color:#374151;">@previewTemplate.FooterContent</pre>
+                    </div>
+                }
+            </div>
+        </div>
+        <div class="drawer-footer">
+            <button class="btn-secondary-action" @onclick="ClosePreviewDrawer">Close</button>
+            <button class="btn-create" @onclick="() => EditTemplate(previewTemplate)">
+                <i class="bi bi-pencil"></i> Edit Template
+            </button>
+        </div>
+    </div>
+}
 
 @code {
     private List<DocumentTemplateDto>? templates;
     private bool isLoading = true;
     private string? errorMessage;
+    private string? successMessage;
     private string? selectedDocumentType;
     private int currentPage = 1;
     private int pageSize = 12;
@@ -286,6 +601,14 @@
     private bool isSaving;
     private string? savingError;
     private DocumentTemplateDto? editingTemplate;
+
+    // Placeholder drawer
+    private bool showPlaceholderDrawer;
+    private TemplatePlaceholdersDto? placeholders;
+
+    // Preview drawer
+    private bool showPreviewDrawer;
+    private DocumentTemplateDto? previewTemplate;
 
     // Form fields
     private string templateName = "";
@@ -301,6 +624,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        pageSize = AppSettings.PageSize;
         await LoadTemplates();
     }
 
@@ -337,13 +661,10 @@
         await LoadTemplates();
     }
 
-    private async Task ChangePage(int page)
+    private async Task OnPageChanged(int page)
     {
-        if (page >= 1 && page <= totalPages)
-        {
-            currentPage = page;
-            await LoadTemplates();
-        }
+        currentPage = page;
+        await LoadTemplates();
     }
 
     private void OpenCreateModal()
@@ -365,6 +686,7 @@
 
     private void EditTemplate(DocumentTemplateDto template)
     {
+        showPreviewDrawer = false;
         editingTemplate = template;
         templateName = template.Name;
         templateDocumentType = template.DocumentType;
@@ -418,7 +740,7 @@
 
             if (response.IsSuccessStatusCode)
             {
-                await JS.InvokeVoidAsync("alert", "Template saved successfully!");
+                successMessage = editingTemplate == null ? "Template created successfully!" : "Template updated successfully!";
                 CloseTemplateModal();
                 await LoadTemplates();
             }
@@ -439,80 +761,107 @@
 
     private async Task SetAsDefault(int templateId)
     {
-        if (await JS.InvokeAsync<bool>("confirm", "Set this template as default?"))
+        if (await JS.InvokeAsync<bool>("confirm", "Set this template as the default for its document type?"))
         {
             try
             {
                 var response = await Http.PostAsync($"/api/document/templates/{templateId}/set-default", null);
                 if (response.IsSuccessStatusCode)
                 {
-                    await JS.InvokeVoidAsync("alert", "Template set as default!");
+                    successMessage = "Template set as default!";
                     await LoadTemplates();
                 }
             }
             catch (Exception ex)
             {
-                await JS.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+                errorMessage = $"Error setting default: {ex.Message}";
             }
         }
     }
 
     private async Task DeleteTemplate(int templateId)
     {
-        if (await JS.InvokeAsync<bool>("confirm", "Are you sure you want to delete this template?"))
+        if (await JS.InvokeAsync<bool>("confirm", "Are you sure you want to delete this template? This cannot be undone."))
         {
             try
             {
                 var response = await Http.DeleteAsync($"/api/document/templates/{templateId}");
                 if (response.IsSuccessStatusCode)
                 {
-                    await JS.InvokeVoidAsync("alert", "Template deleted successfully!");
+                    successMessage = "Template deleted successfully!";
                     await LoadTemplates();
                 }
             }
             catch (Exception ex)
             {
-                await JS.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+                errorMessage = $"Error deleting template: {ex.Message}";
             }
         }
     }
 
-    private async Task PreviewTemplate(DocumentTemplateDto template)
+    private void PreviewTemplate(DocumentTemplateDto template)
     {
-        await JS.InvokeVoidAsync("alert", "Preview functionality coming soon!");
+        previewTemplate = template;
+        showPreviewDrawer = true;
+    }
+
+    private void ClosePreviewDrawer()
+    {
+        showPreviewDrawer = false;
     }
 
     private async Task ShowPlaceholders()
     {
         if (string.IsNullOrEmpty(templateDocumentType))
         {
-            await JS.InvokeVoidAsync("alert", "Please select a document type first.");
+            savingError = "Please select a document type first to view available placeholders.";
             return;
         }
 
+        placeholders = null;
+        showPlaceholderDrawer = true;
+
         try
         {
-            var placeholders = await Http.GetFromJsonAsync<TemplatePlaceholdersDto>(
-            $"/api/document/templates/placeholders/{templateDocumentType}");
-
-            var message = "Available Placeholders:\n\n";
-            foreach (var group in placeholders.Placeholders.GroupBy(p => p.Category))
-            {
-                message += $"{group.Key}:\n";
-                foreach (var p in group)
-                {
-                    message += $" {{{{{p.Key}}}}} - {p.Description}\n";
-                }
-                message += "\n";
-            }
-
-            await JS.InvokeVoidAsync("alert", message);
+            placeholders = await Http.GetFromJsonAsync<TemplatePlaceholdersDto>(
+                $"/api/document/templates/placeholders/{templateDocumentType}");
         }
         catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("alert", $"Error loading placeholders: {ex.Message}");
+            errorMessage = $"Error loading placeholders: {ex.Message}";
+            showPlaceholderDrawer = false;
         }
     }
+
+    private void ClosePlaceholderDrawer()
+    {
+        showPlaceholderDrawer = false;
+    }
+
+    private async Task CopyPlaceholder(string key)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", $"{{{{{key}}}}}");
+    }
+
+    private string GetDocTypeCss(string docType) => docType.ToLower() switch
+    {
+        "invoice" => "invoice",
+        "quote" => "quote",
+        "salesorder" => "salesorder",
+        "purchaseorder" => "purchaseorder",
+        "deliverynote" => "deliverynote",
+        "creditnote" => "creditnote",
+        _ => "invoice"
+    };
+
+    private string FormatDocType(string docType) => docType switch
+    {
+        "SalesOrder" => "Sales Order",
+        "PurchaseOrder" => "Purchase Order",
+        "DeliveryNote" => "Delivery Note",
+        "CreditNote" => "Credit Note",
+        _ => docType
+    };
 
     public class DocumentTemplateDto
     {

@@ -15,6 +15,11 @@ public interface IReportService
     Task<PaymentSummaryReport?> GetPaymentSummaryAsync(DateTime? fromDate, DateTime? toDate);
     Task<TopCustomersReport?> GetTopCustomersAsync(DateTime? fromDate, DateTime? toDate, int topCount = 10);
     Task<OrderFulfillmentReport?> GetOrderFulfillmentAsync(DateTime? fromDate, DateTime? toDate);
+    Task<CreditNoteSummaryReport?> GetCreditNoteSummaryAsync(DateTime? fromDate, DateTime? toDate);
+    Task<PurchaseOrderSummaryReport?> GetPurchaseOrderSummaryAsync(DateTime? fromDate, DateTime? toDate);
+    Task<ReceivablesAgingReport?> GetReceivablesAgingAsync();
+    Task<ProfitOverviewReport?> GetProfitOverviewAsync(DateTime? fromDate, DateTime? toDate);
+    Task<SlowMovingProductsReport?> GetSlowMovingProductsAsync(DateTime? fromDate, DateTime? toDate, int daysThreshold = 30);
 }
 
 /// <summary>
@@ -154,6 +159,89 @@ public class ReportService : IReportService
         {
             _logger.LogError(ex, "Error fetching order fulfillment report (HTTP {StatusCode})", ex.StatusCode);
             throw new InvalidOperationException($"Failed to fetch order fulfillment (HTTP {ex.StatusCode})", ex);
+        }
+    }
+
+    public async Task<CreditNoteSummaryReport?> GetCreditNoteSummaryAsync(DateTime? fromDate, DateTime? toDate)
+    {
+        var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
+        var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
+        try
+        {
+            var response = await _httpClient.GetAsync($"api/report/credit-notes?fromDate={from}&toDate={to}");
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<CreditNoteSummaryReport>();
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Error fetching credit notes report (HTTP {StatusCode})", ex.StatusCode);
+            throw new InvalidOperationException($"Failed to fetch credit notes report (HTTP {ex.StatusCode})", ex);
+        }
+    }
+
+    public async Task<PurchaseOrderSummaryReport?> GetPurchaseOrderSummaryAsync(DateTime? fromDate, DateTime? toDate)
+    {
+        var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
+        var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
+        try
+        {
+            var response = await _httpClient.GetAsync($"api/report/purchase-orders?fromDate={from}&toDate={to}");
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<PurchaseOrderSummaryReport>();
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Error fetching purchase orders report (HTTP {StatusCode})", ex.StatusCode);
+            throw new InvalidOperationException($"Failed to fetch purchase orders report (HTTP {ex.StatusCode})", ex);
+        }
+    }
+
+    public async Task<ReceivablesAgingReport?> GetReceivablesAgingAsync()
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync("api/report/receivables-aging");
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<ReceivablesAgingReport>();
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Error fetching receivables aging report (HTTP {StatusCode})", ex.StatusCode);
+            throw new InvalidOperationException($"Failed to fetch receivables aging report (HTTP {ex.StatusCode})", ex);
+        }
+    }
+
+    public async Task<ProfitOverviewReport?> GetProfitOverviewAsync(DateTime? fromDate, DateTime? toDate)
+    {
+        var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
+        var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
+        try
+        {
+            var response = await _httpClient.GetAsync($"api/report/profit-overview?fromDate={from}&toDate={to}");
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<ProfitOverviewReport>();
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Error fetching profit overview report (HTTP {StatusCode})", ex.StatusCode);
+            throw new InvalidOperationException($"Failed to fetch profit overview report (HTTP {ex.StatusCode})", ex);
+        }
+    }
+
+    public async Task<SlowMovingProductsReport?> GetSlowMovingProductsAsync(DateTime? fromDate, DateTime? toDate, int daysThreshold = 30)
+    {
+        var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-90).ToString("yyyy-MM-dd");
+        var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
+        try
+        {
+            var response = await _httpClient.GetAsync($"api/report/slow-moving-products?fromDate={from}&toDate={to}&daysThreshold={daysThreshold}");
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<SlowMovingProductsReport>();
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Error fetching slow moving products report (HTTP {StatusCode})", ex.StatusCode);
+            throw new InvalidOperationException($"Failed to fetch slow moving products report (HTTP {ex.StatusCode})", ex);
         }
     }
 }

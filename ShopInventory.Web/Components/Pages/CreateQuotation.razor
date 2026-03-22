@@ -1,0 +1,642 @@
+@page "/quotations/create"
+@using Microsoft.AspNetCore.Authorization
+@using MudBlazor
+@attribute [Authorize(Roles = "Admin,Cashier")]
+@inject IQuotationService QuotationService
+@inject IBusinessPartnerService BusinessPartnerService
+@inject IMasterDataCacheService CacheService
+@inject IPriceService PriceService
+@inject NavigationManager NavigationManager
+@inject ISnackbar Snackbar
+@inject ILogger<CreateQuotation> Logger
+@inject IAppSettingsProvider AppSettings
+@rendermode InteractiveServer
+
+<PageTitle>Create Quotation - Shop Inventory</PageTitle>
+
+<style>
+    /* ── Page ────────────────────────────────────────── */
+    .cq-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
+    }
+
+    /* ── Breadcrumb ──────────────────────────────────── */
+    .cq-breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+        font-size: .85rem;
+        color: #6b7280;
+        margin-bottom: 1.25rem;
+    }
+
+    .cq-breadcrumb a {
+        color: #d97706;
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .cq-breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .cq-breadcrumb .sep {
+        color: #d1d5db;
+    }
+
+    /* ── Header ──────────────────────────────────────── */
+    .cq-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .cq-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .cq-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #f59e0b, #d97706);
+        box-shadow: 0 4px 14px rgba(245, 158, 11, .3);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .cq-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+        letter-spacing: -.3px;
+    }
+
+    .cq-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: .88rem;
+    }
+
+    .cq-header-actions {
+        display: flex;
+        gap: .5rem;
+        align-items: center;
+    }
+
+    .btn-back {
+        background: #fff;
+        color: #374151;
+        border: 1px solid #d1d5db;
+        padding: .55rem 1.1rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .85rem;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        transition: all .15s;
+    }
+
+    .btn-back:hover {
+        background: #f9fafb;
+        border-color: #9ca3af;
+        color: #374151;
+    }
+
+    /* ── Form Card ───────────────────────────────────── */
+    .form-card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 14px;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .form-card-title {
+        font-weight: 600;
+        font-size: .95rem;
+        color: #1a1a2e;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .85rem;
+    }
+
+    .form-field {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .form-field.full {
+        grid-column: span 2;
+    }
+
+    .form-field label {
+        font-size: .75rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .4px;
+        margin-bottom: .25rem;
+    }
+
+    .form-field input,
+    .form-field select,
+    .form-field textarea {
+        padding: .5rem .75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: .88rem;
+        color: #374151;
+        transition: all .15s;
+    }
+
+    .form-field input:focus,
+    .form-field select:focus,
+    .form-field textarea:focus {
+        outline: none;
+        border-color: #f59e0b;
+        box-shadow: 0 0 0 3px rgba(245, 158, 11, .15);
+    }
+
+    /* ── Line Items ──────────────────────────────────── */
+    .line-items-section {
+        margin-top: 1.25rem;
+        padding: 1rem;
+        background: #f9fafb;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+    }
+
+    .lines-table {
+        width: 100%;
+        font-size: .85rem;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .lines-table th {
+        background: #f8fafc;
+        font-size: .72rem;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #6b7280;
+        font-weight: 600;
+        padding: .6rem .75rem;
+        border-bottom: 2px solid #e5e7eb;
+    }
+
+    .lines-table td {
+        padding: .55rem .75rem;
+        border-bottom: 1px solid #f3f4f6;
+        color: #374151;
+    }
+
+    /* ── Buttons ─────────────────────────────────────── */
+    .btn-create {
+        background: linear-gradient(135deg, #f59e0b, #d97706);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .btn-create:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(245, 158, 11, .3);
+    }
+
+    .btn-create:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .btn-secondary-action {
+        background: #fff;
+        color: #374151;
+        border: 1px solid #d1d5db;
+        padding: .55rem 1.35rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .15s;
+    }
+
+    .btn-secondary-action:hover {
+        background: #f9fafb;
+        border-color: #9ca3af;
+    }
+
+    /* ── Customer Dropdown ────────────────────────────── */
+    .bp-dropdown {
+        position: absolute;
+        z-index: 100;
+        background: #fff;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        max-height: 200px;
+        overflow-y: auto;
+        width: 100%;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, .1);
+        margin-top: 2px;
+    }
+
+    .bp-dropdown-item {
+        padding: .5rem .75rem;
+        cursor: pointer;
+        font-size: .85rem;
+        border-bottom: 1px solid #f3f4f6;
+    }
+
+    .bp-dropdown-item:hover {
+        background: #fef3c7;
+    }
+
+    .bp-dropdown-item .bp-name {
+        font-weight: 600;
+        color: #1a1a2e;
+    }
+
+    .bp-dropdown-item .bp-code {
+        font-size: .78rem;
+        color: #9ca3af;
+    }
+
+    /* ── Footer ──────────────────────────────────────── */
+    .form-footer {
+        display: flex;
+        gap: .5rem;
+        justify-content: flex-end;
+        padding-top: 1rem;
+    }
+
+    /* ── Loading ─────────────────────────────────────── */
+    .loading-state {
+        text-align: center;
+        padding: 3rem;
+    }
+
+    @@media (max-width: 768px) {
+        .cq-header {
+            flex-direction: column;
+        }
+
+        .form-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .form-field.full {
+            grid-column: span 1;
+        }
+    }
+</style>
+
+<div class="cq-page">
+    <div class="container-fluid">
+
+        <!-- Breadcrumb -->
+        <div class="cq-breadcrumb">
+            <a href="/quotations">Quotations</a>
+            <span class="sep">/</span>
+            <span>Create New</span>
+        </div>
+
+        <!-- Header -->
+        <div class="cq-header">
+            <div class="cq-header-left">
+                <div class="cq-header-icon"><i class="bi bi-file-earmark-text"></i></div>
+                <div>
+                    <h2>Create Quotation</h2>
+                    <p>Create a new customer quotation</p>
+                </div>
+            </div>
+            <div class="cq-header-actions">
+                <a href="/quotations" class="btn-back"><i class="bi bi-arrow-left"></i> Back</a>
+            </div>
+        </div>
+
+        @if (isLoadingMasterData)
+        {
+            <div class="loading-state">
+                <div class="spinner-border" style="color:#f59e0b;width:2.5rem;height:2.5rem;" role="status"></div>
+                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading master data...</p>
+            </div>
+        }
+        else
+        {
+            <!-- Customer & Details -->
+            <div class="form-card">
+                <div class="form-card-title"><i class="bi bi-person-badge"></i> Customer & Details</div>
+                <div class="form-grid">
+                    <!-- Customer -->
+                    <div class="form-field" style="position:relative;">
+                        <label>Customer *</label>
+                        <input type="text" @bind="bpSearchTerm" @bind:event="oninput"
+                               @onfocus="() => showBPDropdown = true"
+                               placeholder="Search customer..." />
+                        @if (showBPDropdown && filteredBusinessPartners.Any())
+                        {
+                            <div class="bp-dropdown">
+                                @foreach (var bp in filteredBusinessPartners.Take(20))
+                                {
+                                    <div class="bp-dropdown-item" @onclick="() => SelectBusinessPartner(bp)">
+                                        <div class="bp-name">@bp.CardName</div>
+                                        <div class="bp-code">@bp.CardCode</div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <!-- Contact Person -->
+                    <div class="form-field">
+                        <label>Contact Person</label>
+                        <input type="text" @bind="newQuotation.ContactPerson" placeholder="Contact name" />
+                    </div>
+
+                    <!-- Valid Until -->
+                    <div class="form-field">
+                        <label>Valid Until</label>
+                        <MudDatePicker @bind-Date="validUntilDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                       DateFormat="@AppSettings.DateFormat" Editable="true" />
+                    </div>
+
+                    <!-- Currency -->
+                    <div class="form-field">
+                        <label>Currency</label>
+                        <select @bind="newQuotation.Currency">
+                            <option value="USD">USD</option>
+                            <option value="ZIG">ZIG</option>
+                            <option value="ZAR">ZAR</option>
+                            <option value="BWP">BWP</option>
+                            <option value="EUR">EUR</option>
+                            <option value="GBP">GBP</option>
+                        </select>
+                    </div>
+
+                    <!-- Customer Reference -->
+                    <div class="form-field">
+                        <label>Customer Reference</label>
+                        <input type="text" @bind="newQuotation.CustomerRefNo" placeholder="Reference number" />
+                    </div>
+
+                    <!-- Discount -->
+                    <div class="form-field">
+                        <label>Discount %</label>
+                        <input type="number" @bind="newQuotation.DiscountPercent" min="0" max="100" step="0.1" />
+                    </div>
+
+                    <!-- Comments -->
+                    <div class="form-field full">
+                        <label>Comments</label>
+                        <textarea rows="2" @bind="newQuotation.Comments" placeholder="Additional notes..."></textarea>
+                    </div>
+
+                    <!-- Terms and Conditions -->
+                    <div class="form-field full">
+                        <label>Terms &amp; Conditions</label>
+                        <textarea rows="2" @bind="newQuotation.TermsAndConditions" placeholder="Payment terms, delivery terms..."></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Line Items -->
+            <div class="form-card">
+                <div class="line-items-section">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;">
+                        <span style="font-weight:600;font-size:.9rem;color:#1a1a2e;">
+                            <i class="bi bi-list-ul"></i> Line Items
+                        </span>
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" OnClick="AddLineItem">
+                            <i class="bi bi-plus"></i> Add Line
+                        </MudButton>
+                    </div>
+
+                    @if (newQuotation.Lines.Count == 0)
+                    {
+                        <p style="text-align:center;color:#9ca3af;font-size:.85rem;padding:1rem;">No line items added yet</p>
+                    }
+                    else
+                    {
+                        <table class="lines-table" style="margin-bottom:.5rem;">
+                            <thead>
+                                <tr>
+                                    <th style="width:25%">Item</th>
+                                    <th>Description</th>
+                                    <th style="width:10%">Qty</th>
+                                    <th style="width:12%">Price</th>
+                                    <th style="width:8%">Disc %</th>
+                                    <th style="width:10%;text-align:right">Total</th>
+                                    <th style="width:5%"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @for (int i = 0; i < newQuotation.Lines.Count; i++)
+                                {
+                                    var lineIndex = i;
+                                    var line = newQuotation.Lines[lineIndex];
+                                    <tr>
+                                        <td>
+                                            <input type="text" @bind="line.ItemCode" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;" placeholder="Item code" />
+                                        </td>
+                                        <td>
+                                            <input type="text" @bind="line.ItemDescription" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;" placeholder="Description" />
+                                        </td>
+                                        <td>
+                                            <input type="number" @bind="line.Quantity" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;" min="0.0001" step="1" />
+                                        </td>
+                                        <td>
+                                            <input type="number" @bind="line.UnitPrice" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;" min="0" step="0.01" />
+                                        </td>
+                                        <td>
+                                            <input type="number" @bind="line.DiscountPercent" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;" min="0" max="100" step="0.1" />
+                                        </td>
+                                        <td style="text-align:right;font-weight:600;font-size:.85rem;">
+                                            @((line.Quantity * line.UnitPrice * (1 - line.DiscountPercent / 100)).ToString("N2"))
+                                        </td>
+                                        <td>
+                                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                                           Color="Color.Error" OnClick="() => RemoveLineItem(lineIndex)" />
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+
+                        <div style="text-align:right;padding:.5rem .75rem;">
+                            <span style="font-weight:700;font-size:.95rem;color:#d97706;">
+                                Total: @CalculateTotal().ToString("N2")
+                            </span>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Footer Actions -->
+            <div class="form-footer">
+                <a href="/quotations" class="btn-secondary-action">Cancel</a>
+                <MudButton Class="btn-create" OnClick="CreateQuotationAsync" Disabled="@(isCreating || newQuotation.Lines.Count == 0)">
+                    @if (isCreating)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                    }
+                    <span>Create Quotation</span>
+                </MudButton>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private CreateQuotationRequest newQuotation = new();
+    private DateTime? validUntilDate;
+    private bool isCreating = false;
+    private bool isLoadingMasterData = true;
+
+    // Business Partner autocomplete state
+    private List<BusinessPartnerDto> allBusinessPartners = new();
+    private BusinessPartnerDto? selectedBusinessPartner;
+    private string? bpSearchTerm;
+    private bool showBPDropdown = false;
+
+    private IEnumerable<BusinessPartnerDto> filteredBusinessPartners
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(bpSearchTerm))
+                return allBusinessPartners.Take(50);
+
+            var search = bpSearchTerm.ToLowerInvariant();
+            return allBusinessPartners.Where(bp =>
+                (bp.CardCode?.ToLowerInvariant().Contains(search) ?? false) ||
+                (bp.CardName?.ToLowerInvariant().Contains(search) ?? false));
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        validUntilDate = DateTime.Now.AddDays(30);
+        await LoadMasterData();
+    }
+
+    private async Task LoadMasterData()
+    {
+        isLoadingMasterData = true;
+        try
+        {
+            var response = await BusinessPartnerService.GetBusinessPartnersAsync();
+            allBusinessPartners = response?.BusinessPartners?.Where(bp => bp.CardType == "cCustomer").ToList() ?? new();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading master data for quotation creation");
+        }
+        finally
+        {
+            isLoadingMasterData = false;
+        }
+    }
+
+    private void SelectBusinessPartner(BusinessPartnerDto bp)
+    {
+        selectedBusinessPartner = bp;
+        newQuotation.CardCode = bp.CardCode ?? "";
+        newQuotation.CardName = bp.CardName;
+        newQuotation.ShipToAddress = bp.Address;
+        newQuotation.BillToAddress = bp.Address;
+        bpSearchTerm = $"{bp.CardCode} - {bp.CardName}";
+        showBPDropdown = false;
+    }
+
+    private void AddLineItem()
+    {
+        newQuotation.Lines.Add(new CreateQuotationLineRequest
+        {
+            Quantity = 1,
+            UnitPrice = 0
+        });
+    }
+
+    private void RemoveLineItem(int index)
+    {
+        if (index >= 0 && index < newQuotation.Lines.Count)
+        {
+            newQuotation.Lines.RemoveAt(index);
+        }
+    }
+
+    private decimal CalculateTotal()
+    {
+        var subTotal = newQuotation.Lines.Sum(l => l.Quantity * l.UnitPrice * (1 - l.DiscountPercent / 100));
+        var discount = subTotal * newQuotation.DiscountPercent / 100;
+        var tax = newQuotation.Lines.Sum(l => l.Quantity * l.UnitPrice * (1 - l.DiscountPercent / 100) * l.TaxPercent / 100);
+        return subTotal - discount + tax;
+    }
+
+    private async Task CreateQuotationAsync()
+    {
+        if (string.IsNullOrEmpty(newQuotation.CardCode))
+        {
+            Snackbar.Add("Please select a customer.", Severity.Warning);
+            return;
+        }
+
+        if (newQuotation.Lines.Count == 0)
+        {
+            Snackbar.Add("Please add at least one line item.", Severity.Warning);
+            return;
+        }
+
+        isCreating = true;
+        try
+        {
+            newQuotation.ValidUntil = validUntilDate;
+            var created = await QuotationService.CreateQuotationAsync(newQuotation);
+            if (created != null)
+            {
+                Snackbar.Add($"Quotation {created.QuotationNumber} created successfully!", Severity.Success);
+                NavigationManager.NavigateTo("/quotations");
+            }
+            else
+            {
+                Snackbar.Add("Failed to create quotation.", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+}

@@ -17,7 +17,7 @@
             // Only redirect if we're not already on the login page
             if (!uri.AbsolutePath.Equals(loginPath, StringComparison.OrdinalIgnoreCase))
             {
-                Navigation.NavigateTo($"{loginPath}?returnUrl={Uri.EscapeDataString(uri.PathAndQuery)}", forceLoad: true);
+                Navigation.NavigateTo($"{loginPath}?returnUrl={Uri.EscapeDataString(uri.PathAndQuery)}", forceLoad: false);
             }
         }
     }

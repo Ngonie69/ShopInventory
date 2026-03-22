@@ -7,6 +7,7 @@
 @inject IMasterDataCacheService MasterDataCache
 @inject HttpClient Http
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IAppSettingsProvider AppSettings
 @rendermode InteractiveServer
 
 <PageTitle>Stock Monitoring - Shop Inventory</PageTitle>
@@ -1134,6 +1135,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        pageSize = AppSettings.PageSize;
         // Check if user has an assigned warehouse (StockController/DepotController)
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = authState.User;

@@ -171,7 +171,9 @@ public class SalesOrderService : ISalesOrderService
         {
             OrderNumber = orderNumber,
             OrderDate = DateTime.UtcNow,
-            DeliveryDate = request.DeliveryDate,
+            DeliveryDate = request.DeliveryDate.HasValue
+                ? DateTime.SpecifyKind(request.DeliveryDate.Value, DateTimeKind.Utc)
+                : null,
             CardCode = request.CardCode,
             CardName = request.CardName,
             CustomerRefNo = request.CustomerRefNo,
@@ -241,7 +243,9 @@ public class SalesOrderService : ISalesOrderService
         if (order.Status != SalesOrderStatus.Draft)
             throw new InvalidOperationException("Only draft orders can be edited");
 
-        order.DeliveryDate = request.DeliveryDate;
+        order.DeliveryDate = request.DeliveryDate.HasValue
+            ? DateTime.SpecifyKind(request.DeliveryDate.Value, DateTimeKind.Utc)
+            : null;
         order.CardCode = request.CardCode;
         order.CardName = request.CardName;
         order.CustomerRefNo = request.CustomerRefNo;

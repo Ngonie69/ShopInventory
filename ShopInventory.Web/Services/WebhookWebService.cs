@@ -125,7 +125,7 @@ public class WebhookService : IWebhookService
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<WebhookDeliveryListResponse>($"api/webhook/{webhookId}/deliveries?page={page}&pageSize={pageSize}");
+            return await _httpClient.GetFromJsonAsync<WebhookDeliveryListResponse>($"api/webhook/deliveries?webhookId={webhookId}&page={page}&pageSize={pageSize}");
         }
         catch (Exception ex)
         {
@@ -138,7 +138,8 @@ public class WebhookService : IWebhookService
     {
         try
         {
-            var response = await _httpClient.PostAsync($"api/webhook/{id}/test", null);
+            var testRequest = new { EventType = "invoice.created", SampleData = (object?)null };
+            var response = await _httpClient.PostAsJsonAsync($"api/webhook/{id}/test", testRequest);
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -152,8 +153,8 @@ public class WebhookService : IWebhookService
     {
         try
         {
-            var events = await _httpClient.GetFromJsonAsync<List<string>>("api/webhook/events");
-            return events ?? WebhookEvents.All;
+            var response = await _httpClient.GetFromJsonAsync<WebhookEventTypesResponse>("api/webhook/event-types");
+            return response?.EventTypes?.Select(e => e.EventType).ToList() ?? WebhookEvents.All;
         }
         catch (Exception ex)
         {

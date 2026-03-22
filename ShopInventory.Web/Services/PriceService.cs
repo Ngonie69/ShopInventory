@@ -22,6 +22,7 @@ public interface IPriceService
     Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum);
     Task<ItemPricesByListResponse?> GetPricesByPriceListForceRefreshAsync(int priceListNum);
     Task<ItemPriceByListDto?> GetItemPriceFromListAsync(int priceListNum, string itemCode);
+    Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode);
 }
 
 public class PriceService : IPriceService
@@ -253,6 +254,42 @@ public class PriceService : IPriceService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception fetching price for item {ItemCode} from price list {PriceListNum}", itemCode, priceListNum);
+            return null;
+        }
+    }
+
+    public async Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode)
+    {
+        try
+        {
+            _logger.LogDebug("Fetching prices for business partner {CardCode}", cardCode);
+
+            var response = await _httpClient.GetAsync($"api/price/businesspartner/{Uri.EscapeDataString(cardCode)}");
+            _logger.LogDebug("GetPricesByBusinessPartnerAsync response: {StatusCode}", response.StatusCode);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                _logger.LogWarning("No prices found for business partner {CardCode}", cardCode);
+                return new ItemPricesByListResponse
+                {
+                    TotalCount = 0,
+                    PriceListNum = 0,
+                    Prices = new List<ItemPriceByListDto>()
+                };
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Failed to get prices for business partner {CardCode}: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<ItemPricesByListResponse>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception fetching prices for business partner {CardCode}", cardCode);
             return null;
         }
     }

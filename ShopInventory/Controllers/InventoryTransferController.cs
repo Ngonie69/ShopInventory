@@ -123,7 +123,7 @@ public class InventoryTransferController : ControllerBase
                 });
             }
 
-            var transfer = await _sapClient.CreateInventoryTransferAsync(request, cancellationToken);
+            var transfer = await _sapClient.CreateInventoryTransferAsync(request, stockValidationResult.PreFetchedData, cancellationToken);
 
             _logger.LogInformation("Inventory transfer created successfully. DocEntry: {DocEntry}, DocNum: {DocNum}, From: {FromWarehouse}, To: {ToWarehouse}",
                 transfer.DocEntry, transfer.DocNum, request.FromWarehouse, request.ToWarehouse);

@@ -73,6 +73,10 @@ public class ApplicationDbContext : DbContext
   public DbSet<CreditNoteEntity> CreditNotes { get; set; }
   public DbSet<CreditNoteLineEntity> CreditNoteLines { get; set; }
 
+  // Quotation tables
+  public DbSet<QuotationEntity> Quotations { get; set; }
+  public DbSet<QuotationLineEntity> QuotationLines { get; set; }
+
   // System tables
   public DbSet<ExchangeRateEntity> ExchangeRates { get; set; }
   public DbSet<SystemConfigEntity> SystemConfigs { get; set; }
@@ -127,8 +131,10 @@ public class ApplicationDbContext : DbContext
                 .IsRequired()
                 .HasMaxLength(50);
 
-      entity.Property(u => u.AssignedWarehouseCode)
-                .HasMaxLength(50);
+      entity.Property(u => u.AssignedWarehouseCodes)
+                .HasMaxLength(500);
+
+      entity.Ignore(u => u.AssignedWarehouseCode);
     });
 
     // RefreshToken configuration
@@ -657,6 +663,53 @@ public class ApplicationDbContext : DbContext
     modelBuilder.Entity<CreditNoteLineEntity>(entity =>
     {
       entity.ToTable("CreditNoteLines");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.ItemCode);
+
+      entity.HasOne(e => e.Product)
+            .WithMany()
+            .HasForeignKey(e => e.ProductId)
+            .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // Quotation configuration
+    modelBuilder.Entity<QuotationEntity>(entity =>
+    {
+      entity.ToTable("Quotations");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.QuotationNumber).IsUnique();
+      entity.HasIndex(e => e.CardCode);
+      entity.HasIndex(e => e.Status);
+      entity.HasIndex(e => e.QuotationDate);
+      entity.HasIndex(e => e.ValidUntil);
+
+      entity.HasMany(e => e.Lines)
+            .WithOne(l => l.Quotation)
+            .HasForeignKey(l => l.QuotationId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.SalesOrder)
+            .WithMany()
+            .HasForeignKey(e => e.SalesOrderId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasOne(e => e.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasOne(e => e.ApprovedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.ApprovedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // Quotation Line configuration
+    modelBuilder.Entity<QuotationLineEntity>(entity =>
+    {
+      entity.ToTable("QuotationLines");
       entity.HasKey(e => e.Id);
 
       entity.HasIndex(e => e.ItemCode);

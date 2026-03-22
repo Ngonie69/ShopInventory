@@ -229,6 +229,28 @@ public static class Permissions
                 ViewStock, ViewInventory,
                 ViewCustomers
             },
+            "Cashier" => new List<string>
+            {
+                ViewDashboard, ViewProducts,
+                ViewInvoices, CreateInvoices, EditInvoices,
+                ViewPayments, CreatePayments,
+                ViewStock, ViewInventory,
+                ViewCustomers, CreateCustomers, EditCustomers,
+                ViewReports
+            },
+            "StockController" => new List<string>
+            {
+                ViewDashboard, ViewProducts,
+                ViewStock, ViewInventory, TransferStock, TransferInventory,
+                ViewCustomers
+            },
+            "DepotController" => new List<string>
+            {
+                ViewDashboard, ViewProducts,
+                ViewPayments, CreatePayments,
+                ViewStock, ViewInventory, TransferStock, TransferInventory,
+                ViewCustomers
+            },
             "ReadOnly" => new List<string>
             {
                 ViewDashboard, ViewProducts, ViewInvoices, ViewPayments,

@@ -25,7 +25,13 @@ public class BlazorServerAuthHandler : AuthenticationHandler<AuthenticationSchem
         // Return a successful authenticated principal to let the request through.
         // Blazor's AuthorizeRouteView will handle real authorization using JWT from localStorage.
         // The authentication type must be set for IsAuthenticated to return true.
-        var identity = new ClaimsIdentity("BlazorServer"); // Named identity = IsAuthenticated returns true
+        // A Name claim is REQUIRED because the antiforgery system needs a unique Name
+        // on all authenticated identities to generate tokens during SSR.
+        // Without this, page reloads fail with a blank page because the antiforgery token
+        // cannot be generated, preventing Blazor from establishing the SignalR circuit.
+        var identity = new ClaimsIdentity(
+            new[] { new Claim(ClaimTypes.Name, "blazor-server-user") },
+            "BlazorServer");
         var principal = new ClaimsPrincipal(identity);
         var ticket = new AuthenticationTicket(principal, Scheme.Name);
         return Task.FromResult(AuthenticateResult.Success(ticket));

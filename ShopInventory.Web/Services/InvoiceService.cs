@@ -11,7 +11,7 @@ public interface IInvoiceService
     Task<InvoiceDateResponse?> GetInvoicesByCustomerAsync(string cardCode);
     Task<InvoiceDateResponse?> GetInvoicesByDateAsync(DateTime date);
     Task<InvoiceDateResponse?> GetInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate);
-    Task<(bool Success, string Message, InvoiceDto? Invoice)> CreateInvoiceAsync(CreateInvoiceRequest request);
+    Task<(bool Success, string Message, InvoiceDto? Invoice, FiscalizationResult? Fiscalization)> CreateInvoiceAsync(CreateInvoiceRequest request);
     Task<byte[]?> GetInvoicePdfAsync(int docEntry);
 }
 
@@ -90,7 +90,7 @@ public class InvoiceService : IInvoiceService
         }
     }
 
-    public async Task<(bool Success, string Message, InvoiceDto? Invoice)> CreateInvoiceAsync(CreateInvoiceRequest request)
+    public async Task<(bool Success, string Message, InvoiceDto? Invoice, FiscalizationResult? Fiscalization)> CreateInvoiceAsync(CreateInvoiceRequest request)
     {
         try
         {
@@ -116,7 +116,7 @@ public class InvoiceService : IInvoiceService
                 var result = await response.Content.ReadFromJsonAsync<InvoiceCreatedResponse>();
                 _logger.LogInformation("Invoice created successfully: DocNum={DocNum}, DocEntry={DocEntry}",
                     result?.Invoice?.DocNum, result?.Invoice?.DocEntry);
-                return (true, result?.Message ?? "Invoice created successfully", result?.Invoice);
+                return (true, result?.Message ?? "Invoice created successfully", result?.Invoice, result?.Fiscalization);
             }
 
             var errorContent = await response.Content.ReadAsStringAsync();
@@ -129,7 +129,7 @@ public class InvoiceService : IInvoiceService
                 var friendlyBatchError = TryParseBatchValidationError(errorContent);
                 if (friendlyBatchError != null)
                 {
-                    return (false, friendlyBatchError, null);
+                    return (false, friendlyBatchError, null, null);
                 }
 
                 var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
@@ -164,23 +164,23 @@ public class InvoiceService : IInvoiceService
                     }
                 }
 
-                return (false, errorMessage, null);
+                return (false, errorMessage, null, null);
             }
             catch (Exception parseEx)
             {
                 _logger.LogWarning(parseEx, "Failed to parse error response");
-                return (false, $"Failed to create invoice: {response.StatusCode} - {errorContent}", null);
+                return (false, $"Failed to create invoice: {response.StatusCode} - {errorContent}", null, null);
             }
         }
         catch (HttpRequestException httpEx)
         {
             _logger.LogError(httpEx, "HTTP error creating invoice. Status: {StatusCode}", httpEx.StatusCode);
-            return (false, $"Network error: {httpEx.Message}", null);
+            return (false, $"Network error: {httpEx.Message}", null, null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error creating invoice");
-            return (false, $"Error: {ex.Message}", null);
+            return (false, $"Error: {ex.Message}", null, null);
         }
     }
 

@@ -32,12 +32,13 @@ public class NotificationController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] bool unreadOnly = false,
+        [FromQuery] string? category = null,
         CancellationToken cancellationToken = default)
     {
         var username = User.FindFirst(ClaimTypes.Name)?.Value;
         var role = User.FindFirst(ClaimTypes.Role)?.Value;
 
-        var notifications = await _notificationService.GetNotificationsAsync(username, role, page, pageSize, unreadOnly, cancellationToken);
+        var notifications = await _notificationService.GetNotificationsAsync(username, role, page, pageSize, unreadOnly, category, cancellationToken);
         return Ok(notifications);
     }
 
@@ -185,11 +186,11 @@ public class SyncController : ControllerBase
     /// Get connection logs
     /// </summary>
     [HttpGet("logs")]
-    [ProducesResponseType(typeof(List<object>), StatusCodes.Status200OK)]
-    public IActionResult GetConnectionLogs([FromQuery] int count = 50)
+    [ProducesResponseType(typeof(List<ConnectionLogDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetConnectionLogs([FromQuery] int count = 50, CancellationToken cancellationToken = default)
     {
-        // Connection logging not yet implemented - return empty list
-        return Ok(new List<object>());
+        var logs = await _syncStatusService.GetConnectionLogsAsync(count, cancellationToken);
+        return Ok(logs);
     }
 
     /// <summary>
@@ -257,7 +258,7 @@ public class SyncController : ControllerBase
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin")]
+[Authorize(Policy = "ApiAccess")]
 public class EmailController : ControllerBase
 {
     private readonly IEmailService _emailService;
@@ -273,6 +274,7 @@ public class EmailController : ControllerBase
     /// Send a test email
     /// </summary>
     [HttpPost("test")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(EmailSentResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> SendTestEmail([FromBody] TestEmailRequest request, CancellationToken cancellationToken)
     {

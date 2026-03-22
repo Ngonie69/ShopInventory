@@ -31,6 +31,7 @@ public interface ISyncStatusService
     Task<SapConnectionStatusDto> CheckSapConnectionAsync(CancellationToken cancellationToken = default);
     Task LogConnectionCheckAsync(bool isSuccess, double? responseTimeMs, string? errorMessage = null, string? endpoint = null, CancellationToken cancellationToken = default);
     Task<SyncHealthSummaryDto> GetHealthSummaryAsync(CancellationToken cancellationToken = default);
+    Task<List<ConnectionLogDto>> GetConnectionLogsAsync(int count = 50, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -492,17 +493,106 @@ public class SyncStatusService : ISyncStatusService
 
     private async Task<CacheSyncStatusDto> GetCacheSyncStatusAsync(string cacheKey, CancellationToken cancellationToken)
     {
-        // This would typically check the web app's cache status
-        // For now, return placeholder data
-        return await Task.FromResult(new CacheSyncStatusDto
+        int itemCount = 0;
+        DateTime? lastSyncedAt = null;
+
+        try
+        {
+            switch (cacheKey)
+            {
+                case "Products":
+                    itemCount = await _context.Products.CountAsync(cancellationToken);
+                    lastSyncedAt = await _context.Products
+                        .Where(p => p.LastSyncedAt != null)
+                        .OrderByDescending(p => p.LastSyncedAt)
+                        .Select(p => p.LastSyncedAt)
+                        .FirstOrDefaultAsync(cancellationToken);
+                    break;
+                case "Prices":
+                    itemCount = await _context.ItemPrices.CountAsync(cancellationToken);
+                    lastSyncedAt = await _context.ItemPrices
+                        .Where(p => p.LastSyncedAt != null)
+                        .OrderByDescending(p => p.LastSyncedAt)
+                        .Select(p => p.LastSyncedAt)
+                        .FirstOrDefaultAsync(cancellationToken);
+                    break;
+                case "BusinessPartners":
+                    // Business partners are sourced from SAP directly, check invoices as a proxy
+                    itemCount = await _context.Invoices.Select(i => i.CardCode).Distinct().CountAsync(cancellationToken);
+                    lastSyncedAt = await _context.Invoices
+                        .Where(i => i.SyncedAt != null)
+                        .OrderByDescending(i => i.SyncedAt)
+                        .Select(i => i.SyncedAt)
+                        .FirstOrDefaultAsync(cancellationToken);
+                    break;
+                case "Warehouses":
+                    // Warehouses are fetched from SAP on demand; use inventory transfers as proxy
+                    itemCount = await _context.InventoryTransfers
+                        .Select(t => t.FromWarehouse).Union(_context.InventoryTransfers.Select(t => t.ToWarehouse))
+                        .Distinct().CountAsync(cancellationToken);
+                    lastSyncedAt = await _context.InventoryTransfers
+                        .Where(t => t.SyncedAt != null)
+                        .OrderByDescending(t => t.SyncedAt)
+                        .Select(t => t.SyncedAt)
+                        .FirstOrDefaultAsync(cancellationToken);
+                    break;
+                case "GLAccounts":
+                    // GL accounts are fetched from SAP on demand
+                    itemCount = 0;
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error checking cache status for {CacheKey}", cacheKey);
+            return new CacheSyncStatusDto
+            {
+                CacheKey = cacheKey,
+                DisplayName = cacheKey,
+                LastSyncedAt = null,
+                ItemCount = 0,
+                IsStale = true,
+                StaleMinutes = 0,
+                Status = "Error",
+                LastError = ex.Message,
+                LastErrorAt = DateTime.UtcNow
+            };
+        }
+
+        var isStale = lastSyncedAt.HasValue && (DateTime.UtcNow - lastSyncedAt.Value).TotalHours > 2;
+        var staleMinutes = lastSyncedAt.HasValue ? (int)(DateTime.UtcNow - lastSyncedAt.Value).TotalMinutes : 0;
+
+        return new CacheSyncStatusDto
         {
             CacheKey = cacheKey,
             DisplayName = cacheKey,
-            LastSyncedAt = DateTime.UtcNow.AddMinutes(-30),
-            ItemCount = 0,
-            IsStale = false,
-            StaleMinutes = 0,
-            Status = "Synced"
-        });
+            LastSyncedAt = lastSyncedAt != default ? lastSyncedAt : null,
+            ItemCount = itemCount,
+            IsStale = isStale,
+            StaleMinutes = isStale ? staleMinutes : 0,
+            Status = !lastSyncedAt.HasValue || lastSyncedAt == default ? "Unknown" : isStale ? "Stale" : "Synced"
+        };
+    }
+
+    /// <summary>
+    /// Get recent connection logs
+    /// </summary>
+    public async Task<List<ConnectionLogDto>> GetConnectionLogsAsync(int count = 50, CancellationToken cancellationToken = default)
+    {
+        var logs = await _context.SapConnectionLogs
+            .OrderByDescending(l => l.CheckedAt)
+            .Take(Math.Min(count, 100))
+            .Select(l => new ConnectionLogDto
+            {
+                Id = l.Id,
+                CheckedAt = l.CheckedAt,
+                IsSuccess = l.IsSuccess,
+                Endpoint = l.Endpoint,
+                ErrorMessage = l.ErrorMessage,
+                ResponseTimeMs = l.ResponseTimeMs
+            })
+            .ToListAsync(cancellationToken);
+
+        return logs;
     }
 }

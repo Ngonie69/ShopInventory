@@ -153,7 +153,8 @@ public class CreateInvoiceLineRequest
     [Range(0.00001, double.MaxValue, ErrorMessage = "Quantity must be greater than zero")]
     public decimal Quantity { get; set; }
 
-    [Range(0, double.MaxValue, ErrorMessage = "Unit price cannot be negative")]
+    [Required(ErrorMessage = "Unit price is required")]
+    [Range(0.00001, double.MaxValue, ErrorMessage = "Unit price must be greater than zero")]
     public decimal? UnitPrice { get; set; }
 
     /// <summary>

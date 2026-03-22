@@ -114,8 +114,9 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
         var apiResponse = await FetchTransfersFromApiAsync(warehouseCode, page, pageSize);
         if (apiResponse?.Transfers?.Any() == true)
         {
-            // Save first page to cache
-            await SaveTransfersToCacheAsync(apiResponse.Transfers);
+            // Save first page to cache (don't let cache save failure discard API results)
+            try { await SaveTransfersToCacheAsync(apiResponse.Transfers); }
+            catch (Exception saveEx) { _logger.LogWarning(saveEx, "Failed to cache transfers for warehouse {WarehouseCode}", warehouseCode); }
 
             // Start background sync for remaining items
             _ = Task.Run(async () => await SyncRemainingTransfersInBackgroundAsync(warehouseCode, apiResponse.HasMore));
@@ -143,9 +144,10 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
         var fromDateUtc = fromDate.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(fromDate, DateTimeKind.Utc) : fromDate.ToUniversalTime();
         var toDateUtc = toDate.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(toDate, DateTimeKind.Utc) : toDate.ToUniversalTime();
 
+        var toDateEndUtc = toDateUtc.Date.AddDays(1);
         var transfers = await dbContext.CachedInventoryTransfers
             .Where(t => (t.FromWarehouse == warehouseCode || t.ToWarehouse == warehouseCode) &&
-                       t.DocDate >= fromDateUtc && t.DocDate <= toDateUtc)
+                       t.DocDate >= fromDateUtc && t.DocDate < toDateEndUtc)
             .OrderByDescending(t => t.DocDate)
             .ThenByDescending(t => t.DocNum)
             .ToListAsync();
@@ -185,8 +187,9 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
 
             if (apiResponse?.Transfers?.Any() == true)
             {
-                // Cache the results we got
-                await SaveTransfersToCacheAsync(apiResponse.Transfers);
+                // Cache the results (don't let cache save failure discard API results)
+                try { await SaveTransfersToCacheAsync(apiResponse.Transfers); }
+                catch (Exception saveEx) { _logger.LogWarning(saveEx, "Failed to cache transfers for warehouse {WarehouseCode}", warehouseCode); }
                 // Trigger full background sync
                 _ = Task.Run(async () => await SyncTransfersInBackgroundAsync(warehouseCode));
             }
@@ -234,7 +237,8 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
 
             if (transfer != null)
             {
-                await SaveTransfersToCacheAsync(new List<InventoryTransferDto> { transfer });
+                try { await SaveTransfersToCacheAsync(new List<InventoryTransferDto> { transfer }); }
+                catch (Exception saveEx) { _logger.LogWarning(saveEx, "Failed to cache transfer {DocEntry}", docEntry); }
             }
 
             return transfer;
@@ -480,8 +484,8 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
     {
         cached.DocEntry = dto.DocEntry;
         cached.DocNum = dto.DocNum;
-        cached.DocDate = DateTime.TryParse(dto.DocDate, out var docDate) ? docDate : null;
-        cached.DueDate = DateTime.TryParse(dto.DueDate, out var dueDate) ? dueDate : null;
+        cached.DocDate = DateTime.TryParse(dto.DocDate, out var docDate) ? DateTime.SpecifyKind(docDate, DateTimeKind.Utc) : null;
+        cached.DueDate = DateTime.TryParse(dto.DueDate, out var dueDate) ? DateTime.SpecifyKind(dueDate, DateTimeKind.Utc) : null;
         cached.FromWarehouse = dto.FromWarehouse;
         cached.ToWarehouse = dto.ToWarehouse;
         cached.Comments = dto.Comments;

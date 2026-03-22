@@ -9,6 +9,7 @@
 @inject ILogger<CreateInventoryTransfer> Logger
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IAppSettingsProvider AppSettings
 @rendermode InteractiveServer
 
 <PageTitle>Create Inventory Transfer - Shop Inventory</PageTitle>
@@ -757,12 +758,12 @@
                                                 <div class="col-md-6">
                                                     <label class="form-label fw-semibold small">Document Date</label>
                                                     <MudDatePicker @bind-Date="docDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                                   DateFormat="dd.MM.yyyy" Editable="true" />
+                                                                   DateFormat="@AppSettings.DateFormat" Editable="true" />
                                                 </div>
                                                 <div class="col-md-6">
                                                     <label class="form-label fw-semibold small">Due Date</label>
                                                     <MudDatePicker @bind-Date="dueDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                                   DateFormat="dd.MM.yyyy" Editable="true" />
+                                                                   DateFormat="@AppSettings.DateFormat" Editable="true" />
                                                 </div>
                                                 <div class="col-12">
                                                     <label class="form-label fw-semibold small">Comments / Notes</label>

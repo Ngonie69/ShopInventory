@@ -156,9 +156,9 @@ public class UserManagementService : IUserManagementService
         }
 
         // Validate warehouse assignment for StockController/DepotController roles
-        if ((request.Role == "StockController" || request.Role == "DepotController") && string.IsNullOrWhiteSpace(request.AssignedWarehouseCode))
+        if ((request.Role == "StockController" || request.Role == "DepotController") && (request.AssignedWarehouseCodes == null || request.AssignedWarehouseCodes.Count == 0))
         {
-            return ServiceResult<UserDetailDto>.Failure($"Assigned warehouse code is required for {request.Role} role");
+            return ServiceResult<UserDetailDto>.Failure($"At least one assigned warehouse code is required for {request.Role} role");
         }
 
         // Determine permissions
@@ -193,9 +193,14 @@ public class UserManagementService : IUserManagementService
             EmailVerified = false,
             TwoFactorEnabled = false,
             Permissions = JsonSerializer.Serialize(permissions),
-            AssignedWarehouseCode = (request.Role == "StockController" || request.Role == "DepotController") ? request.AssignedWarehouseCode : null,
             CreatedAt = DateTime.UtcNow
         };
+
+        if (request.Role == "StockController" || request.Role == "DepotController")
+            user.SetWarehouseCodes(request.AssignedWarehouseCodes);
+
+        if (request.AllowedPaymentMethods != null && request.AllowedPaymentMethods.Count > 0)
+            user.SetAllowedPaymentMethods(request.AllowedPaymentMethods);
 
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
@@ -241,15 +246,24 @@ public class UserManagementService : IUserManagementService
             user.Role = request.Role;
         }
 
-        // Update assigned warehouse
-        if (request.AssignedWarehouseCode != null)
+        // Update assigned warehouses
+        if (request.AssignedWarehouseCodes != null)
         {
-            user.AssignedWarehouseCode = (user.Role == "StockController" || user.Role == "DepotController") ? request.AssignedWarehouseCode : null;
+            if (user.Role == "StockController" || user.Role == "DepotController")
+                user.SetWarehouseCodes(request.AssignedWarehouseCodes);
+            else
+                user.SetWarehouseCodes(null);
         }
-        // Validate warehouse is set for warehouse-dependent roles
-        if ((user.Role == "StockController" || user.Role == "DepotController") && string.IsNullOrWhiteSpace(user.AssignedWarehouseCode))
+
+        // Update allowed payment methods
+        if (request.AllowedPaymentMethods != null)
         {
-            return ServiceResult.Failure($"Assigned warehouse code is required for {user.Role} role");
+            user.SetAllowedPaymentMethods(request.AllowedPaymentMethods);
+        }
+        // Validate warehouses are set for warehouse-dependent roles
+        if ((user.Role == "StockController" || user.Role == "DepotController") && user.GetWarehouseCodes().Count == 0)
+        {
+            return ServiceResult.Failure($"At least one assigned warehouse code is required for {user.Role} role");
         }
 
         // Update permissions if provided
@@ -506,7 +520,8 @@ public class UserManagementService : IUserManagementService
             IsLockedOut = user.LockoutEnd.HasValue && user.LockoutEnd > DateTime.UtcNow,
             LockoutEnd = user.LockoutEnd,
             Permissions = permissions,
-            AssignedWarehouseCode = user.AssignedWarehouseCode,
+            AssignedWarehouseCodes = user.GetWarehouseCodes(),
+            AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt,
             LastLoginAt = user.LastLoginAt

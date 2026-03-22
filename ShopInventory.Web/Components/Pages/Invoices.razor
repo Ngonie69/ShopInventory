@@ -1,11 +1,14 @@
 @page "/invoices"
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.JSInterop
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @attribute [Authorize(Roles = "Admin,Cashier")]
 @inject IInvoiceService InvoiceService
 @inject ICreditNoteService CreditNoteService
 @inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@inject IAppSettingsProvider AppSettings
 @rendermode InteractiveServer
 
 <PageTitle>Invoices - Shop Inventory</PageTitle>
@@ -1266,6 +1269,12 @@
                     </div>
                 </div>
                 <div class="drawer-footer">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="DownloadInvoicePdf" Disabled="@isPdfLoading">
+                        <i class="bi bi-download me-1"></i> Download PDF
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="PrintInvoicePdf" Disabled="@isPdfLoading">
+                        <i class="bi bi-printer me-1"></i> Print
+                    </MudButton>
                     <MudButton Class="btn-warning-action" OnClick="OpenCreateCreditNoteModal">
                         <i class="bi bi-file-earmark-minus"></i> Create Credit Note
                     </MudButton>
@@ -1497,6 +1506,9 @@
     private CancellationTokenSource? _debounceTokenSource;
     private const int DebounceDelayMs = 300;
 
+    // PDF state
+    private bool isPdfLoading = false;
+
     // Credit Note state
     private CreditNotesByInvoiceResponse? existingCreditNotes;
     private bool showExistingCreditNotesModal = false;
@@ -1541,6 +1553,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        pageSize = AppSettings.PageSize;
         await LoadInvoices();
     }
 
@@ -1756,6 +1769,57 @@
         showCreateCreditNoteModal = false;
         creditNoteReason = null;
         creditNoteLines = null;
+    }
+
+    private async Task DownloadInvoicePdf()
+    {
+        if (selectedInvoice == null || isPdfLoading) return;
+        isPdfLoading = true;
+        try
+        {
+            var pdfBytes = await InvoiceService.GetInvoicePdfAsync(selectedInvoice.DocEntry);
+            if (pdfBytes == null || pdfBytes.Length == 0)
+            {
+                errorMessage = "Failed to retrieve invoice PDF.";
+                return;
+            }
+            var base64 = Convert.ToBase64String(pdfBytes);
+            var fileName = $"Invoice_{selectedInvoice.DocNum}.pdf";
+            await JS.InvokeVoidAsync("downloadPdfFromBase64", base64, fileName);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Download failed: {ex.Message}";
+        }
+        finally
+        {
+            isPdfLoading = false;
+        }
+    }
+
+    private async Task PrintInvoicePdf()
+    {
+        if (selectedInvoice == null || isPdfLoading) return;
+        isPdfLoading = true;
+        try
+        {
+            var pdfBytes = await InvoiceService.GetInvoicePdfAsync(selectedInvoice.DocEntry);
+            if (pdfBytes == null || pdfBytes.Length == 0)
+            {
+                errorMessage = "Failed to retrieve invoice PDF for printing.";
+                return;
+            }
+            var base64 = Convert.ToBase64String(pdfBytes);
+            await JS.InvokeVoidAsync("printPdfFromBase64", base64, 1);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Print failed: {ex.Message}";
+        }
+        finally
+        {
+            isPdfLoading = false;
+        }
     }
 
     private void ShowExistingCreditNotes()

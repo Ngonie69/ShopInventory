@@ -115,4 +115,7 @@ public static class AuditActions
     // Audit actions
     public const string ViewAuditTrail = "ViewAuditTrail";
     public const string ExportAuditTrail = "ExportAuditTrail";
+
+    // Database actions
+    public const string ResetDatabase = "ResetDatabase";
 }

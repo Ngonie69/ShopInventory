@@ -1,1166 +1,4358 @@
 @page "/desktop-transactions"
+
+
 @using Microsoft.AspNetCore.Authorization
+
+
 @using ShopInventory.Web.Services
+
+
 @attribute [Authorize(Roles = "Admin")]
+
+
 @inject IDesktopIntegrationService DesktopService
+
+
 @inject ISnackbar Snackbar
+
+
 @inject IDialogService DialogService
+
+
 @rendermode InteractiveServer
+
+
+
+
 
 <PageTitle>Desktop Transactions - Shop Inventory</PageTitle>
 
+
+
+
+
 <style>
-    .dt-page-header {
+
+
+    /* ─── Dashboard banner ─── */
+
+
+    .dt-dashboard {
+
+
+        display: grid;
+
+
+        grid-template-columns: 1fr 1fr;
+
+
+        gap: 1rem;
+
+
         margin-bottom: 1.5rem;
+
+
     }
 
-    .dt-stat-card {
-        border-radius: 12px;
-        padding: 1.25rem 1rem;
-        text-align: center;
+
+
+
+
+    @@media (max-width: 960px) {
+
+
+        .dt-dashboard { grid-template-columns: 1fr; }
+
+
+    }
+
+
+
+
+
+    .dt-queue-card {
+
+
+        border-radius: 14px;
+
+
         border: 1px solid rgba(0,0,0,0.06);
-        transition: box-shadow 0.2s ease, transform 0.15s ease;
+
+
         background: var(--mud-palette-surface);
-        position: relative;
+
+
         overflow: hidden;
+
+
     }
 
-    .dt-stat-card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 3px;
-    }
 
-    .dt-stat-card:hover {
-        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-        transform: translateY(-1px);
-    }
 
-    .dt-stat-card--pending::before { background: #f59e0b; }
-    .dt-stat-card--processing::before { background: #3b82f6; }
-    .dt-stat-card--completed::before { background: #10b981; }
-    .dt-stat-card--failed::before { background: #ef4444; }
-    .dt-stat-card--review::before { background: #8b5cf6; }
-    .dt-stat-card--total::before { background: #6b7280; }
 
-    .dt-stat-value {
-        font-size: 1.75rem;
-        font-weight: 700;
-        line-height: 1.2;
-        letter-spacing: -0.025em;
-    }
 
-    .dt-stat-value--pending { color: #f59e0b; }
-    .dt-stat-value--processing { color: #3b82f6; }
-    .dt-stat-value--completed { color: #10b981; }
-    .dt-stat-value--failed { color: #ef4444; }
-    .dt-stat-value--review { color: #8b5cf6; }
-    .dt-stat-value--total { color: var(--mud-palette-text-primary); }
+    .dt-queue-card__header {
 
-    .dt-stat-label {
-        font-size: 0.75rem;
-        font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: var(--mud-palette-text-secondary);
-        margin-top: 0.25rem;
-    }
 
-    .dt-queue-section {
-        margin-bottom: 1.5rem;
-    }
-
-    .dt-queue-label {
-        font-size: 0.8125rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--mud-palette-text-secondary);
-        margin-bottom: 0.75rem;
         display: flex;
+
+
         align-items: center;
+
+
         gap: 0.5rem;
+
+
+        padding: 0.75rem 1rem 0;
+
+
+        font-size: 0.6875rem;
+
+
+        font-weight: 700;
+
+
+        text-transform: uppercase;
+
+
+        letter-spacing: 0.06em;
+
+
+        color: var(--mud-palette-text-secondary);
+
+
     }
 
-    .dt-queue-label .mud-icon-root {
-        font-size: 1.1rem;
+
+
+
+
+    .dt-queue-card__header .mud-icon-root { font-size: 1rem; }
+
+
+
+
+
+    .dt-pills {
+
+
+        display: flex;
+
+
+        flex-wrap: wrap;
+
+
+        gap: 0.35rem;
+
+
+        padding: 0.75rem 1rem 1rem;
+
+
     }
+
+
+
+
+
+    .dt-pill {
+
+
+        display: flex;
+
+
+        align-items: center;
+
+
+        gap: 0.4rem;
+
+
+        padding: 0.35rem 0.75rem;
+
+
+        border-radius: 20px;
+
+
+        font-size: 0.75rem;
+
+
+        font-weight: 600;
+
+
+        cursor: pointer;
+
+
+        border: 1.5px solid transparent;
+
+
+        transition: all 0.2s ease;
+
+
+        user-select: none;
+
+
+    }
+
+
+
+
+
+    .dt-pill:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+
+
+    .dt-pill:active { transform: translateY(0); }
+
+
+    .dt-pill--active { border-color: currentColor !important; box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+
+
+
+
+
+    .dt-pill__count { font-size: 1rem; font-weight: 800; line-height: 1; }
+
+
+
+
+
+    .dt-pill--pending   { background: #fef9ec; color: #b45309; }
+
+
+    .dt-pill--processing { background: #eff6ff; color: #1d4ed8; }
+
+
+    .dt-pill--completed { background: #ecfdf5; color: #047857; }
+
+
+    .dt-pill--failed    { background: #fef2f2; color: #dc2626; }
+
+
+    .dt-pill--review    { background: #f5f3ff; color: #7c3aed; }
+
+
+    .dt-pill--total     { background: var(--mud-palette-background-grey); color: var(--mud-palette-text-primary); }
+
+
+
+
+
+    /* ─── Status chips ─── */
+
 
     .status-chip {
+
+
         padding: 3px 10px;
+
+
         border-radius: 6px;
+
+
         font-size: 0.7rem;
+
+
         font-weight: 600;
+
+
         text-transform: uppercase;
+
+
         letter-spacing: 0.03em;
+
+
         display: inline-block;
+
+
     }
 
-    .status-pending { background: #fef3c7; color: #92400e; }
+
+
+
+
+    .status-pending    { background: #fef3c7; color: #92400e; }
+
+
     .status-processing { background: #dbeafe; color: #1e40af; }
-    .status-completed { background: #d1fae5; color: #065f46; }
-    .status-failed { background: #fee2e2; color: #991b1b; }
-    .status-review { background: #ede9fe; color: #5b21b6; }
-    .status-cancelled { background: #f3f4f6; color: #4b5563; }
-    .status-expired { background: #f3f4f6; color: #6b7280; }
-    .status-confirmed { background: #d1fae5; color: #065f46; }
+
+
+    .status-completed  { background: #d1fae5; color: #065f46; }
+
+
+    .status-failed     { background: #fee2e2; color: #991b1b; }
+
+
+    .status-review     { background: #ede9fe; color: #5b21b6; }
+
+
+    .status-cancelled  { background: #f3f4f6; color: #4b5563; }
+
+
+    .status-expired    { background: #f3f4f6; color: #6b7280; }
+
+
+    .status-confirmed  { background: #d1fae5; color: #065f46; }
+
+
+
+
+
+    /* ─── Detail panel ─── */
+
 
     .dt-detail-field {
+
+
         padding: 0.75rem;
+
+
         border-radius: 8px;
+
+
         background: var(--mud-palette-background-grey);
+
+
     }
+
+
+
+
 
     .dt-detail-field .field-label {
+
+
         font-size: 0.6875rem;
+
+
         font-weight: 600;
+
+
         text-transform: uppercase;
+
+
         letter-spacing: 0.05em;
+
+
         color: var(--mud-palette-text-secondary);
+
+
         margin-bottom: 0.25rem;
+
+
     }
+
+
+
+
 
     .dt-detail-field .field-value {
+
+
         font-size: 0.9375rem;
+
+
         font-weight: 500;
+
+
         color: var(--mud-palette-text-primary);
+
+
     }
+
+
+
+
+
+    /* ─── Expanded row ─── */
+
+
+    .dt-expanded-row {
+
+
+        padding: 1rem 1.5rem;
+
+
+        background: var(--mud-palette-background-grey);
+
+
+        border-radius: 10px;
+
+
+        margin: 0.25rem 0;
+
+
+    }
+
+
+
+
+
+    .dt-expanded-row__section-title {
+
+
+        font-size: 0.6875rem;
+
+
+        font-weight: 700;
+
+
+        text-transform: uppercase;
+
+
+        letter-spacing: 0.06em;
+
+
+        color: var(--mud-palette-text-secondary);
+
+
+        margin-bottom: 0.5rem;
+
+
+    }
+
+
+
+
+
+    .dt-mini-grid {
+
+
+        display: grid;
+
+
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+
+
+        gap: 0.5rem;
+
+
+    }
+
+
+
+
+
+    .dt-mini-field {
+
+
+        padding: 0.5rem 0.65rem;
+
+
+        border-radius: 6px;
+
+
+        background: var(--mud-palette-surface);
+
+
+    }
+
+
+
+
+
+    .dt-mini-field__label {
+
+
+        font-size: 0.625rem;
+
+
+        font-weight: 600;
+
+
+        text-transform: uppercase;
+
+
+        letter-spacing: 0.05em;
+
+
+        color: var(--mud-palette-text-secondary);
+
+
+    }
+
+
+
+
+
+    .dt-mini-field__value {
+
+
+        font-size: 0.8125rem;
+
+
+        font-weight: 600;
+
+
+        color: var(--mud-palette-text-primary);
+
+
+        margin-top: 0.15rem;
+
+
+    }
+
+
+
+
+
+    /* ─── Table row clickable ─── */
+
+
+    .dt-clickable-row { cursor: pointer; }
+
+
+    .dt-clickable-row:hover td { background: rgba(var(--mud-palette-primary-rgb), 0.04) !important; }
+
+
+    /* ─── Tab header ─── */
+
+
+    .dt-tab-header {
+
+
+        background: var(--mud-palette-surface) !important;
+
+
+        border-bottom: 1px solid rgba(0,0,0,0.08);
+
+
+    }
+
+
+    .dt-tab-header .mud-tab {
+
+
+        text-transform: none !important;
+
+
+        font-weight: 600;
+
+
+        font-size: 0.8125rem;
+
+
+        letter-spacing: 0;
+
+
+        min-width: auto;
+
+
+        padding: 10px 16px;
+
+
+        color: var(--mud-palette-text-secondary);
+
+
+        transition: color 0.15s ease;
+
+
+    }
+
+
+    .dt-tab-header .mud-tab.mud-tab-active {
+
+
+        color: var(--mud-palette-primary) !important;
+
+
+    }
+
+
 </style>
 
+
+
+
+
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-6">
-    @* Page Header *@
-    <div class="dt-page-header d-flex justify-space-between align-center">
+
+
+    @* ─── Page Header ─── *@
+
+
+    <div class="d-flex justify-space-between align-center mb-5">
+
+
         <div>
+
+
             <MudText Typo="Typo.h5" Style="font-weight: 700; letter-spacing: -0.025em;">
+
+
                 Desktop Transactions
+
+
             </MudText>
+
+
             <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-1">
+
+
                 Manage invoices, transfers, and reservations from desktop applications
+
+
             </MudText>
+
+
         </div>
+
+
         <MudButton Variant="Variant.Filled" Color="Color.Primary"
+
+
             StartIcon="@(_isLoading ? null : Icons.Material.Outlined.Sync)"
+
+
             OnClick="RefreshAll" Disabled="@_isLoading"
+
+
             Style="border-radius: 8px; text-transform: none; font-weight: 600; padding: 8px 20px;">
+
+
             @if (_isLoading)
+
+
             {
+
+
                 <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Surface" Class="me-2" />
+
+
             }
+
+
             Refresh
+
+
         </MudButton>
+
+
     </div>
 
-    @* Invoice Queue Stats *@
-    @if (_stats != null)
-    {
-        <div class="dt-queue-section">
-            <div class="dt-queue-label">
-                <MudIcon Icon="@Icons.Material.Outlined.Receipt" />
-                Invoice Queue
-            </div>
-            <MudGrid Spacing="3">
-                <MudItem xs="6" sm="4" md="2">
-                    <div class="dt-stat-card dt-stat-card--pending">
-                        <div class="dt-stat-value dt-stat-value--pending">@_stats.Pending</div>
-                        <div class="dt-stat-label">Pending</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6" sm="4" md="2">
-                    <div class="dt-stat-card dt-stat-card--processing">
-                        <div class="dt-stat-value dt-stat-value--processing">@_stats.Processing</div>
-                        <div class="dt-stat-label">Processing</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6" sm="4" md="2">
-                    <div class="dt-stat-card dt-stat-card--completed">
-                        <div class="dt-stat-value dt-stat-value--completed">@_stats.Completed</div>
-                        <div class="dt-stat-label">Completed</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6" sm="4" md="2">
-                    <div class="dt-stat-card dt-stat-card--failed">
-                        <div class="dt-stat-value dt-stat-value--failed">@_stats.Failed</div>
-                        <div class="dt-stat-label">Failed</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6" sm="4" md="2">
-                    <div class="dt-stat-card dt-stat-card--review">
-                        <div class="dt-stat-value dt-stat-value--review">@_stats.RequiresReview</div>
-                        <div class="dt-stat-label">Needs Review</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6" sm="4" md="2">
-                    <div class="dt-stat-card dt-stat-card--total">
-                        <div class="dt-stat-value dt-stat-value--total">@_stats.TotalQueued</div>
-                        <div class="dt-stat-label">Total</div>
-                    </div>
-                </MudItem>
-            </MudGrid>
-        </div>
-    }
 
-    @* Transfer Queue Stats *@
-    @if (_transferStats != null)
-    {
-        <div class="dt-queue-section">
-            <div class="dt-queue-label">
-                <MudIcon Icon="@Icons.Material.Outlined.SwapHoriz" />
-                Transfer Queue
-            </div>
-            <MudGrid Spacing="3">
-                <MudItem xs="6" sm="4" md="2">
-                    <div class="dt-stat-card dt-stat-card--pending">
-                        <div class="dt-stat-value dt-stat-value--pending">@_transferStats.Pending</div>
-                        <div class="dt-stat-label">Pending</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6" sm="4" md="2">
-                    <div class="dt-stat-card dt-stat-card--processing">
-                        <div class="dt-stat-value dt-stat-value--processing">@_transferStats.Processing</div>
-                        <div class="dt-stat-label">Processing</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6" sm="4" md="2">
-                    <div class="dt-stat-card dt-stat-card--completed">
-                        <div class="dt-stat-value dt-stat-value--completed">@_transferStats.Completed</div>
-                        <div class="dt-stat-label">Completed</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6" sm="4" md="2">
-                    <div class="dt-stat-card dt-stat-card--failed">
-                        <div class="dt-stat-value dt-stat-value--failed">@_transferStats.Failed</div>
-                        <div class="dt-stat-label">Failed</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6" sm="4" md="2">
-                    <div class="dt-stat-card dt-stat-card--review">
-                        <div class="dt-stat-value dt-stat-value--review">@_transferStats.RequiresReview</div>
-                        <div class="dt-stat-label">Needs Review</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6" sm="4" md="2">
-                    <div class="dt-stat-card dt-stat-card--total">
-                        <div class="dt-stat-value dt-stat-value--total">@_transferStats.TotalQueued</div>
-                        <div class="dt-stat-label">Total</div>
-                    </div>
-                </MudItem>
-            </MudGrid>
-        </div>
-    }
 
-    @* Tabs *@
+
+
+    @* ─── Dashboard Banner: compact pill-style stats ─── *@
+
+
+    <div class="dt-dashboard">
+
+
+        @if (_stats != null)
+
+
+        {
+
+
+            <div class="dt-queue-card">
+
+
+                <div class="dt-queue-card__header">
+
+
+                    <MudIcon Icon="@Icons.Material.Outlined.Receipt" />
+
+
+                    Invoice Queue
+
+
+                </div>
+
+
+                <div class="dt-pills">
+
+
+                    <div class="dt-pill dt-pill--pending" @onclick="@(() => NavigateToTab(0))" title="View pending invoices">
+
+
+                        <span class="dt-pill__count">@_stats.Pending</span> Pending
+
+
+                    </div>
+
+
+                    <div class="dt-pill dt-pill--processing" @onclick="@(() => NavigateToTab(0))" title="View processing invoices">
+
+
+                        <span class="dt-pill__count">@_stats.Processing</span> Processing
+
+
+                    </div>
+
+
+                    <div class="dt-pill dt-pill--completed" @onclick="@(() => NavigateToTab(0))" title="View completed invoices">
+
+
+                        <span class="dt-pill__count">@_stats.Completed</span> Completed
+
+
+                    </div>
+
+
+                    <div class="dt-pill dt-pill--failed" @onclick="@(() => NavigateToTab(0))" title="View failed invoices">
+
+
+                        <span class="dt-pill__count">@_stats.Failed</span> Failed
+
+
+                    </div>
+
+
+                    @if (_stats.RequiresReview > 0)
+
+
+                    {
+
+
+                        <div class="dt-pill dt-pill--review" @onclick="@(() => NavigateToTab(1))" title="View invoices needing review">
+
+
+                            <span class="dt-pill__count">@_stats.RequiresReview</span> Review
+
+
+                        </div>
+
+
+                    }
+
+
+                    <div class="dt-pill dt-pill--total" @onclick="@(() => NavigateToTab(0))" title="View all invoices">
+
+
+                        <span class="dt-pill__count">@_stats.TotalQueued</span> Total
+
+
+                    </div>
+
+
+                </div>
+
+
+            </div>
+
+
+        }
+
+
+
+
+
+        @if (_transferStats != null)
+
+
+        {
+
+
+            <div class="dt-queue-card">
+
+
+                <div class="dt-queue-card__header">
+
+
+                    <MudIcon Icon="@Icons.Material.Outlined.SwapHoriz" />
+
+
+                    Transfer Queue
+
+
+                </div>
+
+
+                <div class="dt-pills">
+
+
+                    <div class="dt-pill dt-pill--pending" @onclick="@(() => NavigateToTab(2))" title="View pending transfers">
+
+
+                        <span class="dt-pill__count">@_transferStats.Pending</span> Pending
+
+
+                    </div>
+
+
+                    <div class="dt-pill dt-pill--processing" @onclick="@(() => NavigateToTab(2))" title="View processing transfers">
+
+
+                        <span class="dt-pill__count">@_transferStats.Processing</span> Processing
+
+
+                    </div>
+
+
+                    <div class="dt-pill dt-pill--completed" @onclick="@(() => NavigateToTab(2))" title="View completed transfers">
+
+
+                        <span class="dt-pill__count">@_transferStats.Completed</span> Completed
+
+
+                    </div>
+
+
+                    <div class="dt-pill dt-pill--failed" @onclick="@(() => NavigateToTab(2))" title="View failed transfers">
+
+
+                        <span class="dt-pill__count">@_transferStats.Failed</span> Failed
+
+
+                    </div>
+
+
+                    @if (_transferStats.RequiresReview > 0)
+
+
+                    {
+
+
+                        <div class="dt-pill dt-pill--review" @onclick="@(() => NavigateToTab(3))" title="View transfers needing review">
+
+
+                            <span class="dt-pill__count">@_transferStats.RequiresReview</span> Review
+
+
+                        </div>
+
+
+                    }
+
+
+                    <div class="dt-pill dt-pill--total" @onclick="@(() => NavigateToTab(2))" title="View all transfers">
+
+
+                        <span class="dt-pill__count">@_transferStats.TotalQueued</span> Total
+
+
+                    </div>
+
+
+                </div>
+
+
+            </div>
+
+
+        }
+
+
+    </div>
+
+
+
+
+
+    @* ─── Tabs ─── *@
+
+
     <MudPaper Elevation="0" Class="mt-2" Style="border: 1px solid rgba(0,0,0,0.08); border-radius: 12px; overflow: hidden;">
+
+
         <MudTabs Elevation="0" Rounded="false" ApplyEffectsToContainer="true" PanelClass="pa-4"
-            @bind-ActivePanelIndex="_activeTab" Color="Color.Primary" SliderColor="Color.Primary">
+
+
+            @bind-ActivePanelIndex="_activeTab" Color="Color.Transparent" SliderColor="Color.Primary"
+            TabHeaderClass="dt-tab-header">
+
+
+
+
+
+            @* ═══ Invoice Queue Tab ═══ *@
+
+
             <MudTabPanel Text="Invoice Queue" Icon="@Icons.Material.Outlined.Queue" BadgeData="@_queuedInvoices?.Count"
+
+
                 BadgeColor="Color.Primary">
+
+
                 @if (_isLoading)
+
+
                 {
+
+
                     <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-2" Style="border-radius: 4px;" />
+
+
                 }
+
+
                 else if (_queuedInvoices == null || !_queuedInvoices.Any())
+
+
                 {
+
+
                     <div class="d-flex flex-column align-center justify-center py-12">
+
+
                         <MudIcon Icon="@Icons.Material.Outlined.Inbox" Style="font-size: 3rem; color: var(--mud-palette-text-disabled);" />
+
+
                         <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mt-3">No queued invoices</MudText>
+
+
                         <MudText Typo="Typo.caption" Color="Color.Secondary">Desktop invoice submissions will appear here</MudText>
+
+
                     </div>
+
+
                 }
+
+
                 else
+
+
                 {
+
+
                     <MudDataGrid T="InvoiceQueueStatusDto" Items="@_queuedInvoices" SortMode="SortMode.Multiple"
+
+
                         Filterable="true" Hover="true" Dense="true" Bordered="false"
-                        RowStyle="font-size: 0.875rem;" HeaderStyle="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">
+
+
+                        RowStyle="font-size: 0.875rem;" HeaderStyle="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;"
+
+
+                        RowClick="@((DataGridRowClickEventArgs<InvoiceQueueStatusDto> args) => ToggleInvoiceExpand(args.Item))">
+
+
                         <Columns>
-                            <PropertyColumn Property="x => x.ExternalReference" Title="Reference">
+
+
+                            <TemplateColumn Title="" Sortable="false" Filterable="false" CellStyle="width: 40px; padding: 4px 8px;">
+
+
                                 <CellTemplate>
-                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.ExternalReference</MudText>
+
+
+                                    <MudIconButton Icon="@(_expandedInvoiceId == context.Item.QueueId ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+
+
+                                        Size="Size.Small"
+
+
+                                        OnClick="@(() => ToggleInvoiceExpand(context.Item))" />
+
+
                                 </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.CustomerCode" Title="Customer" />
-                            <PropertyColumn Property="x => x.Status" Title="Status">
-                                <CellTemplate>
-                                    <span class="status-chip @GetStatusClass(context.Item.Status)">@context.Item.Status</span>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.TotalAmount" Title="Amount" Format="N2">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.body2" Style="font-variant-numeric: tabular-nums;">
-                                        @context.Item.Currency @context.Item.TotalAmount.ToString("N2")
-                                    </MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.SapDocNum" Title="SAP Doc#">
-                                <CellTemplate>
-                                    @if (context.Item.SapDocNum.HasValue)
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined"
-                                            Style="font-size: 0.75rem;">@context.Item.SapDocNum</MudChip>
-                                    }
-                                    else
-                                    {
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">&mdash;</MudText>
-                                    }
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.RetryCount" Title="Retries">
-                                <CellTemplate>
-                                    @if (context.Item.RetryCount > 0)
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
-                                            Color="@(context.Item.RetryCount >= context.Item.MaxRetries ? Color.Error : Color.Warning)"
-                                            Style="font-size: 0.75rem;">
-                                            @context.Item.RetryCount / @context.Item.MaxRetries
-                                        </MudChip>
-                                    }
-                                    else
-                                    {
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">&mdash;</MudText>
-                                    }
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.CreatedAt" Title="Created" Format="g">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CreatedAt.ToLocalTime().ToString("g")</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.SourceSystem" Title="Source" />
-                            <TemplateColumn Title="Actions" Sortable="false">
-                                <CellTemplate>
-                                    <MudStack Row="true" Spacing="0">
-                                        <MudTooltip Text="View Details">
-                                            <MudIconButton Icon="@Icons.Material.Outlined.Visibility" Size="Size.Small"
-                                                OnClick="@(() => ShowQueueDetails(context.Item))" />
-                                        </MudTooltip>
-                                        @if (context.Item.CanRetry)
-                                        {
-                                            <MudTooltip Text="Retry">
-                                                <MudIconButton Icon="@Icons.Material.Outlined.Replay" Size="Size.Small"
-                                                    Color="Color.Primary" OnClick="@(() => RetryInvoice(context.Item))" />
-                                            </MudTooltip>
-                                        }
-                                        @if (context.Item.CanCancel)
-                                        {
-                                            <MudTooltip Text="Cancel">
-                                                <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small"
-                                                    Color="Color.Error" OnClick="@(() => CancelQueuedInvoice(context.Item))" />
-                                            </MudTooltip>
-                                        }
-                                    </MudStack>
-                                </CellTemplate>
+
+
                             </TemplateColumn>
+
+
+                            <PropertyColumn Property="x => x.ExternalReference" Title="Reference">
+
+
+                                <CellTemplate>
+
+
+                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.ExternalReference</MudText>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.CustomerCode" Title="Customer" />
+
+
+                            <PropertyColumn Property="x => x.Status" Title="Status">
+
+
+                                <CellTemplate>
+
+
+                                    <span class="status-chip @GetStatusClass(context.Item.Status)">@context.Item.Status</span>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.TotalAmount" Title="Amount" Format="N2">
+
+
+                                <CellTemplate>
+
+
+                                    <MudText Typo="Typo.body2" Style="font-variant-numeric: tabular-nums;">
+
+
+                                        @context.Item.Currency @context.Item.TotalAmount.ToString("N2")
+
+
+                                    </MudText>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.SapDocNum" Title="SAP Doc#">
+
+
+                                <CellTemplate>
+
+
+                                    @if (context.Item.SapDocNum.HasValue)
+
+
+                                    {
+
+
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined"
+
+
+                                            Style="font-size: 0.75rem;">@context.Item.SapDocNum</MudChip>
+
+
+                                    }
+
+
+                                    else
+
+
+                                    {
+
+
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">&mdash;</MudText>
+
+
+                                    }
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.CreatedAt" Title="Created" Format="g">
+
+
+                                <CellTemplate>
+
+
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CreatedAt.ToLocalTime().ToString("g")</MudText>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <TemplateColumn Title="Actions" Sortable="false">
+
+
+                                <CellTemplate>
+
+
+                                    <MudStack Row="true" Spacing="0">
+
+
+                                        @if (context.Item.CanRetry)
+
+
+                                        {
+
+
+                                            <MudTooltip Text="Retry">
+
+
+                                                <MudIconButton Icon="@Icons.Material.Outlined.Replay" Size="Size.Small"
+
+
+                                                    Color="Color.Primary" OnClick="@(() => RetryInvoice(context.Item))" />
+
+
+                                            </MudTooltip>
+
+
+                                        }
+
+
+                                        @if (context.Item.CanCancel)
+
+
+                                        {
+
+
+                                            <MudTooltip Text="Cancel">
+
+
+                                                <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small"
+
+
+                                                    Color="Color.Error" OnClick="@(() => CancelQueuedInvoice(context.Item))" />
+
+
+                                            </MudTooltip>
+
+
+                                        }
+
+
+                                    </MudStack>
+
+
+                                </CellTemplate>
+
+
+                            </TemplateColumn>
+
+
                         </Columns>
+
+
+                        <ChildRowContent>
+
+
+                            @if (_expandedInvoiceId == context.Item.QueueId)
+
+
+                            {
+
+
+                                <td colspan="100">
+
+
+                                    <div class="dt-expanded-row">
+
+
+                                        <div class="dt-expanded-row__section-title">Invoice Details</div>
+
+
+                                        <div class="dt-mini-grid">
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">External Reference</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.ExternalReference</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Reservation ID</div>
+
+
+                                                <div class="dt-mini-field__value">@(string.IsNullOrEmpty(context.Item.ReservationId) ? "—" : context.Item.ReservationId)</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Customer</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.CustomerCode</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Amount</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.Currency @context.Item.TotalAmount.ToString("N2")</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Warehouse</div>
+
+
+                                                <div class="dt-mini-field__value">@(context.Item.WarehouseCode ?? "—")</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">SAP Document</div>
+
+
+                                                <div class="dt-mini-field__value">@(context.Item.SapDocNum?.ToString() ?? "Not yet posted")</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">SAP Doc Entry</div>
+
+
+                                                <div class="dt-mini-field__value">@(context.Item.SapDocEntry ?? "—")</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Source System</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.SourceSystem</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Status</div>
+
+
+                                                <div class="dt-mini-field__value"><span class="status-chip @GetStatusClass(context.Item.Status)">@context.Item.Status</span></div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Retry Count</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.RetryCount / @context.Item.MaxRetries</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Created</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.CreatedAt.ToLocalTime().ToString("F")</div>
+
+
+                                            </div>
+
+
+                                            @if (context.Item.ProcessingStartedAt.HasValue)
+
+
+                                            {
+
+
+                                                <div class="dt-mini-field">
+
+
+                                                    <div class="dt-mini-field__label">Processing Started</div>
+
+
+                                                    <div class="dt-mini-field__value">@context.Item.ProcessingStartedAt.Value.ToLocalTime().ToString("F")</div>
+
+
+                                                </div>
+
+
+                                            }
+
+
+                                            @if (context.Item.ProcessedAt.HasValue)
+
+
+                                            {
+
+
+                                                <div class="dt-mini-field">
+
+
+                                                    <div class="dt-mini-field__label">Processed At</div>
+
+
+                                                    <div class="dt-mini-field__value">@context.Item.ProcessedAt.Value.ToLocalTime().ToString("F")</div>
+
+
+                                                </div>
+
+
+                                            }
+
+
+                                            @if (context.Item.NextRetryAt.HasValue)
+
+
+                                            {
+
+
+                                                <div class="dt-mini-field">
+
+
+                                                    <div class="dt-mini-field__label">Next Retry</div>
+
+
+                                                    <div class="dt-mini-field__value">@context.Item.NextRetryAt.Value.ToLocalTime().ToString("g")</div>
+
+
+                                                </div>
+
+
+                                            }
+
+
+                                            @if (!string.IsNullOrEmpty(context.Item.FiscalDeviceNumber))
+
+
+                                            {
+
+
+                                                <div class="dt-mini-field">
+
+
+                                                    <div class="dt-mini-field__label">Fiscal Device</div>
+
+
+                                                    <div class="dt-mini-field__value">@context.Item.FiscalDeviceNumber</div>
+
+
+                                                </div>
+
+
+                                            }
+
+
+                                            @if (!string.IsNullOrEmpty(context.Item.FiscalReceiptNumber))
+
+
+                                            {
+
+
+                                                <div class="dt-mini-field">
+
+
+                                                    <div class="dt-mini-field__label">Fiscal Receipt</div>
+
+
+                                                    <div class="dt-mini-field__value">@context.Item.FiscalReceiptNumber</div>
+
+
+                                                </div>
+
+
+                                            }
+
+
+                                            @if (context.Item.WaitTimeSeconds > 0)
+
+
+                                            {
+
+
+                                                <div class="dt-mini-field">
+
+
+                                                    <div class="dt-mini-field__label">Wait Time</div>
+
+
+                                                    <div class="dt-mini-field__value">@FormatWaitTime(context.Item.WaitTimeSeconds)</div>
+
+
+                                                </div>
+
+
+                                            }
+
+
+                                        </div>
+
+
+                                        @if (!string.IsNullOrEmpty(context.Item.LastError))
+
+
+                                        {
+
+
+                                            <MudAlert Severity="Severity.Error" Dense="true" Variant="Variant.Outlined" Class="mt-3"
+
+
+                                                Style="border-radius: 8px; font-size: 0.8125rem;">
+
+
+                                                <strong>Last Error:</strong> @context.Item.LastError
+
+
+                                            </MudAlert>
+
+
+                                        }
+
+
+                                        <MudStack Row="true" Spacing="2" Class="mt-3">
+
+
+                                            @if (context.Item.CanRetry)
+
+
+                                            {
+
+
+                                                <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Primary"
+
+
+                                                    StartIcon="@Icons.Material.Outlined.Replay"
+
+
+                                                    OnClick="@(() => RetryInvoice(context.Item))"
+
+
+                                                    Style="border-radius: 6px; text-transform: none; font-weight: 600;">
+
+
+                                                    Retry
+
+
+                                                </MudButton>
+
+
+                                            }
+
+
+                                            @if (context.Item.CanCancel)
+
+
+                                            {
+
+
+                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error"
+
+
+                                                    StartIcon="@Icons.Material.Outlined.Close"
+
+
+                                                    OnClick="@(() => CancelQueuedInvoice(context.Item))"
+
+
+                                                    Style="border-radius: 6px; text-transform: none; font-weight: 600;">
+
+
+                                                    Cancel
+
+
+                                                </MudButton>
+
+
+                                            }
+
+
+                                        </MudStack>
+
+
+                                    </div>
+
+
+                                </td>
+
+
+                            }
+
+
+                        </ChildRowContent>
+
+
                     </MudDataGrid>
+
+
                 }
+
+
             </MudTabPanel>
+
+
+
+
+
+            @* ═══ Needs Review Tab ═══ *@
+
 
             <MudTabPanel Text="Needs Review" Icon="@Icons.Material.Outlined.ErrorOutline" BadgeData="@_reviewInvoices?.Count"
+
+
                 BadgeColor="Color.Error">
+
+
                 @if (_isLoading)
+
+
                 {
+
+
                     <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-2" Style="border-radius: 4px;" />
+
+
                 }
+
+
                 else if (_reviewInvoices == null || !_reviewInvoices.Any())
+
+
                 {
+
+
                     <div class="d-flex flex-column align-center justify-center py-12">
+
+
                         <MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Style="font-size: 3rem; color: #10b981;" />
+
+
                         <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mt-3">All clear</MudText>
+
+
                         <MudText Typo="Typo.caption" Color="Color.Secondary">No invoices require manual review</MudText>
+
+
                     </div>
+
+
                 }
+
+
                 else
+
+
                 {
+
+
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-4"
+
+
                         Style="border-radius: 8px;">
+
+
                         These invoices have failed multiple times and require manual intervention.
+
+
                     </MudAlert>
+
+
                     <MudDataGrid T="InvoiceQueueStatusDto" Items="@_reviewInvoices" SortMode="SortMode.Multiple" Hover="true"
-                        Dense="true" Bordered="false">
+
+
+                        Dense="true" Bordered="false"
+
+
+                        RowClick="@((DataGridRowClickEventArgs<InvoiceQueueStatusDto> args) => ToggleInvoiceExpand(args.Item))">
+
+
                         <Columns>
-                            <PropertyColumn Property="x => x.ExternalReference" Title="Reference">
+
+
+                            <TemplateColumn Title="" Sortable="false" Filterable="false" CellStyle="width: 40px; padding: 4px 8px;">
+
+
                                 <CellTemplate>
-                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.ExternalReference</MudText>
+
+
+                                    <MudIconButton Icon="@(_expandedInvoiceId == context.Item.QueueId ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+
+
+                                        Size="Size.Small"
+
+
+                                        OnClick="@(() => ToggleInvoiceExpand(context.Item))" />
+
+
                                 </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.CustomerCode" Title="Customer" />
-                            <PropertyColumn Property="x => x.TotalAmount" Title="Amount">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.body2" Style="font-variant-numeric: tabular-nums;">
-                                        @context.Item.Currency @context.Item.TotalAmount.ToString("N2")
-                                    </MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.LastError" Title="Last Error">
-                                <CellTemplate>
-                                    <MudTooltip Text="@context.Item.LastError">
-                                        <MudText Typo="Typo.caption"
-                                            Style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ef4444;">
-                                            @(context.Item.LastError?.Length > 60 ? context.Item.LastError.Substring(0, 60) + "..." : context.Item.LastError)
-                                        </MudText>
-                                    </MudTooltip>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.CreatedAt" Title="Created">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CreatedAt.ToLocalTime().ToString("g")</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <TemplateColumn Title="Actions" Sortable="false">
-                                <CellTemplate>
-                                    <MudStack Row="true" Spacing="1">
-                                        <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Primary"
-                                            StartIcon="@Icons.Material.Outlined.Replay"
-                                            OnClick="@(() => RetryInvoice(context.Item))"
-                                            Style="border-radius: 6px; text-transform: none; font-weight: 600; font-size: 0.75rem;">
-                                            Retry
-                                        </MudButton>
-                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error"
-                                            StartIcon="@Icons.Material.Outlined.Close"
-                                            OnClick="@(() => CancelQueuedInvoice(context.Item))"
-                                            Style="border-radius: 6px; text-transform: none; font-weight: 600; font-size: 0.75rem;">
-                                            Cancel
-                                        </MudButton>
-                                    </MudStack>
-                                </CellTemplate>
+
+
                             </TemplateColumn>
+
+
+                            <PropertyColumn Property="x => x.ExternalReference" Title="Reference">
+
+
+                                <CellTemplate>
+
+
+                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.ExternalReference</MudText>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.CustomerCode" Title="Customer" />
+
+
+                            <PropertyColumn Property="x => x.TotalAmount" Title="Amount">
+
+
+                                <CellTemplate>
+
+
+                                    <MudText Typo="Typo.body2" Style="font-variant-numeric: tabular-nums;">
+
+
+                                        @context.Item.Currency @context.Item.TotalAmount.ToString("N2")
+
+
+                                    </MudText>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.LastError" Title="Last Error">
+
+
+                                <CellTemplate>
+
+
+                                    <MudTooltip Text="@context.Item.LastError">
+
+
+                                        <MudText Typo="Typo.caption"
+
+
+                                            Style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ef4444;">
+
+
+                                            @(context.Item.LastError?.Length > 60 ? context.Item.LastError.Substring(0, 60) + "..." : context.Item.LastError)
+
+
+                                        </MudText>
+
+
+                                    </MudTooltip>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.CreatedAt" Title="Created">
+
+
+                                <CellTemplate>
+
+
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CreatedAt.ToLocalTime().ToString("g")</MudText>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <TemplateColumn Title="Actions" Sortable="false">
+
+
+                                <CellTemplate>
+
+
+                                    <MudStack Row="true" Spacing="1">
+
+
+                                        <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Primary"
+
+
+                                            StartIcon="@Icons.Material.Outlined.Replay"
+
+
+                                            OnClick="@(() => RetryInvoice(context.Item))"
+
+
+                                            Style="border-radius: 6px; text-transform: none; font-weight: 600; font-size: 0.75rem;">
+
+
+                                            Retry
+
+
+                                        </MudButton>
+
+
+                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error"
+
+
+                                            StartIcon="@Icons.Material.Outlined.Close"
+
+
+                                            OnClick="@(() => CancelQueuedInvoice(context.Item))"
+
+
+                                            Style="border-radius: 6px; text-transform: none; font-weight: 600; font-size: 0.75rem;">
+
+
+                                            Cancel
+
+
+                                        </MudButton>
+
+
+                                    </MudStack>
+
+
+                                </CellTemplate>
+
+
+                            </TemplateColumn>
+
+
                         </Columns>
+
+
+                        <ChildRowContent>
+
+
+                            @if (_expandedInvoiceId == context.Item.QueueId)
+
+
+                            {
+
+
+                                <td colspan="100">
+
+
+                                    <div class="dt-expanded-row">
+
+
+                                        <div class="dt-expanded-row__section-title">Full Details</div>
+
+
+                                        <div class="dt-mini-grid">
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">External Reference</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.ExternalReference</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Reservation ID</div>
+
+
+                                                <div class="dt-mini-field__value">@(string.IsNullOrEmpty(context.Item.ReservationId) ? "—" : context.Item.ReservationId)</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Customer</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.CustomerCode</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Amount</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.Currency @context.Item.TotalAmount.ToString("N2")</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Warehouse</div>
+
+
+                                                <div class="dt-mini-field__value">@(context.Item.WarehouseCode ?? "—")</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">SAP Document</div>
+
+
+                                                <div class="dt-mini-field__value">@(context.Item.SapDocNum?.ToString() ?? "Not yet posted")</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Source System</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.SourceSystem</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Retry Count</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.RetryCount / @context.Item.MaxRetries</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Created</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.CreatedAt.ToLocalTime().ToString("F")</div>
+
+
+                                            </div>
+
+
+                                            @if (context.Item.NextRetryAt.HasValue)
+
+
+                                            {
+
+
+                                                <div class="dt-mini-field">
+
+
+                                                    <div class="dt-mini-field__label">Next Retry</div>
+
+
+                                                    <div class="dt-mini-field__value">@context.Item.NextRetryAt.Value.ToLocalTime().ToString("g")</div>
+
+
+                                                </div>
+
+
+                                            }
+
+
+                                        </div>
+
+
+                                        @if (!string.IsNullOrEmpty(context.Item.LastError))
+
+
+                                        {
+
+
+                                            <MudAlert Severity="Severity.Error" Dense="true" Variant="Variant.Outlined" Class="mt-3"
+
+
+                                                Style="border-radius: 8px; font-size: 0.8125rem;">
+
+
+                                                <strong>Last Error:</strong> @context.Item.LastError
+
+
+                                            </MudAlert>
+
+
+                                        }
+
+
+                                    </div>
+
+
+                                </td>
+
+
+                            }
+
+
+                        </ChildRowContent>
+
+
                     </MudDataGrid>
+
+
                 }
+
+
             </MudTabPanel>
+
+
+
+
+
+            @* ═══ Transfer Queue Tab ═══ *@
+
 
             <MudTabPanel Text="Transfer Queue" Icon="@Icons.Material.Outlined.SwapHoriz" BadgeData="@_queuedTransfers?.Count"
+
+
                 BadgeColor="Color.Info">
+
+
                 @if (_isLoading)
+
+
                 {
+
+
                     <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-2" Style="border-radius: 4px;" />
+
+
                 }
+
+
                 else if (_queuedTransfers == null || !_queuedTransfers.Any())
+
+
                 {
+
+
                     <div class="d-flex flex-column align-center justify-center py-12">
+
+
                         <MudIcon Icon="@Icons.Material.Outlined.Inbox" Style="font-size: 3rem; color: var(--mud-palette-text-disabled);" />
+
+
                         <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mt-3">No queued transfers</MudText>
+
+
                         <MudText Typo="Typo.caption" Color="Color.Secondary">Desktop inventory transfers will appear here</MudText>
+
+
                     </div>
+
+
                 }
+
+
                 else
+
+
                 {
+
+
                     <MudDataGrid T="InventoryTransferQueueStatusDto" Items="@_queuedTransfers" SortMode="SortMode.Multiple"
-                        Filterable="true" Hover="true" Dense="true" Bordered="false">
+
+
+                        Filterable="true" Hover="true" Dense="true" Bordered="false"
+
+
+                        RowClick="@((DataGridRowClickEventArgs<InventoryTransferQueueStatusDto> args) => ToggleTransferExpand(args.Item))">
+
+
                         <Columns>
-                            <PropertyColumn Property="x => x.ExternalReference" Title="Reference">
+
+
+                            <TemplateColumn Title="" Sortable="false" Filterable="false" CellStyle="width: 40px; padding: 4px 8px;">
+
+
                                 <CellTemplate>
-                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.ExternalReference</MudText>
+
+
+                                    <MudIconButton Icon="@(_expandedTransferId == context.Item.QueueId ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+
+
+                                        Size="Size.Small"
+
+
+                                        OnClick="@(() => ToggleTransferExpand(context.Item))" />
+
+
                                 </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.FromWarehouse" Title="From" />
-                            <PropertyColumn Property="x => x.ToWarehouse" Title="To" />
-                            <PropertyColumn Property="x => x.Status" Title="Status">
-                                <CellTemplate>
-                                    <span class="status-chip @GetStatusClass(context.Item.Status)">@context.Item.Status</span>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.TotalQuantity" Title="Qty" Format="N2" />
-                            <PropertyColumn Property="x => x.LineCount" Title="Lines" />
-                            <PropertyColumn Property="x => x.SapDocNum" Title="SAP Doc#">
-                                <CellTemplate>
-                                    @if (context.Item.SapDocNum.HasValue)
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined"
-                                            Style="font-size: 0.75rem;">@context.Item.SapDocNum</MudChip>
-                                    }
-                                    else
-                                    {
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">&mdash;</MudText>
-                                    }
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.RetryCount" Title="Retries">
-                                <CellTemplate>
-                                    @if (context.Item.RetryCount > 0)
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
-                                            Color="@(context.Item.RetryCount >= context.Item.MaxRetries ? Color.Error : Color.Warning)"
-                                            Style="font-size: 0.75rem;">
-                                            @context.Item.RetryCount / @context.Item.MaxRetries
-                                        </MudChip>
-                                    }
-                                    else
-                                    {
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">&mdash;</MudText>
-                                    }
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.CreatedAt" Title="Created" Format="g">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CreatedAt.ToLocalTime().ToString("g")</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <TemplateColumn Title="Actions" Sortable="false">
-                                <CellTemplate>
-                                    <MudStack Row="true" Spacing="0">
-                                        <MudTooltip Text="View Details">
-                                            <MudIconButton Icon="@Icons.Material.Outlined.Visibility" Size="Size.Small"
-                                                OnClick="@(() => ShowTransferDetails(context.Item))" />
-                                        </MudTooltip>
-                                        @if (context.Item.CanRetry)
-                                        {
-                                            <MudTooltip Text="Retry">
-                                                <MudIconButton Icon="@Icons.Material.Outlined.Replay" Size="Size.Small"
-                                                    Color="Color.Primary" OnClick="@(() => RetryTransfer(context.Item))" />
-                                            </MudTooltip>
-                                        }
-                                        @if (context.Item.CanCancel)
-                                        {
-                                            <MudTooltip Text="Cancel">
-                                                <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small"
-                                                    Color="Color.Error" OnClick="@(() => CancelQueuedTransfer(context.Item))" />
-                                            </MudTooltip>
-                                        }
-                                    </MudStack>
-                                </CellTemplate>
+
+
                             </TemplateColumn>
+
+
+                            <PropertyColumn Property="x => x.ExternalReference" Title="Reference">
+
+
+                                <CellTemplate>
+
+
+                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.ExternalReference</MudText>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.FromWarehouse" Title="From" />
+
+
+                            <PropertyColumn Property="x => x.ToWarehouse" Title="To" />
+
+
+                            <PropertyColumn Property="x => x.Status" Title="Status">
+
+
+                                <CellTemplate>
+
+
+                                    <span class="status-chip @GetStatusClass(context.Item.Status)">@context.Item.Status</span>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.TotalQuantity" Title="Qty" Format="N2" />
+
+
+                            <PropertyColumn Property="x => x.LineCount" Title="Lines" />
+
+
+                            <PropertyColumn Property="x => x.SapDocNum" Title="SAP Doc#">
+
+
+                                <CellTemplate>
+
+
+                                    @if (context.Item.SapDocNum.HasValue)
+
+
+                                    {
+
+
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined"
+
+
+                                            Style="font-size: 0.75rem;">@context.Item.SapDocNum</MudChip>
+
+
+                                    }
+
+
+                                    else
+
+
+                                    {
+
+
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">&mdash;</MudText>
+
+
+                                    }
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.CreatedAt" Title="Created" Format="g">
+
+
+                                <CellTemplate>
+
+
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CreatedAt.ToLocalTime().ToString("g")</MudText>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <TemplateColumn Title="Actions" Sortable="false">
+
+
+                                <CellTemplate>
+
+
+                                    <MudStack Row="true" Spacing="0">
+
+
+                                        @if (context.Item.CanRetry)
+
+
+                                        {
+
+
+                                            <MudTooltip Text="Retry">
+
+
+                                                <MudIconButton Icon="@Icons.Material.Outlined.Replay" Size="Size.Small"
+
+
+                                                    Color="Color.Primary" OnClick="@(() => RetryTransfer(context.Item))" />
+
+
+                                            </MudTooltip>
+
+
+                                        }
+
+
+                                        @if (context.Item.CanCancel)
+
+
+                                        {
+
+
+                                            <MudTooltip Text="Cancel">
+
+
+                                                <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small"
+
+
+                                                    Color="Color.Error" OnClick="@(() => CancelQueuedTransfer(context.Item))" />
+
+
+                                            </MudTooltip>
+
+
+                                        }
+
+
+                                    </MudStack>
+
+
+                                </CellTemplate>
+
+
+                            </TemplateColumn>
+
+
                         </Columns>
+
+
+                        <ChildRowContent>
+
+
+                            @if (_expandedTransferId == context.Item.QueueId)
+
+
+                            {
+
+
+                                <td colspan="100">
+
+
+                                    <div class="dt-expanded-row">
+
+
+                                        <div class="dt-expanded-row__section-title">Transfer Details</div>
+
+
+                                        <div class="dt-mini-grid">
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">External Reference</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.ExternalReference</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">From Warehouse</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.FromWarehouse</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">To Warehouse</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.ToWarehouse</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Total Quantity</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.TotalQuantity.ToString("N2")</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Line Count</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.LineCount</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Type</div>
+
+
+                                                <div class="dt-mini-field__value">@(context.Item.IsTransferRequest ? "Transfer Request" : "Direct Transfer")</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">SAP Document</div>
+
+
+                                                <div class="dt-mini-field__value">@(context.Item.SapDocNum?.ToString() ?? "Not yet posted")</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">SAP Doc Entry</div>
+
+
+                                                <div class="dt-mini-field__value">@(context.Item.SapDocEntry ?? "—")</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Source System</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.SourceSystem</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Status</div>
+
+
+                                                <div class="dt-mini-field__value"><span class="status-chip @GetStatusClass(context.Item.Status)">@context.Item.Status</span></div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Retry Count</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.RetryCount / @context.Item.MaxRetries</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Created</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.CreatedAt.ToLocalTime().ToString("F")</div>
+
+
+                                            </div>
+
+
+                                            @if (context.Item.ProcessingStartedAt.HasValue)
+
+
+                                            {
+
+
+                                                <div class="dt-mini-field">
+
+
+                                                    <div class="dt-mini-field__label">Processing Started</div>
+
+
+                                                    <div class="dt-mini-field__value">@context.Item.ProcessingStartedAt.Value.ToLocalTime().ToString("F")</div>
+
+
+                                                </div>
+
+
+                                            }
+
+
+                                            @if (context.Item.ProcessedAt.HasValue)
+
+
+                                            {
+
+
+                                                <div class="dt-mini-field">
+
+
+                                                    <div class="dt-mini-field__label">Processed At</div>
+
+
+                                                    <div class="dt-mini-field__value">@context.Item.ProcessedAt.Value.ToLocalTime().ToString("F")</div>
+
+
+                                                </div>
+
+
+                                            }
+
+
+                                            @if (context.Item.NextRetryAt.HasValue)
+
+
+                                            {
+
+
+                                                <div class="dt-mini-field">
+
+
+                                                    <div class="dt-mini-field__label">Next Retry</div>
+
+
+                                                    <div class="dt-mini-field__value">@context.Item.NextRetryAt.Value.ToLocalTime().ToString("g")</div>
+
+
+                                                </div>
+
+
+                                            }
+
+
+                                            @if (context.Item.WaitTimeSeconds > 0)
+
+
+                                            {
+
+
+                                                <div class="dt-mini-field">
+
+
+                                                    <div class="dt-mini-field__label">Wait Time</div>
+
+
+                                                    <div class="dt-mini-field__value">@FormatWaitTime(context.Item.WaitTimeSeconds)</div>
+
+
+                                                </div>
+
+
+                                            }
+
+
+                                        </div>
+
+
+                                        @if (!string.IsNullOrEmpty(context.Item.LastError))
+
+
+                                        {
+
+
+                                            <MudAlert Severity="Severity.Error" Dense="true" Variant="Variant.Outlined" Class="mt-3"
+
+
+                                                Style="border-radius: 8px; font-size: 0.8125rem;">
+
+
+                                                <strong>Last Error:</strong> @context.Item.LastError
+
+
+                                            </MudAlert>
+
+
+                                        }
+
+
+                                        <MudStack Row="true" Spacing="2" Class="mt-3">
+
+
+                                            @if (context.Item.CanRetry)
+
+
+                                            {
+
+
+                                                <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Primary"
+
+
+                                                    StartIcon="@Icons.Material.Outlined.Replay"
+
+
+                                                    OnClick="@(() => RetryTransfer(context.Item))"
+
+
+                                                    Style="border-radius: 6px; text-transform: none; font-weight: 600;">
+
+
+                                                    Retry
+
+
+                                                </MudButton>
+
+
+                                            }
+
+
+                                            @if (context.Item.CanCancel)
+
+
+                                            {
+
+
+                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error"
+
+
+                                                    StartIcon="@Icons.Material.Outlined.Close"
+
+
+                                                    OnClick="@(() => CancelQueuedTransfer(context.Item))"
+
+
+                                                    Style="border-radius: 6px; text-transform: none; font-weight: 600;">
+
+
+                                                    Cancel
+
+
+                                                </MudButton>
+
+
+                                            }
+
+
+                                        </MudStack>
+
+
+                                    </div>
+
+
+                                </td>
+
+
+                            }
+
+
+                        </ChildRowContent>
+
+
                     </MudDataGrid>
+
+
                 }
+
+
             </MudTabPanel>
+
+
+
+
+
+            @* ═══ Transfers Need Review Tab ═══ *@
+
 
             <MudTabPanel Text="Transfers Need Review" Icon="@Icons.Material.Outlined.Warning"
+
+
                 BadgeData="@_reviewTransfers?.Count" BadgeColor="Color.Warning">
+
+
                 @if (_isLoading)
+
+
                 {
+
+
                     <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-2" Style="border-radius: 4px;" />
+
+
                 }
+
+
                 else if (_reviewTransfers == null || !_reviewTransfers.Any())
+
+
                 {
+
+
                     <div class="d-flex flex-column align-center justify-center py-12">
+
+
                         <MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Style="font-size: 3rem; color: #10b981;" />
+
+
                         <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mt-3">All clear</MudText>
+
+
                         <MudText Typo="Typo.caption" Color="Color.Secondary">No transfers require manual review</MudText>
+
+
                     </div>
+
+
                 }
+
+
                 else
+
+
                 {
+
+
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-4"
+
+
                         Style="border-radius: 8px;">
+
+
                         These transfers have failed multiple times and require manual intervention.
+
+
                     </MudAlert>
+
+
                     <MudDataGrid T="InventoryTransferQueueStatusDto" Items="@_reviewTransfers" SortMode="SortMode.Multiple"
-                        Hover="true" Dense="true" Bordered="false">
+
+
+                        Hover="true" Dense="true" Bordered="false"
+
+
+                        RowClick="@((DataGridRowClickEventArgs<InventoryTransferQueueStatusDto> args) => ToggleTransferExpand(args.Item))">
+
+
                         <Columns>
-                            <PropertyColumn Property="x => x.ExternalReference" Title="Reference">
+
+
+                            <TemplateColumn Title="" Sortable="false" Filterable="false" CellStyle="width: 40px; padding: 4px 8px;">
+
+
                                 <CellTemplate>
-                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.ExternalReference</MudText>
+
+
+                                    <MudIconButton Icon="@(_expandedTransferId == context.Item.QueueId ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+
+
+                                        Size="Size.Small"
+
+
+                                        OnClick="@(() => ToggleTransferExpand(context.Item))" />
+
+
                                 </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.FromWarehouse" Title="From" />
-                            <PropertyColumn Property="x => x.ToWarehouse" Title="To" />
-                            <PropertyColumn Property="x => x.TotalQuantity" Title="Qty" Format="N2" />
-                            <PropertyColumn Property="x => x.LastError" Title="Last Error">
-                                <CellTemplate>
-                                    <MudTooltip Text="@context.Item.LastError">
-                                        <MudText Typo="Typo.caption"
-                                            Style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ef4444;">
-                                            @(context.Item.LastError?.Length > 60 ? context.Item.LastError.Substring(0, 60) + "..." : context.Item.LastError)
-                                        </MudText>
-                                    </MudTooltip>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.CreatedAt" Title="Created">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CreatedAt.ToLocalTime().ToString("g")</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <TemplateColumn Title="Actions" Sortable="false">
-                                <CellTemplate>
-                                    <MudStack Row="true" Spacing="1">
-                                        <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Primary"
-                                            StartIcon="@Icons.Material.Outlined.Replay"
-                                            OnClick="@(() => RetryTransfer(context.Item))"
-                                            Style="border-radius: 6px; text-transform: none; font-weight: 600; font-size: 0.75rem;">
-                                            Retry
-                                        </MudButton>
-                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error"
-                                            StartIcon="@Icons.Material.Outlined.Close"
-                                            OnClick="@(() => CancelQueuedTransfer(context.Item))"
-                                            Style="border-radius: 6px; text-transform: none; font-weight: 600; font-size: 0.75rem;">
-                                            Cancel
-                                        </MudButton>
-                                    </MudStack>
-                                </CellTemplate>
+
+
                             </TemplateColumn>
+
+
+                            <PropertyColumn Property="x => x.ExternalReference" Title="Reference">
+
+
+                                <CellTemplate>
+
+
+                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.ExternalReference</MudText>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.FromWarehouse" Title="From" />
+
+
+                            <PropertyColumn Property="x => x.ToWarehouse" Title="To" />
+
+
+                            <PropertyColumn Property="x => x.TotalQuantity" Title="Qty" Format="N2" />
+
+
+                            <PropertyColumn Property="x => x.LastError" Title="Last Error">
+
+
+                                <CellTemplate>
+
+
+                                    <MudTooltip Text="@context.Item.LastError">
+
+
+                                        <MudText Typo="Typo.caption"
+
+
+                                            Style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ef4444;">
+
+
+                                            @(context.Item.LastError?.Length > 60 ? context.Item.LastError.Substring(0, 60) + "..." : context.Item.LastError)
+
+
+                                        </MudText>
+
+
+                                    </MudTooltip>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.CreatedAt" Title="Created">
+
+
+                                <CellTemplate>
+
+
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CreatedAt.ToLocalTime().ToString("g")</MudText>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <TemplateColumn Title="Actions" Sortable="false">
+
+
+                                <CellTemplate>
+
+
+                                    <MudStack Row="true" Spacing="1">
+
+
+                                        <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Primary"
+
+
+                                            StartIcon="@Icons.Material.Outlined.Replay"
+
+
+                                            OnClick="@(() => RetryTransfer(context.Item))"
+
+
+                                            Style="border-radius: 6px; text-transform: none; font-weight: 600; font-size: 0.75rem;">
+
+
+                                            Retry
+
+
+                                        </MudButton>
+
+
+                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error"
+
+
+                                            StartIcon="@Icons.Material.Outlined.Close"
+
+
+                                            OnClick="@(() => CancelQueuedTransfer(context.Item))"
+
+
+                                            Style="border-radius: 6px; text-transform: none; font-weight: 600; font-size: 0.75rem;">
+
+
+                                            Cancel
+
+
+                                        </MudButton>
+
+
+                                    </MudStack>
+
+
+                                </CellTemplate>
+
+
+                            </TemplateColumn>
+
+
                         </Columns>
+
+
+                        <ChildRowContent>
+
+
+                            @if (_expandedTransferId == context.Item.QueueId)
+
+
+                            {
+
+
+                                <td colspan="100">
+
+
+                                    <div class="dt-expanded-row">
+
+
+                                        <div class="dt-expanded-row__section-title">Full Details</div>
+
+
+                                        <div class="dt-mini-grid">
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">External Reference</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.ExternalReference</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">From Warehouse</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.FromWarehouse</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">To Warehouse</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.ToWarehouse</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Total Quantity</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.TotalQuantity.ToString("N2")</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Line Count</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.LineCount</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Type</div>
+
+
+                                                <div class="dt-mini-field__value">@(context.Item.IsTransferRequest ? "Transfer Request" : "Direct Transfer")</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">SAP Document</div>
+
+
+                                                <div class="dt-mini-field__value">@(context.Item.SapDocNum?.ToString() ?? "Not yet posted")</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Source System</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.SourceSystem</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Retry Count</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.RetryCount / @context.Item.MaxRetries</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Created</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.CreatedAt.ToLocalTime().ToString("F")</div>
+
+
+                                            </div>
+
+
+                                            @if (context.Item.NextRetryAt.HasValue)
+
+
+                                            {
+
+
+                                                <div class="dt-mini-field">
+
+
+                                                    <div class="dt-mini-field__label">Next Retry</div>
+
+
+                                                    <div class="dt-mini-field__value">@context.Item.NextRetryAt.Value.ToLocalTime().ToString("g")</div>
+
+
+                                                </div>
+
+
+                                            }
+
+
+                                        </div>
+
+
+                                        @if (!string.IsNullOrEmpty(context.Item.LastError))
+
+
+                                        {
+
+
+                                            <MudAlert Severity="Severity.Error" Dense="true" Variant="Variant.Outlined" Class="mt-3"
+
+
+                                                Style="border-radius: 8px; font-size: 0.8125rem;">
+
+
+                                                <strong>Last Error:</strong> @context.Item.LastError
+
+
+                                            </MudAlert>
+
+
+                                        }
+
+
+                                    </div>
+
+
+                                </td>
+
+
+                            }
+
+
+                        </ChildRowContent>
+
+
                     </MudDataGrid>
+
+
                 }
+
+
             </MudTabPanel>
+
+
+
+
+
+            @* ═══ Stock Reservations Tab ═══ *@
+
 
             <MudTabPanel Text="Stock Reservations" Icon="@Icons.Material.Outlined.Inventory2" BadgeData="@_reservations?.Count"
+
+
                 BadgeColor="Color.Secondary">
+
+
                 <MudStack Row="true" AlignItems="AlignItems.End" Spacing="2" Class="mb-4">
+
+
                     <MudSelect T="string" Label="Status" @bind-Value="_reservationStatusFilter" Variant="Variant.Outlined"
+
+
                         Dense="true" Style="max-width: 200px;" Margin="Margin.Dense">
+
+
                         <MudSelectItem Value="@("")">All Statuses</MudSelectItem>
+
+
                         <MudSelectItem Value="@("Pending")">Pending</MudSelectItem>
+
+
                         <MudSelectItem Value="@("Confirmed")">Confirmed</MudSelectItem>
+
+
                         <MudSelectItem Value="@("Cancelled")">Cancelled</MudSelectItem>
+
+
                         <MudSelectItem Value="@("Expired")">Expired</MudSelectItem>
+
+
                     </MudSelect>
+
+
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadReservations"
+
+
                         StartIcon="@Icons.Material.Outlined.FilterList"
+
+
                         Style="border-radius: 8px; text-transform: none; font-weight: 600;">
+
+
                         Apply Filter
+
+
                     </MudButton>
+
+
                 </MudStack>
 
+
+
+
+
                 @if (_isLoading)
+
+
                 {
+
+
                     <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-2" Style="border-radius: 4px;" />
+
+
                 }
+
+
                 else if (_reservations == null || !_reservations.Any())
+
+
                 {
+
+
                     <div class="d-flex flex-column align-center justify-center py-12">
+
+
                         <MudIcon Icon="@Icons.Material.Outlined.Inventory2" Style="font-size: 3rem; color: var(--mud-palette-text-disabled);" />
+
+
                         <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mt-3">No reservations found</MudText>
+
+
                         <MudText Typo="Typo.caption" Color="Color.Secondary">Stock reservations from desktop apps will appear here</MudText>
+
+
                     </div>
+
+
                 }
+
+
                 else
+
+
                 {
+
+
                     <MudDataGrid T="StockReservationDto" Items="@_reservations" SortMode="SortMode.Multiple" Filterable="true"
-                        Hover="true" Dense="true" Bordered="false">
+
+
+                        Hover="true" Dense="true" Bordered="false"
+
+
+                        RowClick="@((DataGridRowClickEventArgs<StockReservationDto> args) => ToggleReservationExpand(args.Item))">
+
+
                         <Columns>
-                            <PropertyColumn Property="x => x.ExternalReferenceId" Title="Reference">
+
+
+                            <TemplateColumn Title="" Sortable="false" Filterable="false" CellStyle="width: 40px; padding: 4px 8px;">
+
+
                                 <CellTemplate>
-                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.ExternalReferenceId</MudText>
+
+
+                                    <MudIconButton Icon="@(_expandedReservationId == context.Item.ReservationId ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+
+
+                                        Size="Size.Small"
+
+
+                                        OnClick="@(() => ToggleReservationExpand(context.Item))" />
+
+
                                 </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.CardCode" Title="Customer">
-                                <CellTemplate>
-                                    <div>
-                                        <MudText Typo="Typo.body2">@context.Item.CardCode</MudText>
-                                        @if (!string.IsNullOrEmpty(context.Item.CardName))
-                                        {
-                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CardName</MudText>
-                                        }
-                                    </div>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.Status" Title="Status">
-                                <CellTemplate>
-                                    <span class="status-chip @GetStatusClass(context.Item.Status)">@context.Item.Status</span>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.DocumentType" Title="Doc Type" />
-                            <PropertyColumn Property="x => x.Lines.Count" Title="Lines">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.body2" Style="font-variant-numeric: tabular-nums;">@context.Item.Lines.Count</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.SAPDocNum" Title="SAP Doc#">
-                                <CellTemplate>
-                                    @if (context.Item.SAPDocNum.HasValue)
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined"
-                                            Style="font-size: 0.75rem;">@context.Item.SAPDocNum</MudChip>
-                                    }
-                                    else
-                                    {
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">&mdash;</MudText>
-                                    }
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.CreatedAt" Title="Created">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CreatedAt.ToLocalTime().ToString("g")</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.ExpiresAt" Title="Expires">
-                                <CellTemplate>
-                                    @if (context.Item.Status == "Pending")
-                                    {
-                                        var remaining = context.Item.ExpiresAt - DateTime.UtcNow;
-                                        var isExpiring = remaining.TotalMinutes < 10;
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
-                                            Color="@(isExpiring ? Color.Warning : Color.Default)"
-                                            Style="font-size: 0.75rem;">
-                                            @(remaining.TotalMinutes > 0 ? $"{(int)remaining.TotalMinutes}m remaining" : "Expired")
-                                        </MudChip>
-                                    }
-                                    else
-                                    {
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">&mdash;</MudText>
-                                    }
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <TemplateColumn Title="Actions" Sortable="false">
-                                <CellTemplate>
-                                    <MudStack Row="true" Spacing="0">
-                                        <MudTooltip Text="View Details">
-                                            <MudIconButton Icon="@Icons.Material.Outlined.Visibility" Size="Size.Small"
-                                                OnClick="@(() => ShowReservationDetails(context.Item))" />
-                                        </MudTooltip>
-                                        @if (context.Item.Status == "Pending")
-                                        {
-                                            <MudTooltip Text="Cancel Reservation">
-                                                <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small"
-                                                    Color="Color.Error" OnClick="@(() => CancelReservation(context.Item))" />
-                                            </MudTooltip>
-                                        }
-                                    </MudStack>
-                                </CellTemplate>
+
+
                             </TemplateColumn>
+
+
+                            <PropertyColumn Property="x => x.ExternalReferenceId" Title="Reference">
+
+
+                                <CellTemplate>
+
+
+                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.ExternalReferenceId</MudText>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.CardCode" Title="Customer">
+
+
+                                <CellTemplate>
+
+
+                                    <div>
+
+
+                                        <MudText Typo="Typo.body2">@context.Item.CardCode</MudText>
+
+
+                                        @if (!string.IsNullOrEmpty(context.Item.CardName))
+
+
+                                        {
+
+
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CardName</MudText>
+
+
+                                        }
+
+
+                                    </div>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.Status" Title="Status">
+
+
+                                <CellTemplate>
+
+
+                                    <span class="status-chip @GetStatusClass(context.Item.Status)">@context.Item.Status</span>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.DocumentType" Title="Doc Type" />
+
+
+                            <PropertyColumn Property="x => x.Lines.Count" Title="Lines">
+
+
+                                <CellTemplate>
+
+
+                                    <MudText Typo="Typo.body2" Style="font-variant-numeric: tabular-nums;">@context.Item.Lines.Count</MudText>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.SAPDocNum" Title="SAP Doc#">
+
+
+                                <CellTemplate>
+
+
+                                    @if (context.Item.SAPDocNum.HasValue)
+
+
+                                    {
+
+
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined"
+
+
+                                            Style="font-size: 0.75rem;">@context.Item.SAPDocNum</MudChip>
+
+
+                                    }
+
+
+                                    else
+
+
+                                    {
+
+
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">&mdash;</MudText>
+
+
+                                    }
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.CreatedAt" Title="Created">
+
+
+                                <CellTemplate>
+
+
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CreatedAt.ToLocalTime().ToString("g")</MudText>
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <PropertyColumn Property="x => x.ExpiresAt" Title="Expires">
+
+
+                                <CellTemplate>
+
+
+                                    @if (context.Item.Status == "Pending")
+
+
+                                    {
+
+
+                                        var remaining = context.Item.ExpiresAt - DateTime.UtcNow;
+
+
+                                        var isExpiring = remaining.TotalMinutes < 10;
+
+
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+
+
+                                            Color="@(isExpiring ? Color.Warning : Color.Default)"
+
+
+                                            Style="font-size: 0.75rem;">
+
+
+                                            @(remaining.TotalMinutes > 0 ? $"{(int)remaining.TotalMinutes}m remaining" : "Expired")
+
+
+                                        </MudChip>
+
+
+                                    }
+
+
+                                    else
+
+
+                                    {
+
+
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">&mdash;</MudText>
+
+
+                                    }
+
+
+                                </CellTemplate>
+
+
+                            </PropertyColumn>
+
+
+                            <TemplateColumn Title="Actions" Sortable="false">
+
+
+                                <CellTemplate>
+
+
+                                    <MudStack Row="true" Spacing="0">
+
+
+                                        @if (context.Item.Status == "Pending")
+
+
+                                        {
+
+
+                                            <MudTooltip Text="Cancel Reservation">
+
+
+                                                <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small"
+
+
+                                                    Color="Color.Error" OnClick="@(() => CancelReservation(context.Item))" />
+
+
+                                            </MudTooltip>
+
+
+                                        }
+
+
+                                    </MudStack>
+
+
+                                </CellTemplate>
+
+
+                            </TemplateColumn>
+
+
                         </Columns>
+
+
+                        <ChildRowContent>
+
+
+                            @if (_expandedReservationId == context.Item.ReservationId)
+
+
+                            {
+
+
+                                <td colspan="100">
+
+
+                                    <div class="dt-expanded-row">
+
+
+                                        <div class="dt-expanded-row__section-title">Reservation Details</div>
+
+
+                                        <div class="dt-mini-grid">
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Reservation ID</div>
+
+
+                                                <div class="dt-mini-field__value" style="font-family: monospace; font-size: 0.75rem;">@context.Item.ReservationId</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Customer</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.CardCode — @context.Item.CardName</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Status</div>
+
+
+                                                <div class="dt-mini-field__value"><span class="status-chip @GetStatusClass(context.Item.Status)">@context.Item.Status</span></div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Document Type</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.DocumentType</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Source System</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.SourceSystem</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">SAP Document</div>
+
+
+                                                <div class="dt-mini-field__value">@(context.Item.SAPDocNum?.ToString() ?? "Not posted")</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Created</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.CreatedAt.ToLocalTime().ToString("F")</div>
+
+
+                                            </div>
+
+
+                                            <div class="dt-mini-field">
+
+
+                                                <div class="dt-mini-field__label">Expires</div>
+
+
+                                                <div class="dt-mini-field__value">@context.Item.ExpiresAt.ToLocalTime().ToString("F")</div>
+
+
+                                            </div>
+
+
+                                            @if (context.Item.ConfirmedAt.HasValue)
+
+
+                                            {
+
+
+                                                <div class="dt-mini-field">
+
+
+                                                    <div class="dt-mini-field__label">Confirmed At</div>
+
+
+                                                    <div class="dt-mini-field__value">@context.Item.ConfirmedAt.Value.ToLocalTime().ToString("F")</div>
+
+
+                                                </div>
+
+
+                                            }
+
+
+                                            @if (context.Item.CancelledAt.HasValue)
+
+
+                                            {
+
+
+                                                <div class="dt-mini-field">
+
+
+                                                    <div class="dt-mini-field__label">Cancelled At</div>
+
+
+                                                    <div class="dt-mini-field__value">@context.Item.CancelledAt.Value.ToLocalTime().ToString("F")</div>
+
+
+                                                </div>
+
+
+                                            }
+
+
+                                            @if (!string.IsNullOrEmpty(context.Item.CreatedBy))
+
+
+                                            {
+
+
+                                                <div class="dt-mini-field">
+
+
+                                                    <div class="dt-mini-field__label">Created By</div>
+
+
+                                                    <div class="dt-mini-field__value">@context.Item.CreatedBy</div>
+
+
+                                                </div>
+
+
+                                            }
+
+
+                                        </div>
+
+
+
+
+
+                                        @if (context.Item.Lines.Any())
+
+
+                                        {
+
+
+                                            <div class="dt-expanded-row__section-title mt-4">Reserved Items (@context.Item.Lines.Count)</div>
+
+
+                                            <MudSimpleTable Dense="true" Hover="true" Style="border-radius: 8px; overflow: hidden;">
+
+
+                                                <thead>
+
+
+                                                    <tr style="background: var(--mud-palette-surface);">
+
+
+                                                        <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Item Code</th>
+
+
+                                                        <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Description</th>
+
+
+                                                        <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Qty</th>
+
+
+                                                        <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Warehouse</th>
+
+
+                                                        <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Unit Price</th>
+
+
+                                                        <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Total</th>
+
+
+                                                    </tr>
+
+
+                                                </thead>
+
+
+                                                <tbody>
+
+
+                                                    @foreach (var line in context.Item.Lines)
+
+
+                                                    {
+
+
+                                                        <tr>
+
+
+                                                            <td style="font-weight: 500;">@line.ItemCode</td>
+
+
+                                                            <td>@line.ItemDescription</td>
+
+
+                                                            <td style="font-variant-numeric: tabular-nums;">@line.Quantity.ToString("N2")</td>
+
+
+                                                            <td>@line.WarehouseCode</td>
+
+
+                                                            <td style="font-variant-numeric: tabular-nums;">@line.UnitPrice.ToString("N2")</td>
+
+
+                                                            <td style="font-variant-numeric: tabular-nums; font-weight: 500;">@line.LineTotal.ToString("N2")</td>
+
+
+                                                        </tr>
+
+
+                                                    }
+
+
+                                                </tbody>
+
+
+                                            </MudSimpleTable>
+
+
+                                        }
+
+
+
+
+
+                                        @if (context.Item.Status == "Pending")
+
+
+                                        {
+
+
+                                            <MudStack Row="true" Spacing="2" Class="mt-3">
+
+
+                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error"
+
+
+                                                    StartIcon="@Icons.Material.Outlined.Close"
+
+
+                                                    OnClick="@(() => CancelReservation(context.Item))"
+
+
+                                                    Style="border-radius: 6px; text-transform: none; font-weight: 600;">
+
+
+                                                    Cancel Reservation
+
+
+                                                </MudButton>
+
+
+                                            </MudStack>
+
+
+                                        }
+
+
+                                    </div>
+
+
+                                </td>
+
+
+                            }
+
+
+                        </ChildRowContent>
+
+
                     </MudDataGrid>
+
+
                 }
+
+
             </MudTabPanel>
+
+
         </MudTabs>
+
+
     </MudPaper>
+
+
 </MudContainer>
 
-@* Details Dialog *@
-<MudDialog @bind-Visible="_showDetailsDialog"
-    Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true })">
-    <TitleContent>
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-            <MudIcon Icon="@Icons.Material.Outlined.Info" Color="Color.Primary" />
-            <MudText Typo="Typo.h6" Style="font-weight: 700;">@_detailsTitle</MudText>
-        </MudStack>
-    </TitleContent>
-    <DialogContent>
-        @if (_selectedQueueItem != null)
-        {
-            <MudGrid Spacing="2">
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">External Reference</div>
-                        <div class="field-value">@_selectedQueueItem.ExternalReference</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">Status</div>
-                        <span class="status-chip @GetStatusClass(_selectedQueueItem.Status)">@_selectedQueueItem.Status</span>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">Customer</div>
-                        <div class="field-value">@_selectedQueueItem.CustomerCode</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">Amount</div>
-                        <div class="field-value">@_selectedQueueItem.Currency @_selectedQueueItem.TotalAmount.ToString("N2")</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">SAP Document</div>
-                        <div class="field-value">@(_selectedQueueItem.SapDocNum?.ToString() ?? "Not yet posted")</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">Warehouse</div>
-                        <div class="field-value">@(_selectedQueueItem.WarehouseCode ?? "-")</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">Created</div>
-                        <div class="field-value">@_selectedQueueItem.CreatedAt.ToLocalTime().ToString("F")</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">Retry Count</div>
-                        <div class="field-value">@_selectedQueueItem.RetryCount / @_selectedQueueItem.MaxRetries</div>
-                    </div>
-                </MudItem>
-                @if (!string.IsNullOrEmpty(_selectedQueueItem.LastError))
-                {
-                    <MudItem xs="12">
-                        <MudAlert Severity="Severity.Error" Dense="true" Variant="Variant.Outlined" Style="border-radius: 8px;">
-                            <div class="field-label" style="color: inherit;">Last Error</div>
-                            @_selectedQueueItem.LastError
-                        </MudAlert>
-                    </MudItem>
-                }
-                @if (!string.IsNullOrEmpty(_selectedQueueItem.FiscalReceiptNumber))
-                {
-                    <MudItem xs="6">
-                        <div class="dt-detail-field">
-                            <div class="field-label">Fiscal Receipt</div>
-                            <div class="field-value">@_selectedQueueItem.FiscalReceiptNumber</div>
-                        </div>
-                    </MudItem>
-                }
-            </MudGrid>
-        }
-        else if (_selectedReservation != null)
-        {
-            <MudGrid Spacing="2">
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">Reservation ID</div>
-                        <div class="field-value" style="font-family: 'Cascadia Code', monospace; font-size: 0.8125rem;">@_selectedReservation.ReservationId</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">Status</div>
-                        <span class="status-chip @GetStatusClass(_selectedReservation.Status)">@_selectedReservation.Status</span>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">Customer</div>
-                        <div class="field-value">@_selectedReservation.CardCode - @_selectedReservation.CardName</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">SAP Document</div>
-                        <div class="field-value">@(_selectedReservation.SAPDocNum?.ToString() ?? "Not posted")</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="12">
-                    <MudText Typo="Typo.subtitle2" Style="font-weight: 600;" Class="mt-2 mb-2">Reserved Items</MudText>
-                    <MudSimpleTable Dense="true" Hover="true" Style="border-radius: 8px; overflow: hidden;">
-                        <thead>
-                            <tr style="background: var(--mud-palette-background-grey);">
-                                <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Item Code</th>
-                                <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Description</th>
-                                <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Qty</th>
-                                <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Warehouse</th>
-                                <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Unit Price</th>
-                                <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var line in _selectedReservation.Lines)
-                            {
-                                <tr>
-                                    <td style="font-weight: 500;">@line.ItemCode</td>
-                                    <td>@line.ItemDescription</td>
-                                    <td style="font-variant-numeric: tabular-nums;">@line.Quantity.ToString("N2")</td>
-                                    <td>@line.WarehouseCode</td>
-                                    <td style="font-variant-numeric: tabular-nums;">@line.UnitPrice.ToString("N2")</td>
-                                    <td style="font-variant-numeric: tabular-nums; font-weight: 500;">@line.LineTotal.ToString("N2")</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </MudSimpleTable>
-                </MudItem>
-            </MudGrid>
-        }
-        else if (_selectedTransfer != null)
-        {
-            <MudGrid Spacing="2">
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">External Reference</div>
-                        <div class="field-value">@_selectedTransfer.ExternalReference</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">Status</div>
-                        <span class="status-chip @GetStatusClass(_selectedTransfer.Status)">@_selectedTransfer.Status</span>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">From Warehouse</div>
-                        <div class="field-value">@_selectedTransfer.FromWarehouse</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">To Warehouse</div>
-                        <div class="field-value">@_selectedTransfer.ToWarehouse</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">Total Quantity</div>
-                        <div class="field-value">@_selectedTransfer.TotalQuantity.ToString("N2")</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">Line Count</div>
-                        <div class="field-value">@_selectedTransfer.LineCount</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">SAP Document</div>
-                        <div class="field-value">@(_selectedTransfer.SapDocNum?.ToString() ?? "Not yet posted")</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">Type</div>
-                        <div class="field-value">@(_selectedTransfer.IsTransferRequest ? "Transfer Request" : "Direct Transfer")</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">Created</div>
-                        <div class="field-value">@_selectedTransfer.CreatedAt.ToLocalTime().ToString("F")</div>
-                    </div>
-                </MudItem>
-                <MudItem xs="6">
-                    <div class="dt-detail-field">
-                        <div class="field-label">Retry Count</div>
-                        <div class="field-value">@_selectedTransfer.RetryCount / @_selectedTransfer.MaxRetries</div>
-                    </div>
-                </MudItem>
-                @if (!string.IsNullOrEmpty(_selectedTransfer.LastError))
-                {
-                    <MudItem xs="12">
-                        <MudAlert Severity="Severity.Error" Dense="true" Variant="Variant.Outlined" Style="border-radius: 8px;">
-                            <div class="field-label" style="color: inherit;">Last Error</div>
-                            @_selectedTransfer.LastError
-                        </MudAlert>
-                    </MudItem>
-                }
-            </MudGrid>
-        }
-    </DialogContent>
-    <DialogActions>
-        <MudButton Variant="Variant.Filled" Color="Color.Default" OnClick="@(() => _showDetailsDialog = false)"
-            Style="border-radius: 8px; text-transform: none; font-weight: 600;">
-            Close
-        </MudButton>
-    </DialogActions>
-</MudDialog>
 
 @code {
+
+
     private bool _isLoading = true;
+
+
     private int _activeTab = 0;
+
+
     private string _reservationStatusFilter = "";
 
+
+
+
+
+    // Expand/collapse state
+
+
+    private int? _expandedInvoiceId;
+
+
+    private int? _expandedTransferId;
+
+
+    private string? _expandedReservationId;
+
+
+
+
+
     private InvoiceQueueStatsDto? _stats;
+
+
     private InventoryTransferQueueStatsDto? _transferStats;
+
+
     private List<InvoiceQueueStatusDto>? _queuedInvoices;
+
+
     private List<InvoiceQueueStatusDto>? _reviewInvoices;
+
+
     private List<InventoryTransferQueueStatusDto>? _queuedTransfers;
+
+
     private List<InventoryTransferQueueStatusDto>? _reviewTransfers;
+
+
     private List<StockReservationDto>? _reservations;
 
-    private bool _showDetailsDialog = false;
-    private string _detailsTitle = "";
-    private InvoiceQueueStatusDto? _selectedQueueItem;
-    private StockReservationDto? _selectedReservation;
-    private InventoryTransferQueueStatusDto? _selectedTransfer;
+
+
+
 
     protected override async Task OnInitializedAsync()
+
+
     {
+
+
         await RefreshAll();
+
+
     }
+
+
+
+
 
     private async Task RefreshAll()
+
+
     {
+
+
         _isLoading = true;
+
+
         StateHasChanged();
 
+
+
+
+
         try
+
+
         {
+
+
             var statsTask = DesktopService.GetQueueStatsAsync();
+
+
             var queueTask = DesktopService.GetPendingQueueAsync();
+
+
             var reviewTask = DesktopService.GetInvoicesRequiringReviewAsync();
+
+
             var reservationsTask = DesktopService.GetReservationsAsync();
+
+
             var transferStatsTask = DesktopService.GetTransferQueueStatsAsync();
+
+
             var transferQueueTask = DesktopService.GetPendingTransferQueueAsync();
+
+
             var transferReviewTask = DesktopService.GetTransfersRequiringReviewAsync();
 
+
+
+
+
             await Task.WhenAll(statsTask, queueTask, reviewTask, reservationsTask,
-            transferStatsTask, transferQueueTask, transferReviewTask);
+
+
+                transferStatsTask, transferQueueTask, transferReviewTask);
+
+
+
+
 
             _stats = await statsTask;
+
+
             _queuedInvoices = await queueTask;
+
+
             _reviewInvoices = await reviewTask;
+
+
             _reservations = await reservationsTask;
+
+
             _transferStats = await transferStatsTask;
+
+
             _queuedTransfers = await transferQueueTask;
+
+
             _reviewTransfers = await transferReviewTask;
+
+
         }
+
+
         catch (Exception ex)
+
+
         {
+
+
             Snackbar.Add($"Error loading data: {ex.Message}", Severity.Error);
+
+
         }
+
+
         finally
+
+
         {
+
+
             _isLoading = false;
+
+
             StateHasChanged();
+
+
         }
+
+
     }
+
+
+
+
 
     private async Task LoadReservations()
+
+
     {
+
+
         _isLoading = true;
+
+
         StateHasChanged();
 
+
+
+
+
         try
+
+
         {
+
+
             _reservations = await DesktopService.GetReservationsAsync(
-            status: string.IsNullOrEmpty(_reservationStatusFilter) ? null : _reservationStatusFilter);
+
+
+                status: string.IsNullOrEmpty(_reservationStatusFilter) ? null : _reservationStatusFilter);
+
+
         }
+
+
         catch (Exception ex)
+
+
         {
+
+
             Snackbar.Add($"Error loading reservations: {ex.Message}", Severity.Error);
+
+
         }
+
+
         finally
+
+
         {
+
+
             _isLoading = false;
+
+
             StateHasChanged();
+
+
         }
+
+
     }
 
-    private void ShowQueueDetails(InvoiceQueueStatusDto item)
+
+
+
+
+    // ─── Navigation ───
+
+
+    private void NavigateToTab(int tabIndex)
+
+
     {
-        _selectedQueueItem = item;
-        _selectedReservation = null;
-        _detailsTitle = $"Invoice Queue: {item.ExternalReference}";
-        _showDetailsDialog = true;
+
+
+        _activeTab = tabIndex;
+
+
+        StateHasChanged();
+
+
     }
 
-    private void ShowReservationDetails(StockReservationDto item)
+
+
+
+
+    // ─── Expand/Collapse ───
+
+
+    private void ToggleInvoiceExpand(InvoiceQueueStatusDto item)
+
+
     {
-        _selectedReservation = item;
-        _selectedQueueItem = null;
-        _detailsTitle = $"Reservation: {item.ExternalReferenceId}";
-        _showDetailsDialog = true;
+
+
+        _expandedInvoiceId = _expandedInvoiceId == item.QueueId ? null : item.QueueId;
+
+
     }
+
+
+
+
+
+    private void ToggleTransferExpand(InventoryTransferQueueStatusDto item)
+
+
+    {
+
+
+        _expandedTransferId = _expandedTransferId == item.QueueId ? null : item.QueueId;
+
+
+    }
+
+
+
+
+
+    private void ToggleReservationExpand(StockReservationDto item)
+
+
+    {
+
+
+        _expandedReservationId = _expandedReservationId == item.ReservationId ? null : item.ReservationId;
+
+
+    }
+
+
+
+
+
+    // ─── Actions ───
+
 
     private async Task RetryInvoice(InvoiceQueueStatusDto item)
+
+
     {
+
+
         var result = await DesktopService.RetryQueuedInvoiceAsync(item.ExternalReference);
+
+
         if (result)
+
+
         {
+
+
             Snackbar.Add($"Invoice {item.ExternalReference} queued for retry", Severity.Success);
+
+
             await RefreshAll();
+
+
         }
+
+
         else
+
+
         {
+
+
             Snackbar.Add($"Failed to retry invoice {item.ExternalReference}", Severity.Error);
+
+
         }
+
+
     }
+
+
+
+
 
     private async Task CancelQueuedInvoice(InvoiceQueueStatusDto item)
+
+
     {
+
+
         var confirmed = await DialogService.ShowMessageBoxAsync(
-        "Cancel Invoice",
-        $"Are you sure you want to cancel the queued invoice '{item.ExternalReference}'? This will also release the reserved stock.",
-        yesText: "Cancel Invoice",
-        cancelText: "Keep");
+
+
+            "Cancel Invoice",
+
+
+            $"Are you sure you want to cancel the queued invoice '{item.ExternalReference}'? This will also release the reserved stock.",
+
+
+            yesText: "Cancel Invoice",
+
+
+            cancelText: "Keep");
+
+
+
+
 
         if (confirmed == true)
+
+
         {
+
+
             var result = await DesktopService.CancelQueuedInvoiceAsync(item.ExternalReference);
+
+
             if (result)
+
+
             {
+
+
                 Snackbar.Add($"Invoice {item.ExternalReference} cancelled", Severity.Success);
+
+
                 await RefreshAll();
+
+
             }
+
+
             else
+
+
             {
+
+
                 Snackbar.Add($"Failed to cancel invoice {item.ExternalReference}", Severity.Error);
+
+
             }
+
+
         }
+
+
     }
+
+
+
+
 
     private async Task CancelReservation(StockReservationDto item)
+
+
     {
+
+
         var confirmed = await DialogService.ShowMessageBoxAsync(
-        "Cancel Reservation",
-        $"Are you sure you want to cancel the reservation '{item.ExternalReferenceId}'? This will release the reserved stock.",
-        yesText: "Cancel Reservation",
-        cancelText: "Keep");
+
+
+            "Cancel Reservation",
+
+
+            $"Are you sure you want to cancel the reservation '{item.ExternalReferenceId}'? This will release the reserved stock.",
+
+
+            yesText: "Cancel Reservation",
+
+
+            cancelText: "Keep");
+
+
+
+
 
         if (confirmed == true)
+
+
         {
+
+
             var result = await DesktopService.CancelReservationAsync(item.ReservationId, "Cancelled from web admin");
+
+
             if (result)
+
+
             {
+
+
                 Snackbar.Add($"Reservation {item.ExternalReferenceId} cancelled", Severity.Success);
+
+
                 await RefreshAll();
+
+
             }
+
+
             else
+
+
             {
+
+
                 Snackbar.Add($"Failed to cancel reservation {item.ExternalReferenceId}", Severity.Error);
+
+
             }
+
+
         }
+
+
     }
+
+
+
+
 
     #region Inventory Transfer Methods
 
-    private void ShowTransferDetails(InventoryTransferQueueStatusDto item)
-    {
-        _selectedTransfer = item;
-        _selectedQueueItem = null;
-        _selectedReservation = null;
-        _detailsTitle = $"Inventory Transfer: {item.ExternalReference}";
-        _showDetailsDialog = true;
-    }
+
+
+
 
     private async Task RetryTransfer(InventoryTransferQueueStatusDto item)
+
+
     {
+
+
         var result = await DesktopService.RetryQueuedTransferAsync(item.ExternalReference);
+
+
         if (result)
+
+
         {
+
+
             Snackbar.Add($"Transfer {item.ExternalReference} queued for retry", Severity.Success);
+
+
             await RefreshAll();
+
+
         }
+
+
         else
+
+
         {
+
+
             Snackbar.Add($"Failed to retry transfer {item.ExternalReference}", Severity.Error);
+
+
         }
+
+
     }
+
+
+
+
 
     private async Task CancelQueuedTransfer(InventoryTransferQueueStatusDto item)
+
+
     {
+
+
         var confirmed = await DialogService.ShowMessageBoxAsync(
-        "Cancel Transfer",
-        $"Are you sure you want to cancel the queued transfer '{item.ExternalReference}'?",
-        yesText: "Cancel Transfer",
-        cancelText: "Keep");
+
+
+            "Cancel Transfer",
+
+
+            $"Are you sure you want to cancel the queued transfer '{item.ExternalReference}'?",
+
+
+            yesText: "Cancel Transfer",
+
+
+            cancelText: "Keep");
+
+
+
+
 
         if (confirmed == true)
+
+
         {
+
+
             var result = await DesktopService.CancelQueuedTransferAsync(item.ExternalReference);
+
+
             if (result)
+
+
             {
+
+
                 Snackbar.Add($"Transfer {item.ExternalReference} cancelled", Severity.Success);
+
+
                 await RefreshAll();
+
+
             }
+
+
             else
+
+
             {
+
+
                 Snackbar.Add($"Failed to cancel transfer {item.ExternalReference}", Severity.Error);
+
+
             }
+
+
         }
+
+
     }
+
+
+
+
 
     #endregion
 
+
+
+
+
+    // ─── Helpers ───
+
+
     private string GetStatusClass(string status)
+
+
     {
+
+
         return status?.ToLower() switch
+
+
         {
+
+
             "pending" => "status-pending",
+
+
             "processing" => "status-processing",
+
+
             "completed" => "status-completed",
+
+
             "confirmed" => "status-confirmed",
+
+
             "failed" => "status-failed",
+
+
             "requiresreview" => "status-review",
+
+
             "cancelled" => "status-cancelled",
+
+
             "expired" => "status-expired",
+
+
             _ => ""
+
+
         };
+
+
     }
+
+
+
+
+
+    private static string FormatWaitTime(int seconds)
+
+
+    {
+
+
+        if (seconds < 60) return $"{seconds}s";
+
+
+        if (seconds < 3600) return $"{seconds / 60}m {seconds % 60}s";
+
+
+        return $"{seconds / 3600}h {(seconds % 3600) / 60}m";
+
+
+    }
+
+
 }

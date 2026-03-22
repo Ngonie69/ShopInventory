@@ -237,20 +237,228 @@ public class DailyFulfillment
 
 #endregion
 
+#region Credit Notes Report
+
+public class CreditNoteSummaryReport
+{
+    public DateTime FromDate { get; set; }
+    public DateTime ToDate { get; set; }
+    public int TotalCreditNotes { get; set; }
+    public decimal TotalCreditAmountUSD { get; set; }
+    public decimal TotalCreditAmountZIG { get; set; }
+    public decimal TotalVatUSD { get; set; }
+    public decimal TotalVatZIG { get; set; }
+    public decimal AverageCreditNoteValueUSD { get; set; }
+    public int UniqueCustomers { get; set; }
+    public decimal CreditToSalesRatioPercent { get; set; }
+    public List<CreditNoteByCustomer> ByCustomer { get; set; } = new();
+    public List<DailyCreditNote> DailyBreakdown { get; set; } = new();
+    public List<CreditNoteByProduct> TopProductsReturned { get; set; } = new();
+}
+
+public class CreditNoteByCustomer
+{
+    public string CardCode { get; set; } = string.Empty;
+    public string CardName { get; set; } = string.Empty;
+    public int CreditNoteCount { get; set; }
+    public decimal TotalAmountUSD { get; set; }
+    public decimal TotalAmountZIG { get; set; }
+}
+
+public class DailyCreditNote
+{
+    public DateTime Date { get; set; }
+    public int Count { get; set; }
+    public decimal TotalAmountUSD { get; set; }
+    public decimal TotalAmountZIG { get; set; }
+}
+
+public class CreditNoteByProduct
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public string ItemName { get; set; } = string.Empty;
+    public decimal TotalQuantityReturned { get; set; }
+    public decimal TotalCreditAmountUSD { get; set; }
+    public decimal TotalCreditAmountZIG { get; set; }
+    public int TimesReturned { get; set; }
+}
+
+#endregion
+
+#region Purchase Orders Report
+
+public class PurchaseOrderSummaryReport
+{
+    public DateTime FromDate { get; set; }
+    public DateTime ToDate { get; set; }
+    public int TotalPurchaseOrders { get; set; }
+    public int OpenOrders { get; set; }
+    public int ClosedOrders { get; set; }
+    public int CancelledOrders { get; set; }
+    public decimal TotalOrderValueUSD { get; set; }
+    public decimal TotalOrderValueZIG { get; set; }
+    public decimal TotalPendingValueUSD { get; set; }
+    public decimal TotalPendingValueZIG { get; set; }
+    public decimal AverageOrderValueUSD { get; set; }
+    public int UniqueSuppliers { get; set; }
+    public List<PurchaseOrderBySupplier> BySupplier { get; set; } = new();
+    public List<DailyPurchaseOrder> DailyBreakdown { get; set; } = new();
+    public List<TopPurchasedProduct> TopProducts { get; set; } = new();
+}
+
+public class PurchaseOrderBySupplier
+{
+    public string CardCode { get; set; } = string.Empty;
+    public string CardName { get; set; } = string.Empty;
+    public int OrderCount { get; set; }
+    public decimal TotalValueUSD { get; set; }
+    public decimal TotalValueZIG { get; set; }
+    public int OpenOrders { get; set; }
+    public decimal PendingValueUSD { get; set; }
+}
+
+public class DailyPurchaseOrder
+{
+    public DateTime Date { get; set; }
+    public int Count { get; set; }
+    public decimal TotalValueUSD { get; set; }
+    public decimal TotalValueZIG { get; set; }
+}
+
+public class TopPurchasedProduct
+{
+    public int Rank { get; set; }
+    public string ItemCode { get; set; } = string.Empty;
+    public string ItemName { get; set; } = string.Empty;
+    public decimal TotalQuantityOrdered { get; set; }
+    public decimal TotalCostUSD { get; set; }
+    public decimal TotalCostZIG { get; set; }
+    public int TimesOrdered { get; set; }
+}
+
+#endregion
+
+#region Receivables Aging Report
+
+public class ReceivablesAgingReport
+{
+    public DateTime ReportDate { get; set; }
+    public int TotalCustomers { get; set; }
+    public decimal TotalOutstandingUSD { get; set; }
+    public decimal TotalOutstandingZIG { get; set; }
+    public AgingBucket Current { get; set; } = new();
+    public AgingBucket Days31To60 { get; set; } = new();
+    public AgingBucket Days61To90 { get; set; } = new();
+    public AgingBucket Over90Days { get; set; } = new();
+    public List<CustomerAging> CustomerAging { get; set; } = new();
+}
+
+public class AgingBucket
+{
+    public string Label { get; set; } = string.Empty;
+    public int InvoiceCount { get; set; }
+    public decimal AmountUSD { get; set; }
+    public decimal AmountZIG { get; set; }
+    public decimal PercentOfTotal { get; set; }
+}
+
+public class CustomerAging
+{
+    public string CardCode { get; set; } = string.Empty;
+    public string CardName { get; set; } = string.Empty;
+    public decimal CurrentUSD { get; set; }
+    public decimal Days31To60USD { get; set; }
+    public decimal Days61To90USD { get; set; }
+    public decimal Over90DaysUSD { get; set; }
+    public decimal TotalOutstandingUSD { get; set; }
+    public decimal TotalOutstandingZIG { get; set; }
+    public int TotalInvoices { get; set; }
+}
+
+#endregion
+
+#region Profit Overview Report
+
+public class ProfitOverviewReport
+{
+    public DateTime FromDate { get; set; }
+    public DateTime ToDate { get; set; }
+    public decimal TotalRevenueUSD { get; set; }
+    public decimal TotalRevenueZIG { get; set; }
+    public decimal TotalCreditNotesUSD { get; set; }
+    public decimal TotalCreditNotesZIG { get; set; }
+    public decimal NetRevenueUSD { get; set; }
+    public decimal NetRevenueZIG { get; set; }
+    public decimal TotalCollectedUSD { get; set; }
+    public decimal TotalCollectedZIG { get; set; }
+    public decimal CollectionRatePercent { get; set; }
+    public decimal OutstandingReceivablesUSD { get; set; }
+    public decimal OutstandingReceivablesZIG { get; set; }
+    public decimal TotalVatUSD { get; set; }
+    public decimal TotalVatZIG { get; set; }
+    public decimal TotalPurchaseCostUSD { get; set; }
+    public decimal TotalPurchaseCostZIG { get; set; }
+    public decimal GrossProfitUSD { get; set; }
+    public decimal GrossProfitZIG { get; set; }
+    public decimal GrossMarginPercent { get; set; }
+    public int TotalInvoices { get; set; }
+    public int TotalCreditNoteCount { get; set; }
+    public int TotalPayments { get; set; }
+    public int UniqueCustomers { get; set; }
+    public List<MonthlyProfit> MonthlyBreakdown { get; set; } = new();
+}
+
+public class MonthlyProfit
+{
+    public string Month { get; set; } = string.Empty;
+    public decimal RevenueUSD { get; set; }
+    public decimal RevenueZIG { get; set; }
+    public decimal CreditNotesUSD { get; set; }
+    public decimal CollectedUSD { get; set; }
+    public decimal PurchaseCostUSD { get; set; }
+    public decimal GrossProfitUSD { get; set; }
+    public int InvoiceCount { get; set; }
+    public int PaymentCount { get; set; }
+}
+
+#endregion
+
+#region Slow Moving Products Report
+
+public class SlowMovingProductsReport
+{
+    public DateTime FromDate { get; set; }
+    public DateTime ToDate { get; set; }
+    public int DaysThreshold { get; set; }
+    public List<SlowMovingProduct> Products { get; set; } = new();
+}
+
+public class SlowMovingProduct
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public string ItemName { get; set; } = string.Empty;
+    public decimal CurrentStock { get; set; }
+    public DateTime? LastSoldDate { get; set; }
+    public int DaysSinceLastSale { get; set; }
+    public decimal StockValue { get; set; }
+}
+
+#endregion
+
 #region User Management Models
 
 public class UserListResponse
 {
     public int TotalCount { get; set; }
     public int TotalPages { get; set; }
-    public int CurrentPage { get; set; }
+    public int Page { get; set; }
     public int PageSize { get; set; }
-    public List<UserModel> Users { get; set; } = new();
+    public List<UserModel> Items { get; set; } = new();
 
     /// <summary>
-    /// Alias for Users to maintain compatibility with existing code
+    /// Alias for Items to maintain backwards compatibility
     /// </summary>
-    public List<UserModel> Items => Users;
+    public List<UserModel> Users => Items;
 }
 
 public class UserModel
@@ -258,12 +466,17 @@ public class UserModel
     public Guid Id { get; set; }
     public string Username { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
+    public string? FirstName { get; set; }
+    public string? LastName { get; set; }
     public string Role { get; set; } = string.Empty;
     public bool IsActive { get; set; }
-    public bool IsLocked { get; set; }
+    public bool IsLockedOut { get; set; }
+    public bool IsLocked => IsLockedOut;
     public bool TwoFactorEnabled { get; set; }
     public List<string>? Permissions { get; set; }
-    public string? AssignedWarehouseCode { get; set; }
+    public List<string> AssignedWarehouseCodes { get; set; } = new();
+    public string? AssignedWarehouseCode => AssignedWarehouseCodes.FirstOrDefault();
+    public List<string> AllowedPaymentMethods { get; set; } = new();
     public DateTime? LastLoginAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }

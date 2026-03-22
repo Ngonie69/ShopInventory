@@ -76,10 +76,24 @@ public class InvoicePdfService : IInvoicePdfService
             // 6. Line items table
             AddLineItemsTable(document, invoice);
 
-            // 7. Bank details (left) + Totals table (right)
+            // 7. Push remaining content to the bottom of the page
+            var currentArea = document.GetRenderer().GetCurrentArea();
+            if (currentArea != null)
+            {
+                var bbox = currentArea.GetBBox();
+                float availableHeight = bbox.GetHeight();
+                float bottomContentHeight = 140f; // estimated height for bank+totals+customer copy
+                float spacerHeight = availableHeight - bottomContentHeight;
+                if (spacerHeight > 0)
+                {
+                    document.Add(new Div().SetHeight(spacerHeight));
+                }
+            }
+
+            // 8. Bank details (left) + Totals table (right)
             AddBankAndTotals(document, invoice);
 
-            // 8. "CUSTOMER COPY" label
+            // 9. "CUSTOMER COPY" label
             AddCustomerCopyLabel(document);
 
             document.Close();
@@ -240,11 +254,11 @@ public class InvoicePdfService : IInvoicePdfService
 
     private void AddDocRow(Table table, string label, string value)
     {
-        // Label cell – black bg, white text
-        var lc = new Cell().SetBackgroundColor(Black)
+        // Label cell – white bg, black text
+        var lc = new Cell().SetBackgroundColor(White)
             .SetPadding(3).SetPaddingLeft(6)
             .SetBorder(new SolidBorder(Black, 0.5f));
-        lc.Add(new Paragraph(label).SetFont(_boldFont).SetFontSize(8).SetFontColor(White));
+        lc.Add(new Paragraph(label).SetFont(_boldFont).SetFontSize(8).SetFontColor(Black));
         table.AddCell(lc);
 
         // Value cell – white bg
@@ -259,18 +273,18 @@ public class InvoicePdfService : IInvoicePdfService
     // ────────────────────────────────────────────────────────────────
     private void AddAddressBoxes(Document document, InvoiceDto invoice)
     {
-        var table = new Table(new float[] { 1f, 1f })
+        var table = new Table(new float[] { 1f, 0.05f, 1f })
             .SetWidth(UnitValue.CreatePercentValue(100))
-            .SetMarginBottom(8);
+            .SetMarginBottom(5);
 
         // --- INVOICE ADDRESS (left) ---
         var invCell = new Cell().SetBorder(new SolidBorder(Black, 1)).SetPadding(0);
 
-        // Black header bar
+        // Header bar – white bg, black text
         var headerBar = new Table(1).SetWidth(UnitValue.CreatePercentValue(100));
-        var hb = new Cell().SetBackgroundColor(Black).SetPadding(3).SetPaddingLeft(6)
+        var hb = new Cell().SetBackgroundColor(White).SetPadding(3).SetPaddingLeft(6)
             .SetBorder(Border.NO_BORDER);
-        hb.Add(new Paragraph("INVOICE ADDRESS").SetFont(_boldFont).SetFontSize(7.5f).SetFontColor(White));
+        hb.Add(new Paragraph("INVOICE ADDRESS").SetFont(_boldFont).SetFontSize(7.5f).SetFontColor(Black));
         headerBar.AddCell(hb);
         invCell.Add(headerBar);
 
@@ -284,6 +298,9 @@ public class InvoicePdfService : IInvoicePdfService
         invCell.Add(addrDiv);
 
         table.AddCell(invCell);
+
+        // --- Spacer column ---
+        table.AddCell(NoBorderCell());
 
         // --- DELIVERY ADDRESS (right) ---
         var delCell = new Cell().SetBorder(new SolidBorder(Black, 1)).SetPadding(0);
@@ -318,14 +335,14 @@ public class InvoicePdfService : IInvoicePdfService
             .SetWidth(UnitValue.CreatePercentValue(100))
             .SetMarginBottom(0);
 
-        // Header row
+        // Header row – white bg, black text
         string[] headers = { "Item Code", "Quantity", "Service Description", "Unit Price", "Total Exc", "VAT", "Total Inc" };
         foreach (var h in headers)
         {
-            var hc = new Cell().SetBackgroundColor(Black)
+            var hc = new Cell().SetBackgroundColor(White)
                 .SetPadding(4).SetPaddingLeft(3)
                 .SetBorder(new SolidBorder(Black, 0.5f));
-            hc.Add(new Paragraph(h).SetFont(_boldFont).SetFontSize(7).SetFontColor(White));
+            hc.Add(new Paragraph(h).SetFont(_boldFont).SetFontSize(7).SetFontColor(Black));
             table.AddCell(hc);
         }
 
@@ -363,13 +380,13 @@ public class InvoicePdfService : IInvoicePdfService
         }
 
         // Fill remaining empty rows so the table area is consistent
-        int minRows = 18;
+        int minRows = 10;
         for (int i = dataRows; i < minRows; i++)
         {
             for (int j = 0; j < 7; j++)
             {
-                var ec = new Cell().SetPadding(3).SetMinHeight(13)
-                    .SetBorder(new SolidBorder(Black, 0.5f));
+                var ec = new Cell().SetPadding(2).SetMinHeight(12)
+                    .SetBorder(Border.NO_BORDER);
                 ec.Add(new Paragraph("").SetFontSize(7));
                 table.AddCell(ec);
             }
@@ -380,8 +397,8 @@ public class InvoicePdfService : IInvoicePdfService
 
     private void ItemCell(Table table, string text, TextAlignment align)
     {
-        var cell = new Cell().SetPadding(3).SetPaddingLeft(3)
-            .SetBorder(new SolidBorder(Black, 0.5f));
+        var cell = new Cell().SetPadding(2).SetPaddingLeft(3)
+            .SetBorder(Border.NO_BORDER);
         cell.Add(new Paragraph(text)
             .SetFont(_regularFont).SetFontSize(7).SetFontColor(Black)
             .SetTextAlignment(align));
@@ -395,8 +412,8 @@ public class InvoicePdfService : IInvoicePdfService
     {
         var outer = new Table(new float[] { 1.6f, 1f })
             .SetWidth(UnitValue.CreatePercentValue(100))
-            .SetMarginTop(8)
-            .SetMarginBottom(4);
+            .SetMarginTop(4)
+            .SetMarginBottom(2);
 
         // ── Left: bank deposit info ──
         var bankCell = NoBorderCell().SetPaddingRight(15).SetPaddingTop(6);
@@ -441,11 +458,11 @@ public class InvoicePdfService : IInvoicePdfService
         TotalRow(tt, "Total EXC VAT", netTotal.ToString("N2"));
         TotalRow(tt, "VAT Total", invoice.VatSum.ToString("N2"));
 
-        // Invoice Total – black label, currency + amount in value
-        var itLabel = new Cell().SetBackgroundColor(Black)
+        // Invoice Total – white bg, black text
+        var itLabel = new Cell().SetBackgroundColor(White)
             .SetPadding(4).SetPaddingLeft(5)
             .SetBorder(new SolidBorder(Black, 0.5f));
-        itLabel.Add(new Paragraph("Invoice Total").SetFont(_boldFont).SetFontSize(8).SetFontColor(White));
+        itLabel.Add(new Paragraph("Invoice Total").SetFont(_boldFont).SetFontSize(8).SetFontColor(Black));
         tt.AddCell(itLabel);
 
         var currency = invoice.DocCurrency ?? "USD";
@@ -498,8 +515,7 @@ public class InvoicePdfService : IInvoicePdfService
             .SetFont(_boldFont)
             .SetFontSize(16)
             .SetFontColor(RedText)
-            .SetTextAlignment(TextAlignment.LEFT)
-            .SetMarginLeft(30)
+            .SetTextAlignment(TextAlignment.CENTER)
             .SetMarginTop(2));
     }
 

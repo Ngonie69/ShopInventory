@@ -6,6 +6,7 @@
 @inject NavigationManager NavigationManager
 @inject ILogger<CreateTransferRequest> Logger
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IAppSettingsProvider AppSettings
 @rendermode InteractiveServer
 
 <PageTitle>Create Transfer Request - Shop Inventory</PageTitle>
@@ -227,12 +228,12 @@
                             <div class="col-md-6">
                                 <label class="form-label">Document Date</label>
                                 <MudDatePicker @bind-Date="docDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                               DateFormat="dd.MM.yyyy" Editable="true" />
+                                               DateFormat="@AppSettings.DateFormat" Editable="true" />
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Due Date</label>
                                 <MudDatePicker @bind-Date="dueDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                               DateFormat="dd.MM.yyyy" Editable="true" />
+                                               DateFormat="@AppSettings.DateFormat" Editable="true" />
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Requester Name</label>
@@ -544,8 +545,8 @@
     private bool IsFormValid()
     {
         return selectedFromWarehouse != null
-                && selectedToWarehouse != null
-                && selectedFromWarehouse.WarehouseCode != selectedToWarehouse.WarehouseCode
+        && selectedToWarehouse != null
+        && selectedFromWarehouse.WarehouseCode != selectedToWarehouse.WarehouseCode
         && lines.Any(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0);
     }
 

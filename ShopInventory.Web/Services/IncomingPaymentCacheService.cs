@@ -124,8 +124,9 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
             var apiResponse = await FetchPaymentsFromApiAsync(page, pageSize);
             if (apiResponse?.Payments?.Any() == true)
             {
-                // Save first page to cache
-                await SavePaymentsToCacheAsync(apiResponse.Payments);
+                // Save first page to cache (don't let cache save failure discard API results)
+                try { await SavePaymentsToCacheAsync(apiResponse.Payments); }
+                catch (Exception saveEx) { _logger.LogWarning(saveEx, "Failed to cache payments"); }
 
                 // Start background sync for remaining items
                 _ = Task.Run(async () =>
@@ -175,8 +176,12 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
+        // Ensure dates are UTC for PostgreSQL compatibility
+        var fromDateUtc = fromDate.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(fromDate, DateTimeKind.Utc) : fromDate.ToUniversalTime();
+        var toDateEndUtc = (toDate.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(toDate, DateTimeKind.Utc) : toDate.ToUniversalTime()).Date.AddDays(1);
+
         var payments = await dbContext.CachedIncomingPayments
-            .Where(p => p.DocDate >= fromDate && p.DocDate <= toDate)
+            .Where(p => p.DocDate >= fromDateUtc && p.DocDate < toDateEndUtc)
             .OrderByDescending(p => p.DocDate)
             .ThenByDescending(p => p.DocNum)
             .ToListAsync();
@@ -210,7 +215,8 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
 
             if (payment != null)
             {
-                await SavePaymentsToCacheAsync(new List<IncomingPaymentDto> { payment });
+                try { await SavePaymentsToCacheAsync(new List<IncomingPaymentDto> { payment }); }
+                catch (Exception saveEx) { _logger.LogWarning(saveEx, "Failed to cache payment {DocEntry}", docEntry); }
             }
 
             return payment;
@@ -456,8 +462,8 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
     {
         cached.DocEntry = dto.DocEntry;
         cached.DocNum = dto.DocNum;
-        cached.DocDate = DateTime.TryParse(dto.DocDate, out var docDate) ? docDate : null;
-        cached.DocDueDate = DateTime.TryParse(dto.DocDueDate, out var dueDate) ? dueDate : null;
+        cached.DocDate = DateTime.TryParse(dto.DocDate, out var docDate) ? DateTime.SpecifyKind(docDate, DateTimeKind.Utc) : null;
+        cached.DocDueDate = DateTime.TryParse(dto.DocDueDate, out var dueDate) ? DateTime.SpecifyKind(dueDate, DateTimeKind.Utc) : null;
         cached.CardCode = dto.CardCode;
         cached.CardName = dto.CardName;
         cached.DocCurrency = dto.DocCurrency;
@@ -468,7 +474,7 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
         cached.DocTotal = dto.DocTotal;
         cached.Remarks = dto.Remarks;
         cached.TransferReference = dto.TransferReference;
-        cached.TransferDate = DateTime.TryParse(dto.TransferDate, out var transferDate) ? transferDate : null;
+        cached.TransferDate = DateTime.TryParse(dto.TransferDate, out var transferDate) ? DateTime.SpecifyKind(transferDate, DateTimeKind.Utc) : null;
         cached.TransferAccount = dto.TransferAccount;
         cached.PaymentInvoicesJson = dto.PaymentInvoices != null ? JsonSerializer.Serialize(dto.PaymentInvoices) : null;
         cached.PaymentChecksJson = dto.PaymentChecks != null ? JsonSerializer.Serialize(dto.PaymentChecks) : null;

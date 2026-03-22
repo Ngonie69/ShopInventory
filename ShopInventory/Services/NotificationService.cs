@@ -11,7 +11,7 @@ namespace ShopInventory.Services;
 public interface INotificationService
 {
     Task<NotificationDto> CreateNotificationAsync(CreateNotificationRequest request, CancellationToken cancellationToken = default);
-    Task<NotificationListResponseDto> GetNotificationsAsync(string? username, string? role, int page = 1, int pageSize = 20, bool unreadOnly = false, CancellationToken cancellationToken = default);
+    Task<NotificationListResponseDto> GetNotificationsAsync(string? username, string? role, int page = 1, int pageSize = 20, bool unreadOnly = false, string? category = null, CancellationToken cancellationToken = default);
     Task<int> GetUnreadCountAsync(string? username, string? role, CancellationToken cancellationToken = default);
     Task MarkAsReadAsync(string? username, List<int>? notificationIds, CancellationToken cancellationToken = default);
     Task DeleteNotificationAsync(int id, CancellationToken cancellationToken = default);
@@ -66,7 +66,7 @@ public class NotificationService : INotificationService
     /// <summary>
     /// Get notifications for a user
     /// </summary>
-    public async Task<NotificationListResponseDto> GetNotificationsAsync(string? username, string? role, int page = 1, int pageSize = 20, bool unreadOnly = false, CancellationToken cancellationToken = default)
+    public async Task<NotificationListResponseDto> GetNotificationsAsync(string? username, string? role, int page = 1, int pageSize = 20, bool unreadOnly = false, string? category = null, CancellationToken cancellationToken = default)
     {
         var query = _context.Notifications
             .Where(n => n.ExpiresAt == null || n.ExpiresAt > DateTime.UtcNow)
@@ -79,6 +79,11 @@ public class NotificationService : INotificationService
         if (unreadOnly)
         {
             query = query.Where(n => !n.IsRead);
+        }
+
+        if (!string.IsNullOrEmpty(category))
+        {
+            query = query.Where(n => n.Category == category);
         }
 
         var totalCount = await query.CountAsync(cancellationToken);

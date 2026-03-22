@@ -8,7 +8,7 @@ namespace ShopInventory.Web.Services;
 /// </summary>
 public interface INotificationClientService
 {
-    Task<NotificationListResponse?> GetNotificationsAsync(int page = 1, int pageSize = 20, bool unreadOnly = false);
+    Task<NotificationListResponse?> GetNotificationsAsync(int page = 1, int pageSize = 20, bool unreadOnly = false, string? category = null);
     Task<int> GetUnreadCountAsync();
     Task<bool> MarkAsReadAsync(List<int>? notificationIds = null);
     Task<bool> DeleteNotificationAsync(int id);
@@ -28,11 +28,14 @@ public class NotificationClientService : INotificationClientService
         _logger = logger;
     }
 
-    public async Task<NotificationListResponse?> GetNotificationsAsync(int page = 1, int pageSize = 20, bool unreadOnly = false)
+    public async Task<NotificationListResponse?> GetNotificationsAsync(int page = 1, int pageSize = 20, bool unreadOnly = false, string? category = null)
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<NotificationListResponse>($"api/notification?page={page}&pageSize={pageSize}&unreadOnly={unreadOnly}");
+            var url = $"api/notification?page={page}&pageSize={pageSize}&unreadOnly={unreadOnly}";
+            if (!string.IsNullOrEmpty(category))
+                url += $"&category={Uri.EscapeDataString(category)}";
+            return await _httpClient.GetFromJsonAsync<NotificationListResponse>(url);
         }
         catch (Exception ex)
         {

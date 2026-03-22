@@ -16,6 +16,11 @@ public interface IReportExportService
     byte[] ExportTopCustomersToExcel(TopCustomersReport report);
     byte[] ExportLowStockAlertsToExcel(LowStockAlertReport report);
     byte[] ExportOrderFulfillmentToExcel(OrderFulfillmentReport report);
+    byte[] ExportCreditNoteSummaryToExcel(CreditNoteSummaryReport report);
+    byte[] ExportPurchaseOrderSummaryToExcel(PurchaseOrderSummaryReport report);
+    byte[] ExportReceivablesAgingToExcel(ReceivablesAgingReport report);
+    byte[] ExportProfitOverviewToExcel(ProfitOverviewReport report);
+    byte[] ExportSlowMovingProductsToExcel(SlowMovingProductsReport report);
     string GeneratePrintableHtml(string title, string content, DateTime? fromDate = null, DateTime? toDate = null);
 }
 
@@ -407,6 +412,220 @@ public class ReportExportService : IReportExportService
         }
         StyleDataRows(cws, row - 1, 8);
         FinalizeSheet(cws, 8);
+
+        return WorkbookToBytes(workbook);
+    }
+
+    public byte[] ExportCreditNoteSummaryToExcel(CreditNoteSummaryReport report)
+    {
+        using var workbook = new XLWorkbook();
+        var ws = workbook.Worksheets.Add("Credit Notes Summary");
+
+        ws.Cell(1, 1).Value = "Total Credit Notes"; ws.Cell(1, 2).Value = report.TotalCreditNotes;
+        ws.Cell(2, 1).Value = "Total Amount (USD)"; ws.Cell(2, 2).Value = report.TotalCreditAmountUSD; ws.Cell(2, 2).Style.NumberFormat.Format = "#,##0.00";
+        ws.Cell(3, 1).Value = "Total Amount (ZIG)"; ws.Cell(3, 2).Value = report.TotalCreditAmountZIG; ws.Cell(3, 2).Style.NumberFormat.Format = "#,##0.00";
+        ws.Cell(4, 1).Value = "Credit-to-Sales Ratio"; ws.Cell(4, 2).Value = report.CreditToSalesRatioPercent / 100; ws.Cell(4, 2).Style.NumberFormat.Format = "0.0%";
+
+        if (report.ByCustomer.Any())
+        {
+            var cws = workbook.Worksheets.Add("By Customer");
+            cws.Cell(1, 1).Value = "Customer Code"; cws.Cell(1, 2).Value = "Customer Name"; cws.Cell(1, 3).Value = "Count";
+            cws.Cell(1, 4).Value = "Amount (USD)"; cws.Cell(1, 5).Value = "Amount (ZIG)";
+            StyleHeader(cws, 5);
+            int row = 2;
+            foreach (var c in report.ByCustomer.OrderByDescending(x => x.TotalAmountUSD))
+            {
+                cws.Cell(row, 1).Value = c.CardCode; cws.Cell(row, 2).Value = c.CardName;
+                cws.Cell(row, 3).Value = c.CreditNoteCount;
+                cws.Cell(row, 4).Value = c.TotalAmountUSD; cws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
+                cws.Cell(row, 5).Value = c.TotalAmountZIG; cws.Cell(row, 5).Style.NumberFormat.Format = "#,##0.00";
+                row++;
+            }
+            StyleDataRows(cws, row - 1, 5);
+            FinalizeSheet(cws, 5);
+        }
+
+        if (report.TopProductsReturned.Any())
+        {
+            var pws = workbook.Worksheets.Add("Products Returned");
+            pws.Cell(1, 1).Value = "Item Code"; pws.Cell(1, 2).Value = "Item Name";
+            pws.Cell(1, 3).Value = "Qty Returned"; pws.Cell(1, 4).Value = "Value (USD)";
+            StyleHeader(pws, 4);
+            int row = 2;
+            foreach (var p in report.TopProductsReturned)
+            {
+                pws.Cell(row, 1).Value = p.ItemCode; pws.Cell(row, 2).Value = p.ItemName;
+                pws.Cell(row, 3).Value = p.TotalQuantityReturned; pws.Cell(row, 3).Style.NumberFormat.Format = "#,##0";
+                pws.Cell(row, 4).Value = p.TotalCreditAmountUSD; pws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
+                row++;
+            }
+            StyleDataRows(pws, row - 1, 4);
+            FinalizeSheet(pws, 4);
+        }
+
+        return WorkbookToBytes(workbook);
+    }
+
+    public byte[] ExportPurchaseOrderSummaryToExcel(PurchaseOrderSummaryReport report)
+    {
+        using var workbook = new XLWorkbook();
+        var ws = workbook.Worksheets.Add("Purchase Orders Summary");
+
+        ws.Cell(1, 1).Value = "Total POs"; ws.Cell(1, 2).Value = report.TotalPurchaseOrders;
+        ws.Cell(2, 1).Value = "Total (USD)"; ws.Cell(2, 2).Value = report.TotalOrderValueUSD; ws.Cell(2, 2).Style.NumberFormat.Format = "#,##0.00";
+        ws.Cell(3, 1).Value = "Total (ZIG)"; ws.Cell(3, 2).Value = report.TotalOrderValueZIG; ws.Cell(3, 2).Style.NumberFormat.Format = "#,##0.00";
+        ws.Cell(4, 1).Value = "Open POs"; ws.Cell(4, 2).Value = report.OpenOrders;
+        ws.Cell(5, 1).Value = "Open Amount (USD)"; ws.Cell(5, 2).Value = report.TotalPendingValueUSD; ws.Cell(5, 2).Style.NumberFormat.Format = "#,##0.00";
+
+        if (report.BySupplier.Any())
+        {
+            var sws = workbook.Worksheets.Add("By Supplier");
+            sws.Cell(1, 1).Value = "Supplier Code"; sws.Cell(1, 2).Value = "Supplier Name"; sws.Cell(1, 3).Value = "POs";
+            sws.Cell(1, 4).Value = "Amount (USD)"; sws.Cell(1, 5).Value = "Amount (ZIG)"; sws.Cell(1, 6).Value = "Open POs";
+            StyleHeader(sws, 6);
+            int row = 2;
+            foreach (var s in report.BySupplier.OrderByDescending(x => x.TotalValueUSD))
+            {
+                sws.Cell(row, 1).Value = s.CardCode; sws.Cell(row, 2).Value = s.CardName;
+                sws.Cell(row, 3).Value = s.OrderCount;
+                sws.Cell(row, 4).Value = s.TotalValueUSD; sws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
+                sws.Cell(row, 5).Value = s.TotalValueZIG; sws.Cell(row, 5).Style.NumberFormat.Format = "#,##0.00";
+                sws.Cell(row, 6).Value = s.OpenOrders;
+                row++;
+            }
+            StyleDataRows(sws, row - 1, 6);
+            FinalizeSheet(sws, 6);
+        }
+
+        if (report.TopProducts.Any())
+        {
+            var pws = workbook.Worksheets.Add("Top Products");
+            pws.Cell(1, 1).Value = "Item Code"; pws.Cell(1, 2).Value = "Item Name";
+            pws.Cell(1, 3).Value = "Qty Ordered"; pws.Cell(1, 4).Value = "Value (USD)";
+            StyleHeader(pws, 4);
+            int row = 2;
+            foreach (var p in report.TopProducts)
+            {
+                pws.Cell(row, 1).Value = p.ItemCode; pws.Cell(row, 2).Value = p.ItemName;
+                pws.Cell(row, 3).Value = p.TotalQuantityOrdered; pws.Cell(row, 3).Style.NumberFormat.Format = "#,##0";
+                pws.Cell(row, 4).Value = p.TotalCostUSD; pws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
+                row++;
+            }
+            StyleDataRows(pws, row - 1, 4);
+            FinalizeSheet(pws, 4);
+        }
+
+        return WorkbookToBytes(workbook);
+    }
+
+    public byte[] ExportReceivablesAgingToExcel(ReceivablesAgingReport report)
+    {
+        using var workbook = new XLWorkbook();
+        var ws = workbook.Worksheets.Add("Aging Summary");
+
+        ws.Cell(1, 1).Value = "Bucket"; ws.Cell(1, 2).Value = "Invoices"; ws.Cell(1, 3).Value = "Amount (USD)"; ws.Cell(1, 4).Value = "% of Total";
+        StyleHeader(ws, 4);
+        ws.Cell(2, 1).Value = "Current (0-30 days)"; ws.Cell(2, 2).Value = report.Current.InvoiceCount; ws.Cell(2, 3).Value = report.Current.AmountUSD; ws.Cell(2, 3).Style.NumberFormat.Format = "#,##0.00"; ws.Cell(2, 4).Value = report.Current.PercentOfTotal / 100; ws.Cell(2, 4).Style.NumberFormat.Format = "0.0%";
+        ws.Cell(3, 1).Value = "31-60 days"; ws.Cell(3, 2).Value = report.Days31To60.InvoiceCount; ws.Cell(3, 3).Value = report.Days31To60.AmountUSD; ws.Cell(3, 3).Style.NumberFormat.Format = "#,##0.00"; ws.Cell(3, 4).Value = report.Days31To60.PercentOfTotal / 100; ws.Cell(3, 4).Style.NumberFormat.Format = "0.0%";
+        ws.Cell(4, 1).Value = "61-90 days"; ws.Cell(4, 2).Value = report.Days61To90.InvoiceCount; ws.Cell(4, 3).Value = report.Days61To90.AmountUSD; ws.Cell(4, 3).Style.NumberFormat.Format = "#,##0.00"; ws.Cell(4, 4).Value = report.Days61To90.PercentOfTotal / 100; ws.Cell(4, 4).Style.NumberFormat.Format = "0.0%";
+        ws.Cell(5, 1).Value = "Over 90 days"; ws.Cell(5, 2).Value = report.Over90Days.InvoiceCount; ws.Cell(5, 3).Value = report.Over90Days.AmountUSD; ws.Cell(5, 3).Style.NumberFormat.Format = "#,##0.00"; ws.Cell(5, 4).Value = report.Over90Days.PercentOfTotal / 100; ws.Cell(5, 4).Style.NumberFormat.Format = "0.0%";
+        ws.Cell(6, 1).Value = "TOTAL"; ws.Cell(6, 1).Style.Font.Bold = true; ws.Cell(6, 3).Value = report.TotalOutstandingUSD; ws.Cell(6, 3).Style.NumberFormat.Format = "#,##0.00"; ws.Cell(6, 3).Style.Font.Bold = true;
+        FinalizeSheet(ws, 4);
+
+        if (report.CustomerAging.Any())
+        {
+            var cws = workbook.Worksheets.Add("Customer Aging");
+            cws.Cell(1, 1).Value = "Customer Code"; cws.Cell(1, 2).Value = "Customer Name"; cws.Cell(1, 3).Value = "Total Owed";
+            cws.Cell(1, 4).Value = "Current"; cws.Cell(1, 5).Value = "31-60 days"; cws.Cell(1, 6).Value = "61-90 days";
+            cws.Cell(1, 7).Value = "Over 90 days"; cws.Cell(1, 8).Value = "Invoices";
+            StyleHeader(cws, 8);
+            int row = 2;
+            foreach (var c in report.CustomerAging.OrderByDescending(x => x.TotalOutstandingUSD))
+            {
+                cws.Cell(row, 1).Value = c.CardCode; cws.Cell(row, 2).Value = c.CardName;
+                cws.Cell(row, 3).Value = c.TotalOutstandingUSD; cws.Cell(row, 3).Style.NumberFormat.Format = "#,##0.00";
+                cws.Cell(row, 4).Value = c.CurrentUSD; cws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
+                cws.Cell(row, 5).Value = c.Days31To60USD; cws.Cell(row, 5).Style.NumberFormat.Format = "#,##0.00";
+                cws.Cell(row, 6).Value = c.Days61To90USD; cws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
+                cws.Cell(row, 7).Value = c.Over90DaysUSD; cws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
+                cws.Cell(row, 8).Value = c.TotalInvoices;
+                row++;
+            }
+            StyleDataRows(cws, row - 1, 8);
+            FinalizeSheet(cws, 8);
+        }
+
+        return WorkbookToBytes(workbook);
+    }
+
+    public byte[] ExportProfitOverviewToExcel(ProfitOverviewReport report)
+    {
+        using var workbook = new XLWorkbook();
+        var ws = workbook.Worksheets.Add("Profit Overview");
+
+        ws.Cell(1, 1).Value = "Metric"; ws.Cell(1, 2).Value = "USD"; ws.Cell(1, 3).Value = "ZIG";
+        StyleHeader(ws, 3);
+        ws.Cell(2, 1).Value = "Gross Sales"; ws.Cell(2, 2).Value = report.TotalRevenueUSD; ws.Cell(2, 3).Value = report.TotalRevenueZIG;
+        ws.Cell(3, 1).Value = "Credit Notes"; ws.Cell(3, 2).Value = report.TotalCreditNotesUSD; ws.Cell(3, 3).Value = report.TotalCreditNotesZIG;
+        ws.Cell(4, 1).Value = "Net Revenue"; ws.Cell(4, 2).Value = report.NetRevenueUSD; ws.Cell(4, 3).Value = report.NetRevenueZIG;
+        ws.Cell(4, 1).Style.Font.Bold = true; ws.Cell(4, 2).Style.Font.Bold = true;
+        ws.Cell(5, 1).Value = "Purchases (COGS)"; ws.Cell(5, 2).Value = report.TotalPurchaseCostUSD; ws.Cell(5, 3).Value = report.TotalPurchaseCostZIG;
+        ws.Cell(6, 1).Value = "Gross Profit"; ws.Cell(6, 2).Value = report.GrossProfitUSD; ws.Cell(6, 3).Value = report.GrossProfitZIG;
+        ws.Cell(6, 1).Style.Font.Bold = true; ws.Cell(6, 2).Style.Font.Bold = true;
+        ws.Cell(7, 1).Value = "Gross Margin %"; ws.Cell(7, 2).Value = report.GrossMarginPercent / 100; ws.Cell(7, 2).Style.NumberFormat.Format = "0.0%";
+        ws.Cell(8, 1).Value = "Payments Received"; ws.Cell(8, 2).Value = report.TotalCollectedUSD; ws.Cell(8, 3).Value = report.TotalCollectedZIG;
+        ws.Cell(9, 1).Value = "Outstanding AR"; ws.Cell(9, 2).Value = report.OutstandingReceivablesUSD; ws.Cell(9, 3).Value = report.OutstandingReceivablesZIG;
+        ws.Cell(10, 1).Value = "Collection Rate %"; ws.Cell(10, 2).Value = report.CollectionRatePercent / 100; ws.Cell(10, 2).Style.NumberFormat.Format = "0.0%";
+        for (int r = 2; r <= 10; r++) { ws.Cell(r, 2).Style.NumberFormat.Format = "#,##0.00"; if (r != 7 && r != 10) ws.Cell(r, 3).Style.NumberFormat.Format = "#,##0.00"; }
+        FinalizeSheet(ws, 3);
+
+        if (report.MonthlyBreakdown.Any())
+        {
+            var mws = workbook.Worksheets.Add("Monthly Breakdown");
+            mws.Cell(1, 1).Value = "Month"; mws.Cell(1, 2).Value = "Sales (USD)"; mws.Cell(1, 3).Value = "Credit Notes";
+            mws.Cell(1, 4).Value = "Net Revenue"; mws.Cell(1, 5).Value = "Purchases"; mws.Cell(1, 6).Value = "Gross Profit"; mws.Cell(1, 7).Value = "Margin %";
+            StyleHeader(mws, 7);
+            int row = 2;
+            foreach (var m in report.MonthlyBreakdown.OrderByDescending(x => x.Month))
+            {
+                var net = m.RevenueUSD - m.CreditNotesUSD;
+                var gp = net - m.PurchaseCostUSD;
+                mws.Cell(row, 1).Value = m.Month;
+                mws.Cell(row, 2).Value = m.RevenueUSD; mws.Cell(row, 2).Style.NumberFormat.Format = "#,##0.00";
+                mws.Cell(row, 3).Value = m.CreditNotesUSD; mws.Cell(row, 3).Style.NumberFormat.Format = "#,##0.00";
+                mws.Cell(row, 4).Value = net; mws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
+                mws.Cell(row, 5).Value = m.PurchaseCostUSD; mws.Cell(row, 5).Style.NumberFormat.Format = "#,##0.00";
+                mws.Cell(row, 6).Value = gp; mws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
+                mws.Cell(row, 7).Value = net > 0 ? gp / net : 0; mws.Cell(row, 7).Style.NumberFormat.Format = "0.0%";
+                row++;
+            }
+            StyleDataRows(mws, row - 1, 7);
+            FinalizeSheet(mws, 7);
+        }
+
+        return WorkbookToBytes(workbook);
+    }
+
+    public byte[] ExportSlowMovingProductsToExcel(SlowMovingProductsReport report)
+    {
+        using var workbook = new XLWorkbook();
+        var ws = workbook.Worksheets.Add("Slow Moving Products");
+
+        ws.Cell(1, 1).Value = "Item Code"; ws.Cell(1, 2).Value = "Item Name"; ws.Cell(1, 3).Value = "Current Stock";
+        ws.Cell(1, 4).Value = "Last Sale Date"; ws.Cell(1, 5).Value = "Days Since Sale"; ws.Cell(1, 6).Value = "Stock Value";
+        StyleHeader(ws, 6);
+        int row = 2;
+        foreach (var p in report.Products.OrderByDescending(x => x.DaysSinceLastSale))
+        {
+            ws.Cell(row, 1).Value = p.ItemCode; ws.Cell(row, 2).Value = p.ItemName;
+            ws.Cell(row, 3).Value = p.CurrentStock; ws.Cell(row, 3).Style.NumberFormat.Format = "#,##0";
+            ws.Cell(row, 4).Value = p.LastSoldDate?.ToString("dd MMM yyyy") ?? "Never";
+            ws.Cell(row, 5).Value = p.DaysSinceLastSale;
+            ws.Cell(row, 6).Value = p.StockValue; ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
+            row++;
+        }
+        StyleDataRows(ws, row - 1, 6);
+        FinalizeSheet(ws, 6);
 
         return WorkbookToBytes(workbook);
     }

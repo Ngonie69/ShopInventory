@@ -7,6 +7,7 @@
 @inject INotificationClientService NotificationClient
 @inject ISnackbar Snackbar
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IAppSettingsProvider AppSettings
 @implements IDisposable
 
 <MudThemeProvider @ref="_mudThemeProvider" @bind-IsDarkMode="@_isDarkMode" />
@@ -20,7 +21,7 @@
                        OnClick="@ToggleDrawer" />
         <div class="staff-brand">
             <MudIcon Icon="@Icons.Material.Filled.Inventory" Class="brand-icon" />
-            <MudText Typo="Typo.h6" Class="brand-title">Staff Portal</MudText>
+            <MudText Typo="Typo.h6" Class="brand-title">@AppSettings.CompanyName</MudText>
         </div>
         <MudSpacer />
 
@@ -111,7 +112,14 @@
             <div class="drawer-brand">
                 @if (_drawerOpen)
                 {
-                    <MudText Typo="Typo.h6" Class="drawer-title">Staff Portal</MudText>
+                    <AuthorizeView>
+                        <Authorized>
+                            <MudText Typo="Typo.h6" Class="drawer-title">@context.User.Identity?.Name</MudText>
+                        </Authorized>
+                        <NotAuthorized>
+                            <MudText Typo="Typo.h6" Class="drawer-title">Staff Portal</MudText>
+                        </NotAuthorized>
+                    </AuthorizeView>
                 }
                 else
                 {
@@ -190,9 +198,10 @@
     {
         if (firstRender)
         {
-            // Sync theme from storage
+            // Sync theme from storage and apply to DOM
             var theme = await ThemeService.GetThemeAsync();
             _isDarkMode = theme == "dark";
+            try { await JS.InvokeVoidAsync("themeManager.initTheme", theme); } catch { }
 
             // Check auth and start polling if authenticated
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
@@ -346,7 +355,9 @@
     private async Task ToggleTheme()
     {
         _isDarkMode = !_isDarkMode;
-        await ThemeService.SetThemeAsync(_isDarkMode ? "dark" : "light");
+        var theme = _isDarkMode ? "dark" : "light";
+        try { await JS.InvokeVoidAsync("themeManager.setTheme", theme, true); } catch { }
+        await ThemeService.SetThemeAsync(theme);
     }
 
     private async Task Logout()

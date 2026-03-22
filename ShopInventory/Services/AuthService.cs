@@ -186,7 +186,9 @@ public class AuthService : IAuthService
                 Username = user.Username,
                 Role = user.Role,
                 Email = user.Email,
-                AssignedWarehouseCode = user.AssignedWarehouseCode
+                AssignedWarehouseCode = user.AssignedWarehouseCode,
+                AssignedWarehouseCodes = user.GetWarehouseCodes(),
+                AllowedPaymentMethods = user.GetAllowedPaymentMethods()
             }
         };
     }
@@ -258,7 +260,9 @@ public class AuthService : IAuthService
                 Username = user.Username,
                 Role = user.Role,
                 Email = user.Email,
-                AssignedWarehouseCode = user.AssignedWarehouseCode
+                AssignedWarehouseCode = user.AssignedWarehouseCode,
+                AssignedWarehouseCodes = user.GetWarehouseCodes(),
+                AllowedPaymentMethods = user.GetAllowedPaymentMethods()
             }
         };
     }
@@ -396,9 +400,12 @@ public class AuthService : IAuthService
             new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64)
         };
 
-        if (!string.IsNullOrEmpty(user.AssignedWarehouseCode))
+        if (!string.IsNullOrEmpty(user.AssignedWarehouseCodes))
         {
-            claims.Add(new Claim("warehouse", user.AssignedWarehouseCode));
+            foreach (var wh in user.GetWarehouseCodes())
+            {
+                claims.Add(new Claim("warehouse", wh));
+            }
         }
 
         var token = new JwtSecurityToken(

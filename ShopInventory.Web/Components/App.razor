@@ -14,7 +14,7 @@
     <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
     <meta name="description"
           content="Inventory management system with SAP Business One integration for retail operations in Zimbabwe" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Shop Inventory" />
     <link rel="manifest" href="/manifest.json" />
@@ -23,7 +23,9 @@
     <ResourcePreloader />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+    rel="stylesheet">
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["ShopInventory.Web.styles.css"]" />
@@ -66,12 +68,12 @@
 <body>
     <!-- Inline critical JS functions BEFORE anything else -->
     <script>
-            // Download file function - supports both signatures (from Kefalos-Workshop)
+            // Download file function - uses Blob for reliable large file support
             window.downloadFile = function (fileName, contentTypeOrBase64, base64Content) {
                 let base64Data, contentType;
 
                 // Check if called with 2 parameters (fileName, base64) or 3 parameters (fileName, contentType, base64)
-                if (arguments.length === 2) {
+                if (arguments.length === 2 || base64Content === undefined) {
                     base64Data = contentTypeOrBase64;
                     // Auto-detect content type based on file extension
                     if (fileName.endsWith('.xlsx')) {
@@ -92,22 +94,34 @@
                 const downloadLink = document.createElement('a');
                 downloadLink.href = linkSource;
                 downloadLink.download = fileName;
+                document.body.appendChild(downloadLink);
                 downloadLink.click();
+                document.body.removeChild(downloadLink);
             };
 
-            // Print HTML content in a new window (for PDF export via browser print)
+            // Print HTML content using a hidden iframe (avoids popup blocker issues in Blazor Server)
             window.printReportHtml = function (htmlContent) {
-                const printWindow = window.open('', '_blank', 'width=900,height=700');
-                if (!printWindow) {
-                    alert('Please allow pop-ups to export PDF reports.');
-                    return;
+                var iframe = document.getElementById('_reportPrintFrame');
+                if (!iframe) {
+                    iframe = document.createElement('iframe');
+                    iframe.id = '_reportPrintFrame';
+                    iframe.style.position = 'fixed';
+                    iframe.style.right = '0';
+                    iframe.style.bottom = '0';
+                    iframe.style.width = '0';
+                    iframe.style.height = '0';
+                    iframe.style.border = 'none';
+                    document.body.appendChild(iframe);
                 }
-                printWindow.document.write(htmlContent);
-                printWindow.document.close();
-                printWindow.onload = function () {
-                    printWindow.focus();
-                    printWindow.print();
-                };
+                var doc = iframe.contentDocument || iframe.contentWindow.document;
+                doc.open();
+                doc.write(htmlContent);
+                doc.close();
+                // Wait for content to render, then print
+                setTimeout(function () {
+                    iframe.contentWindow.focus();
+                    iframe.contentWindow.print();
+                }, 300);
             };
     </script>
     <script src="js/app.js?v=6"></script>
@@ -145,16 +159,22 @@
         }).catch(function () {
         var loader = document.getElementById('blazor-loading');
         if (loader) {
-        loader.querySelector('p').textContent = 'Failed to connect. Please refresh the page.';
-        var spinner = loader.querySelector('div[style*="border"]');
-        if (spinner) spinner.style.display = 'none';
+        loader.innerHTML = '<div style="text-align:center;color:#f5f5f5;font-family:Segoe UI,sans-serif;">'
+        + '<p style="font-size:1.1rem;margin:0 0 1rem;">Failed to connect to the server.</p>'
+        + '<button onclick="location.reload()" style="padding:0.5rem 1.5rem;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.95rem;">Retry</button>'
+        + '</div>';
         }
         });
-        // Fallback: hide after 15s even if Blazor hasn't connected
+        // Fallback: show retry UI after 20s if Blazor hasn't connected
         setTimeout(function () {
         var loader = document.getElementById('blazor-loading');
-        if (loader) loader.style.display = 'none';
-        }, 15000);
+        if (loader && loader.style.display !== 'none') {
+        loader.innerHTML = '<div style="text-align:center;color:#f5f5f5;font-family:Segoe UI,sans-serif;">'
+        + '<p style="font-size:1.1rem;margin:0 0 1rem;">Connection is taking longer than expected.</p>'
+        + '<button onclick="location.reload()" style="padding:0.5rem 1.5rem;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.95rem;">Retry</button>'
+        + '</div>';
+        }
+        }, 20000);
     </script>
 
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>

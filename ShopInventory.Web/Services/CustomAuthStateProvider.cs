@@ -118,9 +118,24 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
             claims.Add(new Claim(ClaimTypes.Email, userInfo.Email));
         }
 
-        if (!string.IsNullOrEmpty(userInfo?.AssignedWarehouseCode))
+        if (userInfo?.AssignedWarehouseCodes != null)
+        {
+            foreach (var wh in userInfo.AssignedWarehouseCodes)
+            {
+                claims.Add(new Claim("warehouse", wh));
+            }
+        }
+        else if (!string.IsNullOrEmpty(userInfo?.AssignedWarehouseCode))
         {
             claims.Add(new Claim("warehouse", userInfo.AssignedWarehouseCode));
+        }
+
+        if (userInfo?.AllowedPaymentMethods != null)
+        {
+            foreach (var pm in userInfo.AllowedPaymentMethods)
+            {
+                claims.Add(new Claim("paymentmethod", pm));
+            }
         }
 
         var identity = new ClaimsIdentity(claims, "jwt");

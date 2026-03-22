@@ -474,21 +474,31 @@ a:hover {
 .staff-drawer {
     position: relative;
     background: radial-gradient(circle at 12% 10%, rgba(15, 118, 110, 0.2), transparent 45%),
-        linear-gradient(180deg, #0b1120 0%, #0f172a 60%, #111827 100%);
-    color: #e2e8f0;
+        linear-gradient(180deg, #0b1120 0%, #0f172a 60%, #111827 100%) !important;
+    color: #e2e8f0 !important;
     border-right: 1px solid rgba(148, 163, 184, 0.18);
 }
 
+.staff-drawer .mud-drawer-content {
+    background: transparent !important;
+    color: #e2e8f0 !important;
+}
+
 .staff-drawer-header {
-    background: rgba(11, 18, 32, 0.85);
+    background: rgba(11, 18, 32, 0.85) !important;
     border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    color: #e2e8f0 !important;
+}
+
+.staff-drawer-header .mud-typography {
+    color: #e2e8f0 !important;
 }
 
 .drawer-brand {
     display: flex;
     align-items: center;
     padding: 0.6rem 0.75rem;
-    color: #e2e8f0;
+    color: #e2e8f0 !important;
     font-family: var(--staff-display-font);
 }
 
@@ -498,11 +508,16 @@ a:hover {
 }
 
 .drawer-icon {
-    color: #e2e8f0;
+    color: #e2e8f0 !important;
 }
 
 .staff-drawer .mud-divider {
     background-color: rgba(148, 163, 184, 0.2);
+}
+
+.staff-drawer .mud-nav-link .mud-nav-link-icon,
+.staff-drawer .mud-icon-root {
+    color: inherit !important;
 }
 
 .staff-nav-menu {
@@ -514,20 +529,20 @@ a:hover {
     padding: 0.55rem 0.8rem;
     margin: 0.15rem 0.6rem;
     border-radius: 12px;
-    color: #cbd5e1;
+    color: #cbd5e1 !important;
     font-weight: 500;
     transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .staff-nav-menu .mud-nav-link:hover {
     background: rgba(148, 163, 184, 0.16);
-    color: #f8fafc;
+    color: #f8fafc !important;
 }
 
 .staff-nav-menu .mud-nav-link.mud-nav-link-active,
 .staff-nav-menu .mud-nav-link.active {
     background: rgba(15, 118, 110, 0.22);
-    color: #f8fafc;
+    color: #f8fafc !important;
     box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.4);
 }
 
@@ -929,6 +944,63 @@ a:hover {
 .dark-theme .dashboard-hero {
     background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(2, 6, 23, 0.95));
     border-color: var(--staff-border);
+}
+
+/* Dashboard stat cards — dark mode */
+.dark-theme .staff-dashboard .staff-stat-card {
+    border-color: rgba(148, 163, 184, 0.15) !important;
+}
+.dark-theme .staff-dashboard .staff-stat-card.bg-primary {
+    background: linear-gradient(135deg, #0f172a 0%, #134e4a 100%) !important;
+}
+.dark-theme .staff-dashboard .staff-stat-card.bg-success {
+    background: linear-gradient(135deg, #0f172a 0%, #064e3b 100%) !important;
+}
+.dark-theme .staff-dashboard .staff-stat-card.bg-info {
+    background: linear-gradient(135deg, #0f172a 0%, #0c4a6e 100%) !important;
+}
+.dark-theme .staff-dashboard .stat-value {
+    color: #f8fafc !important;
+}
+.dark-theme .staff-dashboard .stat-label {
+    color: #94a3b8 !important;
+}
+.dark-theme .staff-dashboard .stat-link {
+    color: #94a3b8 !important;
+}
+.dark-theme .staff-dashboard .stat-link:hover {
+    color: #2dd4bf !important;
+}
+.dark-theme .staff-dashboard .stat-icon {
+    background: rgba(45, 212, 191, 0.15) !important;
+}
+.dark-theme .staff-dashboard .staff-stat-card.bg-success .stat-icon {
+    background: rgba(52, 211, 153, 0.15) !important;
+}
+.dark-theme .staff-dashboard .staff-stat-card.bg-info .stat-icon {
+    background: rgba(56, 189, 248, 0.15) !important;
+}
+
+/* Dashboard panels — dark mode */
+.dark-theme .dashboard-panel {
+    background: #0f172a !important;
+    border-color: rgba(148, 163, 184, 0.15) !important;
+}
+.dark-theme .dashboard-panel .card-body {
+    color: #f8fafc;
+}
+.dark-theme .dashboard-panel .card-footer {
+    border-color: rgba(148, 163, 184, 0.15);
+}
+
+/* Action tiles — dark mode */
+.dark-theme .action-tile {
+    background: #0f172a !important;
+    border-color: rgba(148, 163, 184, 0.15) !important;
+    color: #f8fafc !important;
+}
+.dark-theme .action-tile:hover {
+    border-color: rgba(45, 212, 191, 0.3) !important;
 }
 
 .dark-theme .dashboard-panel-header {
@@ -1358,12 +1430,58 @@ html.dark-theme {
 .dark-theme .card {
     background-color: #1e293b;
     border-color: var(--border-color);
+    color: var(--text-primary);
 }
 
 .dark-theme .card-header {
     background-color: #1e293b;
     border-bottom-color: var(--border-color);
     color: var(--text-primary);
+}
+
+/* Bootstrap bg-light / bg-white overrides */
+.dark-theme .bg-light {
+    background-color: #1e293b !important;
+}
+.dark-theme .bg-white {
+    background-color: #1e293b !important;
+}
+.dark-theme .text-dark {
+    color: var(--text-primary) !important;
+}
+.dark-theme .border {
+    border-color: #334155 !important;
+}
+.dark-theme .border-bottom {
+    border-bottom-color: #334155 !important;
+}
+.dark-theme .border-top {
+    border-top-color: #334155 !important;
+}
+.dark-theme .list-group-item {
+    background-color: #1e293b;
+    border-color: #334155;
+    color: var(--text-primary);
+}
+.dark-theme .alert-success {
+    background-color: #064e3b;
+    border-color: #065f46;
+    color: #6ee7b7;
+}
+.dark-theme .alert-danger {
+    background-color: #7f1d1d;
+    border-color: #991b1b;
+    color: #fca5a5;
+}
+.dark-theme .alert-warning {
+    background-color: #78350f;
+    border-color: #92400e;
+    color: #fde68a;
+}
+.dark-theme .alert-info {
+    background-color: #1e3a5f;
+    border-color: #1e40af;
+    color: #93c5fd;
 }
 
 .dark-theme .card-header h5,
@@ -1398,12 +1516,20 @@ html.dark-theme {
 
 .dark-theme .table {
     color: var(--text-primary);
+    --bs-table-bg: transparent;
+    --bs-table-striped-bg: rgba(255, 255, 255, 0.03);
+    --bs-table-hover-bg: rgba(255, 255, 255, 0.05);
+    --bs-table-color: var(--text-primary);
 }
 
-.dark-theme .table thead th {
-    background-color: #1e293b;
-    border-color: var(--border-color);
-    color: var(--text-primary);
+.dark-theme .table thead th,
+.dark-theme .table-light,
+.dark-theme thead.table-light th {
+    background-color: #1e293b !important;
+    border-color: var(--border-color) !important;
+    color: var(--text-primary) !important;
+    --bs-table-bg: #1e293b;
+    --bs-table-color: var(--text-primary);
 }
 
 .dark-theme .table td {
@@ -1518,6 +1644,15 @@ html.dark-theme {
     background-color: transparent;
 }
 
+/* MudBlazor component dark mode reinforcement */
+.dark-theme .mud-input-control .mud-input-label {
+    color: #94a3b8;
+}
+.dark-theme .mud-select .mud-input,
+.dark-theme .mud-input .mud-input-slot {
+    color: #e2e8f0 !important;
+}
+
 .dark-theme .badge.bg-primary {
     background-color: var(--primary-color) !important;
 }
@@ -1623,6 +1758,420 @@ html.dark-theme {
     .dark-theme select {
         font-size: 16px !important;
     }
+}
+
+/* ========================================
+   Dark Mode — Page-Level Overrides
+   Targets hardcoded colors in individual
+   page <style> blocks and inline styles
+   ======================================== */
+
+/* --- Status chips (used on many pages) --- */
+.dark-theme .status-pending    { background: #78350f; color: #fde68a; }
+.dark-theme .status-processing { background: #1e3a5f; color: #93c5fd; }
+.dark-theme .status-completed  { background: #064e3b; color: #6ee7b7; }
+.dark-theme .status-failed     { background: #7f1d1d; color: #fca5a5; }
+.dark-theme .status-review     { background: #4c1d95; color: #c4b5fd; }
+.dark-theme .status-cancelled  { background: #374151; color: #d1d5db; }
+.dark-theme .status-expired    { background: #374151; color: #9ca3af; }
+.dark-theme .status-confirmed  { background: #064e3b; color: #6ee7b7; }
+.dark-theme .status-chip       { border: 1px solid rgba(255,255,255,0.1); }
+
+/* --- Semantic badges (positive/negative amounts, etc.) --- */
+.dark-theme .badge-success,
+.dark-theme .badge-positive { background: #064e3b !important; color: #6ee7b7 !important; }
+.dark-theme .badge-danger,
+.dark-theme .badge-negative { background: #7f1d1d !important; color: #fca5a5 !important; }
+.dark-theme .badge-warning  { background: #78350f !important; color: #fde68a !important; }
+.dark-theme .badge-info     { background: #1e3a5f !important; color: #93c5fd !important; }
+
+/* --- DesktopTransactions pills --- */
+.dark-theme .dt-pill--pending   { background: #78350f; color: #fde68a; }
+.dark-theme .dt-pill--processing { background: #1e3a5f; color: #93c5fd; }
+.dark-theme .dt-pill--completed { background: #064e3b; color: #6ee7b7; }
+.dark-theme .dt-pill--failed    { background: #7f1d1d; color: #fca5a5; }
+.dark-theme .dt-pill--review    { background: #4c1d95; color: #c4b5fd; }
+.dark-theme .dt-pill--total     { background: #1e293b; color: #e2e8f0; }
+
+.dark-theme .dt-queue-card {
+    background: #1e293b;
+    border-color: #334155;
+}
+.dark-theme .dt-queue-card__header { color: #94a3b8; }
+
+.dark-theme .dt-expanded-row {
+    background: #0f172a;
+}
+.dark-theme .dt-mini-field {
+    background: #1e293b;
+}
+.dark-theme .dt-mini-field__label { color: #94a3b8; }
+.dark-theme .dt-mini-field__value { color: #e2e8f0; }
+
+.dark-theme .dt-detail-field {
+    background: #1e293b;
+}
+.dark-theme .dt-detail-field .field-label { color: #94a3b8; }
+.dark-theme .dt-detail-field .field-value { color: #e2e8f0; }
+
+.dark-theme .dt-tab-header {
+    background: #1e293b !important;
+    border-bottom-color: #334155;
+}
+
+/* --- Generic surface/card overrides for all pages --- */
+.dark-theme .mud-paper,
+.dark-theme .mud-card {
+    background-color: var(--mud-palette-surface);
+    color: var(--mud-palette-text-primary);
+}
+
+/* --- MudDataGrid & MudTable dark mode fixes --- */
+.dark-theme .mud-table .mud-table-head .mud-table-cell,
+.dark-theme .mud-table-container .mud-table-head .mud-table-cell {
+    background-color: #1e293b !important;
+    color: #e2e8f0 !important;
+    border-bottom-color: #334155 !important;
+}
+
+.dark-theme .mud-table .mud-table-body .mud-table-cell {
+    color: #e2e8f0;
+    border-bottom-color: #334155;
+}
+
+.dark-theme .mud-table .mud-table-body .mud-table-row:hover {
+    background-color: rgba(45, 212, 191, 0.06) !important;
+}
+
+.dark-theme .mud-table .mud-table-foot .mud-table-cell,
+.dark-theme .mud-table-pagination {
+    background-color: #1e293b;
+    color: #e2e8f0;
+    border-top-color: #334155;
+}
+
+.dark-theme .mud-table-toolbar {
+    background-color: #1e293b;
+    color: #e2e8f0;
+}
+
+/* --- MudTabs dark mode --- */
+.dark-theme .mud-tabs-header {
+    background-color: #1e293b !important;
+}
+.dark-theme .mud-tab {
+    color: #94a3b8 !important;
+}
+.dark-theme .mud-tab.mud-tab-active {
+    color: #818cf8 !important;
+}
+
+/* --- MudDialog dark mode --- */
+.dark-theme .mud-dialog {
+    background-color: #1e293b;
+    color: #e2e8f0;
+}
+
+/* --- Common page-level classes --- */
+.dark-theme .page-stat-card,
+.dark-theme .stat-card,
+.dark-theme .info-card,
+.dark-theme .detail-card,
+.dark-theme .summary-card,
+.dark-theme .queue-card {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- Drawer overlays --- */
+.dark-theme .drawer-overlay {
+    background: rgba(0, 0, 0, 0.7) !important;
+}
+
+.dark-theme .drawer-content,
+.dark-theme .detail-drawer,
+.dark-theme .side-panel {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- Fix hardcoded white/light backgrounds used in page <style> blocks --- */
+.dark-theme [style*="background: white"],
+.dark-theme [style*="background-color: white"],
+.dark-theme [style*="background:#fff"],
+.dark-theme [style*="background: #fff"],
+.dark-theme [style*="background-color:#fff"],
+.dark-theme [style*="background-color: #fff"],
+.dark-theme [style*="background:#ffffff"],
+.dark-theme [style*="background: #ffffff"],
+.dark-theme [style*="background-color:#ffffff"],
+.dark-theme [style*="background-color: #ffffff"] {
+    background-color: #1e293b !important;
+    background: #1e293b !important;
+}
+
+.dark-theme [style*="background: #f9fafb"],
+.dark-theme [style*="background:#f9fafb"],
+.dark-theme [style*="background-color:#f9fafb"],
+.dark-theme [style*="background: #f8fafc"],
+.dark-theme [style*="background:#f8fafc"],
+.dark-theme [style*="background: #f3f4f6"],
+.dark-theme [style*="background:#f3f4f6"],
+.dark-theme [style*="background-color:#f3f4f6"],
+.dark-theme [style*="background: #f0f2f5"],
+.dark-theme [style*="background:#f0f2f5"],
+.dark-theme [style*="background: #f0f9ff"],
+.dark-theme [style*="background:#f0f9ff"] {
+    background-color: #0f172a !important;
+    background: #0f172a !important;
+}
+
+/* Light pastel backgrounds → dark equivalents */
+.dark-theme [style*="background:#d1fae5"],
+.dark-theme [style*="background: #d1fae5"] {
+    background: #064e3b !important;
+}
+.dark-theme [style*="background:#fef2f2"],
+.dark-theme [style*="background: #fef2f2"] {
+    background: #7f1d1d !important;
+}
+.dark-theme [style*="background:#fef3c7"],
+.dark-theme [style*="background: #fef3c7"] {
+    background: #78350f !important;
+}
+.dark-theme [style*="background:#dbeafe"],
+.dark-theme [style*="background: #dbeafe"] {
+    background: #1e3a5f !important;
+}
+.dark-theme [style*="background:#ede9fe"],
+.dark-theme [style*="background: #ede9fe"] {
+    background: #4c1d95 !important;
+}
+.dark-theme [style*="background:#ecfdf5"],
+.dark-theme [style*="background: #ecfdf5"] {
+    background: #064e3b !important;
+}
+.dark-theme [style*="background:#fef9ec"],
+.dark-theme [style*="background: #fef9ec"] {
+    background: #78350f !important;
+}
+.dark-theme [style*="background:#eff6ff"],
+.dark-theme [style*="background: #eff6ff"] {
+    background: #1e3a5f !important;
+}
+.dark-theme [style*="background:#f5f3ff"],
+.dark-theme [style*="background: #f5f3ff"] {
+    background: #4c1d95 !important;
+}
+
+/* Fix hardcoded dark text colors on dark backgrounds */
+.dark-theme [style*="color:#374151"],
+.dark-theme [style*="color: #374151"] {
+    color: #e2e8f0 !important;
+}
+.dark-theme [style*="color:#1a1a2e"],
+.dark-theme [style*="color: #1a1a2e"] {
+    color: #e2e8f0 !important;
+}
+.dark-theme [style*="color:#111827"],
+.dark-theme [style*="color: #111827"] {
+    color: #f1f5f9 !important;
+}
+
+/* Fix hardcoded gray text → lighter for dark mode */
+.dark-theme [style*="color:#6b7280"],
+.dark-theme [style*="color: #6b7280"] {
+    color: #94a3b8 !important;
+}
+.dark-theme [style*="color:#9ca3af"],
+.dark-theme [style*="color: #9ca3af"] {
+    color: #94a3b8 !important;
+}
+.dark-theme [style*="color:#4b5563"],
+.dark-theme [style*="color: #4b5563"] {
+    color: #cbd5e1 !important;
+}
+
+/* Fix hardcoded borders */
+.dark-theme [style*="border-color:#e5e7eb"],
+.dark-theme [style*="border-color: #e5e7eb"],
+.dark-theme [style*="border:1px solid #e5e7eb"],
+.dark-theme [style*="border: 1px solid #e5e7eb"] {
+    border-color: #334155 !important;
+}
+.dark-theme [style*="border-color:#c7d2fe"],
+.dark-theme [style*="border-color: #c7d2fe"] {
+    border-color: #4338ca !important;
+}
+.dark-theme [style*="border:1px solid #f3f4f6"],
+.dark-theme [style*="border: 1px solid #f3f4f6"],
+.dark-theme [style*="border-bottom:1px solid #f3f4f6"],
+.dark-theme [style*="border-bottom: 1px solid #f3f4f6"] {
+    border-color: #334155 !important;
+}
+.dark-theme [style*="border:1px solid #fecaca"],
+.dark-theme [style*="border: 1px solid #fecaca"] {
+    border-color: #991b1b !important;
+}
+.dark-theme [style*="border:1px solid #bae6fd"],
+.dark-theme [style*="border: 1px solid #bae6fd"] {
+    border-color: #0c4a6e !important;
+}
+.dark-theme [style*="border:1px solid #ccc"],
+.dark-theme [style*="border: 1px solid #ccc"] {
+    border-color: #475569 !important;
+}
+
+/* Fix semantic text colors → brighter for dark backgrounds */
+.dark-theme [style*="color:#059669"],
+.dark-theme [style*="color: #059669"] {
+    color: #34d399 !important;
+}
+.dark-theme [style*="color:#065f46"],
+.dark-theme [style*="color: #065f46"] {
+    color: #6ee7b7 !important;
+}
+.dark-theme [style*="color:#92400e"],
+.dark-theme [style*="color: #92400e"] {
+    color: #fde68a !important;
+}
+.dark-theme [style*="color:#1e40af"],
+.dark-theme [style*="color: #1e40af"] {
+    color: #93c5fd !important;
+}
+.dark-theme [style*="color:#991b1b"],
+.dark-theme [style*="color: #991b1b"] {
+    color: #fca5a5 !important;
+}
+.dark-theme [style*="color:#5b21b6"],
+.dark-theme [style*="color: #5b21b6"] {
+    color: #c4b5fd !important;
+}
+
+/* Fix disabled/light background form fields */
+.dark-theme [style*="background-color:#f3f4f6"],
+.dark-theme [style*="background-color: #f3f4f6"] {
+    background-color: #374151 !important;
+}
+
+/* Fix #555 text color */
+.dark-theme [style*="color: #555"],
+.dark-theme [style*="color:#555"] {
+    color: #94a3b8 !important;
+}
+
+/* Fix brand/accent inline colors */
+.dark-theme [style*="color:#667eea"],
+.dark-theme [style*="color: #667eea"] {
+    color: #a5b4fc !important;
+}
+.dark-theme [style*="color:#ef4444"],
+.dark-theme [style*="color: #ef4444"] {
+    color: #fca5a5 !important;
+}
+.dark-theme [style*="color:#dc2626"],
+.dark-theme [style*="color: #dc2626"] {
+    color: #fca5a5 !important;
+}
+.dark-theme [style*="color:#dc3545"],
+.dark-theme [style*="color: #dc3545"] {
+    color: #fca5a5 !important;
+}
+.dark-theme [style*="color:#2563eb"],
+.dark-theme [style*="color: #2563eb"] {
+    color: #93c5fd !important;
+}
+.dark-theme [style*="color:#d97706"],
+.dark-theme [style*="color: #d97706"] {
+    color: #fcd34d !important;
+}
+.dark-theme [style*="color:#7c3aed"],
+.dark-theme [style*="color: #7c3aed"] {
+    color: #c4b5fd !important;
+}
+.dark-theme [style*="color:#d1d5db"],
+.dark-theme [style*="color: #d1d5db"] {
+    color: #64748b !important;
+}
+.dark-theme [style*="color:#1a1a2e"],
+.dark-theme [style*="color: #1a1a2e"] {
+    color: #f1f5f9 !important;
+}
+
+/* Material Design color overrides */
+.dark-theme [style*="color:#2e7d32"],
+.dark-theme [style*="color: #2e7d32"] {
+    color: #4ade80 !important;
+}
+.dark-theme [style*="color:#c62828"],
+.dark-theme [style*="color: #c62828"] {
+    color: #fca5a5 !important;
+}
+.dark-theme [style*="color:#e65100"],
+.dark-theme [style*="color: #e65100"] {
+    color: #fdba74 !important;
+}
+.dark-theme [style*="color:#1565c0"],
+.dark-theme [style*="color: #1565c0"] {
+    color: #93c5fd !important;
+}
+.dark-theme [style*="color:#00838f"],
+.dark-theme [style*="color: #00838f"] {
+    color: #67e8f9 !important;
+}
+.dark-theme [style*="color:#ad1457"],
+.dark-theme [style*="color: #ad1457"] {
+    color: #f9a8d4 !important;
+}
+.dark-theme [style*="color:#4caf50"],
+.dark-theme [style*="color: #4caf50"] {
+    color: #4ade80 !important;
+}
+.dark-theme [style*="color:#bdbdbd"],
+.dark-theme [style*="color: #bdbdbd"] {
+    color: #64748b !important;
+}
+.dark-theme [style*="color:#10b981"],
+.dark-theme [style*="color: #10b981"] {
+    color: #34d399 !important;
+}
+.dark-theme [style*="color:#047857"],
+.dark-theme [style*="color: #047857"] {
+    color: #6ee7b7 !important;
+}
+
+/* Additional background overrides */
+.dark-theme [style*="background:#f8f9fa"],
+.dark-theme [style*="background: #f8f9fa"],
+.dark-theme [style*="background-color:#f8f9fa"],
+.dark-theme [style*="background-color: #f8f9fa"] {
+    background: #0f172a !important;
+    background-color: #0f172a !important;
+}
+
+/* Fix teal/branded buttons & accents */
+.dark-theme [style*="background: #0d9488"],
+.dark-theme [style*="background:#0d9488"],
+.dark-theme [style*="background-color:#0d9488"] {
+    background: #0d9488 !important; /* teal stays teal */
+}
+
+/* --- insight-card dark mode fix --- */
+.dark-theme .insight-card {
+    background: #1e293b;
+    border-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+/* --- Common page section backgrounds --- */
+.dark-theme .detail-section,
+.dark-theme .info-section,
+.dark-theme .summary-section,
+.dark-theme .form-section {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
 }
 
 /* ========================================
@@ -2600,6 +3149,831 @@ html.dark-theme {
     color: var(--warning-color);
 }
 
+/* ========================================
+   Dark Mode — Shared Page Component Fixes
+   All pages share these class patterns:
+   *-page, stat-card, filter-bar, detail-drawer,
+   status-badge, lines-table, empty-state, etc.
+   ======================================== */
+
+/* --- Page backgrounds (all *-page classes) --- */
+.dark-theme .inv-page,
+.dark-theme .prod-page,
+.dark-theme .stk-page,
+.dark-theme .so-page,
+.dark-theme .po-page,
+.dark-theme .pay-page,
+.dark-theme .sec-page,
+.dark-theme .cust-page,
+.dark-theme .cn-page,
+.dark-theme .ua-page,
+.dark-theme .um-page,
+.dark-theme .notif-page,
+.dark-theme .dt-page,
+.dark-theme .it-page,
+.dark-theme .cp-page,
+.dark-theme .ci-page,
+.dark-theme .bak-page,
+.dark-theme .transfer-page,
+.dark-theme .cpm-page {
+    background: #0f172a !important;
+    color: #e2e8f0;
+}
+
+/* --- Header titles --- */
+.dark-theme .inv-header h2,
+.dark-theme .prod-header h2,
+.dark-theme .stk-header h2,
+.dark-theme .so-header h2,
+.dark-theme .po-header h2,
+.dark-theme .pay-header h2,
+.dark-theme .sec-header h2,
+.dark-theme .cust-header h2,
+.dark-theme .cn-header h2,
+.dark-theme .ua-header h2,
+.dark-theme .um-header h2,
+.dark-theme .notif-header h2,
+.dark-theme .it-header h2,
+.dark-theme .cp-header h2,
+.dark-theme .ci-header h2,
+.dark-theme .bak-header h2,
+.dark-theme .header-title,
+.dark-theme .detail-section-title,
+.dark-theme .section-title {
+    color: #f1f5f9 !important;
+}
+
+/* --- Header subtitles / descriptions --- */
+.dark-theme .inv-header p,
+.dark-theme .prod-header p,
+.dark-theme .stk-header p,
+.dark-theme .so-header p,
+.dark-theme .po-header p,
+.dark-theme .pay-header p,
+.dark-theme .sec-header p,
+.dark-theme .cust-header p,
+.dark-theme .cn-header p,
+.dark-theme .ua-header p,
+.dark-theme .um-header p,
+.dark-theme .notif-header p,
+.dark-theme .it-header p,
+.dark-theme .header-subtitle {
+    color: #94a3b8 !important;
+}
+
+/* --- Stat Cards --- */
+.dark-theme .stat-card {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+}
+.dark-theme .stat-info .stat-value,
+.dark-theme .stat-value {
+    color: #f1f5f9 !important;
+}
+.dark-theme .stat-info .stat-label,
+.dark-theme .stat-label {
+    color: #94a3b8 !important;
+}
+
+/* Stat icon backgrounds (semantic colors → dark variants) */
+.dark-theme .stat-icon.purple { background: #4c1d95; color: #c4b5fd; }
+.dark-theme .stat-icon.blue   { background: #1e3a5f; color: #93c5fd; }
+.dark-theme .stat-icon.amber  { background: #78350f; color: #fde68a; }
+.dark-theme .stat-icon.green  { background: #064e3b; color: #6ee7b7; }
+.dark-theme .stat-icon.red    { background: #7f1d1d; color: #fca5a5; }
+.dark-theme .stat-icon.teal   { background: #134e4a; color: #5eead4; }
+
+/* --- Filter Bar --- */
+.dark-theme .filter-bar,
+.dark-theme .filter-panel {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+}
+.dark-theme .filter-bar .filter-field label,
+.dark-theme .filter-label,
+.dark-theme .filter-header {
+    color: #94a3b8 !important;
+}
+
+/* --- Clear/secondary buttons --- */
+.dark-theme .btn-clear,
+.dark-theme .btn-secondary-action {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+    border-color: #475569 !important;
+}
+.dark-theme .btn-clear:hover,
+.dark-theme .btn-secondary-action:hover {
+    background: #334155 !important;
+}
+
+/* --- Table wrappers --- */
+.dark-theme .inv-table-wrap,
+.dark-theme .prod-table-wrap,
+.dark-theme .stk-table-wrap,
+.dark-theme .so-table-wrap,
+.dark-theme .po-table-wrap,
+.dark-theme .pay-table-wrap,
+.dark-theme .sec-table-wrap,
+.dark-theme .cust-table-wrap,
+.dark-theme .cn-table-wrap,
+.dark-theme .ua-table-wrap,
+.dark-theme .um-table-wrap,
+.dark-theme .table-container,
+.dark-theme .it-table-wrap {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+}
+
+/* --- Lines table (detail views) --- */
+.dark-theme .lines-table th,
+.dark-theme .cn-lines-table th {
+    background: #0f172a !important;
+    color: #94a3b8 !important;
+    border-bottom-color: #334155 !important;
+}
+.dark-theme .lines-table td,
+.dark-theme .cn-lines-table td {
+    color: #e2e8f0 !important;
+    border-bottom-color: #1e293b !important;
+}
+.dark-theme .lines-table tfoot td,
+.dark-theme .cn-lines-table tfoot td {
+    background: #0f172a !important;
+    border-top-color: #334155 !important;
+    color: #f1f5f9 !important;
+}
+
+/* --- Table text elements --- */
+.dark-theme .customer-info .name,
+.dark-theme .amount-cell,
+.dark-theme .doc-num-cell {
+    color: #f1f5f9 !important;
+}
+.dark-theme .customer-info .code,
+.dark-theme .vat-cell {
+    color: #94a3b8 !important;
+}
+
+/* --- Currency badge --- */
+.dark-theme .currency-badge {
+    background: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- Status badges (semantic) --- */
+.dark-theme .status-badge.open     { background: #064e3b !important; color: #6ee7b7 !important; }
+.dark-theme .status-badge.closed   { background: #1e3a5f !important; color: #93c5fd !important; }
+.dark-theme .status-badge.partial  { background: #78350f !important; color: #fde68a !important; }
+.dark-theme .status-badge.draft    { background: #374151 !important; color: #d1d5db !important; }
+.dark-theme .status-badge.cancelled { background: #374151 !important; color: #9ca3af !important; }
+.dark-theme .status-badge.pending  { background: #78350f !important; color: #fde68a !important; }
+.dark-theme .status-badge.approved { background: #064e3b !important; color: #6ee7b7 !important; }
+.dark-theme .status-badge.rejected { background: #7f1d1d !important; color: #fca5a5 !important; }
+
+/* --- Alert banners --- */
+.dark-theme .alert-banner.success-alert { background: #064e3b !important; border-color: #065f46 !important; color: #6ee7b7 !important; }
+.dark-theme .alert-banner.error-alert   { background: #7f1d1d !important; border-color: #991b1b !important; color: #fca5a5 !important; }
+.dark-theme .alert-banner.warn-alert    { background: #78350f !important; border-color: #92400e !important; color: #fde68a !important; }
+.dark-theme .alert-banner.info-alert    { background: #1e3a5f !important; border-color: #1e40af !important; color: #93c5fd !important; }
+
+/* --- Toast banners --- */
+.dark-theme .toast-banner.success { background: #064e3b !important; border-color: #065f46 !important; color: #6ee7b7 !important; }
+.dark-theme .toast-banner.error   { background: #7f1d1d !important; border-color: #991b1b !important; color: #fca5a5 !important; }
+
+/* --- Empty state --- */
+.dark-theme .empty-icon {
+    background: #334155 !important;
+    color: #64748b !important;
+}
+.dark-theme .empty-state h6 { color: #e2e8f0 !important; }
+.dark-theme .empty-state p  { color: #94a3b8 !important; }
+
+/* --- Detail drawers & modals --- */
+.dark-theme .detail-drawer,
+.dark-theme .cn-modal {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .drawer-body,
+.dark-theme .cn-modal-body {
+    color: #e2e8f0;
+}
+.dark-theme .drawer-footer,
+.dark-theme .cn-modal-footer,
+.dark-theme .cn-modal-header {
+    border-color: #334155 !important;
+}
+.dark-theme .cn-modal-header h5 {
+    color: #f1f5f9 !important;
+}
+.dark-theme .cn-modal-header .btn-close-modal {
+    background: #334155 !important;
+    color: #94a3b8 !important;
+}
+.dark-theme .cn-modal-header .btn-close-modal:hover {
+    background: #475569 !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- Detail grid fields --- */
+.dark-theme .detail-item .detail-label { color: #64748b !important; }
+.dark-theme .detail-item .detail-value { color: #f1f5f9 !important; }
+
+/* --- Credit note warning --- */
+.dark-theme .cn-warning {
+    background: #78350f !important;
+    border-color: #92400e !important;
+}
+.dark-theme .cn-warning-body { color: #fde68a !important; }
+.dark-theme .cn-warning-body strong { color: #fef3c7 !important; }
+.dark-theme .cn-warning-icon { color: #fbbf24 !important; }
+.dark-theme .cn-view-link { color: #fbbf24 !important; }
+
+/* --- CN quantity inputs --- */
+.dark-theme .cn-qty-input {
+    background: #1e293b !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .cn-qty-input:disabled {
+    background: #334155 !important;
+    color: #64748b !important;
+}
+
+/* --- CN selected row --- */
+.dark-theme .cn-lines-table tr.selected-row {
+    background: #78350f !important;
+}
+
+/* --- CN progress overlay --- */
+.dark-theme .cn-progress-overlay {
+    background: rgba(15, 23, 42, 0.95) !important;
+}
+
+/* --- Modal backdrop --- */
+.dark-theme .modal-backdrop-custom,
+.dark-theme .cn-modal-overlay {
+    background: rgba(0, 0, 0, 0.7) !important;
+}
+
+/* --- Table toolbar & search --- */
+.dark-theme .table-toolbar {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .table-title { color: #f1f5f9 !important; }
+.dark-theme .search-box {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+}
+.dark-theme .search-box input {
+    background: transparent !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- Generic audit/data table dark fixes --- */
+.dark-theme .audit-table thead th,
+.dark-theme table thead th {
+    background: #0f172a;
+    color: #94a3b8;
+    border-bottom-color: #334155;
+}
+.dark-theme .audit-table tbody tr,
+.dark-theme table tbody tr {
+    border-bottom-color: #1e293b;
+}
+
+/* --- Filter select inputs --- */
+.dark-theme .filter-select,
+.dark-theme .filter-bar select,
+.dark-theme .filter-bar input {
+    background: #1e293b !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- Security page specific tokens --- */
+.dark-theme .security-card,
+.dark-theme .security-warning,
+.dark-theme .security-info {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- User management specific --- */
+.dark-theme .user-card,
+.dark-theme .role-badge {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- Notifications page --- */
+.dark-theme .notif-card,
+.dark-theme .notification-card,
+.dark-theme .notification-item {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- Backups page --- */
+.dark-theme .bak-card,
+.dark-theme .backup-card {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- Document Templates page --- */
+.dark-theme .dt-page {
+    background: #0f172a !important;
+}
+
+/* --- Customer Portal Management --- */
+.dark-theme .cpm-card,
+.dark-theme .portal-card {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- Semantic color dot indicators --- */
+.dark-theme .status-dot.green  { background: #34d399 !important; }
+.dark-theme .status-dot.red    { background: #f87171 !important; }
+.dark-theme .status-dot.yellow { background: #fbbf24 !important; }
+.dark-theme .status-dot.blue   { background: #60a5fa !important; }
+
+/* --- Pagination info text --- */
+.dark-theme .pagination-info,
+.dark-theme .page-info,
+.dark-theme .showing-info {
+    color: #94a3b8 !important;
+}
+
+/* --- Divider lines / separators --- */
+.dark-theme hr,
+.dark-theme .divider {
+    border-color: #334155;
+}
+
+/* --- Backups page --- */
+.dark-theme .bak-stat-card,
+.dark-theme .bak-info-bar,
+.dark-theme .bak-section-card,
+.dark-theme .bak-empty {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .bak-title {
+    color: #f1f5f9 !important;
+}
+.dark-theme .bak-subtitle,
+.dark-theme .bak-stat-label,
+.dark-theme .bak-info-item,
+.dark-theme .bak-file-desc {
+    color: #94a3b8 !important;
+}
+.dark-theme .bak-stat-value {
+    color: #f1f5f9 !important;
+}
+.dark-theme .bak-file-name {
+    color: #f1f5f9 !important;
+}
+.dark-theme .bak-section-header {
+    border-color: #334155 !important;
+}
+.dark-theme .bak-section-header h3 {
+    color: #f1f5f9 !important;
+}
+.dark-theme .bak-modal {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .bak-modal-header {
+    border-color: #334155 !important;
+}
+.dark-theme .bak-modal-header h2 {
+    color: #f1f5f9 !important;
+}
+.dark-theme .bak-modal-header-warning {
+    background: #422006 !important;
+    border-bottom-color: #854d0e !important;
+}
+.dark-theme .bak-modal-header-warning h2 {
+    color: #fbbf24 !important;
+}
+.dark-theme .bak-modal-body {
+    color: #e2e8f0 !important;
+}
+.dark-theme .bak-input {
+    background: #0f172a !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .bak-form-field label {
+    color: #94a3b8 !important;
+}
+.dark-theme .bak-toggle-label {
+    color: #e2e8f0 !important;
+}
+.dark-theme .bak-table thead th {
+    background: #0f172a !important;
+    color: #94a3b8 !important;
+    border-color: #334155 !important;
+}
+.dark-theme .bak-table tbody td {
+    color: #e2e8f0 !important;
+    border-color: #334155 !important;
+}
+.dark-theme .bak-row:hover {
+    background: #334155 !important;
+}
+.dark-theme .bak-row {
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .bak-cell-mono {
+    color: #cbd5e1 !important;
+}
+.dark-theme .bak-cell-muted {
+    color: #64748b !important;
+}
+.dark-theme .bak-action-btn {
+    color: #94a3b8 !important;
+}
+.dark-theme .bak-action-btn:hover {
+    background: #334155 !important;
+    color: #e2e8f0 !important;
+    border-color: #475569 !important;
+}
+.dark-theme .bak-action-warning:hover {
+    background: #422006 !important;
+    color: #fbbf24 !important;
+    border-color: #854d0e !important;
+}
+.dark-theme .bak-action-danger:hover {
+    background: #450a0a !important;
+    color: #f87171 !important;
+    border-color: #991b1b !important;
+}
+.dark-theme .bak-btn-ghost {
+    color: #94a3b8 !important;
+    border-color: #475569 !important;
+}
+.dark-theme .bak-btn-ghost:hover {
+    background: #334155 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .bak-modal-footer,
+.dark-theme .bak-restore-details {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .bak-modal-footer {
+    border-top-color: #334155 !important;
+}
+.dark-theme .bak-modal-close {
+    background: #334155 !important;
+    color: #94a3b8 !important;
+}
+.dark-theme .bak-modal-close:hover {
+    background: #475569 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .bak-detail-row span {
+    color: #94a3b8 !important;
+}
+.dark-theme .bak-alert-danger {
+    background: #450a0a !important;
+    border-color: #991b1b !important;
+    color: #fca5a5 !important;
+}
+.dark-theme .bak-error {
+    background: #450a0a !important;
+    border-color: #991b1b !important;
+    color: #fca5a5 !important;
+}
+.dark-theme .bak-empty h3 {
+    color: #94a3b8 !important;
+}
+.dark-theme .bak-empty p {
+    color: #64748b !important;
+}
+.dark-theme .bak-empty i {
+    color: #475569 !important;
+}
+.dark-theme .bak-info-item i {
+    color: #818cf8 !important;
+}
+.dark-theme .bak-badge-purple {
+    background: rgba(124, 58, 237, 0.15) !important;
+    color: #a78bfa !important;
+}
+.dark-theme .bak-badge-green {
+    background: rgba(5, 150, 105, 0.15) !important;
+    color: #34d399 !important;
+}
+.dark-theme .bak-badge-red {
+    background: rgba(220, 38, 38, 0.15) !important;
+    color: #f87171 !important;
+}
+.dark-theme .bak-badge-blue {
+    background: rgba(37, 99, 235, 0.15) !important;
+    color: #60a5fa !important;
+}
+.dark-theme .bak-badge-amber {
+    background: rgba(217, 119, 6, 0.15) !important;
+    color: #fbbf24 !important;
+}
+.dark-theme .bak-badge-gray {
+    background: #334155 !important;
+    color: #94a3b8 !important;
+}
+.dark-theme .bak-loading p {
+    color: #64748b !important;
+}
+.dark-theme .bak-spinner {
+    border-color: #334155 !important;
+    border-top-color: #818cf8 !important;
+}
+
+/* --- Customer Portal Management page --- */
+.dark-theme .cpm-table-card,
+.dark-theme .cpm-action-btn {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .cpm-table th {
+    background: #0f172a !important;
+    color: #94a3b8 !important;
+    border-color: #334155 !important;
+}
+.dark-theme .cpm-code {
+    background: #334155 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .badge-disabled {
+    background: #374151 !important;
+    color: #9ca3af !important;
+}
+.dark-theme .cpm-table td {
+    border-color: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- CreateIncomingPayment & CreateInvoice shared classes --- */
+.dark-theme .section-card,
+.dark-theme .summary-card {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .method-tab {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .bp-dropdown,
+.dark-theme .dropdown-autocomplete {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .btn-back {
+    background: #1e293b !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .btn-back:hover {
+    background: #334155 !important;
+}
+.dark-theme .inv-card,
+.dark-theme .info-hint,
+.dark-theme .line-card,
+.dark-theme .global-settings-bar {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .empty-lines-placeholder {
+    background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%) !important;
+    color: #94a3b8 !important;
+}
+
+/* --- InventoryTransfers page --- */
+.dark-theme .it-tabs,
+.dark-theme .it-tab-body {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .it-tab {
+    background: #0f172a !important;
+    color: #94a3b8 !important;
+}
+.dark-theme .it-tab.active,
+.dark-theme .it-tab:hover {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .btn-outline-action {
+    background: #1e293b !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .btn-outline-action:hover {
+    background: #334155 !important;
+}
+.dark-theme .quick-search {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- Customers page --- */
+.dark-theme .btn-cust-outline {
+    background: #1e293b !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .btn-cust-outline:hover {
+    background: #334155 !important;
+}
+.dark-theme .type-toggle button {
+    background: #1e293b !important;
+    color: #94a3b8 !important;
+}
+.dark-theme .type-toggle button.active,
+.dark-theme .type-toggle button:hover {
+    color: #e2e8f0 !important;
+}
+.dark-theme .cust-table-wrap {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+}
+.dark-theme .cust-table-header {
+    background: #0f172a !important;
+    color: #94a3b8 !important;
+    border-color: #334155 !important;
+}
+.dark-theme .cust-count-badge {
+    background: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- UserActivity page --- */
+.dark-theme .time-btn {
+    background: #1e293b !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .time-btn:hover,
+.dark-theme .time-btn.active {
+    background: #334155 !important;
+}
+.dark-theme .panel-header {
+    border-color: #334155 !important;
+}
+.dark-theme .user-count {
+    background: #312e81 !important;
+    color: #a5b4fc !important;
+}
+
+/* --- Notifications page --- */
+.dark-theme .btn-notif-outline {
+    background: #1e293b !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .btn-notif-outline:hover {
+    background: #334155 !important;
+}
+.dark-theme .notif-list-wrap {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+}
+.dark-theme .notif-item:hover {
+    background: #0f172a !important;
+}
+.dark-theme .page-btn {
+    background: #1e293b !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .page-btn:hover {
+    background: #334155 !important;
+}
+.dark-theme .category-select {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- Products page --- */
+.dark-theme .search-card {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .prod-table-wrap {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+}
+.dark-theme .prod-table-header {
+    background: #0f172a !important;
+    color: #94a3b8 !important;
+    border-color: #334155 !important;
+}
+.dark-theme .prod-count-badge {
+    background: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- SalesOrders page --- */
+.dark-theme .so-table-wrap {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+}
+.dark-theme .so-table-header {
+    background: #0f172a !important;
+    color: #94a3b8 !important;
+    border-color: #334155 !important;
+}
+
+/* --- PurchaseOrders page --- */
+.dark-theme .po-table-wrap {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+}
+.dark-theme .po-table-header {
+    background: #0f172a !important;
+    color: #94a3b8 !important;
+    border-color: #334155 !important;
+}
+
+/* --- Payments page --- */
+.dark-theme .pay-table-wrap {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+}
+.dark-theme .breakdown-card {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- Stock page --- */
+.dark-theme .stk-table-wrap {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+}
+.dark-theme .stk-table-header {
+    background: #0f172a !important;
+    color: #94a3b8 !important;
+    border-color: #334155 !important;
+}
+
+/* --- Invoices page --- */
+.dark-theme .inv-table-wrap {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+}
+}
+
+.insight-card.warning {
+    border-left: 4px solid var(--warning-color);
+}
+
+.insight-card.critical {
+    border-left: 4px solid var(--danger-color);
+}
+
+.insight-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 1.25rem;
+}
+
+.insight-card.info .insight-icon {
+    background-color: var(--info-light);
+    color: var(--info-color);
+}
+
+.insight-card.warning .insight-icon {
+    background-color: var(--warning-light);
+    color: var(--warning-color);
+}
+
 .insight-card.critical .insight-icon {
     background-color: var(--danger-light);
     color: var(--danger-color);
@@ -3055,6 +4429,10 @@ html.dark-theme {
 }
 
 .staff-shell .mud-main-content {
+    padding-top: 48px; /* Account for dense appbar */
+}
+
+.customer-shell .mud-main-content {
     padding-top: 48px; /* Account for dense appbar */
 }
 

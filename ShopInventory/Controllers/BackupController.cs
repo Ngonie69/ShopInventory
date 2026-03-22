@@ -179,6 +179,34 @@ public class BackupController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Reset database - deletes all transactional data for a fresh start. Admin only.
+    /// </summary>
+    [HttpPost("reset-database")]
+    [Authorize(Roles = "Admin")]
+    [RequirePermission(Permission.SystemAdmin)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ResetDatabase(CancellationToken cancellationToken)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null)
+            return Unauthorized();
+
+        try
+        {
+            _logger.LogWarning("Database reset requested by user {UserId}", userId);
+            await _backupService.ResetDatabaseAsync(userId.Value, cancellationToken);
+            return Ok(new { message = "Database has been reset successfully. All transactional data has been deleted." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Database reset failed for user {UserId}", userId);
+            return BadRequest(new { message = $"Database reset failed: {ex.Message}" });
+        }
+    }
+
     private Guid? GetCurrentUserId()
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;

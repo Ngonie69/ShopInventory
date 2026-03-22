@@ -26,17 +26,23 @@ public static class UserRoles
     public const string DepotController = "DepotController";
 
     /// <summary>
+    /// Manager with access to purchasing, reports, and operational oversight
+    /// </summary>
+    public const string Manager = "Manager";
+
+    /// <summary>
     /// Comma-separated role strings for use in [Authorize(Roles = "...")] attributes
     /// </summary>
     public const string InvoicingRoles = "Admin,Cashier";
     public const string PaymentRoles = "Admin,Cashier,DepotController";
     public const string InventoryTransferRoles = "Admin,StockController,DepotController";
     public const string SalesOrderRoles = "Admin,Cashier";
+    public const string PurchasingRoles = "Admin,Manager";
 
     /// <summary>
     /// Get all available roles
     /// </summary>
-    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController };
+    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager };
 
     /// <summary>
     /// Check if a role has admin privileges

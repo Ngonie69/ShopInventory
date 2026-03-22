@@ -10,6 +10,8 @@
 @inject IEmailService EmailService
 @inject IMasterDataCacheService CacheService
 @inject IAppSettingsService AppSettingsService
+@inject IAppSettingsProvider AppSettings
+@inject IPrinterService PrinterService
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
 @inject ILogger<CreateInvoice> Logger
@@ -403,10 +405,10 @@
 
     /* ── Global Settings Bar ─────────────────────────── */
     .global-settings-bar {
-        background: linear-gradient(135deg, #fefce8 0%, #fef9c3 100%);
-        border: 1px solid #fde68a;
-        border-radius: 12px;
-        padding: 1rem 1.25rem;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: .85rem 1.15rem;
         margin-bottom: 1.25rem;
     }
 
@@ -414,40 +416,40 @@
         display: flex;
         align-items: center;
         gap: .5rem;
-        margin-bottom: .85rem;
-        padding-bottom: .6rem;
-        border-bottom: 1px dashed rgba(217, 119, 6, .2);
+        margin-bottom: .75rem;
     }
 
     .settings-bar-header .settings-icon {
-        width: 28px;
-        height: 28px;
-        border-radius: 7px;
-        background: rgba(217, 119, 6, .12);
-        color: #b45309;
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        background: #e0e7ff;
+        color: #4f46e5;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: .85rem;
+        font-size: .75rem;
     }
 
-    .settings-bar-header span {
+    .settings-bar-header > span:first-of-type {
         font-weight: 600;
-        font-size: .85rem;
-        color: #92400e;
+        font-size: .8rem;
+        color: #334155;
+        letter-spacing: -.01em;
     }
 
     .batch-required-badge {
         display: inline-flex;
         align-items: center;
-        gap: .25rem;
-        background: #d1fae5;
+        gap: .3rem;
+        background: linear-gradient(135deg, #ecfdf5, #d1fae5);
         color: #065f46;
-        font-size: .68rem;
-        padding: .2rem .55rem;
+        font-size: .7rem;
+        padding: .25rem .65rem;
         border-radius: 20px;
         font-weight: 600;
-        letter-spacing: .2px;
+        letter-spacing: .015em;
+        border: 1px solid #a7f3d0;
     }
 
     .settings-fields {
@@ -458,10 +460,19 @@
 
     .settings-field-label {
         display: block;
-        font-size: .75rem;
+        font-size: .72rem;
         font-weight: 600;
-        color: #78716c;
-        margin-bottom: .3rem;
+        color: #64748b;
+        margin-bottom: .35rem;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+    }
+
+    .settings-fields .form-select-line,
+    .settings-fields ::deep .mud-input-outlined {
+        background: #fff;
+        border-radius: 8px;
+        font-size: .82rem;
     }
 
     /* ── Empty State ──────────────────────────────────── */
@@ -651,21 +662,23 @@
         display: inline-flex;
         align-items: center;
         gap: .35rem;
-        background: #fff;
-        color: #059669;
-        border: 1.5px solid #a7f3d0;
+        background: linear-gradient(135deg, #059669, #047857);
+        color: #fff;
+        border: none;
         border-radius: 8px;
         font-weight: 600;
-        font-size: .82rem;
-        padding: .4rem .85rem;
+        font-size: .8rem;
+        padding: .45rem .95rem;
         cursor: pointer;
         transition: all .2s;
+        box-shadow: 0 1px 3px rgba(5, 150, 105, .25);
     }
 
     .btn-add-line:hover {
-        background: #ecfdf5;
-        border-color: #059669;
-        color: #047857;
+        background: linear-gradient(135deg, #047857, #065f46);
+        color: #fff;
+        box-shadow: 0 2px 6px rgba(5, 150, 105, .35);
+        transform: translateY(-1px);
     }
 
     .btn-add-first {
@@ -688,6 +701,35 @@
         background: linear-gradient(135deg, #047857, #065f46);
         box-shadow: 0 4px 14px rgba(5, 150, 105, .35);
         transform: translateY(-1px);
+    }
+
+    /* ── Print Button ────────────────────────────────── */
+    .btn-print-invoice {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        background: #fff;
+        color: #166534;
+        border: 1px solid #bbf7d0;
+        border-radius: 7px;
+        font-weight: 600;
+        font-size: .8rem;
+        padding: .3rem .7rem;
+        margin-left: .6rem;
+        cursor: pointer;
+        transition: all .15s;
+        vertical-align: middle;
+    }
+
+    .btn-print-invoice:hover:not(:disabled) {
+        background: #166534;
+        color: #fff;
+        border-color: #166534;
+    }
+
+    .btn-print-invoice:disabled {
+        opacity: .55;
+        cursor: not-allowed;
     }
 
     /* ── Validation ───── */
@@ -791,8 +833,16 @@
         {
             <div class="alert-banner success-alert">
                 <i class="bi bi-check-circle-fill"></i>
-                <div class="alert-body">@successMessage</div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => successMessage = null" Class="alert-close"
+                <div class="alert-body">
+                    @successMessage
+                    @if (lastCreatedInvoice != null)
+                    {
+                        <button class="btn-print-invoice" @onclick="OpenPrintDialog" disabled="@isPrinting">
+                            <i class="bi bi-printer-fill"></i> Print Invoice
+                        </button>
+                    }
+                </div>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="DismissSuccess" Class="alert-close"
                                Size="Size.Small" />
             </div>
         }
@@ -887,7 +937,7 @@
                                                     <div class="dropdown-autocomplete" @onmousedown:preventDefault>
                                                         @foreach (var bp in filteredBusinessPartners.Take(15))
                                                         {
-                                                            <div class="dropdown-item" @onmousedown="() => SelectBusinessPartner(bp)">
+                                                            <div class="dropdown-item" @onmousedown="() => SelectBusinessPartnerAsync(bp)">
                                                                 <strong>@bp.CardCode</strong> — <span
                                                                 style="color:#6b7280;">@bp.CardName</span>
                                                             </div>
@@ -955,10 +1005,10 @@
                                         <!-- Global Settings Bar -->
                                         <div class="global-settings-bar">
                                             <div class="settings-bar-header">
-                                                <div class="settings-icon"><i class="bi bi-sliders"></i></div>
-                                                <span>Default Settings</span>
+                                                <div class="settings-icon"><i class="bi bi-sliders2"></i></div>
+                                                <span>Defaults</span>
                                                 <span class="batch-required-badge ms-auto">
-                                                    <i class="bi bi-magic"></i>Auto Batch (FEFO)
+                                                    <i class="bi bi-stars me-1"></i>Auto Batch (FEFO)
                                                 </span>
                                             </div>
                                             <div class="settings-fields">
@@ -1022,7 +1072,10 @@
                                                                         }
                                                                     </div>
                                                                     <div class="d-flex align-items-center gap-3">
-                                                                        <div class="line-total-display">@CalculateLineTotal(line).ToString("N2")</div>
+                                                                        <div class="line-total-display" style="text-align:right; line-height:1.3;">
+                                                                            <div>@CalculateLineTotalInclVat(line).ToString("N2")</div>
+                                                                            <div style="font-size:.7rem; color:#6b7280; font-weight:400;">excl. VAT: @CalculateLineTotal(line).ToString("N2")</div>
+                                                                        </div>
                                                                         <MudButton Class="line-remove" OnClick="() => RemoveLine(index)"
                                                                                    title="Remove line">
                                                                             <i class="bi bi-x"></i>
@@ -1056,7 +1109,7 @@
                                                                                                 var isCustomerPrice =
                                                                                                 customerPriceListPrices.ContainsKey(product.ItemCode ?? "");
                                                                                                 <div class="dropdown-item @(isSelected ? "selected" : "")"
-                                                                                                     @onmousedown="() => SelectProduct(index, product)">
+                                                                                                     @onmousedown="async () => await SelectProduct(index, product)">
                                                                                                     <div class="d-flex justify-content-between align-items-center">
                                                                                                         <div>
                                                                                                             <div style="font-weight:600; font-size:.85rem;">
@@ -1137,217 +1190,333 @@
                                                                                         </div>
                                                                                         <div class="col-6 col-md-2">
                                                                                             <div class="field-group">
-                                                                                                <label class="field-label">Unit Price</label>
-                                                                                                <input type="text" class="form-control form-control-line"
-                                                                                                       value="@((line.UnitPrice ?? 0).ToString("N2"))" readonly
-                                                                                                       style="background-color:#f3f4f6; cursor:default;" />
+                                                                                                <label class="field-label">Unit Price <span
+                                                                                                    style="color:#ef4444;">*</span></label>
+                                                                                                    <input type="number"
+                                                                                                           class="form-control form-control-line @(lineErrors.ContainsKey("UnitPrice") ? "validation-error" : "")"
+                                                                                                           value="@(line.UnitPrice ?? 0)"
+                                                                                                           @onchange="(e) => OnUnitPriceChange(index, e.Value?.ToString())" min="0"
+                                                                                                           step="0.01" placeholder="0.00" />
+                                                                                                    @if (line.UnitPrice.HasValue && line.UnitPrice.Value > 0)
+                                                                                                    {
+                                                                                                        <div style="font-size:.72rem; color:#6b7280; margin-top:.15rem;">incl. VAT: @((line.UnitPrice.Value * (1 + VatRate)).ToString("N3"))</div>
+                                                                                                    }
+                                                                                                    @if (lineErrors.ContainsKey("UnitPrice"))
+                                                                                                    {
+                                                                                                        <div style="color:#ef4444; font-size:.72rem; margin-top:.15rem;">
+                                                                                                            @lineErrors["UnitPrice"]</div>
+                                                                                                        }
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                                <div class="col-6 col-md-4">
+                                                                                                    <div class="field-group">
+                                                                                                        <label class="field-label">Batch
+                                                                                                            <span class="batch-required-badge ms-1">Auto FEFO</span>
+                                                                                                        </label>
+                                                                                                        <input type="text" class="form-control form-control-line"
+                                                                                                               value="Auto-allocated (FEFO)" readonly
+                                                                                                               style="background-color:#f3f4f6; cursor:default; color:#6b7280;" />
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                                <div class="col-12 col-md-4">
+                                                                                                    <div class="field-group">
+                                                                                                        <label class="field-label">Cost Centre</label>
+                                                                                                        <input type="text" class="form-control form-control-line"
+                                                                                                               value="@GetLineCostCentreDisplay(line)" readonly
+                                                                                                               style="background-color:#f3f4f6; cursor:default;" />
+                                                                                                    </div>
+                                                                                                </div>
                                                                                             </div>
                                                                                         </div>
-                                                                                        <div class="col-6 col-md-4">
-                                                                                            <div class="field-group">
-                                                                                                <label class="field-label">Batch
-                                                                                                    <span class="batch-required-badge ms-1">Auto FEFO</span>
-                                                                                                </label>
-                                                                                                <input type="text" class="form-control form-control-line"
-                                                                                                       value="Auto-allocated (FEFO)" readonly
-                                                                                                       style="background-color:#f3f4f6; cursor:default; color:#6b7280;" />
-                                                                                            </div>
-                                                                                        </div>
-                                                                                        <div class="col-12 col-md-4">
-                                                                                            <div class="field-group">
-                                                                                                <label class="field-label">Cost Centre</label>
-                                                                                                <input type="text" class="form-control form-control-line"
-                                                                                                       value="@GetLineCostCentreDisplay(line)" readonly
-                                                                                                       style="background-color:#f3f4f6; cursor:default;" />
-                                                                                            </div>
-                                                                                        </div>
-                                                                                    </div>
+                                                                                    }
+                                                                                </div>
+
+                                                                                <!-- Add Line Button at Bottom -->
+                                                                                <div style="text-align:center; margin-top:1.25rem;">
+                                                                                    <MudButton Class="btn-add-line" OnClick="AddLine">
+                                                                                        <i class="bi bi-plus-lg"></i>Add Another Line
+                                                                                    </MudButton>
+                                                                                </div>
+                                                                            }
+                        else
+                                                                            {
+                                                                                <div class="empty-lines-placeholder">
+                                                                                    <div class="empty-ico"><i class="bi bi-inbox"></i></div>
+                                                                                    <p>No invoice lines yet</p>
+                                                                                    <div class="empty-hint">Add your first product line to start building the invoice</div>
+                                                                                    <MudButton Class="btn-add-first" OnClick="AddLine">
+                                                                                        <i class="bi bi-plus-lg"></i>Add First Line
+                                                                                    </MudButton>
                                                                                 </div>
                                                                             }
                                                                         </div>
-
-                                                                        <!-- Add Line Button at Bottom -->
-                                                                        <div style="text-align:center; margin-top:1.25rem;">
-                                                                            <MudButton Class="btn-add-line" OnClick="AddLine">
-                                                                                <i class="bi bi-plus-lg"></i>Add Another Line
-                                                                            </MudButton>
-                                                                        </div>
-                                                                    }
-                        else
-                                                                    {
-                                                                        <div class="empty-lines-placeholder">
-                                                                            <div class="empty-ico"><i class="bi bi-inbox"></i></div>
-                                                                            <p>No invoice lines yet</p>
-                                                                            <div class="empty-hint">Add your first product line to start building the invoice</div>
-                                                                            <MudButton Class="btn-add-first" OnClick="AddLine">
-                                                                                <i class="bi bi-plus-lg"></i>Add First Line
-                                                                            </MudButton>
-                                                                        </div>
-                                                                    }
+                                                                    </div>
                                                                 </div>
-                                                            </div>
-                                                        </div>
 
-                                                        <!-- ━━━ Right Column: Summary Sidebar ━━━ -->
-                                                        <div class="col-lg-4">
-                                                            <div class="summary-section">
-                                                                <div class="summary-card">
+                                                                <!-- ━━━ Right Column: Summary Sidebar ━━━ -->
+                                                                <div class="col-lg-4">
+                                                                    <div class="summary-section">
+                                                                        <div class="summary-card">
 
-                                                                    <!-- Validation Checklist -->
-                                                                    <div class="summary-hdr">
-                                                                        <i class="bi bi-shield-check" style="color:#2563eb;"></i>
-                                                                        <h6>Validation Checklist</h6>
-                                                                    </div>
-                                                                    <div style="padding:.85rem 1.15rem; border-bottom:1px solid #f3f4f6;">
-                                                                        <ul style="list-style:none; padding:0; margin:0; font-size:.85rem;">
-                                                                            <li style="display:flex; align-items:center; gap:.5rem; padding:.25rem 0;">
-                                                                                <span
-                                                                                    style="width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:.7rem; @(selectedBusinessPartner != null ? "background:#d1fae5; color:#059669;" : "background:#fef2f2; color:#ef4444;")">
-                                                                                    <i class="bi @(selectedBusinessPartner != null ? "bi-check" : "bi-x")"></i>
-                                                                                </span>
-                                                                                Customer selected
-                                                                            </li>
-                                                                            <li style="display:flex; align-items:center; gap:.5rem; padding:.25rem 0;">
-                                                                                <span
-                                                                                    style="width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:.7rem; @(invoice.Lines.Any() ? "background:#d1fae5; color:#059669;" : "background:#fef2f2; color:#ef4444;")">
-                                                                                    <i class="bi @(invoice.Lines.Any() ? "bi-check" : "bi-x")"></i>
-                                                                                </span>
-                                                                                Line items added
-                                                                            </li>
-                                                                            <li style="display:flex; align-items:center; gap:.5rem; padding:.25rem 0;">
-                                                                                <span
-                                                                                    style="width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:.7rem; @(invoice.Lines.All(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0) && invoice.Lines.Any() ? "background:#d1fae5; color:#059669;" : "background:#fef2f2; color:#ef4444;")">
-                                                                                    <i
-                                                                                    class="bi @(invoice.Lines.All(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0) && invoice.Lines.Any() ? "bi-check" : "bi-x")"></i>
-                                                                                </span>
-                                                                                All lines complete
-                                                                            </li>
-                                                                        </ul>
-                                                                    </div>
-
-                                                                    <!-- Summary -->
-                                                                    <div class="summary-hdr" style="border-bottom:none;">
-                                                                        <i class="bi bi-calculator" style="color:#2563eb;"></i>
-                                                                        <h6>Invoice Summary</h6>
-                                                                    </div>
-                                                                    <div class="summary-body" style="padding-top:0;">
-                                                                        <div class="sum-line">
-                                                                            <span class="sum-label"><i class="bi bi-list-ul me-1"
-                                                                                                           style="color:#2563eb;"></i>Lines</span>
-                                                                                <span class="sum-value">@invoice.Lines.Count</span>
+                                                                            <!-- Validation Checklist -->
+                                                                            <div class="summary-hdr">
+                                                                                <i class="bi bi-shield-check" style="color:#2563eb;"></i>
+                                                                                <h6>Validation Checklist</h6>
                                                                             </div>
-                                                                            <div class="sum-line">
-                                                                                <span class="sum-label"><i class="bi bi-cash me-1"
-                                                                                                               style="color:#059669;"></i>Subtotal</span>
-                                                                                    <span class="sum-value">@CalculateSubtotal().ToString("N2")</span>
-                                                                                </div>
-                                                                                <hr class="sum-divider" />
-                                                                                <div class="sum-total">
-                                                                                    <span class="total-label">Total</span>
-                                                                                    <div style="text-align:right;">
-                                                                                        <span class="total-value">@CalculateTotal().ToString("N2")</span>
-                                                                                        <div style="font-size:.75rem; color:#6b7280;">@invoice.DocCurrency</div>
+                                                                            <div style="padding:.85rem 1.15rem; border-bottom:1px solid #f3f4f6;">
+                                                                                <ul style="list-style:none; padding:0; margin:0; font-size:.85rem;">
+                                                                                    <li style="display:flex; align-items:center; gap:.5rem; padding:.25rem 0;">
+                                                                                        <span
+                                                                                            style="width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:.7rem; @(selectedBusinessPartner != null ? "background:#d1fae5; color:#059669;" : "background:#fef2f2; color:#ef4444;")">
+                                                                                            <i class="bi @(selectedBusinessPartner != null ? "bi-check" : "bi-x")"></i>
+                                                                                        </span>
+                                                                                        Customer selected
+                                                                                    </li>
+                                                                                    <li style="display:flex; align-items:center; gap:.5rem; padding:.25rem 0;">
+                                                                                        <span
+                                                                                            style="width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:.7rem; @(invoice.Lines.Any() ? "background:#d1fae5; color:#059669;" : "background:#fef2f2; color:#ef4444;")">
+                                                                                            <i class="bi @(invoice.Lines.Any() ? "bi-check" : "bi-x")"></i>
+                                                                                        </span>
+                                                                                        Line items added
+                                                                                    </li>
+                                                                                    <li style="display:flex; align-items:center; gap:.5rem; padding:.25rem 0;">
+                                                                                        <span
+                                                                                            style="width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:.7rem; @(invoice.Lines.All(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0) && invoice.Lines.Any() ? "background:#d1fae5; color:#059669;" : "background:#fef2f2; color:#ef4444;")">
+                                                                                            <i
+                                                                                            class="bi @(invoice.Lines.All(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0) && invoice.Lines.Any() ? "bi-check" : "bi-x")"></i>
+                                                                                        </span>
+                                                                                        All lines complete
+                                                                                    </li>
+                                                                                </ul>
+                                                                            </div>
+
+                                                                            <!-- Summary -->
+                                                                            <div class="summary-hdr" style="border-bottom:none;">
+                                                                                <i class="bi bi-calculator" style="color:#2563eb;"></i>
+                                                                                <h6>Invoice Summary</h6>
+                                                                            </div>
+                                                                            <div class="summary-body" style="padding-top:0;">
+                                                                                <div class="sum-line">
+                                                                                    <span class="sum-label"><i class="bi bi-list-ul me-1"
+                                                                                                                   style="color:#2563eb;"></i>Lines</span>
+                                                                                        <span class="sum-value">@invoice.Lines.Count</span>
                                                                                     </div>
-                                                                                </div>
-                                                                            </div>
-
-                                                                            <!-- Actions -->
-                                                                            <div style="padding:0 1.15rem 1.15rem;">
-                                                                                <div style="display:flex; align-items:center; gap:.5rem; margin-bottom:.75rem;">
-                                                                                    <input type="checkbox" id="notifyCustomerEmail" @bind="notifyCustomerByEmail"
-                                                                                           style="accent-color:#2563eb;" />
-                                                                                    <label for="notifyCustomerEmail"
-                                                                                           style="font-size:.85rem; color:#374151; margin:0; cursor:pointer;">
-                                                                                        Email customer notification
-                                                                                    </label>
-                                                                                </div>
-
-                                                                                <MudButton Class="btn-execute" OnClick="SubmitInvoice" Disabled="@isSubmitting">
-                                                                                    @if (isSubmitting)
-                                                                                    {
-                                                                                        <span class="spinner-border spinner-border-sm"></span>
-                                                                                        <span>Creating…</span>
-                                                                                    }
-                                                                                    else
-                                                                                    {
-                                                                                        <i class="bi bi-check-circle-fill"></i>
-                                                                                        <span>Create Invoice</span>
-                                                                                    }
-                                                                                </MudButton>
-                                                                                <MudButton Class="btn-secondary-action" OnClick="ClearForm" Disabled="@isSubmitting">
-                                                                                    <i class="bi bi-arrow-counterclockwise"></i> Clear Form
-                                                                                </MudButton>
-
-                                                                                <!-- Validation Errors -->
-                                                                                @if (validationErrors.Any() || lineValidationErrors.Any())
-                                                                                {
-                                                                                    <div
-                                                                                        style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:.65rem .85rem; margin-bottom:.75rem;">
-                                                                                        <div style="font-size:.78rem; font-weight:600; color:#991b1b; margin-bottom:.35rem;">
-                                                                                            <i class="bi bi-exclamation-triangle me-1"></i>Please fix the following:
+                                                                                    <div class="sum-line">
+                                                                                        <span class="sum-label"><i class="bi bi-cash me-1"
+                                                                                                                       style="color:#059669;"></i>Subtotal (excl. VAT)</span>
+                                                                                            <span class="sum-value">@CalculateSubtotal().ToString("N2")</span>
                                                                                         </div>
-                                                                                        <ul style="list-style:none; padding:0; margin:0; font-size:.78rem; color:#991b1b;">
-                                                                                            @foreach (var error in validationErrors.Values)
-                                                                                            {
-                                                                                                <li><i class="bi bi-dot"></i>@error</li>
-                                                                                            }
-                                                                                            @foreach (var lineError in lineValidationErrors)
-                                                                                            {
-                                                                                                foreach (var error in lineError.Value.Values)
-                                                                                                {
-                                                                                                    <li><i class="bi bi-dot"></i>Line @(lineError.Key + 1): @error</li>
-                                                                                                }
-                                                                                            }
-                                                                                        </ul>
-                                                                                    </div>
-                                                                                }
-
-                                                                                <div class="info-hint">
-                                                                                    <i class="bi bi-info-circle" style="flex-shrink:0; margin-top:1px;"></i>
-                                                                                    <span>Invoices are posted directly to SAP Business One. Ensure all details are correct
-                                                                                        before submitting.</span>
-                                                                                    </div>
-                                                                                </div>
-                                                                            </div>
-
-                                                                            <!-- Data Status Card -->
-                                                                            <div class="summary-card" style="margin-top:1rem;">
-                                                                                <div class="summary-hdr">
-                                                                                    <i class="bi bi-database" style="color:#6b7280;"></i>
-                                                                                    <h6 style="font-size:.85rem; color:#6b7280;">Cached Data Status</h6>
-                                                                                </div>
-                                                                                <div style="padding:.65rem 1.15rem;">
-                                                                                    <div class="row g-1">
-                                                                                        <div class="col-6">
-                                                                                            <div class="ds-item"><i class="bi bi-people"
-                                                                                                                        style="color:#2563eb;"></i>@allBusinessPartners.Count customers</div>
+                                                                                        <div class="sum-line">
+                                                                                            <span class="sum-label"><i class="bi bi-percent me-1"
+                                                                                                                           style="color:#f59e0b;"></i>VAT (15.5%)</span>
+                                                                                                <span class="sum-value">@CalculateVatAmount().ToString("N2")</span>
                                                                                             </div>
-                                                                                            <div class="col-6">
-                                                                                                <div class="ds-item"><i class="bi bi-box"
-                                                                                                                            style="color:#059669;"></i>@cachedProducts.Count products</div>
+                                                                                        <hr class="sum-divider" />
+                                                                                        <div class="sum-total">
+                                                                                            <span class="total-label">Total (incl. VAT)</span>
+                                                                                            <div style="text-align:right;">
+                                                                                                <span class="total-value">@CalculateTotalInclVat().ToString("N2")</span>
+                                                                                                <div style="font-size:.75rem; color:#6b7280;">@invoice.DocCurrency</div>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </div>
+
+                                                                                    <!-- Actions -->
+                                                                                    <div style="padding:0 1.15rem 1.15rem;">
+                                                                                        <div style="display:flex; align-items:center; gap:.5rem; margin-bottom:.75rem;">
+                                                                                            <input type="checkbox" id="notifyCustomerEmail" @bind="notifyCustomerByEmail"
+                                                                                                   style="accent-color:#2563eb;" />
+                                                                                            <label for="notifyCustomerEmail"
+                                                                                                   style="font-size:.85rem; color:#374151; margin:0; cursor:pointer;">
+                                                                                                Email customer notification
+                                                                                            </label>
+                                                                                        </div>
+
+                                                                                        <MudButton Class="btn-execute" OnClick="SubmitInvoice" Disabled="@isSubmitting">
+                                                                                            @if (isSubmitting)
+                                                                                            {
+                                                                                                <span class="spinner-border spinner-border-sm"></span>
+                                                                                                <span>Creating…</span>
+                                                                                            }
+                                                                                            else
+                                                                                            {
+                                                                                                <i class="bi bi-check-circle-fill"></i>
+                                                                                                <span>Create Invoice</span>
+                                                                                            }
+                                                                                        </MudButton>
+                                                                                        <MudButton Class="btn-secondary-action" OnClick="ClearForm" Disabled="@isSubmitting">
+                                                                                            <i class="bi bi-arrow-counterclockwise"></i> Clear Form
+                                                                                        </MudButton>
+
+                                                                                        <!-- Validation Errors -->
+                                                                                        @if (validationErrors.Any() || lineValidationErrors.Any())
+                                                                                        {
+                                                                                            <div
+                                                                                                style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:.65rem .85rem; margin-bottom:.75rem;">
+                                                                                                <div style="font-size:.78rem; font-weight:600; color:#991b1b; margin-bottom:.35rem;">
+                                                                                                    <i class="bi bi-exclamation-triangle me-1"></i>Please fix the following:
                                                                                                 </div>
+                                                                                                <ul style="list-style:none; padding:0; margin:0; font-size:.78rem; color:#991b1b;">
+                                                                                                    @foreach (var error in validationErrors.Values)
+                                                                                                    {
+                                                                                                        <li><i class="bi bi-dot"></i>@error</li>
+                                                                                                    }
+                                                                                                    @foreach (var lineError in lineValidationErrors)
+                                                                                                    {
+                                                                                                        foreach (var error in lineError.Value.Values)
+                                                                                                        {
+                                                                                                            <li><i class="bi bi-dot"></i>Line @(lineError.Key + 1): @error</li>
+                                                                                                        }
+                                                                                                    }
+                                                                                                </ul>
+                                                                                            </div>
+                                                                                        }
+
+                                                                                        <div class="info-hint">
+                                                                                            <i class="bi bi-info-circle" style="flex-shrink:0; margin-top:1px;"></i>
+                                                                                            <span>Invoices are posted directly to SAP Business One. Ensure all details are correct
+                                                                                                before submitting.</span>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </div>
+
+                                                                                    <!-- Data Status Card -->
+                                                                                    <div class="summary-card" style="margin-top:1rem;">
+                                                                                        <div class="summary-hdr">
+                                                                                            <i class="bi bi-database" style="color:#6b7280;"></i>
+                                                                                            <h6 style="font-size:.85rem; color:#6b7280;">Cached Data Status</h6>
+                                                                                        </div>
+                                                                                        <div style="padding:.65rem 1.15rem;">
+                                                                                            <div class="row g-1">
                                                                                                 <div class="col-6">
-                                                                                                    <div class="ds-item"><i class="bi bi-building"
-                                                                                                                                style="color:#0ea5e9;"></i>@cachedWarehouses.Count warehouses</div>
+                                                                                                    <div class="ds-item"><i class="bi bi-people"
+                                                                                                                                style="color:#2563eb;"></i>@allBusinessPartners.Count customers</div>
                                                                                                     </div>
                                                                                                     <div class="col-6">
-                                                                                                        <div class="ds-item"><i class="bi bi-diagram-3"
-                                                                                                                                    style="color:#d97706;"></i>@cachedCostCentres.Count cost centres</div>
+                                                                                                        <div class="ds-item"><i class="bi bi-box"
+                                                                                                                                    style="color:#059669;"></i>@cachedProducts.Count products</div>
+                                                                                                        </div>
+                                                                                                        <div class="col-6">
+                                                                                                            <div class="ds-item"><i class="bi bi-building"
+                                                                                                                                        style="color:#0ea5e9;"></i>@cachedWarehouses.Count warehouses</div>
+                                                                                                            </div>
+                                                                                                            <div class="col-6">
+                                                                                                                <div class="ds-item"><i class="bi bi-diagram-3"
+                                                                                                                                            style="color:#d97706;"></i>@cachedCostCentres.Count cost centres</div>
+                                                                                                                </div>
+                                                                                                            </div>
+                                                                                                            @if (lastCacheRefresh.HasValue)
+                                                                                                            {
+                                                                                                                <div style="font-size:.75rem; color:#9ca3af; margin-top:.35rem;">
+                                                                                                                    <i class="bi bi-clock me-1"></i>Last sync: @lastCacheRefresh.Value.ToString("HH:mm:ss")
+                                                                                                                </div>
+                                                                                                            }
                                                                                                         </div>
                                                                                                     </div>
-                                                                                                    @if (lastCacheRefresh.HasValue)
-                                                                                                    {
-                                                                                                        <div style="font-size:.75rem; color:#9ca3af; margin-top:.35rem;">
-                                                                                                            <i class="bi bi-clock me-1"></i>Last sync: @lastCacheRefresh.Value.ToString("HH:mm:ss")
-                                                                                                        </div>
-                                                                                                    }
                                                                                                 </div>
                                                                                             </div>
                                                                                         </div>
                                                                                     </div>
                                                                                 </div>
-                                                                            </div>
-                                                                        </div>
+
+                                                                                <!-- ── Print Dialog ── -->
+                                                                                <MudDialog @bind-Visible="showPrintDialog"
+                                                                                           Options="new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true }">
+                                                                                    <TitleContent>
+                                                                                        <div style="display:flex; align-items:center; gap:.6rem;">
+                                                                                            <i class="bi bi-printer-fill" style="font-size:1.2rem; color:#2563eb;"></i>
+                                                                                            <MudText Typo="Typo.h6" Style="font-weight:600;">Print Invoice #@(lastCreatedInvoice?.DocNum)</MudText>
+                                                                                        </div>
+                                                                                    </TitleContent>
+                                                                                    <DialogContent>
+                                                                                        <div style="padding:.5rem 0;">
+                                                                                            <!-- Printer Selection -->
+                                                                                            <div class="field-group" style="margin-bottom:1rem;">
+                                                                                                <label class="field-label">Printer</label>
+                                                                                                @if (savedPrinters.Any())
+                                                                                                {
+                                                                                                    <select class="form-select-line w-100" @bind="selectedPrinterName">
+                                                                                                        <option value="">System Default</option>
+                                                                                                        @foreach (var printer in savedPrinters)
+                                                                                                        {
+                                                                                                            <option value="@printer">@printer</option>
+                                                                                                        }
+                                                                                                    </select>
+                                                                                                    <div style="font-size:.75rem; color:#6b7280; margin-top:.25rem;">
+                                                                                                        <i class="bi bi-info-circle me-1"></i>Select your printer, then confirm in the browser print dialog.
+                                                                                                    </div>
+                                                                                                }
+                                                                                                else
+                                                                                                {
+                                                                                                    <div style="font-size:.85rem; color:#6b7280; padding:.5rem; background:#f9fafb; border-radius:8px;">
+                                                                                                        No saved printers. Add one below or use the browser print dialog to choose.
+                                                                                                    </div>
+                                                                                                }
+                                                                                            </div>
+
+                                                                                            <!-- Add New Printer -->
+                                                                                            <div class="field-group" style="margin-bottom:1rem;">
+                                                                                                <label class="field-label">Add Printer</label>
+                                                                                                <div style="display:flex; gap:.4rem;">
+                                                                                                    <select class="form-select-line flex-grow-1" @bind="newPrinterName">
+                                                                                                        <option value="">-- Select a printer to add --</option>
+                                                                                                        @foreach (var printer in installedPrinters.Where(p => !savedPrinters.Contains(p)))
+                                                                                                        {
+                                                                                                            <option value="@printer">@printer</option>
+                                                                                                        }
+                                                                                                    </select>
+                                                                                                    <button class="btn-add-line" @onclick="AddPrinter"
+                                                                                                            disabled="@string.IsNullOrWhiteSpace(newPrinterName)">
+                                                                                                        <i class="bi bi-plus-lg"></i> Add
+                                                                                                    </button>
+                                                                                                </div>
+                                                                                            </div>
+
+                                                                                            @if (savedPrinters.Any())
+                                                                                            {
+                                                                                                <div class="field-group" style="margin-bottom:1rem;">
+                                                                                                    <label class="field-label">Saved Printers</label>
+                                                                                                    <div style="display:flex; flex-wrap:wrap; gap:.4rem;">
+                                                                                                        @foreach (var printer in savedPrinters)
+                                                                                                        {
+                                                                                                            <span
+                                                                                                                style="display:inline-flex; align-items:center; gap:.3rem; background:#f0f9ff; border:1px solid #bae6fd; border-radius:20px; padding:.2rem .6rem .2rem .75rem; font-size:.8rem; color:#0c4a6e;">
+                                                                                                                @printer
+                                                                                                                <button
+                                                                                                                    style="background:none; border:none; color:#dc2626; cursor:pointer; padding:0 .15rem; font-size:.9rem; line-height:1;"
+                                                                                                                    @onclick="() => RemovePrinter(printer)" title="Remove">
+                                                                                                                    &times;
+                                                                                                                </button>
+                                                                                                            </span>
+                                                                                                        }
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            }
+
+                                                                                            <!-- Copies -->
+                                                                                            <div class="field-group" style="margin-bottom:.5rem;">
+                                                                                                <label class="field-label">Number of Copies</label>
+                                                                                                <input type="number" class="form-control-line" style="width:100px;" min="1" max="10"
+                                                                                                       @bind="printCopies" />
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </DialogContent>
+                                                                                    <DialogActions>
+                                                                                        <MudButton OnClick="DownloadInvoicePdf" Disabled="@isPrinting" StartIcon="@Icons.Material.Filled.Download"
+                                                                                                   Variant="Variant.Text">
+                                                                                            Download PDF
+                                                                                        </MudButton>
+                                                                                        <MudButton OnClick="() => showPrintDialog = false" Variant="Variant.Text">Cancel</MudButton>
+                                                                                        <MudButton OnClick="ExecutePrint" Disabled="@isPrinting" Color="Color.Primary" Variant="Variant.Filled"
+                                                                                                   StartIcon="@Icons.Material.Filled.Print">
+                                                                                            @if (isPrinting)
+                                                                                            {
+                                                                                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                                                                            }
+                                                                                            Print
+                                                                                        </MudButton>
+                                                                                    </DialogActions>
+                                                                                </MudDialog>
 
 @code {
     private CreateInvoiceRequest invoice = new()
@@ -1359,10 +1528,23 @@
     private string? successMessage;
     private string? errorMessage;
     private bool isSubmitting = false;
+    private bool isPrinting = false;
     private bool notifyCustomerByEmail = true;
+    private InvoiceDto? lastCreatedInvoice;
+
+    // Print dialog state
+    private bool showPrintDialog = false;
+    private List<string> savedPrinters = new();
+    private List<string> installedPrinters = new();
+    private string selectedPrinterName = "";
+    private string newPrinterName = "";
+    private int printCopies = 1;
     private string? warehouseCode = "01";
     private string? defaultCostCentre;
     private CostCentreDto? selectedDefaultCostCentre;
+
+    // VAT rate (15.5%)
+    private const decimal VatRate = 0.155m;
 
     // Loading states
 
@@ -1426,6 +1608,12 @@
         if (firstRender && !_hasInitialized)
         {
             _hasInitialized = true;
+
+            // Apply default currency from settings
+            if (invoice.DocCurrency == "USD" && AppSettings.DefaultCurrency != "USD")
+            {
+                invoice.DocCurrency = AppSettings.DefaultCurrency;
+            }
 
             try
             {
@@ -1733,7 +1921,7 @@
         StateHasChanged();
     }
 
-    private void OnItemCodeKeyDown(int index, KeyboardEventArgs e)
+    private async Task OnItemCodeKeyDown(int index, KeyboardEventArgs e)
     {
         var state = GetLineState(index);
 
@@ -1741,7 +1929,7 @@
         {
             if (e.Key == "Tab" || !string.IsNullOrEmpty(state.SuggestionSuffix))
             {
-                SelectProduct(index, state.SuggestedProduct);
+                await SelectProduct(index, state.SuggestedProduct);
             }
         }
         else if (e.Key == "ArrowDown" && state.ShowProductDropdown && state.FilteredProducts.Any())
@@ -1790,7 +1978,7 @@
         }
         else if (e.Key == "Enter" && state.SuggestedProduct != null)
         {
-            SelectProduct(index, state.SuggestedProduct);
+            await SelectProduct(index, state.SuggestedProduct);
         }
         else if (e.Key == "Escape")
         {
@@ -1851,7 +2039,28 @@
         StateHasChanged();
     }
 
-    private void SelectProduct(int index, ProductDto product)
+    private void OnUnitPriceChange(int index, string? value)
+    {
+        var line = invoice.Lines[index];
+
+        if (decimal.TryParse(value, out var price))
+        {
+            if (price < 0)
+            {
+                price = 0;
+                errorMessage = "Unit price cannot be negative. Value has been reset to 0.";
+            }
+            line.UnitPrice = price;
+        }
+        else
+        {
+            line.UnitPrice = 0;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task SelectProduct(int index, ProductDto product)
     {
         var line = invoice.Lines[index];
         line.ItemCode = product.ItemCode ?? string.Empty;
@@ -1860,7 +2069,27 @@
         // Use price from customer's price list if available, otherwise use default product price
         line.UnitPrice = GetPriceForItem(product.ItemCode, product.Price);
 
-        line.WarehouseCode = !string.IsNullOrEmpty(warehouseCode) ? warehouseCode : (product.DefaultWarehouse ?? "01");
+        // If price is still 0, fetch from the price API
+        if (line.UnitPrice == 0 && !string.IsNullOrEmpty(product.ItemCode))
+        {
+            try
+            {
+                var priceInfo = await PriceService.GetPriceByItemCodeAsync(product.ItemCode);
+                if (priceInfo != null)
+                {
+                    var currency = invoice.DocCurrency ?? AppSettings.DefaultCurrency;
+                    line.UnitPrice = currency.Equals("USD", StringComparison.OrdinalIgnoreCase)
+                        ? priceInfo.UsdPrice ?? 0
+                        : priceInfo.ZigPrice ?? priceInfo.UsdPrice ?? 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to fetch price for item {ItemCode}", product.ItemCode);
+            }
+        }
+
+        line.WarehouseCode = !string.IsNullOrEmpty(warehouseCode) ? warehouseCode : (product.DefaultWarehouse ?? AppSettings.DefaultWarehouse);
 
         // Apply default cost centre if set
         if (!string.IsNullOrEmpty(defaultCostCentre))
@@ -1898,10 +2127,10 @@
         // Clear validation error
         validationErrors.Remove("Customer");
 
-        // Load prices from customer's price list if available
-        if (bp.PriceListNum.HasValue && bp.PriceListNum.Value > 0)
+        // Load prices from customer's assigned price list via business partner endpoint
+        if (!string.IsNullOrEmpty(bp.CardCode))
         {
-            await LoadCustomerPriceList(bp.PriceListNum.Value);
+            await LoadBusinessPartnerPrices(bp.CardCode);
         }
         else
         {
@@ -1909,11 +2138,14 @@
             customerPriceListPrices.Clear();
             customerPriceListNum = null;
         }
+
+        // Update prices on any existing lines to reflect the customer's price list
+        UpdateExistingLinePrices();
     }
 
-    private void SelectBusinessPartner(BusinessPartnerDto bp)
+    private async Task SelectBusinessPartner(BusinessPartnerDto bp)
     {
-        _ = SelectBusinessPartnerAsync(bp);
+        await SelectBusinessPartnerAsync(bp);
     }
 
     private void ClearSelectedBP()
@@ -1925,6 +2157,19 @@
         customerPriceListNum = null;
     }
 
+    private void UpdateExistingLinePrices()
+    {
+        foreach (var line in invoice.Lines)
+        {
+            if (!string.IsNullOrEmpty(line.ItemCode))
+            {
+                var product = cachedProducts.FirstOrDefault(p => p.ItemCode == line.ItemCode);
+                var defaultPrice = product?.Price ?? line.UnitPrice ?? 0;
+                line.UnitPrice = GetPriceForItem(line.ItemCode, defaultPrice);
+            }
+        }
+    }
+
     private async Task LoadCustomerPriceList(int priceListNum)
     {
         isLoadingCustomerPrices = true;
@@ -1934,6 +2179,18 @@
         {
             Logger.LogInformation("Loading prices from customer price list {PriceListNum}", priceListNum);
 
+            // Check in-memory cache first (shared across circuits)
+            var cachedPrices = await CacheService.GetPricesByPriceListAsync(priceListNum);
+            if (cachedPrices.Count > 0)
+            {
+                customerPriceListPrices = new Dictionary<string, decimal>(cachedPrices);
+                customerPriceListNum = priceListNum;
+                Logger.LogInformation("Loaded {Count} prices for price list {PriceListNum} from cache",
+                cachedPrices.Count, priceListNum);
+                return;
+            }
+
+            // Cache miss — fetch from API
             var response = await PriceService.GetPricesByPriceListAsync(priceListNum);
 
             if (response?.Prices != null && response.Prices.Any())
@@ -1948,7 +2205,10 @@
                 }
                 customerPriceListNum = priceListNum;
 
-                Logger.LogInformation("Loaded {Count} prices from customer price list {PriceListNum}",
+                // Store in cache for next time
+                CacheService.StorePriceListPrices(priceListNum, new Dictionary<string, decimal>(customerPriceListPrices));
+
+                Logger.LogInformation("Loaded {Count} prices from customer price list {PriceListNum} (API) and cached",
                 customerPriceListPrices.Count, priceListNum);
             }
             else
@@ -1961,6 +2221,58 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading customer price list {PriceListNum}", priceListNum);
+            customerPriceListPrices.Clear();
+            customerPriceListNum = null;
+        }
+        finally
+        {
+            isLoadingCustomerPrices = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadBusinessPartnerPrices(string cardCode)
+    {
+        isLoadingCustomerPrices = true;
+        StateHasChanged();
+
+        try
+        {
+            Logger.LogInformation("Loading prices for business partner {CardCode}", cardCode);
+
+            var response = await PriceService.GetPricesByBusinessPartnerAsync(cardCode);
+
+            if (response?.Prices != null && response.Prices.Any())
+            {
+                customerPriceListPrices.Clear();
+                foreach (var price in response.Prices)
+                {
+                    if (!string.IsNullOrEmpty(price.ItemCode))
+                    {
+                        customerPriceListPrices[price.ItemCode] = price.Price;
+                    }
+                }
+                customerPriceListNum = response.PriceListNum;
+
+                // Store in cache for next time
+                if (response.PriceListNum > 0)
+                {
+                    CacheService.StorePriceListPrices(response.PriceListNum, new Dictionary<string, decimal>(customerPriceListPrices));
+                }
+
+                Logger.LogInformation("Loaded {Count} prices for business partner {CardCode} (price list {PriceListNum})",
+                    customerPriceListPrices.Count, cardCode, response.PriceListNum);
+            }
+            else
+            {
+                Logger.LogWarning("No prices found for business partner {CardCode}", cardCode);
+                customerPriceListPrices.Clear();
+                customerPriceListNum = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading prices for business partner {CardCode}", cardCode);
             customerPriceListPrices.Clear();
             customerPriceListNum = null;
         }
@@ -2065,6 +2377,21 @@
         return invoice.Lines.Sum(l => CalculateLineTotal(l));
     }
 
+    private decimal CalculateVatAmount()
+    {
+        return CalculateSubtotal() * VatRate;
+    }
+
+    private decimal CalculateTotalInclVat()
+    {
+        return CalculateSubtotal() * (1 + VatRate);
+    }
+
+    private decimal CalculateLineTotalInclVat(CreateInvoiceLineRequest line)
+    {
+        return CalculateLineTotal(line) * (1 + VatRate);
+    }
+
     private bool ValidateForm()
     {
         validationErrors.Clear();
@@ -2108,6 +2435,13 @@
             if (line.Quantity <= 0)
             {
                 errors["Quantity"] = "Quantity must be greater than zero";
+                isValid = false;
+            }
+
+            // Unit price validation - must be greater than zero
+            if (!line.UnitPrice.HasValue || line.UnitPrice.Value <= 0)
+            {
+                errors["UnitPrice"] = "Unit price must be greater than zero";
                 isValid = false;
             }
 
@@ -2167,18 +2501,40 @@
                 }
             }
 
-            var (success, message, createdInvoice) = await InvoiceService.CreateInvoiceAsync(invoice);
+            var (success, message, createdInvoice, fiscalization) = await InvoiceService.CreateInvoiceAsync(invoice);
 
             if (success)
             {
                 Logger.LogInformation("Invoice #{DocNum} (DocEntry: {DocEntry}) created successfully for customer {CardCode}",
                 createdInvoice?.DocNum, createdInvoice?.DocEntry, invoice.CardCode);
                 var notificationNote = await TrySendCustomerInvoiceNotificationAsync(createdInvoice);
-                successMessage = $"Invoice #{createdInvoice?.DocNum} created successfully!";
+
+                // Build success message with fiscalisation status
+                if (fiscalization != null && fiscalization.Success)
+                {
+                    successMessage = $"Invoice #{createdInvoice?.DocNum} created and fiscalised successfully! Receipt: {fiscalization.ReceiptGlobalNo}";
+                }
+                else if (fiscalization != null && fiscalization.Skipped)
+                {
+                    successMessage = $"Invoice #{createdInvoice?.DocNum} created successfully! (Fiscalisation skipped)";
+                }
+                else if (fiscalization != null && !fiscalization.Success)
+                {
+                    successMessage = $"Invoice #{createdInvoice?.DocNum} created successfully!";
+                    errorMessage = $"Fiscalisation failed: {fiscalization.Message ?? "Unknown error"}. The invoice was posted to SAP but not fiscalised.";
+                }
+                else
+                {
+                    successMessage = $"Invoice #{createdInvoice?.DocNum} created successfully!";
+                }
+
                 if (!string.IsNullOrWhiteSpace(notificationNote))
                 {
                     successMessage = $"{successMessage} {notificationNote}";
                 }
+
+                // Store reference for manual print button
+                lastCreatedInvoice = createdInvoice;
 
                 // Auto-print invoice PDF if enabled in settings
                 await TryAutoPrintInvoiceAsync(createdInvoice);
@@ -2304,11 +2660,167 @@
         }
     }
 
+    private void DismissSuccess()
+    {
+        successMessage = null;
+        lastCreatedInvoice = null;
+    }
+
+    private async Task OpenPrintDialog()
+    {
+        if (lastCreatedInvoice == null)
+            return;
+
+        // Load saved printers and default copies from settings
+        try
+        {
+            installedPrinters = PrinterService.GetInstalledPrinters();
+
+            var savedPrintersJson = await AppSettingsService.GetValueAsync<string>(SettingKeys.SavedPrinters);
+            if (!string.IsNullOrWhiteSpace(savedPrintersJson))
+            {
+                savedPrinters = System.Text.Json.JsonSerializer.Deserialize<List<string>>(savedPrintersJson) ?? new();
+            }
+
+            var defaultPrinter = await AppSettingsService.GetValueAsync<string>(SettingKeys.PrinterName);
+            selectedPrinterName = !string.IsNullOrWhiteSpace(defaultPrinter) && savedPrinters.Contains(defaultPrinter)
+            ? defaultPrinter
+            : "";
+
+            printCopies = await AppSettingsService.GetValueAsync<int>(SettingKeys.PrintCopies);
+            if (printCopies < 1) printCopies = 1;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Error loading printer settings");
+            savedPrinters = new();
+            printCopies = 1;
+        }
+
+        newPrinterName = "";
+        showPrintDialog = true;
+    }
+
+    private async Task AddPrinter()
+    {
+        var name = newPrinterName?.Trim();
+        if (string.IsNullOrWhiteSpace(name) || savedPrinters.Contains(name))
+            return;
+
+        savedPrinters.Add(name);
+        selectedPrinterName = name;
+        newPrinterName = "";
+        await SavePrinterList();
+    }
+
+    private void OnNewPrinterKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            _ = AddPrinter();
+        }
+    }
+
+    private async Task RemovePrinter(string name)
+    {
+        savedPrinters.Remove(name);
+        if (selectedPrinterName == name)
+            selectedPrinterName = "";
+        await SavePrinterList();
+    }
+
+    private async Task SavePrinterList()
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(savedPrinters);
+            await AppSettingsService.SaveSettingAsync(SettingKeys.SavedPrinters, json);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Error saving printer list");
+        }
+    }
+
+    private async Task ExecutePrint()
+    {
+        if (lastCreatedInvoice == null || isPrinting)
+            return;
+
+        isPrinting = true;
+        try
+        {
+            // Save selected printer as default
+            if (!string.IsNullOrWhiteSpace(selectedPrinterName))
+            {
+                await AppSettingsService.SaveSettingAsync(SettingKeys.PrinterName, selectedPrinterName);
+            }
+            await AppSettingsService.SaveSettingAsync(SettingKeys.PrintCopies, printCopies.ToString());
+
+            var pdfBytes = await InvoiceService.GetInvoicePdfAsync(lastCreatedInvoice.DocEntry);
+            if (pdfBytes == null || pdfBytes.Length == 0)
+            {
+                errorMessage = "Failed to retrieve invoice PDF for printing.";
+                return;
+            }
+
+            var base64 = Convert.ToBase64String(pdfBytes);
+            await JS.InvokeVoidAsync("printPdfFromBase64", base64, printCopies);
+
+            Logger.LogInformation("Print triggered for invoice #{DocNum} ({Copies} copies, Printer: {Printer})",
+            lastCreatedInvoice.DocNum, printCopies, selectedPrinterName ?? "System Default");
+
+            showPrintDialog = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Print failed for invoice. Error: {Message}", ex.Message);
+            errorMessage = $"Print failed: {ex.Message}";
+        }
+        finally
+        {
+            isPrinting = false;
+        }
+    }
+
+    private async Task DownloadInvoicePdf()
+    {
+        if (lastCreatedInvoice == null || isPrinting)
+            return;
+
+        isPrinting = true;
+        try
+        {
+            var pdfBytes = await InvoiceService.GetInvoicePdfAsync(lastCreatedInvoice.DocEntry);
+            if (pdfBytes == null || pdfBytes.Length == 0)
+            {
+                errorMessage = "Failed to retrieve invoice PDF.";
+                return;
+            }
+
+            var base64 = Convert.ToBase64String(pdfBytes);
+            var fileName = $"Invoice_{lastCreatedInvoice.DocNum}.pdf";
+            await JS.InvokeVoidAsync("downloadPdfFromBase64", base64, fileName);
+
+            Logger.LogInformation("PDF downloaded for invoice #{DocNum}", lastCreatedInvoice.DocNum);
+            showPrintDialog = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "PDF download failed for invoice. Error: {Message}", ex.Message);
+            errorMessage = $"Download failed: {ex.Message}";
+        }
+        finally
+        {
+            isPrinting = false;
+        }
+    }
+
     private void ClearForm()
     {
         invoice = new CreateInvoiceRequest
         {
-            DocCurrency = "USD",
+            DocCurrency = AppSettings.DefaultCurrency,
             Lines = new List<CreateInvoiceLineRequest>()
         };
         lineStates.Clear();

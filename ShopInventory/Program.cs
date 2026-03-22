@@ -154,7 +154,7 @@ builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
     options.AddPolicy("ApiAccess", policy =>
-        policy.RequireRole("Admin", "ApiUser", "User")
+        policy.RequireRole("Admin", "ApiUser", "User", "Cashier", "StockController", "DepotController", "Manager")
               .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
 });
 
@@ -289,10 +289,14 @@ builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IBusinessPartnerService, BusinessPartnerService>();
 // Register email queue service for password reset
 builder.Services.AddScoped<IEmailQueueService, EmailQueueService>();
-// Register sales order, purchase order, and credit note services
+// Register sales order, purchase order, credit note, and quotation services
 builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
 builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
 builder.Services.AddScoped<ICreditNoteService, CreditNoteService>();
+builder.Services.AddScoped<IQuotationService, QuotationService>();
+
+// Register rate limit service
+builder.Services.AddScoped<IRateLimitService, RateLimitService>();
 
 // Register backup service
 builder.Services.AddScoped<IBackupService, BackupService>();
@@ -410,6 +414,25 @@ using (var scope = app.Services.CreateScope())
         throw;
     }
 }
+
+// Global exception handler - ensures all unhandled errors return JSON, not empty responses
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        context.Response.ContentType = "application/json";
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        var exceptionFeature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        if (exceptionFeature != null)
+        {
+            logger.LogError(exceptionFeature.Error, "Unhandled exception on {Path}", context.Request.Path);
+        }
+
+        await context.Response.WriteAsJsonAsync(new { message = "An internal error occurred. Please try again." });
+    });
+});
 
 // Security middleware - order matters!
 app.UseRequestSizeLimit();   // Enforce size limits first (DoS protection)

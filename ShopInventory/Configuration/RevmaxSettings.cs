@@ -8,6 +8,11 @@ public class RevmaxSettings
     public const string SectionName = "Revmax";
 
     /// <summary>
+    /// Whether REVMax integration is enabled.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
     /// Base URL for REVMax API (e.g., http://172.16.16.201:8001)
     /// </summary>
     public string BaseUrl { get; set; } = "http://172.16.16.201:8001";

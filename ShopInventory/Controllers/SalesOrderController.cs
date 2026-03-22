@@ -102,7 +102,8 @@ public class SalesOrderController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating sales order");
-            return BadRequest(new ErrorResponseDto { Message = ex.Message });
+            var message = ex.InnerException?.Message ?? ex.Message;
+            return BadRequest(new ErrorResponseDto { Message = message });
         }
     }
 

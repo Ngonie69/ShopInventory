@@ -1,10 +1,17 @@
 @page "/payments/create"
 @using Microsoft.AspNetCore.Authorization
+@using System.Security.Claims
+@using ShopInventory.Web.Data
+@using Microsoft.EntityFrameworkCore
 @attribute [Authorize(Roles = "Admin,Cashier,DepotController")]
 @inject IPaymentService PaymentService
 @inject IBusinessPartnerService BusinessPartnerService
+@inject IAppSettingsService AppSettingsService
+@inject IDbContextFactory<WebAppDbContext> DbContextFactory
 @inject NavigationManager NavigationManager
 @inject ILogger<CreateIncomingPayment> Logger
+@inject IAppSettingsProvider AppSettings
+@inject AuthenticationStateProvider AuthStateProvider
 @rendermode InteractiveServer
 
 <PageTitle>Create Incoming Payment - Shop Inventory</PageTitle>
@@ -664,7 +671,7 @@
                                     <div class="col-md-4">
                                         <label class="field-label">Document Date</label>
                                         <MudDatePicker @bind-Date="docDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                       DateFormat="dd.MM.yyyy" Editable="true" />
+                                                       DateFormat="@AppSettings.DateFormat" Editable="true" />
                                     </div>
                                 </div>
                                 <div class="row g-3 mt-1">
@@ -683,38 +690,36 @@
                                 <div class="hdr-left">
                                     <div class="header-icon" style="background:#dbeafe; color:#2563eb;"><i
                                         class="bi bi-wallet2"></i></div>
-                                        <h6>Payment Method</h6>
+                                        <h6>Payment Method — @PaymentMethodLabel</h6>
                                     </div>
                                 </div>
                                 <div class="card-body-inner">
-                                    <div class="method-tabs">
-                                        <div class="method-tab @GetMethodTabClass("cash")"
-                                             @onclick="() => SetPaymentMethod(PaymentMethodType.Cash)">
-                                            <i class="bi bi-cash-stack tab-icon" style="color:#059669;"></i>
-                                            <span class="tab-label">Cash</span>
-                                        </div>
-                                        <div class="method-tab @GetMethodTabClass("transfer")"
-                                             @onclick="() => SetPaymentMethod(PaymentMethodType.Transfer)">
-                                            <i class="bi bi-bank tab-icon" style="color:#2563eb;"></i>
-                                            <span class="tab-label">Transfer</span>
-                                        </div>
-                                        <div class="method-tab @GetMethodTabClass("check")"
-                                             @onclick="() => SetPaymentMethod(PaymentMethodType.Check)">
-                                            <i class="bi bi-journal-check tab-icon" style="color:#d97706;"></i>
-                                            <span class="tab-label">Check</span>
-                                        </div>
-                                        <div class="method-tab @GetMethodTabClass("credit")"
-                                             @onclick="() => SetPaymentMethod(PaymentMethodType.Credit)">
-                                            <i class="bi bi-credit-card tab-icon" style="color:#7c3aed;"></i>
-                                            <span class="tab-label">Credit Card</span>
-                                        </div>
-                                    </div>
 
                                     @if (validationErrors.ContainsKey("PaymentAmount"))
                                     {
                                         <div class="alert-banner error-alert" style="margin-bottom:.75rem;">
                                             <i class="bi bi-exclamation-circle-fill"></i>
                                             <div class="alert-body">@validationErrors["PaymentAmount"]</div>
+                                        </div>
+                                    }
+
+                                    <!-- Payment Method Tabs -->
+                                    @{ var availMethods = AvailablePaymentMethods; }
+                                    @if (availMethods.Count > 1)
+                                    {
+                                        <div class="method-tabs" style="margin-bottom:1rem;">
+                                            @foreach (var methodKey in availMethods)
+                                            {
+                                                if (AllPaymentMethods.TryGetValue(methodKey, out var info))
+                                                {
+                                                    <div class="method-tab @GetMethodTabClass(methodKey)"
+                                                         @onclick="() => SetPaymentMethod(info.Type)"
+                                                         style="cursor:pointer;">
+                                                        <span class="tab-icon"><i class="bi @info.Icon"></i></span>
+                                                        <span class="tab-label">@info.Label</span>
+                                                    </div>
+                                                }
+                                            }
                                         </div>
                                     }
 
@@ -729,11 +734,6 @@
                                                     <input type="number" class="form-control" step="0.01" min="0" placeholder="0.00"
                                                            @bind="cashSum" />
                                                 </div>
-                                            </div>
-                                            <div class="col-md-6">
-                                                <label class="field-label">Cash G/L Account</label>
-                                                <input type="text" class="form-control" placeholder="e.g. 110101" @bind="cashAccount" />
-                                                <small style="color:#6b7280; font-size:.75rem;">Leave blank to use SAP default</small>
                                             </div>
                                         </div>
                                     }
@@ -758,12 +758,7 @@
                                             <div class="col-md-4">
                                                 <label class="field-label">Transfer Date</label>
                                                 <MudDatePicker @bind-Date="transferDate" Variant="Variant.Outlined"
-                                                               Margin="Margin.Dense" DateFormat="dd.MM.yyyy" Editable="true" />
-                                            </div>
-                                            <div class="col-md-6">
-                                                <label class="field-label">Transfer Account</label>
-                                                <input type="text" class="form-control" placeholder="Bank account"
-                                                       @bind="transferAccount" />
+                                                               Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat" Editable="true" />
                                             </div>
                                         </div>
                                     }
@@ -787,7 +782,7 @@
                                             <div class="col-md-4">
                                                 <label class="field-label">Due Date</label>
                                                 <MudDatePicker @bind-Date="checkDueDate" Variant="Variant.Outlined"
-                                                               Margin="Margin.Dense" DateFormat="dd.MM.yyyy" Editable="true" />
+                                                               Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat" Editable="true" />
                                             </div>
                                             <div class="col-md-4">
                                                 <label class="field-label">Bank Code</label>
@@ -1032,6 +1027,8 @@
 
     // Business partner
     private List<BusinessPartnerDto> allBusinessPartners = new();
+    private List<string> allowedPaymentBPs = new();
+    private string defaultGLAccount = "";
     private BusinessPartnerDto? selectedBusinessPartner;
     private string bpSearchTerm = "";
     private bool showBpDropdown = false;
@@ -1043,6 +1040,34 @@
     private DateTime? docDate = DateTime.Today;
     private string? remarks;
     private string activePaymentMethod = "cash";
+
+    // Current user info
+    private bool isAdmin = false;
+    private List<string> userAllowedPaymentMethods = new();
+
+    private static readonly Dictionary<string, (string Label, string Icon, PaymentMethodType Type)> AllPaymentMethods = new()
+    {
+        { "cash", ("Cash", "bi-cash-coin", PaymentMethodType.Cash) },
+        { "transfer", ("Transfer", "bi-bank", PaymentMethodType.Transfer) },
+        { "check", ("Check", "bi-card-checklist", PaymentMethodType.Check) },
+        { "credit", ("Credit Card", "bi-credit-card", PaymentMethodType.Credit) }
+    };
+
+    private List<string> AvailablePaymentMethods =>
+        isAdmin
+            ? AllPaymentMethods.Keys.ToList()
+            : userAllowedPaymentMethods.Count > 0
+                ? userAllowedPaymentMethods.Where(m => AllPaymentMethods.ContainsKey(m)).ToList()
+                : new List<string> { activePaymentMethod };
+
+    private string PaymentMethodLabel => activePaymentMethod switch
+    {
+        "cash" => "Cash",
+        "transfer" => "Transfer",
+        "check" => "Check",
+        "credit" => "Credit Card",
+        _ => "Cash"
+    };
 
     private enum PaymentMethodType { Cash, Transfer, Check, Credit }
 
@@ -1098,8 +1123,73 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Load current user info (role + payment methods)
+        await LoadCurrentUserInfo();
+        // Load payment settings (GL account + allowed BPs)
+        _ = LoadPaymentSettings();
         // Load cached business partners in the background (non-blocking)
         _ = LoadBusinessPartnersInBackground();
+    }
+
+    private async Task LoadCurrentUserInfo()
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var role = authState.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
+            isAdmin = role == "Admin";
+            userAllowedPaymentMethods = authState.User.FindAll("paymentmethod").Select(c => c.Value).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading current user info");
+        }
+    }
+
+    private async Task LoadPaymentSettings()
+    {
+        try
+        {
+            var glAccount = await AppSettingsService.GetValueAsync(SettingKeys.IncomingPaymentGLAccount);
+            defaultGLAccount = glAccount ?? "";
+
+            // Pre-fill GL account fields
+            if (!string.IsNullOrEmpty(defaultGLAccount))
+            {
+                cashAccount = defaultGLAccount;
+                transferAccount = defaultGLAccount;
+            }
+
+            // Load default payment method
+            var method = await AppSettingsService.GetValueAsync(SettingKeys.DefaultPaymentMethod);
+            if (!string.IsNullOrEmpty(method))
+            {
+                activePaymentMethod = method;
+            }
+
+            // Ensure active method is within user's allowed methods
+            var avail = AvailablePaymentMethods;
+            if (avail.Count > 0 && !avail.Contains(activePaymentMethod))
+            {
+                activePaymentMethod = avail[0];
+            }
+
+            var bpJson = await AppSettingsService.GetValueAsync(SettingKeys.AllowedPaymentBusinessPartners);
+            if (!string.IsNullOrWhiteSpace(bpJson) && bpJson != "[]")
+            {
+                try
+                {
+                    allowedPaymentBPs = System.Text.Json.JsonSerializer.Deserialize<List<string>>(bpJson) ?? new();
+                }
+                catch { allowedPaymentBPs = new(); }
+            }
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading payment settings");
+        }
     }
 
     private async Task LoadBusinessPartnersInBackground()
@@ -1119,6 +1209,14 @@
                 if (!allBusinessPartners.Any())
                     allBusinessPartners = cached.BusinessPartners;
 
+                // Filter by allowed BPs if configured
+                if (allowedPaymentBPs.Any())
+                {
+                    allBusinessPartners = allBusinessPartners
+                    .Where(bp => allowedPaymentBPs.Contains(bp.CardCode))
+                    .ToList();
+                }
+
                 bpLoadedFromCache = true;
                 isBpLoading = false;
                 await InvokeAsync(StateHasChanged);
@@ -1135,6 +1233,14 @@
 
                 if (!allBusinessPartners.Any() && response.BusinessPartners.Any())
                     allBusinessPartners = response.BusinessPartners;
+
+                // Filter by allowed BPs if configured
+                if (allowedPaymentBPs.Any())
+                {
+                    allBusinessPartners = allBusinessPartners
+                    .Where(bp => allowedPaymentBPs.Contains(bp.CardCode))
+                    .ToList();
+                }
             }
         }
         catch (Exception ex)
@@ -1356,7 +1462,14 @@ VoucherNum = creditVoucherNum
             else
             {
                 Logger.LogError("Failed to create incoming payment. Error: {Error}", message);
-                errorMessage = message;
+                if (message != null && message.Contains("controlling type account", StringComparison.OrdinalIgnoreCase))
+                {
+                    errorMessage = "The configured G/L account is a controlling account and cannot be used for payments. Please ask an admin to select a cash or bank account in Settings.";
+                }
+                else
+                {
+                    errorMessage = message;
+                }
             }
         }
         catch (HttpRequestException httpEx)
@@ -1386,14 +1499,13 @@ VoucherNum = creditVoucherNum
         bpSearchTerm = "";
         docDate = DateTime.Today;
         remarks = null;
-        activePaymentMethod = "cash";
 
         cashSum = 0;
-        cashAccount = null;
+        cashAccount = defaultGLAccount;
         transferSum = 0;
         transferReference = null;
         transferDate = null;
-        transferAccount = null;
+        transferAccount = defaultGLAccount;
 
         checkSum = 0;
         checkNumber = 0;

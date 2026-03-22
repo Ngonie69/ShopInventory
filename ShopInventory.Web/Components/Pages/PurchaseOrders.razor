@@ -3,6 +3,7 @@
 @attribute [Authorize(Roles = "Admin,Manager")]
 @inject IPurchaseOrderService PurchaseOrderService
 @inject NavigationManager NavigationManager
+@inject IAppSettingsProvider AppSettings
 @rendermode InteractiveServer
 
 <PageTitle>Purchase Orders - Shop Inventory</PageTitle>
@@ -168,6 +169,40 @@
         border-radius: 12px;
         margin-bottom: 1.25rem;
         box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .source-toggle {
+        display: flex;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .source-btn {
+        display: flex;
+        align-items: center;
+        gap: .35rem;
+        padding: .45rem .85rem;
+        border: none;
+        background: #fff;
+        font-size: .82rem;
+        font-weight: 600;
+        color: #6b7280;
+        cursor: pointer;
+        transition: all .15s;
+    }
+
+    .source-btn:first-child {
+        border-right: 1px solid #d1d5db;
+    }
+
+    .source-btn.active {
+        background: linear-gradient(135deg, #059669, #0d9488);
+        color: #fff;
+    }
+
+    .source-btn:not(.active):hover {
+        background: #f3f4f6;
     }
 
     .filter-bar .filter-field {
@@ -875,7 +910,7 @@
                     <div class="stat-icon approved"><i class="bi bi-check-circle"></i></div>
                     <div class="stat-info">
                         <div class="stat-value">@orders.Count(o => o.Status == PurchaseOrderStatus.Approved || o.Status ==
-                                                                                                            PurchaseOrderStatus.PartiallyReceived)</div>
+                                                    PurchaseOrderStatus.PartiallyReceived)</div>
                             <div class="stat-label">Approved</div>
                         </div>
                     </div>
@@ -891,6 +926,19 @@
 
             <!-- ━━━ Filter Bar ━━━ -->
             <div class="filter-bar">
+                <div class="filter-field">
+                    <label>Data Source</label>
+                    <div class="source-toggle">
+                        <button class="source-btn @(dataSource == "sap" ? "active" : "")"
+                                @onclick='() => SwitchDataSource("sap")'>
+                            <i class="bi bi-cloud-download"></i> SAP
+                        </button>
+                        <button class="source-btn @(dataSource == "local" ? "active" : "")"
+                                @onclick='() => SwitchDataSource("local")'>
+                            <i class="bi bi-database"></i> Local
+                        </button>
+                    </div>
+                </div>
                 <div class="filter-field">
                     <label>Supplier Code</label>
                     <input type="text" @bind="supplierFilter" placeholder="e.g., V001" />
@@ -908,12 +956,12 @@
                 <div class="filter-field">
                     <label>From Date</label>
                     <MudDatePicker @bind-Date="fromDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                   DateFormat="dd.MM.yyyy" Editable="true" />
+                                   DateFormat="@AppSettings.DateFormat" Editable="true" />
                 </div>
                 <div class="filter-field">
                     <label>To Date</label>
                     <MudDatePicker @bind-Date="toDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                   DateFormat="dd.MM.yyyy" Editable="true" />
+                                   DateFormat="@AppSettings.DateFormat" Editable="true" />
                 </div>
                 <div class="filter-actions-row">
                     <MudButton Class="btn-search" OnClick="ApplyFilter">
@@ -937,331 +985,332 @@
             {
                 <div class="po-table-wrap">
                     <div class="po-table-header">
-                        <h6><i class="bi bi-table"></i> Purchase Orders</h6>
-                        <span class="po-count-badge">@totalCount total</span>
-                    </div>
-                    <MudTable @ref="@_table" Items="@orders" RowsPerPage="10" Hover="true" Striped="true" Dense="true"
-                              Breakpoint="Breakpoint.Sm" Loading="@isLoading" LoadingProgressColor="Color.Primary"
-                              T="PurchaseOrderDto" Elevation="0" Style="background:transparent;">
-                        <HeaderContent>
-                            <MudTh>Order #</MudTh>
-                            <MudTh>Supplier</MudTh>
-                            <MudTh>Order Date</MudTh>
-                            <MudTh>Delivery Date</MudTh>
-                            <MudTh>Status</MudTh>
-                            <MudTh>Currency</MudTh>
-                            <MudTh Style="text-align:right">Total</MudTh>
-                            <MudTh Style="width:140px">Actions</MudTh>
-                        </HeaderContent>
-                        <RowTemplate>
-                            <MudTd DataLabel="Order #"><span class="doc-number">@context.OrderNumber</span></MudTd>
-                            <MudTd DataLabel="Supplier">
-                                <div class="supplier-info">
-                                    <span class="name">@(context.CardName ?? context.CardCode)</span>
-                                    <span class="code">@context.CardCode</span>
-                                </div>
-                            </MudTd>
-                            <MudTd DataLabel="Order Date">
-                                <span style="font-size:.85rem;color:#374151;">@context.OrderDate.ToString("dd MMM yyyy")</span>
-                            </MudTd>
-                            <MudTd DataLabel="Delivery Date">
-                                <span style="font-size:.85rem;color:#374151;">@(context.DeliveryDate?.ToString("dd MMM yyyy") ??
-                                                                                                                                        "—")</span>
-                                </MudTd>
-                                <MudTd DataLabel="Status">
-                                    <span class="status-badge @GetStatusCssClass(context.Status)">@context.StatusName</span>
-                                </MudTd>
-                                <MudTd DataLabel="Currency">
-                                    <span style="font-size:.85rem;color:#6b7280;">@context.Currency</span>
-                                </MudTd>
-                                <MudTd DataLabel="Total" Style="text-align:right">
-                                    <span class="amount-cell">@context.DocTotal.ToString("N2")</span>
-                                </MudTd>
-                                <MudTd DataLabel="Actions">
-                                    <div style="display:flex;gap:.3rem;">
-                                        <MudButton Class="action-btn view" OnClick="() => ViewOrder(context)" title="View Details">
-                                            <i class="bi bi-eye"></i>
-                                        </MudButton>
-                                        @if (context.Status == PurchaseOrderStatus.Draft)
-                                        {
-                                            <MudButton Class="action-btn edit" OnClick="() => EditOrder(context)" title="Edit">
-                                                <i class="bi bi-pencil"></i>
-                                            </MudButton>
-                                            <MudButton Class="action-btn submit" OnClick="() => SubmitForApproval(context.Id)"
-                                                       title="Submit for Approval">
-                                                <i class="bi bi-send"></i>
-                                            </MudButton>
-                                        }
-                                        @if (context.Status == PurchaseOrderStatus.Pending)
-                                        {
-                                            <MudButton Class="action-btn approve" OnClick="() => ApproveOrder(context.Id)"
-                                                       title="Approve">
-                                                <i class="bi bi-check-lg"></i>
-                                            </MudButton>
-                                        }
-                                        @if (context.Status == PurchaseOrderStatus.Approved || context.Status ==
-                                                                                                                                                    PurchaseOrderStatus.PartiallyReceived)
-                                        {
-                                            <MudButton Class="action-btn receive" OnClick="() => ShowReceiveModal(context)"
-                                                       title="Receive Goods">
-                                                <i class="bi bi-box-seam"></i>
-                                            </MudButton>
-                                        }
-                                        @if (context.Status == PurchaseOrderStatus.Draft || context.Status ==
-                                                                                                                                                    PurchaseOrderStatus.Cancelled)
-                                        {
-                                            <MudButton Class="action-btn delete" OnClick="() => DeleteOrder(context.Id)" title="Delete">
-                                                <i class="bi bi-trash3"></i>
-                                            </MudButton>
-                                        }
+                        <h6><i class="bi bi-table"></i> Purchase Orders <span
+                            style="font-size:.75rem;font-weight:500;color:#6b7280;margin-left:.5rem;">(@(dataSource == "sap" ? "SAP" : "Local"))</span></h6>
+                            <span class="po-count-badge">@totalCount total</span>
+                        </div>
+                        <MudTable @ref="@_table" Items="@orders" RowsPerPage="10" Hover="true" Striped="true" Dense="true"
+                                  Breakpoint="Breakpoint.Sm" Loading="@isLoading" LoadingProgressColor="Color.Primary"
+                                  T="PurchaseOrderDto" Elevation="0" Style="background:transparent;">
+                            <HeaderContent>
+                                <MudTh>Order #</MudTh>
+                                <MudTh>Supplier</MudTh>
+                                <MudTh>Order Date</MudTh>
+                                <MudTh>Delivery Date</MudTh>
+                                <MudTh>Status</MudTh>
+                                <MudTh>Currency</MudTh>
+                                <MudTh Style="text-align:right">Total</MudTh>
+                                <MudTh Style="width:140px">Actions</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Order #"><span class="doc-number">@context.OrderNumber</span></MudTd>
+                                <MudTd DataLabel="Supplier">
+                                    <div class="supplier-info">
+                                        <span class="name">@(context.CardName ?? context.CardCode)</span>
+                                        <span class="code">@context.CardCode</span>
                                     </div>
                                 </MudTd>
-                            </RowTemplate>
-                            <PagerContent>
-                                <MudPagination SelectedChanged="PageChanged"
-                                               Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
-                                               Class="pa-4" />
-                            </PagerContent>
-                        </MudTable>
-                    </div>
-                }
+                                <MudTd DataLabel="Order Date">
+                                    <span style="font-size:.85rem;color:#374151;">@context.OrderDate.ToString("dd MMM yyyy")</span>
+                                </MudTd>
+                                <MudTd DataLabel="Delivery Date">
+                                    <span style="font-size:.85rem;color:#374151;">@(context.DeliveryDate?.ToString("dd MMM yyyy") ??
+                                                                    "—")</span>
+                                    </MudTd>
+                                    <MudTd DataLabel="Status">
+                                        <span class="status-badge @GetStatusCssClass(context.Status)">@context.StatusName</span>
+                                    </MudTd>
+                                    <MudTd DataLabel="Currency">
+                                        <span style="font-size:.85rem;color:#6b7280;">@context.Currency</span>
+                                    </MudTd>
+                                    <MudTd DataLabel="Total" Style="text-align:right">
+                                        <span class="amount-cell">@context.DocTotal.ToString("N2")</span>
+                                    </MudTd>
+                                    <MudTd DataLabel="Actions">
+                                        <div style="display:flex;gap:.3rem;">
+                                            <MudButton Class="action-btn view" OnClick="() => ViewOrder(context)" title="View Details">
+                                                <i class="bi bi-eye"></i>
+                                            </MudButton>
+                                            @if (context.Status == PurchaseOrderStatus.Draft)
+                                            {
+                                                <MudButton Class="action-btn edit" OnClick="() => EditOrder(context)" title="Edit">
+                                                    <i class="bi bi-pencil"></i>
+                                                </MudButton>
+                                                <MudButton Class="action-btn submit" OnClick="() => SubmitForApproval(context.Id)"
+                                                           title="Submit for Approval">
+                                                    <i class="bi bi-send"></i>
+                                                </MudButton>
+                                            }
+                                            @if (context.Status == PurchaseOrderStatus.Pending)
+                                            {
+                                                <MudButton Class="action-btn approve" OnClick="() => ApproveOrder(context.Id)"
+                                                           title="Approve">
+                                                    <i class="bi bi-check-lg"></i>
+                                                </MudButton>
+                                            }
+                                            @if (context.Status == PurchaseOrderStatus.Approved || context.Status ==
+                                                                        PurchaseOrderStatus.PartiallyReceived)
+                                            {
+                                                <MudButton Class="action-btn receive" OnClick="() => ShowReceiveModal(context)"
+                                                           title="Receive Goods">
+                                                    <i class="bi bi-box-seam"></i>
+                                                </MudButton>
+                                            }
+                                            @if (context.Status == PurchaseOrderStatus.Draft || context.Status ==
+                                                                        PurchaseOrderStatus.Cancelled)
+                                            {
+                                                <MudButton Class="action-btn delete" OnClick="() => DeleteOrder(context.Id)" title="Delete">
+                                                    <i class="bi bi-trash3"></i>
+                                                </MudButton>
+                                            }
+                                        </div>
+                                    </MudTd>
+                                </RowTemplate>
+                                <PagerContent>
+                                    <MudPagination SelectedChanged="PageChanged"
+                                                   Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
+                                                   Class="pa-4" />
+                                </PagerContent>
+                            </MudTable>
+                        </div>
+                    }
         else
-                {
-                    <div class="empty-state">
-                        <div class="empty-icon"><i class="bi bi-bag-x"></i></div>
-                        <h6>No purchase orders found</h6>
-                        <p>Create a new purchase order or adjust your filters to find existing ones.</p>
-                        <a class="btn-po-gradient" href="/purchase-orders/create" style="margin-top:1rem;display:inline-flex;">
-                            <i class="bi bi-plus-lg"></i> Create Purchase Order
-                        </a>
-                    </div>
-                }
-            </div>
-        </div>
-
-        <!-- ━━━ Detail Drawer ━━━ -->
-        @if (selectedOrder != null)
-        {
-            <div class="modal-backdrop-custom" @onclick="() => selectedOrder = null"></div>
-            <div class="detail-drawer">
-                <div class="drawer-header">
-                    <h5><i class="bi bi-bag-check me-2"></i>PO: @selectedOrder.OrderNumber</h5>
-                    <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer"
-                                   OnClick="() => selectedOrder = null" />
+                    {
+                        <div class="empty-state">
+                            <div class="empty-icon"><i class="bi bi-bag-x"></i></div>
+                            <h6>No purchase orders found</h6>
+                            <p>Create a new purchase order or adjust your filters to find existing ones.</p>
+                            <a class="btn-po-gradient" href="/purchase-orders/create" style="margin-top:1rem;display:inline-flex;">
+                                <i class="bi bi-plus-lg"></i> Create Purchase Order
+                            </a>
+                        </div>
+                    }
                 </div>
-                <div class="drawer-body">
-                    <div class="detail-grid">
-                        <div class="detail-item">
-                            <div class="detail-label">Supplier Code</div>
-                            <div class="detail-value">@selectedOrder.CardCode</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Supplier Name</div>
-                            <div class="detail-value">@(selectedOrder.CardName ?? "—")</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Order Date</div>
-                            <div class="detail-value">@selectedOrder.OrderDate.ToString("dd MMM yyyy")</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Delivery Date</div>
-                            <div class="detail-value">@(selectedOrder.DeliveryDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Status</div>
-                            <div class="detail-value">
-                                <span class="status-badge @GetStatusCssClass(selectedOrder.Status)">@selectedOrder.StatusName</span>
-                            </div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Currency</div>
-                            <div class="detail-value">@selectedOrder.Currency</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Supplier Ref</div>
-                            <div class="detail-value">@(selectedOrder.SupplierRefNo ?? "—")</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Warehouse</div>
-                            <div class="detail-value">@(selectedOrder.WarehouseCode ?? "—")</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Created By</div>
-                            <div class="detail-value">@(selectedOrder.CreatedByUserName ?? "System")</div>
-                        </div>
-                        @if (selectedOrder.ApprovedByUserName != null)
-                        {
+            </div>
+
+            <!-- ━━━ Detail Drawer ━━━ -->
+            @if (selectedOrder != null)
+            {
+                <div class="modal-backdrop-custom" @onclick="() => selectedOrder = null"></div>
+                <div class="detail-drawer">
+                    <div class="drawer-header">
+                        <h5><i class="bi bi-bag-check me-2"></i>PO: @selectedOrder.OrderNumber</h5>
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer"
+                                       OnClick="() => selectedOrder = null" />
+                    </div>
+                    <div class="drawer-body">
+                        <div class="detail-grid">
                             <div class="detail-item">
-                                <div class="detail-label">Approved By</div>
-                                <div class="detail-value">@selectedOrder.ApprovedByUserName <small
-                                    style="color:#9ca3af;">(@(selectedOrder.ApprovedDate?.ToString("dd MMM yyyy") ?? ""))</small>
+                                <div class="detail-label">Supplier Code</div>
+                                <div class="detail-value">@selectedOrder.CardCode</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">Supplier Name</div>
+                                <div class="detail-value">@(selectedOrder.CardName ?? "—")</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">Order Date</div>
+                                <div class="detail-value">@selectedOrder.OrderDate.ToString("dd MMM yyyy")</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">Delivery Date</div>
+                                <div class="detail-value">@(selectedOrder.DeliveryDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">Status</div>
+                                <div class="detail-value">
+                                    <span class="status-badge @GetStatusCssClass(selectedOrder.Status)">@selectedOrder.StatusName</span>
                                 </div>
                             </div>
-                        }
-                    </div>
-
-                    @if (selectedOrder.Lines?.Any() == true)
-                    {
-                        <div class="detail-section-title"><i class="bi bi-list-ul"></i> Order Lines</div>
-                        <table class="lines-table">
-                            <thead>
-                                <tr>
-                                    <th>Item</th>
-                                    <th>Description</th>
-                                    <th style="text-align:right">Ordered</th>
-                                    <th style="text-align:right">Received</th>
-                                    <th style="text-align:right">Remaining</th>
-                                    <th style="text-align:right">Unit Price</th>
-                                    <th style="text-align:right">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var line in selectedOrder.Lines)
-                                {
-                                    <tr>
-                                        <td><strong>@line.ItemCode</strong></td>
-                                        <td>@line.ItemDescription</td>
-                                        <td style="text-align:right">@line.Quantity</td>
-                                        <td style="text-align:right">@line.QuantityReceived</td>
-                                        <td style="text-align:right">
-                                            @if (line.QuantityRemaining > 0)
-                                            {
-                                                <span style="color:#d97706;font-weight:600;">@line.QuantityRemaining</span>
-                                            }
-                                            else
-                                            {
-                                                <span style="color:#059669;font-weight:600;">0</span>
-                                            }
-                                        </td>
-                                        <td style="text-align:right">@line.UnitPrice.ToString("N2")</td>
-                                        <td style="text-align:right;font-weight:600;">@line.LineTotal.ToString("N2")</td>
-                                    </tr>
-                                }
-                            </tbody>
-                            <tfoot>
-                                <tr>
-                                    <td colspan="6" style="text-align:right;font-weight:600;">Subtotal:</td>
-                                    <td style="text-align:right;font-weight:600;">@selectedOrder.SubTotal.ToString("N2")</td>
-                                </tr>
-                                <tr>
-                                    <td colspan="6" style="text-align:right;font-weight:600;">Tax:</td>
-                                    <td style="text-align:right;font-weight:600;">@selectedOrder.TaxAmount.ToString("N2")</td>
-                                </tr>
-                                @if (selectedOrder.DiscountAmount > 0)
-                                {
-                                    <tr>
-                                        <td colspan="6" style="text-align:right;font-weight:600;">Discount:</td>
-                                        <td style="text-align:right;font-weight:600;color:#dc2626;">
-                                            -@selectedOrder.DiscountAmount.ToString("N2")</td>
-                                        </tr>
-                                    }
-                                </tfoot>
-                            </table>
-
-                            <div class="total-banner">
-                                <span class="total-label">Total Amount</span>
-                                <span class="total-value">@selectedOrder.Currency @selectedOrder.DocTotal.ToString("N2")</span>
+                            <div class="detail-item">
+                                <div class="detail-label">Currency</div>
+                                <div class="detail-value">@selectedOrder.Currency</div>
                             </div>
-                        }
-
-                        @if (!string.IsNullOrEmpty(selectedOrder.Comments))
-                        {
-                            <div class="detail-section-title mt-3"><i class="bi bi-chat-left-text"></i> Comments</div>
-                            <pre
-                            style="white-space:pre-wrap;font-size:.85rem;background:#f8fafc;padding:.75rem;border-radius:8px;border:1px solid #e5e7eb;color:#374151;">@selectedOrder.Comments</pre>
-                        }
-                    </div>
-                    <div class="drawer-footer">
-                        <MudButton Class="btn-secondary-action" OnClick="() => selectedOrder = null">Close</MudButton>
-                    </div>
-                </div>
-            }
-
-            <!-- ━━━ Receive Goods Modal ━━━ -->
-            @if (showReceiveModal && receiveOrder != null)
-            {
-                <div class="receive-modal-overlay">
-                    <div class="receive-modal">
-                        <div class="receive-modal-header">
-                            <h5><i class="bi bi-truck"></i> Receive Goods — @receiveOrder.OrderNumber</h5>
-                            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer" OnClick="CloseReceiveModal" />
-                        </div>
-                        <div class="receive-modal-body">
-                            <div class="alert-banner"
-                                 style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;margin-bottom:1rem;">
-                                <i class="bi bi-info-circle-fill"></i>
-                                <span>Enter the quantity received for each line item. Leave at 0 for items not yet received.</span>
+                            <div class="detail-item">
+                                <div class="detail-label">Supplier Ref</div>
+                                <div class="detail-value">@(selectedOrder.SupplierRefNo ?? "—")</div>
                             </div>
-
-                            @if (!string.IsNullOrEmpty(receiveError))
+                            <div class="detail-item">
+                                <div class="detail-label">Warehouse</div>
+                                <div class="detail-value">@(selectedOrder.WarehouseCode ?? "—")</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">Created By</div>
+                                <div class="detail-value">@(selectedOrder.CreatedByUserName ?? "System")</div>
+                            </div>
+                            @if (selectedOrder.ApprovedByUserName != null)
                             {
-                                <div class="alert-banner error-alert">
-                                    <i class="bi bi-exclamation-octagon-fill"></i>
-                                    <span>@receiveError</span>
+                                <div class="detail-item">
+                                    <div class="detail-label">Approved By</div>
+                                    <div class="detail-value">@selectedOrder.ApprovedByUserName <small
+                                        style="color:#9ca3af;">(@(selectedOrder.ApprovedDate?.ToString("dd MMM yyyy") ?? ""))</small>
+                                    </div>
                                 </div>
                             }
+                        </div>
 
+                        @if (selectedOrder.Lines?.Any() == true)
+                        {
+                            <div class="detail-section-title"><i class="bi bi-list-ul"></i> Order Lines</div>
                             <table class="lines-table">
                                 <thead>
                                     <tr>
                                         <th>Item</th>
                                         <th>Description</th>
                                         <th style="text-align:right">Ordered</th>
-                                        <th style="text-align:right">Already Received</th>
+                                        <th style="text-align:right">Received</th>
                                         <th style="text-align:right">Remaining</th>
-                                        <th style="width:120px;">Receive Qty</th>
+                                        <th style="text-align:right">Unit Price</th>
+                                        <th style="text-align:right">Total</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @for (int i = 0; i < receiveOrder.Lines.Count; i++)
+                                    @foreach (var line in selectedOrder.Lines)
                                     {
-                                        var line = receiveOrder.Lines[i];
-                                        var remaining = line.Quantity - line.QuantityReceived;
-                                        var idx = i;
                                         <tr>
                                             <td><strong>@line.ItemCode</strong></td>
                                             <td>@line.ItemDescription</td>
                                             <td style="text-align:right">@line.Quantity</td>
                                             <td style="text-align:right">@line.QuantityReceived</td>
-                                            <td style="text-align:right">@remaining</td>
-                                            <td>
-                                                @if (remaining > 0)
+                                            <td style="text-align:right">
+                                                @if (line.QuantityRemaining > 0)
                                                 {
-                                                    <input type="number" class="form-control form-control-sm" min="0" max="@remaining"
-                                                           step="any" @bind="receiveQuantities[idx]"
-                                                           style="border-radius:8px;border:1px solid #d1d5db;" />
+                                                    <span style="color:#d97706;font-weight:600;">@line.QuantityRemaining</span>
                                                 }
                                                 else
                                                 {
-                                                    <span style="color:#059669;font-weight:600;font-size:.85rem;">Complete</span>
+                                                    <span style="color:#059669;font-weight:600;">0</span>
                                                 }
                                             </td>
+                                            <td style="text-align:right">@line.UnitPrice.ToString("N2")</td>
+                                            <td style="text-align:right;font-weight:600;">@line.LineTotal.ToString("N2")</td>
                                         </tr>
                                     }
                                 </tbody>
-                            </table>
+                                <tfoot>
+                                    <tr>
+                                        <td colspan="6" style="text-align:right;font-weight:600;">Subtotal:</td>
+                                        <td style="text-align:right;font-weight:600;">@selectedOrder.SubTotal.ToString("N2")</td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="6" style="text-align:right;font-weight:600;">Tax:</td>
+                                        <td style="text-align:right;font-weight:600;">@selectedOrder.TaxAmount.ToString("N2")</td>
+                                    </tr>
+                                    @if (selectedOrder.DiscountAmount > 0)
+                                    {
+                                        <tr>
+                                            <td colspan="6" style="text-align:right;font-weight:600;">Discount:</td>
+                                            <td style="text-align:right;font-weight:600;color:#dc2626;">
+                                                -@selectedOrder.DiscountAmount.ToString("N2")</td>
+                                            </tr>
+                                        }
+                                    </tfoot>
+                                </table>
 
-                            <div style="margin-top:1rem;">
-                                <label
-                                style="font-size:.75rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:.25rem;">Comments</label>
-                                <textarea class="form-control" @bind="receiveComments" rows="2"
-                                          placeholder="Optional receiving notes..."
-                                          style="border-radius:8px;border:1px solid #d1d5db;font-size:.88rem;"></textarea>
-                            </div>
+                                <div class="total-banner">
+                                    <span class="total-label">Total Amount</span>
+                                    <span class="total-value">@selectedOrder.Currency @selectedOrder.DocTotal.ToString("N2")</span>
+                                </div>
+                            }
+
+                            @if (!string.IsNullOrEmpty(selectedOrder.Comments))
+                            {
+                                <div class="detail-section-title mt-3"><i class="bi bi-chat-left-text"></i> Comments</div>
+                                <pre
+                                style="white-space:pre-wrap;font-size:.85rem;background:#f8fafc;padding:.75rem;border-radius:8px;border:1px solid #e5e7eb;color:#374151;">@selectedOrder.Comments</pre>
+                            }
                         </div>
-                        <div class="receive-modal-footer">
-                            <MudButton Class="btn-secondary-action" OnClick="CloseReceiveModal">Cancel</MudButton>
-                            <MudButton Class="btn-action" OnClick="ReceiveGoods" Disabled="@isReceiving">
-                                @if (isReceiving)
-                                {
-                                    <span class="spinner-border spinner-border-sm"></span>
-                                }
-                                <i class="bi bi-box-seam"></i> Confirm Receipt
-                            </MudButton>
+                        <div class="drawer-footer">
+                            <MudButton Class="btn-secondary-action" OnClick="() => selectedOrder = null">Close</MudButton>
                         </div>
                     </div>
-                </div>
-            }
+                }
+
+                <!-- ━━━ Receive Goods Modal ━━━ -->
+                @if (showReceiveModal && receiveOrder != null)
+                {
+                    <div class="receive-modal-overlay">
+                        <div class="receive-modal">
+                            <div class="receive-modal-header">
+                                <h5><i class="bi bi-truck"></i> Receive Goods — @receiveOrder.OrderNumber</h5>
+                                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer" OnClick="CloseReceiveModal" />
+                            </div>
+                            <div class="receive-modal-body">
+                                <div class="alert-banner"
+                                     style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;margin-bottom:1rem;">
+                                    <i class="bi bi-info-circle-fill"></i>
+                                    <span>Enter the quantity received for each line item. Leave at 0 for items not yet received.</span>
+                                </div>
+
+                                @if (!string.IsNullOrEmpty(receiveError))
+                                {
+                                    <div class="alert-banner error-alert">
+                                        <i class="bi bi-exclamation-octagon-fill"></i>
+                                        <span>@receiveError</span>
+                                    </div>
+                                }
+
+                                <table class="lines-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Item</th>
+                                            <th>Description</th>
+                                            <th style="text-align:right">Ordered</th>
+                                            <th style="text-align:right">Already Received</th>
+                                            <th style="text-align:right">Remaining</th>
+                                            <th style="width:120px;">Receive Qty</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @for (int i = 0; i < receiveOrder.Lines.Count; i++)
+                                        {
+                                            var line = receiveOrder.Lines[i];
+                                            var remaining = line.Quantity - line.QuantityReceived;
+                                            var idx = i;
+                                            <tr>
+                                                <td><strong>@line.ItemCode</strong></td>
+                                                <td>@line.ItemDescription</td>
+                                                <td style="text-align:right">@line.Quantity</td>
+                                                <td style="text-align:right">@line.QuantityReceived</td>
+                                                <td style="text-align:right">@remaining</td>
+                                                <td>
+                                                    @if (remaining > 0)
+                                                    {
+                                                        <input type="number" class="form-control form-control-sm" min="0" max="@remaining"
+                                                               step="any" @bind="receiveQuantities[idx]"
+                                                               style="border-radius:8px;border:1px solid #d1d5db;" />
+                                                    }
+                                                    else
+                                                    {
+                                                        <span style="color:#059669;font-weight:600;font-size:.85rem;">Complete</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+
+                                <div style="margin-top:1rem;">
+                                    <label
+                                    style="font-size:.75rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:.25rem;">Comments</label>
+                                    <textarea class="form-control" @bind="receiveComments" rows="2"
+                                              placeholder="Optional receiving notes..."
+                                              style="border-radius:8px;border:1px solid #d1d5db;font-size:.88rem;"></textarea>
+                                </div>
+                            </div>
+                            <div class="receive-modal-footer">
+                                <MudButton Class="btn-secondary-action" OnClick="CloseReceiveModal">Cancel</MudButton>
+                                <MudButton Class="btn-action" OnClick="ReceiveGoods" Disabled="@isReceiving">
+                                    @if (isReceiving)
+                                    {
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                    }
+                                    <i class="bi bi-box-seam"></i> Confirm Receipt
+                                </MudButton>
+                            </div>
+                        </div>
+                    </div>
+                }
 
 @code {
     private MudTable<PurchaseOrderDto>? _table;
@@ -1270,6 +1319,9 @@
     private bool isLoading = true;
     private string? errorMessage;
     private string? successMessage;
+
+    // Data source toggle: "sap" or "local"
+    private string dataSource = "sap";
 
     // Filters
     private string? supplierFilter;
@@ -1298,6 +1350,14 @@
 
     protected override async Task OnInitializedAsync()
     {
+        pageSize = AppSettings.PageSize;
+        await LoadOrders();
+    }
+
+    private async Task SwitchDataSource(string source)
+    {
+        dataSource = source;
+        currentPage = 1;
         await LoadOrders();
     }
 
@@ -1308,24 +1368,50 @@
 
         try
         {
-            PurchaseOrderStatus? status = null;
-            if (!string.IsNullOrEmpty(statusFilter) && int.TryParse(statusFilter, out var statusInt))
+            if (dataSource == "sap")
             {
-                status = (PurchaseOrderStatus)statusInt;
-            }
+                var response = await PurchaseOrderService.GetPurchaseOrdersFromSAPAsync(currentPage, pageSize, supplierFilter, fromDate,
+                toDate);
+                if (response != null)
+                {
+                    orders = response.Orders;
+                    totalCount = response.TotalCount;
+                    totalPages = response.TotalPages;
 
-            var response = await PurchaseOrderService.GetPurchaseOrdersAsync(currentPage, pageSize, status, supplierFilter,
-            fromDate, toDate);
-            if (response != null)
-            {
-                orders = response.Orders;
-                totalCount = response.TotalCount;
-                totalPages = response.TotalPages;
+                    // Apply client-side status filter for SAP orders
+                    if (!string.IsNullOrEmpty(statusFilter) && int.TryParse(statusFilter, out var statusInt))
+                    {
+                        var status = (PurchaseOrderStatus)statusInt;
+                        orders = orders?.Where(o => o.Status == status).ToList();
+                    }
+                }
+                else
+                {
+                    orders = new();
+                    errorMessage = "Failed to load purchase orders from SAP. The API may be unavailable.";
+                }
             }
             else
             {
-                orders = new();
-                errorMessage = "Failed to load purchase orders. The API may be unavailable.";
+                PurchaseOrderStatus? status = null;
+                if (!string.IsNullOrEmpty(statusFilter) && int.TryParse(statusFilter, out var statusInt))
+                {
+                    status = (PurchaseOrderStatus)statusInt;
+                }
+
+                var response = await PurchaseOrderService.GetPurchaseOrdersAsync(currentPage, pageSize, status, supplierFilter,
+                fromDate, toDate);
+                if (response != null)
+                {
+                    orders = response.Orders;
+                    totalCount = response.TotalCount;
+                    totalPages = response.TotalPages;
+                }
+                else
+                {
+                    orders = new();
+                    errorMessage = "Failed to load purchase orders. The API may be unavailable.";
+                }
             }
         }
         catch (Exception ex)

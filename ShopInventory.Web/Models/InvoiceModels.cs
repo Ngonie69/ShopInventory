@@ -136,4 +136,21 @@ public class InvoiceCreatedResponse
 {
     public string Message { get; set; } = string.Empty;
     public InvoiceDto? Invoice { get; set; }
+    public FiscalizationResult? Fiscalization { get; set; }
+}
+
+public class FiscalizationResult
+{
+    public bool Success { get; set; }
+    public string? Message { get; set; }
+    public string? QRCode { get; set; }
+    public string? FiscalDayNo { get; set; }
+    public string? ReceiptGlobalNo { get; set; }
+    public string? ReceiptCounter { get; set; }
+    public string? DeviceSerial { get; set; }
+    public string? VerificationCode { get; set; }
+    public string? ErrorCode { get; set; }
+    public string? ErrorDetails { get; set; }
+    public string? InvoiceNumber { get; set; }
+    public bool Skipped { get; set; }
 }

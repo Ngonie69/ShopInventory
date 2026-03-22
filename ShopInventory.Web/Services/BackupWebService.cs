@@ -12,6 +12,7 @@ public interface IBackupService
     Task<bool> DeleteBackupAsync(int id);
     Task<BackupStatsDto?> GetStatsAsync();
     Task<Stream?> DownloadBackupAsync(int id);
+    Task<(bool Success, string Message)> ResetDatabaseAsync();
 }
 
 public class BackupService : IBackupService
@@ -126,6 +127,27 @@ public class BackupService : IBackupService
         {
             _logger.LogError(ex, "Error downloading backup {Id}", id);
             return null;
+        }
+    }
+
+    public async Task<(bool Success, string Message)> ResetDatabaseAsync()
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync("api/backup/reset-database", null);
+            if (response.IsSuccessStatusCode)
+            {
+                return (true, "Database has been reset successfully.");
+            }
+
+            var error = await response.Content.ReadAsStringAsync();
+            _logger.LogWarning("Database reset failed: {StatusCode} - {Error}", response.StatusCode, error);
+            return (false, $"Database reset failed: {response.StatusCode}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resetting database");
+            return (false, $"Error resetting database: {ex.Message}");
         }
     }
 }

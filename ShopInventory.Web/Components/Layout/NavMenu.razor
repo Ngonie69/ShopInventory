@@ -259,11 +259,35 @@
                         </span>
                         <span class="snav-text">Sales Orders</span>
                     </NavLink>
+                    <NavLink class="snav-link sub-link" href="/sales-orders/create" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.AddCircle" />
+                        </span>
+                        <span class="snav-text">Create Sale Order</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/quotations" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.RequestQuote" />
+                        </span>
+                        <span class="snav-text">Quotations</span>
+                    </NavLink>
+                    <NavLink class="snav-link sub-link" href="/quotations/create" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.AddCircle" />
+                        </span>
+                        <span class="snav-text">Create Quotation</span>
+                    </NavLink>
                     <NavLink class="snav-link" href="/credit-notes" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.NoteAlt" />
                         </span>
                         <span class="snav-text">Credit Notes</span>
+                    </NavLink>
+                    <NavLink class="snav-link sub-link" href="/credit-notes/create" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.AddCircle" />
+                        </span>
+                        <span class="snav-text">Create Credit Note</span>
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
@@ -339,6 +363,12 @@
                 </span>
                 <span class="snav-text">Customers</span>
             </NavLink>
+            <NavLink class="snav-link" href="/gl-accounts" Match="NavLinkMatch.Prefix">
+                <span class="snav-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.AccountBalance" />
+                </span>
+                <span class="snav-text">G/L Accounts</span>
+            </NavLink>
 
             @* ── Insights ── *@
             <div class="nav-section-label">Insights</div>
@@ -382,6 +412,18 @@
                 <span class="snav-text">Security</span>
             </NavLink>
 
+            @* ── Management (Admin + Manager) ── *@
+            <AuthorizeView Roles="Admin,Manager" Context="managementCtx">
+                <Authorized>
+                    <NavLink class="snav-link" href="/user-activity" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Timeline" />
+                        </span>
+                        <span class="snav-text">Activity Log</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
+
             @* ── Administration (Admin only) ── *@
             <AuthorizeView Roles="Admin" Context="adminContext">
                 <Authorized>
@@ -397,12 +439,6 @@
                             <MudIcon Icon="@Icons.Material.Filled.ManageAccounts" />
                         </span>
                         <span class="snav-text">User Management</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/user-activity" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Timeline" />
-                        </span>
-                        <span class="snav-text">Activity Log</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/customer-portal-management" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">

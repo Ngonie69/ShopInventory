@@ -78,7 +78,7 @@ public class CustomerStatementService : ICustomerStatementService
                 },
                 FromDate = request.FromDate,
                 ToDate = request.ToDate,
-                GeneratedAt = DateTime.UtcNow,
+                GeneratedAt = IAuditService.ToCAT(DateTime.UtcNow),
                 Lines = new List<StatementLine>()
             };
 
@@ -240,7 +240,7 @@ public class CustomerStatementService : ICustomerStatementService
             summary.RecentInvoices = openInvoices.Take(5).ToList();
 
             // Get recent payments (aggregated from all main accounts for multi-account)
-            var payments = await GetPaymentHistoryAsync(cardCode, DateTime.Now.AddMonths(-3), DateTime.Now);
+            var payments = await GetPaymentHistoryAsync(cardCode, IAuditService.ToCAT(DateTime.UtcNow).AddMonths(-3), IAuditService.ToCAT(DateTime.UtcNow));
             if (payments.Any())
             {
                 var lastPayment = payments.OrderByDescending(p => p.DocDate).First();

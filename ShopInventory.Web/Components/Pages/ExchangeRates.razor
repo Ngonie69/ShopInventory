@@ -2,6 +2,7 @@
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
 @inject IExchangeRateService ExchangeRateService
+@inject IAppSettingsProvider AppSettings
 @rendermode InteractiveServer
 
 <PageTitle>Exchange Rates - Shop Inventory</PageTitle>
@@ -238,7 +239,7 @@
                                 <div class="col-md-6">
                                     <label class="form-label">Effective Date</label>
                                     <MudDatePicker @bind-Date="newRate.EffectiveDate" Variant="Variant.Outlined"
-                                                   Margin="Margin.Dense" DateFormat="dd.MM.yyyy" Editable="true" />
+                                                   Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat" Editable="true" />
                                 </div>
                                 <div class="col-12">
                                     <label class="form-label">Source</label>
