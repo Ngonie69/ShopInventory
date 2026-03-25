@@ -1,0 +1,497 @@
+@page "/pods"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
+@attribute [Authorize(Roles = "Admin,Cashier")]
+@inject IPodService PodService
+@inject IInvoiceService InvoiceService
+@inject IJSRuntime JS
+@inject ILogger<ProofOfDelivery> Logger
+@rendermode InteractiveServer
+
+<PageTitle>Proof of Delivery - Shop Inventory</PageTitle>
+
+<div class="container-fluid fade-in">
+    <div class="page-header">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+                <h2>
+                    <i class="bi bi-clipboard-check me-2" style="color: var(--primary-color);"></i>
+                    Proof of Delivery
+                </h2>
+                <span class="text-muted">Upload and manage POD attachments for invoices</span>
+            </div>
+            <div class="d-flex gap-2">
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="RefreshData"
+                           StartIcon="@Icons.Material.Filled.Refresh" Disabled="@isLoading">
+                    Refresh
+                </MudButton>
+            </div>
+        </div>
+    </div>
+
+    @* Upload Section *@
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-upload me-2"></i>Upload POD</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 align-items-end mb-3">
+                <div class="col-md-4">
+                    <label class="form-label">Invoice Number</label>
+                    <input type="number" class="form-control" @bind="uploadDocNum" placeholder="e.g. 10001" />
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" OnClick="LookupInvoice"
+                               Disabled="@(uploadDocNum <= 0 || isLookingUp)">
+                        @if (isLookingUp)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                            <text>Looking up...</text>
+                        }
+                        else
+                        {
+                            <i class="bi bi-search me-1"></i><text>Lookup</text>
+                        }
+                    </MudButton>
+                </div>
+                <div class="col-md-6">
+                    @if (isLookingUp)
+                    {
+                        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-0">
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2"
+                                                 Style="vertical-align: middle;" />
+                            Searching for invoice...
+                        </MudAlert>
+                    }
+                    else if (lookupInvoice != null)
+                    {
+                        <MudAlert Severity="Severity.Success" Dense="true" Class="mb-0">
+                            Invoice #@lookupInvoice.DocNum &mdash; @lookupInvoice.CardName
+                        </MudAlert>
+                    }
+                    else if (lookupError != null)
+                    {
+                        <MudAlert Severity="Severity.Error" Dense="true" Class="mb-0">@lookupError</MudAlert>
+                    }
+                </div>
+            </div>
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label">POD File</label>
+                    <InputFile OnChange="OnFileSelected" class="form-control" accept=".jpg,.jpeg,.png,.webp,.pdf" />
+                    <div class="form-text">JPG, PNG, WebP, PDF &mdash; max 20MB</div>
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label">Description (optional)</label>
+                    <input type="text" class="form-control" @bind="uploadDescription"
+                           placeholder="e.g. Signed delivery note from driver" />
+                </div>
+                <div class="col-md-3">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="UploadPod"
+                               Disabled="@(isUploading || lookupInvoice == null || selectedFile == null)" FullWidth="true"
+                               StartIcon="@Icons.Material.Filled.CloudUpload">
+                        @if (isUploading)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                            <text>Uploading...</text>
+                        }
+                        else
+                        {
+                            <text>Upload POD</text>
+                        }
+                    </MudButton>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(uploadMessage))
+            {
+                <MudAlert Severity="@(uploadSuccess? Severity.Success: Severity.Error)" Class="mt-3" Dense="true">
+                    @uploadMessage
+                </MudAlert>
+            }
+        </div>
+    </div>
+
+    @* Invoice Details *@
+    @if (lookupInvoice != null)
+    {
+        <div class="card mb-4">
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-receipt me-2"></i>Invoice #@lookupInvoice.DocNum</h5>
+                    <span class="badge @(lookupInvoice.DocStatus == "O" ? "bg-warning" : "bg-success")">
+                        @(lookupInvoice.DocStatus == "O" ? "Open" : "Closed")
+                    </span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <div class="text-muted small">Customer</div>
+                        <div class="fw-semibold">@lookupInvoice.CardName</div>
+                        <div class="text-muted small">@lookupInvoice.CardCode</div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="text-muted small">Invoice Date</div>
+                        <div class="fw-semibold">@lookupInvoice.DocDate</div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="text-muted small">Due Date</div>
+                        <div class="fw-semibold">@(lookupInvoice.DocDueDate ?? "-")</div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="text-muted small">Total</div>
+                        <div class="fw-semibold">@lookupInvoice.DocCurrency @lookupInvoice.DocTotal.ToString("N2")</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-muted small">Paid</div>
+                        <div class="fw-semibold">@lookupInvoice.DocCurrency @lookupInvoice.PaidToDate.ToString("N2")</div>
+                        @{
+                            var balance = lookupInvoice.DocTotal - lookupInvoice.PaidToDate;
+                        }
+                        @if (balance > 0)
+                        {
+                            <div class="text-danger small">Balance: @lookupInvoice.DocCurrency @balance.ToString("N2")</div>
+                        }
+                    </div>
+                </div>
+                @if (!string.IsNullOrEmpty(lookupInvoice.NumAtCard))
+                {
+                    <div class="mt-2">
+                        <span class="text-muted small">Customer Ref:</span>
+                        <span class="small">@lookupInvoice.NumAtCard</span>
+                    </div>
+                }
+
+                @if (lookupInvoice.Lines?.Any() == true)
+                {
+                    <div class="table-responsive mt-3">
+                        <table class="table table-sm table-hover mb-0 align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>#</th>
+                                    <th>Item Code</th>
+                                    <th>Description</th>
+                                    <th class="text-end">Qty</th>
+                                    <th class="text-end">Unit Price</th>
+                                    <th class="text-end">Discount</th>
+                                    <th class="text-end">Line Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in lookupInvoice.Lines)
+                                {
+                                    <tr>
+                                        <td>@(line.LineNum + 1)</td>
+                                        <td><code>@line.ItemCode</code></td>
+                                        <td>@line.ItemDescription</td>
+                                        <td class="text-end">@line.Quantity.ToString("N2") @line.UoMCode</td>
+                                        <td class="text-end">@line.UnitPrice.ToString("N2")</td>
+                                        <td class="text-end">@(line.DiscountPercent > 0 ? $"{line.DiscountPercent:N1}%" : "-")</td>
+                                        <td class="text-end fw-semibold">@line.LineTotal.ToString("N2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr class="table-light">
+                                    <td colspan="6" class="text-end fw-semibold">VAT:</td>
+                                    <td class="text-end fw-semibold">@lookupInvoice.VatSum.ToString("N2")</td>
+                                </tr>
+                                <tr class="table-light">
+                                    <td colspan="6" class="text-end fw-semibold">Total:</td>
+                                    <td class="text-end fw-semibold">@lookupInvoice.DocCurrency
+                                        @lookupInvoice.DocTotal.ToString("N2")</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        @* Filter & List *@
+        <div class="card">
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <h5 class="mb-0"><i class="bi bi-list-task me-2"></i>All POD Uploads</h5>
+                    <span class="text-muted small">@(podResponse?.TotalCount ?? 0) records found</span>
+                </div>
+            </div>
+            <div class="card-body pb-0">
+                <div class="row g-3 align-items-end mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Filter by Customer Code</label>
+                        <input type="text" class="form-control" @bind="filterCardCode" placeholder="e.g. C00001" />
+                    </div>
+                    <div class="col-md-2">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" OnClick="ApplyFilter">
+                            <i class="bi bi-funnel me-1"></i>Filter
+                        </MudButton>
+                    </div>
+                    @if (!string.IsNullOrEmpty(activeFilterCardCode))
+                    {
+                        <div class="col-md-2">
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" OnClick="ClearFilter">
+                                <i class="bi bi-x-circle me-1"></i>Clear
+                            </MudButton>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="card-body p-0">
+                @if (isLoading)
+                {
+                    <div class="text-center py-5">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="text-muted mt-3 mb-0">Loading PODs...</p>
+                    </div>
+                }
+                else if (podResponse?.Items?.Any() == true)
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0 align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Invoice #</th>
+                                    <th>Customer</th>
+                                    <th>File</th>
+                                    <th>Description</th>
+                                    <th>Size</th>
+                                    <th>Uploaded</th>
+                                    <th>By</th>
+                                    <th class="text-end">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var pod in podResponse.Items)
+                                {
+                                    <tr>
+                                        <td><span class="badge bg-primary">@pod.InvoiceDocNum</span></td>
+                                        <td>
+                                            <div class="fw-semibold">@(pod.CardName ?? "-")</div>
+                                            <div class="text-muted small">@(pod.CardCode ?? "-")</div>
+                                        </td>
+                                        <td>
+                                            <div class="fw-semibold">@pod.FileName</div>
+                                            <div class="text-muted small">@pod.MimeType</div>
+                                        </td>
+                                        <td>@(pod.Description ?? "-")</td>
+                                        <td>@pod.FileSizeFormatted</td>
+                                        <td>
+                                            <div>@pod.UploadedAt.ToString("MMM dd, yyyy")</div>
+                                            <div class="text-muted small">@pod.UploadedAt.ToString("HH:mm")</div>
+                                        </td>
+                                        <td>@(pod.UploadedByUserName ?? "-")</td>
+                                        <td class="text-end">
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                                                       OnClick="() => DownloadPod(pod)">
+                                                <i class="bi bi-download me-1"></i> Download
+                                            </MudButton>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    @* Pagination *@
+                    @if (podResponse.TotalCount > pageSize)
+                    {
+                        <div class="d-flex justify-content-between align-items-center p-3 border-top">
+                            <span class="text-muted small">
+                                Showing @((currentPage - 1) * pageSize + 1)–@Math.Min(currentPage * pageSize,
+                                                                                                            podResponse.TotalCount)
+                                of @podResponse.TotalCount
+                            </span>
+                            <div class="btn-group">
+                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(currentPage <= 1)"
+                                           OnClick="() => LoadPage(currentPage - 1)">Previous</MudButton>
+                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(!podResponse.HasMore)"
+                                           OnClick="() => LoadPage(currentPage + 1)">Next</MudButton>
+                            </div>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="text-center py-5">
+                        <i class="bi bi-clipboard-x" style="font-size: 3rem; color: #ccc;"></i>
+                        <p class="text-muted mt-3 mb-0">No POD records found.</p>
+                        <p class="text-muted small">Upload a POD using the form above.</p>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+@code {
+    private PodAttachmentListResponse? podResponse;
+    private bool isLoading = true;
+    private int currentPage = 1;
+    private const int pageSize = 20;
+    private string? filterCardCode;
+    private string? activeFilterCardCode;
+
+    // Upload state
+    private int uploadDocNum;
+    private IBrowserFile? selectedFile;
+    private string? uploadDescription;
+    private bool isUploading;
+    private string? uploadMessage;
+    private bool uploadSuccess;
+    private InvoiceDto? lookupInvoice;
+    private string? lookupError;
+    private bool isLookingUp;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPods();
+    }
+
+    private async Task LoadPods()
+    {
+        isLoading = true;
+
+        try
+        {
+            podResponse = await PodService.GetAllPodsAsync(currentPage, pageSize, activeFilterCardCode);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading PODs");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadPage(int page)
+    {
+        currentPage = page;
+        await LoadPods();
+    }
+
+    private async Task RefreshData()
+    {
+        currentPage = 1;
+        await LoadPods();
+    }
+
+    private async Task ApplyFilter()
+    {
+        activeFilterCardCode = string.IsNullOrWhiteSpace(filterCardCode) ? null : filterCardCode.Trim();
+        currentPage = 1;
+        await LoadPods();
+    }
+
+    private async Task ClearFilter()
+    {
+        filterCardCode = null;
+        activeFilterCardCode = null;
+        currentPage = 1;
+        await LoadPods();
+    }
+
+    private async Task LookupInvoice()
+    {
+        if (uploadDocNum <= 0 || isLookingUp) return;
+
+        isLookingUp = true;
+        lookupInvoice = null;
+        lookupError = null;
+
+        try
+        {
+            lookupInvoice = await InvoiceService.GetInvoiceByDocNumAsync(uploadDocNum);
+            if (lookupInvoice == null)
+            {
+                lookupError = "Invoice not found";
+            }
+        }
+        catch
+        {
+            lookupError = "Could not look up invoice";
+        }
+        finally
+        {
+            isLookingUp = false;
+        }
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.File;
+        uploadMessage = null;
+    }
+
+    private async Task UploadPod()
+    {
+        if (lookupInvoice == null || selectedFile == null || isUploading) return;
+
+        isUploading = true;
+        uploadMessage = null;
+
+        try
+        {
+            if (selectedFile.Size > 20 * 1024 * 1024)
+            {
+                uploadMessage = "File is too large. Maximum size is 20MB.";
+                uploadSuccess = false;
+                return;
+            }
+
+            using var stream = selectedFile.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+            var (success, message, _) = await PodService.UploadPodAsync(
+                lookupInvoice.DocEntry, stream, selectedFile.Name, selectedFile.ContentType, uploadDescription);
+
+            uploadSuccess = success;
+            uploadMessage = message;
+
+            if (success)
+            {
+                selectedFile = null;
+                uploadDocNum = 0;
+                uploadDescription = null;
+                lookupInvoice = null;
+                lookupError = null;
+                currentPage = 1;
+                await LoadPods();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error uploading POD");
+            uploadMessage = "An unexpected error occurred. Please try again.";
+            uploadSuccess = false;
+        }
+        finally
+        {
+            isUploading = false;
+        }
+    }
+
+    private async Task DownloadPod(PodAttachmentItemDto pod)
+    {
+        try
+        {
+            var data = await PodService.DownloadPodAsync(pod.InvoiceDocEntry, pod.Id);
+            if (data == null)
+            {
+                return;
+            }
+
+            var base64 = Convert.ToBase64String(data);
+            var contentType = pod.MimeType ?? "application/octet-stream";
+            await JS.InvokeVoidAsync("downloadFile", pod.FileName, contentType, base64);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error downloading POD {PodId}", pod.Id);
+        }
+    }
+}

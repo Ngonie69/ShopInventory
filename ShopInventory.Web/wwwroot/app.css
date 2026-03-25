@@ -1654,7 +1654,8 @@ html.dark-theme {
 }
 
 .dark-theme .badge.bg-primary {
-    background-color: var(--primary-color) !important;
+    background-color: var(--primary-light) !important;
+    color: var(--primary-color) !important;
 }
 
 .dark-theme ::-webkit-scrollbar-track {
@@ -1999,6 +2000,18 @@ html.dark-theme {
 .dark-theme [style*="border-color: #e5e7eb"],
 .dark-theme [style*="border:1px solid #e5e7eb"],
 .dark-theme [style*="border: 1px solid #e5e7eb"] {
+    border-color: #334155 !important;
+}
+.dark-theme [style*="border:1px solid #d1d5db"],
+.dark-theme [style*="border: 1px solid #d1d5db"] {
+    border-color: #475569 !important;
+}
+.dark-theme [style*="border:1px solid #bbf7d0"],
+.dark-theme [style*="border: 1px solid #bbf7d0"] {
+    border-color: #065f46 !important;
+}
+.dark-theme [style*="border:2px dashed #e5e7eb"],
+.dark-theme [style*="border: 2px dashed #e5e7eb"] {
     border-color: #334155 !important;
 }
 .dark-theme [style*="border-color:#c7d2fe"],
@@ -3175,7 +3188,10 @@ html.dark-theme {
 .dark-theme .ci-page,
 .dark-theme .bak-page,
 .dark-theme .transfer-page,
-.dark-theme .cpm-page {
+.dark-theme .cpm-page,
+.dark-theme .cq-page,
+.dark-theme .ccn-page,
+.dark-theme .cso-page {
     background: #0f172a !important;
     color: #e2e8f0;
 }
@@ -3197,6 +3213,9 @@ html.dark-theme {
 .dark-theme .cp-header h2,
 .dark-theme .ci-header h2,
 .dark-theme .bak-header h2,
+.dark-theme .cq-header h2,
+.dark-theme .ccn-header h2,
+.dark-theme .cso-header h2,
 .dark-theme .header-title,
 .dark-theme .detail-section-title,
 .dark-theme .section-title {
@@ -3217,6 +3236,9 @@ html.dark-theme {
 .dark-theme .um-header p,
 .dark-theme .notif-header p,
 .dark-theme .it-header p,
+.dark-theme .cq-header p,
+.dark-theme .ccn-header p,
+.dark-theme .cso-header p,
 .dark-theme .header-subtitle {
     color: #94a3b8 !important;
 }
@@ -3728,10 +3750,16 @@ html.dark-theme {
 
 /* --- CreateIncomingPayment & CreateInvoice shared classes --- */
 .dark-theme .section-card,
-.dark-theme .summary-card {
+.dark-theme .summary-card,
+.dark-theme .form-card {
     background: #1e293b !important;
     border-color: #334155 !important;
     color: #e2e8f0 !important;
+}
+.dark-theme .selected-customer-badge {
+    background: #064e3b !important;
+    border-color: #065f46 !important;
+    color: #6ee7b7 !important;
 }
 .dark-theme .method-tab {
     background: #1e293b !important;
@@ -3763,6 +3791,100 @@ html.dark-theme {
 .dark-theme .empty-lines-placeholder {
     background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%) !important;
     color: #94a3b8 !important;
+}
+
+/* --- CreateQuotation / CreateCreditNote / CreateSalesOrder dark mode --- */
+.dark-theme .form-card-title {
+    color: #f1f5f9 !important;
+}
+.dark-theme .cq-breadcrumb,
+.dark-theme .ccn-breadcrumb,
+.dark-theme .cso-breadcrumb {
+    color: #94a3b8 !important;
+}
+.dark-theme .cq-breadcrumb a,
+.dark-theme .ccn-breadcrumb a,
+.dark-theme .cso-breadcrumb a {
+    color: #60a5fa !important;
+}
+.dark-theme .cq-breadcrumb .sep,
+.dark-theme .ccn-breadcrumb .sep,
+.dark-theme .cso-breadcrumb .sep {
+    color: #475569 !important;
+}
+.dark-theme .form-field label {
+    color: #94a3b8 !important;
+}
+.dark-theme .form-field input,
+.dark-theme .form-field select,
+.dark-theme .form-field textarea {
+    background: #0f172a !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .form-field input:focus,
+.dark-theme .form-field select:focus,
+.dark-theme .form-field textarea:focus {
+    border-color: #60a5fa !important;
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, .15) !important;
+}
+.dark-theme .form-field input::placeholder,
+.dark-theme .form-field textarea::placeholder {
+    color: #64748b !important;
+}
+/* Loading state */
+.dark-theme .loading-state p {
+    color: #94a3b8 !important;
+}
+/* Selected customer badge */
+.dark-theme .form-card [style*="background:#f0fdf4"],
+.dark-theme .form-card [style*="background: #f0fdf4"] {
+    background: #064e3b !important;
+    border-color: #065f46 !important;
+}
+.dark-theme .form-card [style*="color:#065f46"],
+.dark-theme .form-card [style*="color: #065f46"] {
+    color: #6ee7b7 !important;
+}
+/* Line item cards (inline styled backgrounds) */
+.dark-theme .form-card [style*="background:#f8fafc"] {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+}
+/* Product selected info */
+.dark-theme .form-card [style*="background:#f0f9ff"] {
+    background: #1e3a5f !important;
+    border-color: #1e40af !important;
+    color: #93c5fd !important;
+}
+/* Empty state placeholder */
+.dark-theme .form-card [style*="background:#f9fafb"] {
+    background: #0f172a !important;
+}
+.dark-theme .form-card [style*="border:2px dashed #e5e7eb"] {
+    border-color: #334155 !important;
+}
+/* Dropdown item hover */
+.dark-theme .dropdown-autocomplete .dropdown-item {
+    border-bottom-color: #334155 !important;
+}
+.dark-theme .dropdown-autocomplete .dropdown-item:hover {
+    background: #334155 !important;
+}
+.dark-theme .dropdown-autocomplete .dropdown-item.selected {
+    background: #2563eb !important;
+    color: #fff !important;
+}
+/* Readonly inputs */
+.dark-theme .form-card input[readonly],
+.dark-theme .form-card [style*="background:#f3f4f6"] {
+    background: #1e293b !important;
+    color: #94a3b8 !important;
+}
+/* BP clear button */
+.dark-theme .form-card [style*="background:#fef2f2"] {
+    background: #7f1d1d !important;
+    border-color: #991b1b !important;
 }
 
 /* --- InventoryTransfers page --- */
@@ -4450,4 +4572,380 @@ html.dark-theme {
 .container-fluid {
     max-width: 100%;
     overflow-x: hidden;
+}
+
+/* ============================================
+   Customer Portal — Dark Mode
+   ============================================ */
+
+/* --- Shell & main content area --- */
+.dark-theme .customer-shell {
+    --customer-ink: #e2e8f0;
+    --customer-muted: #94a3b8;
+    --customer-surface: #1e293b;
+    --customer-surface-alt: #0f172a;
+    --customer-border: rgba(148, 163, 184, 0.15);
+}
+
+.dark-theme .customer-main {
+    background: linear-gradient(180deg, #0b1020 0%, #0f172a 50%, #0b1020 100%);
+}
+
+/* --- Footer --- */
+.dark-theme .customer-footer {
+    border-top-color: rgba(148, 163, 184, 0.15);
+    background: rgba(15, 23, 42, 0.92);
+}
+
+.dark-theme .customer-footer-content {
+    color: #94a3b8;
+}
+
+/* --- Drawer footer --- */
+.dark-theme .customer-drawer-footer {
+    background: rgba(15, 23, 42, 0.5);
+}
+
+/* --- Modals (invoice detail, etc.) --- */
+.dark-theme .customer-invoices .modal-content,
+.dark-theme .customer-portal .modal-content {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+    border-color: #334155 !important;
+}
+
+.dark-theme .customer-invoices .modal-header,
+.dark-theme .customer-portal .modal-header {
+    border-bottom-color: #334155 !important;
+    color: #f1f5f9 !important;
+}
+
+.dark-theme .customer-invoices .modal-footer,
+.dark-theme .customer-portal .modal-footer {
+    border-top-color: #334155 !important;
+}
+
+.dark-theme .customer-invoices .modal-body,
+.dark-theme .customer-portal .modal-body {
+    color: #e2e8f0 !important;
+}
+
+.dark-theme .customer-invoices .table-light th,
+.dark-theme .customer-invoices .table-light td,
+.dark-theme .customer-invoices thead.table-light {
+    background: #0f172a !important;
+    color: #94a3b8 !important;
+    border-color: #334155 !important;
+}
+
+.dark-theme .customer-invoices .list-group-item {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+/* --- Statements: aging cards --- */
+.dark-theme .customer-statements .aging-current {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+.dark-theme .customer-statements .aging-30 {
+    background: rgba(245, 158, 11, 0.12) !important;
+    border-color: rgba(245, 158, 11, 0.3) !important;
+    color: #fde68a !important;
+}
+
+.dark-theme .customer-statements .aging-60 {
+    background: rgba(249, 115, 22, 0.12) !important;
+    border-color: rgba(249, 115, 22, 0.3) !important;
+    color: #fed7aa !important;
+}
+
+.dark-theme .customer-statements .aging-90 {
+    background: rgba(239, 68, 68, 0.12) !important;
+    border-color: rgba(239, 68, 68, 0.3) !important;
+    color: #fca5a5 !important;
+}
+
+.dark-theme .customer-statements .aging-over90 {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    color: #f8fafc !important;
+}
+
+.dark-theme .customer-statements .aging-total {
+    background: var(--bs-primary) !important;
+    color: #fff !important;
+}
+
+/* --- Statements: table-light / table-dark rows --- */
+.dark-theme .customer-statements .table-light,
+.dark-theme .customer-statements .table-light td {
+    background: #0f172a !important;
+    color: #e2e8f0 !important;
+}
+
+.dark-theme .customer-statements .table-dark,
+.dark-theme .customer-statements .table-dark td {
+    background: #1e293b !important;
+    color: #f1f5f9 !important;
+}
+
+/* --- Profile: bordered info cards --- */
+.dark-theme .customer-profile .border {
+    border-color: #334155 !important;
+}
+
+.dark-theme .customer-profile .border.rounded-3 {
+    background: #0f172a;
+}
+
+.dark-theme .customer-profile .form-control {
+    background: #1e293b !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
+}
+
+.dark-theme .customer-profile .form-label {
+    color: #94a3b8 !important;
+}
+
+/* --- Dashboard: aging bar background --- */
+.dark-theme .customer-dashboard .aging-bar {
+    background: rgba(148, 163, 184, 0.1);
+}
+
+.dark-theme .customer-dashboard .legend-label {
+    color: #94a3b8;
+}
+
+.dark-theme .customer-dashboard .legend-value {
+    color: #f1f5f9;
+}
+
+/* --- Account breakdown cards --- */
+.dark-theme .customer-dashboard .card.border {
+    background: #0f172a !important;
+}
+
+.dark-theme .customer-dashboard .card.border .card-header {
+    background: transparent !important;
+    border-bottom-color: #334155 !important;
+}
+
+.dark-theme .customer-dashboard .card.border .card-footer {
+    border-top-color: #334155 !important;
+}
+
+/* --- Bootstrap table generic dark fixes for customer portal --- */
+.dark-theme .customer-shell table thead th {
+    background: #0f172a;
+    color: #94a3b8;
+    border-bottom-color: #334155;
+}
+
+.dark-theme .customer-shell table tbody td {
+    border-bottom-color: #1e293b;
+    color: #e2e8f0;
+}
+
+.dark-theme .customer-shell table tbody tr:hover {
+    background-color: rgba(45, 212, 191, 0.06);
+}
+
+/* --- Badges in dark mode --- */
+.dark-theme .customer-shell .badge.bg-warning.text-dark {
+    color: #fde68a !important;
+    background: #78350f !important;
+}
+
+.dark-theme .customer-shell .badge.bg-outline-dark {
+    background: #334155 !important;
+    color: #e2e8f0 !important;
+    border-color: #475569 !important;
+}
+
+/* --- Alert components (MudAlert inherits fine, but custom alerts) --- */
+.dark-theme .customer-shell .alert-danger {
+    background: #450a0a !important;
+    border-color: #991b1b !important;
+    color: #fca5a5 !important;
+}
+
+.dark-theme .customer-shell .alert-success {
+    background: #064e3b !important;
+    border-color: #065f46 !important;
+    color: #6ee7b7 !important;
+}
+
+.dark-theme .customer-shell .alert-warning {
+    background: #78350f !important;
+    border-color: #92400e !important;
+    color: #fde68a !important;
+}
+
+/* --- Stat card dark variant (bg-dark used in statements) --- */
+.dark-theme .staff-dashboard .staff-stat-card.bg-dark {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%) !important;
+}
+
+.dark-theme .staff-dashboard .staff-stat-card.bg-secondary {
+    background: linear-gradient(135deg, #0f172a 0%, #334155 100%) !important;
+}
+
+/* --- Support page stat-icon --- */
+.dark-theme .customer-support .stat-icon {
+    background: rgba(45, 212, 191, 0.15);
+    color: #2dd4bf;
+}
+
+/* ============================================================
+   Settings Page – Dark Mode
+   ============================================================ */
+
+/* Page title & subtitle */
+.dark-theme .settings-title {
+    color: #f1f5f9 !important;
+}
+.dark-theme .settings-subtitle {
+    color: #94a3b8 !important;
+}
+
+/* Tab bar */
+.dark-theme .settings-tabs {
+    background: #0f172a !important;
+}
+.dark-theme .settings-tab {
+    color: #94a3b8 !important;
+    background: transparent !important;
+}
+.dark-theme .settings-tab:hover {
+    color: #e2e8f0 !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+}
+.dark-theme .settings-tab.active {
+    background: #1e293b !important;
+    color: #f1f5f9 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Section card */
+.dark-theme .settings-section {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Section header */
+.dark-theme .section-header {
+    border-bottom-color: #334155 !important;
+}
+.dark-theme .section-title {
+    color: #f1f5f9 !important;
+}
+.dark-theme .section-desc {
+    color: #94a3b8 !important;
+}
+
+/* Setting items */
+.dark-theme .setting-item {
+    border-bottom-color: #334155 !important;
+}
+.dark-theme .setting-label {
+    color: #e2e8f0 !important;
+}
+.dark-theme .setting-desc {
+    color: #94a3b8 !important;
+}
+.dark-theme .setting-meta {
+    color: #64748b !important;
+}
+
+/* Form fields */
+.dark-theme .field-input {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .field-input:focus {
+    border-color: #667eea !important;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2) !important;
+}
+.dark-theme .field-input:disabled {
+    background: #1e293b !important;
+    color: #64748b !important;
+}
+.dark-theme .field-input::placeholder {
+    color: #64748b !important;
+}
+.dark-theme .field-label {
+    color: #94a3b8 !important;
+}
+
+/* Sync cards */
+.dark-theme .sync-card {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+}
+.dark-theme .sync-card:hover {
+    border-color: #475569 !important;
+}
+.dark-theme .sync-card-all {
+    background: linear-gradient(135deg, #0f172a, #1e293b) !important;
+    border-color: #475569 !important;
+}
+.dark-theme .sync-card-body h6 {
+    color: #e2e8f0 !important;
+}
+.dark-theme .sync-card-body p {
+    color: #94a3b8 !important;
+}
+.dark-theme .sync-timestamp {
+    color: #64748b !important;
+}
+.dark-theme .btn-sync {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #94a3b8 !important;
+}
+.dark-theme .btn-sync:hover:not(:disabled) {
+    background: #334155 !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
+}
+
+/* Toggle text */
+.dark-theme .toggle-text {
+    color: #94a3b8 !important;
+}
+
+/* Alerts */
+.dark-theme .settings-alert-success {
+    background: #064e3b !important;
+    border-color: #065f46 !important;
+    color: #6ee7b7 !important;
+}
+.dark-theme .settings-alert-error {
+    background: #450a0a !important;
+    border-color: #991b1b !important;
+    color: #fca5a5 !important;
+}
+
+/* Empty state */
+.dark-theme .settings-empty {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #64748b !important;
+}
+
+/* Loading */
+.dark-theme .settings-loading {
+    color: #94a3b8 !important;
+}
+
+/* User form */
+.dark-theme .form-actions {
+    border-top-color: #334155 !important;
 }

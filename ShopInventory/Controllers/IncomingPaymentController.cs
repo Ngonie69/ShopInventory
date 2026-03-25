@@ -14,15 +14,18 @@ namespace ShopInventory.Controllers;
 public class IncomingPaymentController : ControllerBase
 {
     private readonly ISAPServiceLayerClient _sapClient;
+    private readonly IDocumentService _documentService;
     private readonly SAPSettings _settings;
     private readonly ILogger<IncomingPaymentController> _logger;
 
     public IncomingPaymentController(
         ISAPServiceLayerClient sapClient,
+        IDocumentService documentService,
         IOptions<SAPSettings> settings,
         ILogger<IncomingPaymentController> logger)
     {
         _sapClient = sapClient;
+        _documentService = documentService;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -111,6 +114,52 @@ public class IncomingPaymentController : ControllerBase
             _logger.LogError(ex, "Error creating incoming payment");
             return StatusCode(500, new ErrorResponseDto { Message = "Error creating incoming payment", Errors = new List<string> { ex.Message } });
         }
+    }
+
+    /// <summary>
+    /// Upload an attachment for an incoming payment
+    /// </summary>
+    [HttpPost("{docEntry:int}/attachment")]
+    [ProducesResponseType(typeof(DocumentAttachmentDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    [RequestSizeLimit(20 * 1024 * 1024)]
+    public async Task<IActionResult> UploadAttachment(
+        int docEntry,
+        IFormFile file,
+        [FromForm] string? description = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (file == null || file.Length == 0)
+        {
+            return BadRequest(new ErrorResponseDto { Message = "No file uploaded" });
+        }
+
+        var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp", "application/pdf" };
+        if (!allowedTypes.Contains(file.ContentType, StringComparer.OrdinalIgnoreCase))
+        {
+            return BadRequest(new ErrorResponseDto
+            {
+                Message = "Invalid file type. Only JPEG, PNG, WebP images and PDF files are allowed."
+            });
+        }
+
+        var request = new UploadAttachmentRequest
+        {
+            EntityType = "IncomingPayment",
+            EntityId = docEntry,
+            Description = description ?? "Payment Attachment",
+            IncludeInEmail = false
+        };
+
+        var userId = Guid.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : Guid.Empty;
+        using var stream = file.OpenReadStream();
+
+        var attachment = await _documentService.UploadAttachmentAsync(
+            request, stream, file.FileName, file.ContentType, userId, cancellationToken);
+
+        _logger.LogInformation("Attachment uploaded for incoming payment {DocEntry} by user {UserId}", docEntry, userId);
+
+        return Created($"api/incomingpayment/{docEntry}/attachment/{attachment.Id}", attachment);
     }
 
     /// <summary>

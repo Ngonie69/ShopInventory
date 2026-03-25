@@ -1,0 +1,287 @@
+@page "/customer-portal/terms"
+@attribute [AllowAnonymous]
+@rendermode InteractiveServer
+@layout CustomerPortalLayout
+
+<PageTitle>Terms of Service - Customer Portal</PageTitle>
+
+<div class="container-fluid fade-in staff-dashboard staff-shell">
+    <div class="dashboard-hero">
+        <div class="page-header staff-dashboard-header">
+            <div class="dashboard-title">
+                <h2>
+                    <MudIcon Icon="@Icons.Material.Filled.Gavel" Size="Size.Large" Class="mr-2" />
+                    Terms of Service
+                </h2>
+                <span class="text-muted">Terms and conditions governing your use of the Customer Portal.</span>
+            </div>
+        </div>
+    </div>
+
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-4 mb-2" Dense="true">
+        This portal is operated in compliance with the Postal and Telecommunications Regulatory Authority of
+        Zimbabwe (POTRAZ) regulations and the Cyber and Data Protection Act [Chapter 12:07] of Zimbabwe.
+    </MudAlert>
+
+    <MudPaper Class="pa-6 mt-4" Elevation="1">
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-4">Last updated: March 2026</MudText>
+
+        <MudText Typo="Typo.h5" Class="mb-3">1. Acceptance of Terms</MudText>
+        <MudText Typo="Typo.body1" Class="mb-4">
+            By accessing and using the Customer Portal, you agree to be bound by these Terms of Service,
+            the laws of Zimbabwe, and all applicable regulations issued by the Postal and Telecommunications
+            Regulatory Authority of Zimbabwe (POTRAZ). If you do not agree to these terms, you should not
+            use the portal.
+        </MudText>
+
+        <MudText Typo="Typo.h5" Class="mb-3">2. Regulatory Framework</MudText>
+        <MudText Typo="Typo.body1" Class="mb-2">
+            This portal and the services provided through it are governed by the following Zimbabwean legislation
+            and regulatory instruments:
+        </MudText>
+        <ul class="mb-4 pl-4">
+            <li>
+                <MudText Typo="Typo.body1">The Cyber and Data Protection Act [Chapter 12:07] (2021)</MudText>
+            </li>
+            <li>
+                <MudText Typo="Typo.body1">The Postal and Telecommunications Act [Chapter 12:05]</MudText>
+            </li>
+            <li>
+                <MudText Typo="Typo.body1">POTRAZ Consumer Protection Regulations</MudText>
+            </li>
+            <li>
+                <MudText Typo="Typo.body1">SI 160 of 2021 — Cyber and Data Protection (General) Regulations</MudText>
+            </li>
+            <li>
+                <MudText Typo="Typo.body1">The Electronic Transactions and Electronic Commerce Act [Chapter 21:20]
+                </MudText>
+            </li>
+        </ul>
+
+        <MudText Typo="Typo.h5" Class="mb-3">3. Account Access</MudText>
+        <MudText Typo="Typo.body1" Class="mb-4">
+            You are responsible for maintaining the confidentiality of your login credentials. You agree to
+            notify us immediately of any unauthorised use of your account. We reserve the right to suspend
+            or terminate access to accounts that violate these terms or applicable POTRAZ regulations.
+        </MudText>
+
+        <MudText Typo="Typo.h5" Class="mb-3">4. Permitted Use</MudText>
+        <MudText Typo="Typo.body1" Class="mb-2">The Customer Portal is provided for the purpose of:</MudText>
+        <ul class="mb-4 pl-4">
+            <li>
+                <MudText Typo="Typo.body1">Viewing and downloading account statements and invoices</MudText>
+            </li>
+            <li>
+                <MudText Typo="Typo.body1">Making payments against outstanding invoices</MudText>
+            </li>
+            <li>
+                <MudText Typo="Typo.body1">Managing your account profile and contact details</MudText>
+            </li>
+            <li>
+                <MudText Typo="Typo.body1">Submitting support requests</MudText>
+            </li>
+        </ul>
+
+        <MudText Typo="Typo.h5" Class="mb-3">5. Prohibited Activities</MudText>
+        <MudText Typo="Typo.body1" Class="mb-2">You agree not to:</MudText>
+        <ul class="mb-4 pl-4">
+            <li>
+                <MudText Typo="Typo.body1">Attempt to gain unauthorised access to other accounts or system resources
+                </MudText>
+            </li>
+            <li>
+                <MudText Typo="Typo.body1">Use automated tools to scrape or extract data from the portal</MudText>
+            </li>
+            <li>
+                <MudText Typo="Typo.body1">Interfere with the proper functioning of the portal</MudText>
+            </li>
+            <li>
+                <MudText Typo="Typo.body1">Use the portal for any unlawful purpose or in violation of POTRAZ regulations
+                </MudText>
+            </li>
+            <li>
+                <MudText Typo="Typo.body1">Transmit or distribute harmful digital content as defined under the Cyber and
+                    Data Protection Act</MudText>
+                </li>
+            </ul>
+
+            <MudText Typo="Typo.h5" Class="mb-3">6. Payment Terms</MudText>
+            <MudText Typo="Typo.body1" Class="mb-4">
+                Payments made through the Customer Portal are subject to the payment terms agreed in your
+                commercial contract. All transactions are processed securely in compliance with POTRAZ
+                requirements for electronic commerce. Payment confirmations will be provided upon successful
+                processing. All electronic transaction records are maintained as required by the Electronic
+                Transactions and Electronic Commerce Act.
+            </MudText>
+
+            <MudText Typo="Typo.h5" Class="mb-3">7. Data Protection and Privacy</MudText>
+            <MudText Typo="Typo.body1" Class="mb-2">
+                In accordance with the Cyber and Data Protection Act [Chapter 12:07] and POTRAZ data protection
+                requirements:
+            </MudText>
+            <ul class="mb-4 pl-4">
+                <li>
+                    <MudText Typo="Typo.body1">We process your personal data only for lawful purposes and with your consent
+                        as required under Section 8 of the Act</MudText>
+                    </li>
+                    <li>
+                        <MudText Typo="Typo.body1">Your personal data is stored and processed within Zimbabwe or in
+                            jurisdictions that provide adequate data protection as determined by the Data Protection Authority
+                        </MudText>
+                    </li>
+                    <li>
+                        <MudText Typo="Typo.body1">We do not transfer your personal data outside Zimbabwe without ensuring
+                            compliance with Section 29 of the Act (cross-border transfer provisions)</MudText>
+                        </li>
+                        <li>
+                            <MudText Typo="Typo.body1">You have the right to access, correct, and request deletion of your personal
+                                data as provided under Sections 22–28 of the Act</MudText>
+                            </li>
+                            <li>
+                                <MudText Typo="Typo.body1">We maintain appropriate technical and organisational measures to protect your
+                                    data as required by POTRAZ security standards</MudText>
+                                </li>
+                            </ul>
+                            <MudText Typo="Typo.body1" Class="mb-4">
+                                For full details on how we handle your data, please refer to our
+                                <MudLink Href="/customer-portal/privacy" Color="Color.Primary">Privacy Policy</MudLink>.
+                            </MudText>
+
+                            <MudText Typo="Typo.h5" Class="mb-3">8. Data Subject Rights</MudText>
+                            <MudText Typo="Typo.body1" Class="mb-2">
+                                Under the Cyber and Data Protection Act, as a data subject you are entitled to:
+                            </MudText>
+                            <ul class="mb-4 pl-4">
+                                <li>
+                                    <MudText Typo="Typo.body1">Be informed about the collection and use of your personal data</MudText>
+                                </li>
+                                <li>
+                                    <MudText Typo="Typo.body1">Access your personal data held by us</MudText>
+                                </li>
+                                <li>
+                                    <MudText Typo="Typo.body1">Request rectification of inaccurate or incomplete personal data</MudText>
+                                </li>
+                                <li>
+                                    <MudText Typo="Typo.body1">Request erasure of your personal data where there is no compelling reason for
+                                        continued processing</MudText>
+                                    </li>
+                                    <li>
+                                        <MudText Typo="Typo.body1">Object to the processing of your personal data</MudText>
+                                    </li>
+                                    <li>
+                                        <MudText Typo="Typo.body1">Data portability — receive your data in a structured, commonly used format
+                                        </MudText>
+                                    </li>
+                                    <li>
+                                        <MudText Typo="Typo.body1">Lodge a complaint with the Data Protection Authority of Zimbabwe if you
+                                            believe your rights have been violated</MudText>
+                                        </li>
+                                    </ul>
+
+                                    <MudText Typo="Typo.h5" Class="mb-3">9. Data Breach Notification</MudText>
+                                    <MudText Typo="Typo.body1" Class="mb-4">
+                                        In the event of a personal data breach that poses a risk to your rights and freedoms, we will
+                                        notify the Data Protection Authority within 72 hours of becoming aware of the breach, in
+                                        accordance with Section 30 of the Cyber and Data Protection Act. Where the breach is likely to
+                                        result in a high risk to you, we will also notify you directly without undue delay.
+                                    </MudText>
+
+                                    <MudText Typo="Typo.h5" Class="mb-3">10. Consumer Protection</MudText>
+                                    <MudText Typo="Typo.body1" Class="mb-2">
+                                        In compliance with POTRAZ consumer protection regulations, we commit to:
+                                    </MudText>
+                                    <ul class="mb-4 pl-4">
+                                        <li>
+                                            <MudText Typo="Typo.body1">Providing clear and transparent information about our services and pricing
+                                            </MudText>
+                                        </li>
+                                        <li>
+                                            <MudText Typo="Typo.body1">Maintaining a fair and accessible complaints handling procedure</MudText>
+                                        </li>
+                                        <li>
+                                            <MudText Typo="Typo.body1">Responding to complaints within timeframes prescribed by POTRAZ</MudText>
+                                        </li>
+                                        <li>
+                                            <MudText Typo="Typo.body1">Not engaging in unfair business practices or misleading conduct</MudText>
+                                        </li>
+                                        <li>
+                                            <MudText Typo="Typo.body1">Providing you with the right to escalate unresolved complaints to POTRAZ
+                                            </MudText>
+                                        </li>
+                                    </ul>
+
+                                    <MudText Typo="Typo.h5" Class="mb-3">11. Complaints and Dispute Resolution</MudText>
+                                    <MudText Typo="Typo.body1" Class="mb-2">
+                                        If you have a complaint about our services:
+                                    </MudText>
+                                    <ul class="mb-4 pl-4">
+                                        <li>
+                                            <MudText Typo="Typo.body1"><strong>Step 1:</strong> Contact us through the <MudLink
+                                                Href="/customer-portal/support" Color="Color.Primary">Support</MudLink> page. We will
+                                                acknowledge your complaint within 2 business days and aim to resolve it within 14 business days.
+                                            </MudText>
+                                        </li>
+                                        <li>
+                                            <MudText Typo="Typo.body1"><strong>Step 2:</strong> If you are not satisfied with our response, you may
+                                                escalate your complaint to POTRAZ at: Postal and Telecommunications Regulatory Authority of
+                                                Zimbabwe, Block A, Emerald Business Park, 30 The Chase (West), P.O. Box MP 843, Mount Pleasant,
+                                                Harare, Zimbabwe.</MudText>
+                                            </li>
+                                            <li>
+                                                <MudText Typo="Typo.body1"><strong>Step 3:</strong> For data protection matters, you may lodge a
+                                                    complaint with the Data Protection Authority established under the Cyber and Data Protection Act.
+                                                </MudText>
+                                            </li>
+                                        </ul>
+
+                                        <MudText Typo="Typo.h5" Class="mb-3">12. Data Accuracy</MudText>
+                                        <MudText Typo="Typo.body1" Class="mb-4">
+                                            While we strive to ensure the accuracy of all information displayed on the portal, including
+                                            invoice amounts and statement balances, the data is synchronised from our business systems and
+                                            may occasionally be subject to processing delays. In case of any discrepancy, the records in
+                                            our core business system shall prevail.
+                                        </MudText>
+
+                                        <MudText Typo="Typo.h5" Class="mb-3">13. Service Availability</MudText>
+                                        <MudText Typo="Typo.body1" Class="mb-4">
+                                            We aim to provide continuous access to the Customer Portal, however, we do not guarantee
+                                            uninterrupted availability. The portal may be temporarily unavailable due to maintenance,
+                                            updates, or circumstances beyond our control. Service interruptions will be communicated
+                                            where practicable in accordance with POTRAZ service quality standards.
+                                        </MudText>
+
+                                        <MudText Typo="Typo.h5" Class="mb-3">14. Limitation of Liability</MudText>
+                                        <MudText Typo="Typo.body1" Class="mb-4">
+                                            To the fullest extent permitted by the laws of Zimbabwe, we shall not be liable for any indirect,
+                                            incidental, or consequential damages arising from the use of the Customer Portal. Our total
+                                            liability shall not exceed the value of the transactions in dispute. Nothing in these terms
+                                            excludes or limits liability that cannot be excluded under Zimbabwean law.
+                                        </MudText>
+
+                                        <MudText Typo="Typo.h5" Class="mb-3">15. Governing Law and Jurisdiction</MudText>
+                                        <MudText Typo="Typo.body1" Class="mb-4">
+                                            These Terms of Service are governed by and construed in accordance with the laws of Zimbabwe.
+                                            Any disputes arising from the use of this portal shall be subject to the jurisdiction of the
+                                            courts of Zimbabwe. Regulatory matters fall under the jurisdiction of POTRAZ as established
+                                            by the Postal and Telecommunications Act [Chapter 12:05].
+                                        </MudText>
+
+                                        <MudText Typo="Typo.h5" Class="mb-3">16. Changes to Terms</MudText>
+                                        <MudText Typo="Typo.body1" Class="mb-4">
+                                            We reserve the right to modify these Terms of Service at any time in accordance with applicable
+                                            law and POTRAZ regulations. Material changes will be communicated to you via the portal or
+                                            email. Continued use of the portal after changes are posted constitutes acceptance of the
+                                            revised terms.
+                                        </MudText>
+
+                                        <MudText Typo="Typo.h5" Class="mb-3">17. Contact</MudText>
+                                        <MudText Typo="Typo.body1" Class="mb-2">
+                                            For questions about these terms, please reach out via the
+                                            <MudLink Href="/customer-portal/support" Color="Color.Primary">Support</MudLink> page.
+                                        </MudText>
+                                        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">
+                                            Regulatory enquiries may be directed to POTRAZ at
+                                            <MudLink Href="https://www.potraz.gov.zw" Target="_blank" Color="Color.Primary">www.potraz.gov.zw</MudLink>.
+                                        </MudText>
+                                    </MudPaper>
+                                </div>

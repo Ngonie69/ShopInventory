@@ -732,6 +732,86 @@ public class InvoiceController : ControllerBase
     }
 
     /// <summary>
+    /// Upload a Proof of Delivery (POD) attachment for an invoice.
+    /// Designed for mobile app consumption with multipart/form-data.
+    /// </summary>
+    /// <param name="docEntry">The invoice document entry</param>
+    /// <param name="file">The POD file (image or PDF)</param>
+    /// <param name="description">Optional description</param>
+    [HttpPost("{docEntry:int}/pod")]
+    [ProducesResponseType(typeof(DocumentAttachmentDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    [RequestSizeLimit(20 * 1024 * 1024)] // 20MB max
+    public async Task<IActionResult> UploadPod(
+        int docEntry,
+        IFormFile file,
+        [FromForm] string? description = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (file == null || file.Length == 0)
+        {
+            return BadRequest(new ErrorResponseDto { Message = "No file uploaded" });
+        }
+
+        // Validate file type - only images and PDFs allowed
+        var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp", "application/pdf" };
+        if (!allowedTypes.Contains(file.ContentType, StringComparer.OrdinalIgnoreCase))
+        {
+            return BadRequest(new ErrorResponseDto
+            {
+                Message = "Invalid file type. Only JPEG, PNG, WebP images and PDF files are allowed."
+            });
+        }
+
+        var request = new UploadAttachmentRequest
+        {
+            EntityType = "Invoice",
+            EntityId = docEntry,
+            Description = string.IsNullOrWhiteSpace(description)
+                ? "POD - Proof of Delivery"
+                : $"POD - {description}",
+            IncludeInEmail = false
+        };
+
+        var userId = GetUserId();
+        using var stream = file.OpenReadStream();
+
+        // Prefix filename with POD_ to make it filterable
+        var fileName = file.FileName.StartsWith("POD", StringComparison.OrdinalIgnoreCase)
+            ? file.FileName
+            : $"POD_{file.FileName}";
+
+        var attachment = await _documentService.UploadAttachmentAsync(
+            request, stream, fileName, file.ContentType, userId, cancellationToken);
+
+        _logger.LogInformation("POD uploaded for invoice {DocEntry} by user {UserId}", docEntry, userId);
+
+        return CreatedAtAction(nameof(DownloadInvoiceAttachment),
+            new { docEntry, attachmentId = attachment.Id }, attachment);
+    }
+
+    /// <summary>
+    /// Get all POD attachments across all invoices (paginated).
+    /// Optionally filter by customer code.
+    /// </summary>
+    [HttpGet("pods")]
+    [ProducesResponseType(typeof(PodAttachmentListResponseDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetAllPods(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? cardCode = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 20;
+        if (pageSize > 100) pageSize = 100;
+
+        var result = await _documentService.GetAllPodAttachmentsAsync(page, pageSize, cardCode, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Gets invoices within a date range
     /// </summary>
     /// <param name="fromDate">Start date (yyyy-MM-dd)</param>
@@ -977,6 +1057,12 @@ public class InvoiceController : ControllerBase
                     allocatedLine.TotalQuantityAllocated);
             }
         }
+    }
+
+    private Guid GetUserId()
+    {
+        var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        return Guid.Parse(userIdClaim ?? throw new UnauthorizedAccessException("User ID not found"));
     }
 
     #endregion

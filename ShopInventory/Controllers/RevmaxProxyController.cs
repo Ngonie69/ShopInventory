@@ -424,7 +424,10 @@ public class RevmaxProxyController : ControllerBase
                 // Copy fiscal reference from original invoice if available
                 if (originalInvoiceResult.Invoice?.Data != null)
                 {
-                    request.refFiscalDayNo ??= originalInvoiceResult.Invoice.Data.FiscalDayNo;
+                    if (int.TryParse(originalInvoiceResult.Invoice.FiscalDay, out var fiscalDay))
+                    {
+                        request.refFiscalDayNo ??= fiscalDay;
+                    }
                     request.refReceiptGlobalNo ??= originalInvoiceResult.Invoice.Data.ReceiptGlobalNo;
                 }
 

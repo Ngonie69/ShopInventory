@@ -378,6 +378,12 @@
                 </span>
                 <span class="snav-text">Reports</span>
             </NavLink>
+            <NavLink class="snav-link" href="/pods" Match="NavLinkMatch.Prefix">
+                <span class="snav-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
+                </span>
+                <span class="snav-text">Proof of Delivery</span>
+            </NavLink>
             <NavLink class="snav-link" href="/document-templates" Match="NavLinkMatch.Prefix">
                 <span class="snav-icon">
                     <MudIcon Icon="@Icons.Material.Filled.Description" />
@@ -411,6 +417,17 @@
                 </span>
                 <span class="snav-text">Security</span>
             </NavLink>
+
+            <AuthorizeView Roles="Admin" Context="revmaxCtx">
+                <Authorized>
+                    <NavLink class="snav-link" href="/revmax" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Memory" />
+                        </span>
+                        <span class="snav-text">REVMax Fiscal</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
 
             @* ── Management (Admin + Manager) ── *@
             <AuthorizeView Roles="Admin,Manager" Context="managementCtx">

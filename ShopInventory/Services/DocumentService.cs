@@ -32,6 +32,9 @@ public interface IDocumentService
     Task<(Stream? stream, string? fileName, string? mimeType)> DownloadAttachmentAsync(int id, CancellationToken cancellationToken = default);
     Task<bool> DeleteAttachmentAsync(int id, CancellationToken cancellationToken = default);
 
+    // POD (Proof of Delivery)
+    Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default);
+
     // Document History
     Task<DocumentHistoryListResponseDto> GetDocumentHistoryAsync(string? documentType = null, int? entityId = null, int page = 1, int pageSize = 20, CancellationToken cancellationToken = default);
 
@@ -503,6 +506,75 @@ public class DocumentService : IDocumentService
         await _context.SaveChangesAsync(cancellationToken);
 
         return true;
+    }
+
+    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default)
+    {
+        var query = _context.Set<DocumentAttachmentEntity>()
+            .Include(a => a.UploadedByUser)
+            .Where(a => a.EntityType == "Invoice")
+            .Where(a =>
+                a.FileName.ToLower().Contains("pod") ||
+                a.FileName.ToLower().Contains("proof of delivery") ||
+                (a.Description != null && (a.Description.ToLower().Contains("pod") || a.Description.ToLower().Contains("proof of delivery")))
+            )
+            .AsQueryable();
+
+        if (!string.IsNullOrEmpty(cardCode))
+        {
+            var invoiceDocEntries = _context.Invoices
+                .Where(i => i.CardCode == cardCode && i.SAPDocEntry != null)
+                .Select(i => i.SAPDocEntry!.Value);
+
+            query = query.Where(a => invoiceDocEntries.Contains(a.EntityId));
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        var attachments = await query
+            .OrderByDescending(a => a.UploadedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        var entityIds = attachments.Select(a => a.EntityId).Distinct().ToList();
+        var invoices = await _context.Invoices
+            .Where(i => i.SAPDocEntry != null && entityIds.Contains(i.SAPDocEntry.Value))
+            .Select(i => new { DocEntry = i.SAPDocEntry!.Value, DocNum = i.SAPDocNum ?? 0, i.CardCode, i.CardName })
+            .ToListAsync(cancellationToken);
+
+        var invoiceLookup = invoices.ToDictionary(i => i.DocEntry);
+
+        var items = attachments.Select(a =>
+        {
+            var dto = MapToDto(a);
+            invoiceLookup.TryGetValue(a.EntityId, out var inv);
+            return new PodAttachmentItemDto
+            {
+                Id = dto.Id,
+                FileName = dto.FileName,
+                MimeType = dto.MimeType,
+                FileSizeBytes = dto.FileSizeBytes,
+                FileSizeFormatted = dto.FileSizeFormatted,
+                Description = dto.Description,
+                UploadedAt = dto.UploadedAt,
+                UploadedByUserName = dto.UploadedByUserName,
+                DownloadUrl = dto.DownloadUrl,
+                InvoiceDocEntry = a.EntityId,
+                InvoiceDocNum = inv?.DocNum ?? 0,
+                CardCode = inv?.CardCode,
+                CardName = inv?.CardName
+            };
+        }).ToList();
+
+        return new PodAttachmentListResponseDto
+        {
+            Items = items,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize,
+            HasMore = (page * pageSize) < totalCount
+        };
     }
 
     #endregion

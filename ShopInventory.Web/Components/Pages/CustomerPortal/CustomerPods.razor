@@ -1,0 +1,230 @@
+@page "/customer-portal/pods"
+@using ShopInventory.Web.Models
+@inject IPodService PodService
+@inject IJSRuntime JSRuntime
+@inject ILogger<CustomerPods> Logger
+@attribute [AllowAnonymous]
+@rendermode InteractiveServer
+@layout CustomerPortalLayout
+
+<PageTitle>Proof of Delivery - Customer Portal</PageTitle>
+
+<div class="container-fluid fade-in staff-dashboard staff-shell">
+    @if (isLoading)
+    {
+        <div class="card dashboard-panel">
+            <div class="card-body text-center py-5">
+                <div class="spinner-border" role="status" style="width: 2.5rem; height: 2.5rem;">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="text-muted mt-3 mb-0">Loading proof of delivery records...</p>
+            </div>
+        </div>
+    }
+    else if (customerInfo == null)
+    {
+        <div class="card dashboard-panel">
+            <div class="card-body text-center py-5">
+                <svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" fill="currentColor" viewBox="0 0 16 16" class="mb-3">
+                    <path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+                </svg>
+                <h2 class="mb-2">Authentication Required</h2>
+                <p class="text-muted mb-4">Please login to view proof of delivery records.</p>
+                <a href="/customer-portal/login" class="btn btn-primary">Login to Portal</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="dashboard-hero">
+            <div class="page-header staff-dashboard-header">
+                <div class="dashboard-title">
+                    <h2>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M14.5 3a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h13zm-13-1A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 14.5 2h-13z"/>
+                            <path d="M7 5.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5zm-1.496-.854a.5.5 0 0 1 0 .708l-1.5 1.5a.5.5 0 0 1-.708 0l-.5-.5a.5.5 0 1 1 .708-.708l.146.147 1.146-1.147a.5.5 0 0 1 .708 0zM7 9.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5zm-1.496-.854a.5.5 0 0 1 0 .708l-1.5 1.5a.5.5 0 0 1-.708 0l-.5-.5a.5.5 0 0 1 .708-.708l.146.147 1.146-1.147a.5.5 0 0 1 .708 0z"/>
+                        </svg>
+                        Proof of Delivery
+                    </h2>
+                    <span class="text-muted">POD records for @customerInfo.CardName</span>
+                </div>
+                <div class="dashboard-meta">
+                    <span class="meta-pill">
+                        <span class="meta-dot"></span>
+                        Total PODs
+                    </span>
+                    <span class="meta-subtitle">
+                        @(podResponse?.TotalCount ?? 0) available
+                    </span>
+                    <div class="d-flex flex-wrap gap-2 mt-2">
+                        <a href="/customer-portal/dashboard" class="btn btn-outline-primary btn-sm">Back to Dashboard</a>
+                        <a href="/customer-portal/invoices" class="btn btn-primary btn-sm">View Invoices</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* POD List *@
+        <div class="card dashboard-panel">
+            <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
+                <h5 class="mb-0 d-flex align-items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" class="panel-icon">
+                        <path d="M14.5 3a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h13zm-13-1A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 14.5 2h-13z"/>
+                        <path d="M3 5.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zM3 8a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9A.5.5 0 0 1 3 8zm0 2.5a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5z"/>
+                    </svg>
+                    Delivery Confirmations
+                </h5>
+                <span class="text-muted small">@(podResponse?.TotalCount ?? 0) total</span>
+            </div>
+            <div class="card-body p-0">
+                @if (podResponse?.Items?.Any() == true)
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0 align-middle dashboard-table">
+                            <thead>
+                                <tr>
+                                    <th>Invoice #</th>
+                                    <th>File Name</th>
+                                    <th>Description</th>
+                                    <th>Size</th>
+                                    <th>Uploaded</th>
+                                    <th class="text-end">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var pod in podResponse.Items)
+                                {
+                                    <tr>
+                                        <td><span class="badge bg-primary">@pod.InvoiceDocNum</span></td>
+                                        <td>
+                                            <div class="fw-semibold">@pod.FileName</div>
+                                            <div class="text-muted small">@pod.MimeType</div>
+                                        </td>
+                                        <td>@(pod.Description ?? "-")</td>
+                                        <td>@pod.FileSizeFormatted</td>
+                                        <td>
+                                            <div>@pod.UploadedAt.ToString("MMM dd, yyyy")</div>
+                                            <div class="text-muted small">@pod.UploadedAt.ToString("HH:mm")</div>
+                                        </td>
+                                        <td class="text-end">
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                                                       OnClick="() => DownloadPod(pod)">
+                                                <i class="bi bi-download me-1"></i> View
+                                            </MudButton>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    @* Pagination *@
+                    @if (podResponse.TotalCount > pageSize)
+                    {
+                        <div class="d-flex justify-content-between align-items-center p-3 border-top">
+                            <span class="text-muted small">
+                                Showing @((currentPage - 1) * pageSize + 1)–@Math.Min(currentPage * pageSize, podResponse.TotalCount)
+                                of @podResponse.TotalCount
+                            </span>
+                            <div class="btn-group">
+                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(currentPage <= 1)"
+                                           OnClick="() => LoadPage(currentPage - 1)">Previous</MudButton>
+                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(!podResponse.HasMore)"
+                                           OnClick="() => LoadPage(currentPage + 1)">Next</MudButton>
+                            </div>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="text-center py-5 dashboard-empty">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" fill="currentColor" viewBox="0 0 16 16" class="mb-3 text-muted">
+                            <path d="M14.5 3a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h13zm-13-1A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 14.5 2h-13z"/>
+                        </svg>
+                        <p class="text-muted mb-0">No proof of delivery records found.</p>
+                        <p class="text-muted small">PODs will appear here once uploaded by staff for your invoices.</p>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private CustomerInfo? customerInfo;
+    private PodAttachmentListResponse? podResponse;
+    private bool isLoading = true;
+    private int currentPage = 1;
+    private const int pageSize = 20;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+
+        try
+        {
+            var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
+
+            if (string.IsNullOrEmpty(customerInfoJson))
+            {
+                customerInfo = null;
+                return;
+            }
+
+            customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
+
+            if (customerInfo != null)
+            {
+                podResponse = await PodService.GetAllPodsAsync(currentPage, pageSize, customerInfo.CardCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading POD data");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadPage(int page)
+    {
+        if (customerInfo == null) return;
+        currentPage = page;
+
+        try
+        {
+            podResponse = await PodService.GetAllPodsAsync(currentPage, pageSize, customerInfo.CardCode);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading POD page {Page}", page);
+        }
+    }
+
+    private async Task DownloadPod(PodAttachmentItemDto pod)
+    {
+        try
+        {
+            var data = await PodService.DownloadPodAsync(pod.InvoiceDocEntry, pod.Id);
+            if (data == null)
+            {
+                return;
+            }
+
+            var base64 = Convert.ToBase64String(data);
+            var contentType = pod.MimeType ?? "application/octet-stream";
+            await JSRuntime.InvokeVoidAsync("downloadFile", pod.FileName, contentType, base64);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error downloading POD {PodId}", pod.Id);
+        }
+    }
+}

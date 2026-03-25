@@ -471,7 +471,14 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Failed to create invoice: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to create invoice: {response.StatusCode} - {errorContent}");
+
+            var sapError = ExtractSAPErrorMessage(errorContent);
+            if (IsBusinessPartnerDataError(errorContent))
+            {
+                throw new Exception($"Failed to create invoice: Customer '{request.CardCode}' has corrupted or invalid data in SAP (e.g., broken Discount Group, Payment Terms, addresses, or contacts). " +
+                    $"Please check and repair this Business Partner's master data in SAP B1. SAP error: {sapError ?? errorContent}");
+            }
+            throw new Exception(sapError ?? $"Failed to create invoice: {response.StatusCode} - {errorContent}");
         }
 
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -3389,6 +3396,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
     #region Business Partner Operations
 
+    // Use $select to avoid SAP resolving FK references (e.g., Discount Groups/ODIS) via GetByKey,
+    // which causes error -2028 when referenced records are deleted or invalid.
+    private const string BusinessPartnerSelectFields = "$select=CardCode,CardName,CardType,GroupCode,Phone1,Phone2,EmailAddress,Address,City,Country,Currency,CurrentAccountBalance,Frozen,PriceListNum";
+
     public async Task<List<BusinessPartnerDto>> GetBusinessPartnersAsync(CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
@@ -3401,7 +3412,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         while (hasMore)
         {
             // Filter for Customers (cCustomer) only, you can modify to include Suppliers (cSupplier) or both
-            var url = $"BusinessPartners?$filter=CardType eq 'cCustomer'&$orderby=CardCode&$skip={skip}";
+            var url = $"BusinessPartners?{BusinessPartnerSelectFields}&$filter=CardType eq 'cCustomer'&$orderby=CardCode&$skip={skip}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -3425,6 +3436,16 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+
+                // If a corrupted BP causes -1025 or -2028 on a batch query, try fetching with cross-join/SQL fallback
+                if (IsBusinessPartnerDataError(errorContent))
+                {
+                    _logger.LogWarning("SAP returned BP data error at skip={Skip}. Some Business Partners have corrupted data (broken references in addresses, contacts, payment terms, or discount groups). " +
+                        "Skipping this page and continuing. SAP error: {Error}", skip, ExtractSAPErrorMessage(errorContent) ?? errorContent);
+                    skip += pageSize;
+                    continue;
+                }
+
                 _logger.LogError("Failed to get business partners: {StatusCode} - {Error}", response.StatusCode, errorContent);
                 throw new Exception($"Failed to get business partners: {response.StatusCode} - {errorContent}");
             }
@@ -3468,7 +3489,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         while (hasMore)
         {
-            var url = $"BusinessPartners?$filter=CardType eq '{cardType}'&$orderby=CardCode&$skip={skip}";
+            var url = $"BusinessPartners?{BusinessPartnerSelectFields}&$filter=CardType eq '{cardType}'&$orderby=CardCode&$skip={skip}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -3492,6 +3513,15 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+
+                if (IsBusinessPartnerDataError(errorContent))
+                {
+                    _logger.LogWarning("SAP returned BP data error at skip={Skip} for type '{CardType}'. Skipping corrupted page. SAP error: {Error}",
+                        skip, cardType, ExtractSAPErrorMessage(errorContent) ?? errorContent);
+                    skip += pageSize;
+                    continue;
+                }
+
                 _logger.LogError("Failed to get business partners by type: {StatusCode} - {Error}", response.StatusCode, errorContent);
                 throw new Exception($"Failed to get business partners: {response.StatusCode} - {errorContent}");
             }
@@ -3526,7 +3556,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         // Search by CardCode or CardName containing the search term
         var filter = $"$filter=(contains(CardCode,'{searchTerm}') or contains(CardName,'{searchTerm}')) and CardType eq 'cCustomer'&$orderby=CardCode&$top=50";
-        var url = $"BusinessPartners?{filter}";
+        var url = $"BusinessPartners?{BusinessPartnerSelectFields}&{filter}";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -3548,6 +3578,14 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         if (!response.IsSuccessStatusCode)
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (IsBusinessPartnerDataError(errorContent))
+            {
+                _logger.LogWarning("SAP returned BP data error while searching for '{SearchTerm}'. Some matching Business Partners have corrupted data. SAP error: {Error}",
+                    searchTerm, ExtractSAPErrorMessage(errorContent) ?? errorContent);
+                return new List<BusinessPartnerDto>();
+            }
+
             _logger.LogError("Failed to search business partners: {StatusCode} - {Error}", response.StatusCode, errorContent);
             throw new Exception($"Failed to search business partners: {response.StatusCode} - {errorContent}");
         }
@@ -3560,7 +3598,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     {
         await EnsureAuthenticatedAsync(cancellationToken);
 
-        var url = $"BusinessPartners('{cardCode}')";
+        var url = $"BusinessPartners('{cardCode}')?{BusinessPartnerSelectFields}";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -3587,6 +3625,17 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         if (!response.IsSuccessStatusCode)
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (IsBusinessPartnerDataError(errorContent))
+            {
+                var sapError = ExtractSAPErrorMessage(errorContent);
+                _logger.LogError("Business Partner '{CardCode}' has corrupted data in SAP (broken references in linked tables such as addresses, contacts, bank accounts, payment terms, or discount groups). SAP error: {Error}",
+                    cardCode, sapError ?? errorContent);
+                throw new Exception($"Business Partner '{cardCode}' has corrupted data in SAP and cannot be loaded. " +
+                    $"This is typically caused by broken references in linked tables (addresses, contacts, bank accounts, payment terms, or discount groups). " +
+                    $"Please check and repair this Business Partner's master data directly in SAP B1. SAP error: {sapError ?? errorContent}");
+            }
+
             _logger.LogError("Failed to get business partner {CardCode}: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
             throw new Exception($"Failed to get business partner: {response.StatusCode} - {errorContent}");
         }
@@ -4945,7 +4994,14 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             _logger.LogError("Failed to create incoming payment: {StatusCode} - {Error}",
                 response.StatusCode, responseContent);
-            throw new Exception($"Failed to create incoming payment: {response.StatusCode} - {responseContent}");
+
+            var sapError = ExtractSAPErrorMessage(responseContent);
+            if (IsBusinessPartnerDataError(responseContent))
+            {
+                throw new Exception($"Failed to create incoming payment: Customer '{request.CardCode}' has corrupted or invalid data in SAP (e.g., broken Discount Group, Payment Terms, addresses, or contacts). " +
+                    $"Please check and repair this Business Partner's master data in SAP B1. SAP error: {sapError ?? responseContent}");
+            }
+            throw new Exception(sapError ?? $"Failed to create incoming payment: {response.StatusCode} - {responseContent}");
         }
 
         var createdPayment = JsonSerializer.Deserialize<IncomingPayment>(responseContent);
@@ -6487,6 +6543,11 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             // Try to extract human-readable error from SAP JSON response
             var sapError = ExtractSAPErrorMessage(errorContent);
+            if (IsBusinessPartnerDataError(errorContent))
+            {
+                throw new Exception($"Failed to create credit note: The customer has corrupted or invalid data in SAP (e.g., broken Discount Group, Payment Terms, addresses, or contacts). " +
+                    $"Please check and repair this Business Partner's master data in SAP B1. SAP error: {sapError ?? errorContent}");
+            }
             throw new Exception(sapError ?? $"Failed to create credit note in SAP: {response.StatusCode} - {errorContent}");
         }
 
@@ -6974,8 +7035,23 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     #endregion
 
     /// <summary>
-    /// Extracts a human-readable error message from SAP B1 Service Layer JSON error response.
+    /// Detects SAP errors related to corrupted or invalid Business Partner data.
+    /// Error -2028: Referenced record not found (e.g., deleted Discount Group in ODIS table).
+    /// Error -1025: Corrupted BP record — object found but cannot be loaded due to broken linked data
+    /// in related tables (CRD1 addresses, OCRB bank accounts, OCPR contacts, ODIS discount groups, OCTG payment terms).
     /// </summary>
+    private static bool IsBusinessPartnerDataError(string errorContent)
+    {
+        // Error -2028: FK reference not found (deleted discount group, payment terms, etc.)
+        // Error -1025: Corrupted/inconsistent object state in BP linked tables
+        return errorContent.Contains("-2028", StringComparison.OrdinalIgnoreCase) ||
+               errorContent.Contains("-1025", StringComparison.OrdinalIgnoreCase) ||
+               (errorContent.Contains("GetByKey", StringComparison.OrdinalIgnoreCase) &&
+                (errorContent.Contains("Business", StringComparison.OrdinalIgnoreCase) ||
+                 errorContent.Contains("Discount", StringComparison.OrdinalIgnoreCase) ||
+                 errorContent.Contains("Partner", StringComparison.OrdinalIgnoreCase)));
+    }
+
     private static string? ExtractSAPErrorMessage(string errorContent)
     {
         try

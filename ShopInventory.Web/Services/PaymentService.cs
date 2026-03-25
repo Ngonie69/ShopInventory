@@ -12,6 +12,7 @@ public interface IPaymentService
     Task<IncomingPaymentDateResponse?> GetPaymentsByDateRangeAsync(DateTime fromDate, DateTime toDate);
     Task<IncomingPaymentDateResponse?> GetPaymentsByCustomerAsync(string cardCode);
     Task<(bool Success, string Message, IncomingPaymentDto? Payment)> CreatePaymentAsync(CreateIncomingPaymentRequest request);
+    Task<(bool Success, string Message)> UploadPaymentAttachmentAsync(int docEntry, Stream fileStream, string fileName, string contentType, string? description = null);
 }
 
 public class PaymentService : IPaymentService
@@ -199,6 +200,36 @@ public class PaymentService : IPaymentService
         {
             _logger.LogError(ex, "Unexpected error creating incoming payment");
             throw;
+        }
+    }
+
+    public async Task<(bool Success, string Message)> UploadPaymentAttachmentAsync(int docEntry, Stream fileStream, string fileName, string contentType, string? description = null)
+    {
+        try
+        {
+            using var content = new MultipartFormDataContent();
+            var streamContent = new StreamContent(fileStream);
+            streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+            content.Add(streamContent, "file", fileName);
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                content.Add(new StringContent(description), "description");
+            }
+
+            var response = await _httpClient.PostAsync($"api/incomingpayment/{docEntry}/attachment", content);
+            if (response.IsSuccessStatusCode)
+            {
+                return (true, "Attachment uploaded successfully");
+            }
+
+            var error = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Failed to upload payment attachment. Status: {StatusCode}, Error: {Error}", response.StatusCode, error);
+            return (false, "Failed to upload attachment");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error uploading payment attachment for DocEntry {DocEntry}", docEntry);
+            return (false, $"Error uploading attachment: {ex.Message}");
         }
     }
 }

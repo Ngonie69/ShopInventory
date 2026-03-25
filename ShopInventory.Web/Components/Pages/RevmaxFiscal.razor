@@ -1,0 +1,1037 @@
+@page "/revmax"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Services
+@attribute [Authorize(Roles = "Admin")]
+@inject IRevmaxService RevmaxService
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>REVMax Fiscal Device - Shop Inventory</PageTitle>
+
+<div class="rx-page">
+    <!-- Page Header -->
+    <div class="rx-header">
+        <div class="rx-header-left">
+            <div class="rx-header-icon">
+                <i class="bi bi-cpu-fill"></i>
+            </div>
+            <div>
+                <h1 class="rx-title">REVMax Fiscal Device</h1>
+                <p class="rx-subtitle">Monitor fiscal device status, license, and look up invoices</p>
+            </div>
+        </div>
+        <button class="rx-btn rx-btn-primary" @onclick="RefreshAll" disabled="@isRefreshing">
+            @if (isRefreshing)
+            {
+                <span class="spinner-border spinner-border-sm me-2"></span>
+            }
+            <i class="bi bi-arrow-clockwise"></i>
+            <span>Refresh All</span>
+        </button>
+    </div>
+
+    <!-- Status Cards Row -->
+    <div class="rx-cards-grid">
+        <!-- Device Card -->
+        <div class="rx-card @(cardDetails?.Code == "1" ? "rx-card-ok" : cardDetails == null && !hasLoadedOnce ? "" : "rx-card-err")">
+            <div class="rx-card-header">
+                <i class="bi bi-motherboard"></i>
+                <span>Device</span>
+                @if (isLoadingCard)
+                {
+                    <span class="spinner-border spinner-border-sm ms-auto"></span>
+                }
+            </div>
+            <div class="rx-card-body">
+                @if (cardDetails?.Data != null)
+                {
+                    <div class="rx-detail"><span class="rx-label">Company</span><span class="rx-value">@cardDetails.Data.COMPANYNAME</span></div>
+                    <div class="rx-detail"><span class="rx-label">TIN</span><span class="rx-value">@cardDetails.Data.TIN</span></div>
+                    <div class="rx-detail"><span class="rx-label">BPN</span><span class="rx-value">@cardDetails.Data.BPN</span></div>
+                    <div class="rx-detail"><span class="rx-label">VAT No</span><span class="rx-value">@cardDetails.Data.VAT</span></div>
+                    <div class="rx-detail"><span class="rx-label">Serial</span><span class="rx-value mono">@cardDetails.Data.SERIALNUMBER</span></div>
+                    <div class="rx-detail"><span class="rx-label">Device ID</span><span class="rx-value mono">@cardDetails.DeviceID</span></div>
+                    <div class="rx-detail"><span class="rx-label">Address</span><span class="rx-value">@cardDetails.Data.ADDRESS</span></div>
+                }
+                else if (!isLoadingCard && hasLoadedOnce)
+                {
+                    <div class="rx-empty">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <span>Unable to retrieve device details</span>
+                    </div>
+                }
+                else if (!isLoadingCard)
+                {
+                    <div class="rx-empty"><span>Click Refresh to load</span></div>
+                }
+            </div>
+        </div>
+
+        <!-- Day Status Card -->
+        <div class="rx-card @(dayStatus?.Code == "1" ? "rx-card-ok" : dayStatus == null && !hasLoadedOnce ? "" : "rx-card-err")">
+            <div class="rx-card-header">
+                <i class="bi bi-calendar-day"></i>
+                <span>Fiscal Day</span>
+                @if (isLoadingDay)
+                {
+                    <span class="spinner-border spinner-border-sm ms-auto"></span>
+                }
+            </div>
+            <div class="rx-card-body">
+                @if (dayStatus?.Data != null)
+                {
+                    <div class="rx-day-status">
+                        <span class="rx-day-badge @(dayStatus.Data.FiscalDayStatus == "OPEN" ? "rx-badge-green" : "rx-badge-amber")">
+                            @dayStatus.Data.FiscalDayStatus
+                        </span>
+                    </div>
+                    <div class="rx-detail"><span class="rx-label">Fiscal Day No</span><span class="rx-value mono">@dayStatus.Data.LastFiscalDayNo</span></div>
+                    <div class="rx-detail"><span class="rx-label">Last Receipt #</span><span class="rx-value mono">@dayStatus.Data.LastReceiptGlobalNo</span></div>
+                    @if (!string.IsNullOrEmpty(dayStatus.Data.OperationID))
+                    {
+                        <div class="rx-detail"><span class="rx-label">Operation ID</span><span class="rx-value mono">@dayStatus.Data.OperationID</span></div>
+                    }
+                    <div class="rx-detail"><span class="rx-label">Device Serial</span><span class="rx-value mono">@dayStatus.DeviceSerialNumber</span></div>
+                }
+                else if (!isLoadingDay && hasLoadedOnce)
+                {
+                    <div class="rx-empty">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <span>Unable to retrieve day status</span>
+                    </div>
+                }
+                else if (!isLoadingDay)
+                {
+                    <div class="rx-empty"><span>Click Refresh to load</span></div>
+                }
+            </div>
+        </div>
+
+        <!-- License Card -->
+        <div class="rx-card @(license?.Code == "1" ? "rx-card-ok" : license == null && !hasLoadedOnce ? "" : "rx-card-err")">
+            <div class="rx-card-header">
+                <i class="bi bi-key-fill"></i>
+                <span>License</span>
+                @if (isLoadingLicense)
+                {
+                    <span class="spinner-border spinner-border-sm ms-auto"></span>
+                }
+            </div>
+            <div class="rx-card-body">
+                @if (license?.Data != null)
+                {
+                    <div class="rx-day-status">
+                        <span class="rx-day-badge @(license.Data.Status == "ACTIVE" || license.Data.Status == "Active" ? "rx-badge-green" : "rx-badge-red")">
+                            @license.Data.Status
+                        </span>
+                    </div>
+                    <div class="rx-detail"><span class="rx-label">Start</span><span class="rx-value">@license.Data.Start</span></div>
+                    <div class="rx-detail"><span class="rx-label">End</span><span class="rx-value">@license.Data.End</span></div>
+                    <div class="rx-detail"><span class="rx-label">Device ID</span><span class="rx-value mono">@license.DeviceID</span></div>
+                }
+                else if (!isLoadingLicense && hasLoadedOnce)
+                {
+                    <div class="rx-empty">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <span>Unable to retrieve license</span>
+                    </div>
+                }
+                else if (!isLoadingLicense)
+                {
+                    <div class="rx-empty"><span>Click Refresh to load</span></div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Actions Row -->
+    <div class="rx-actions-row">
+        <!-- Invoice Lookup -->
+        <div class="rx-action-card">
+            <div class="rx-card-header">
+                <i class="bi bi-search"></i>
+                <span>Invoice Lookup</span>
+            </div>
+            <div class="rx-card-body">
+                <div class="rx-search-row">
+                    <input type="text" class="rx-input" placeholder="Enter invoice number..."
+                           @bind="invoiceLookupNumber" @bind:event="oninput"
+                           @onkeydown="HandleInvoiceLookupKeyDown" />
+                    <button class="rx-btn rx-btn-primary" @onclick="LookupInvoice"
+                            disabled="@(isLookingUpInvoice || string.IsNullOrWhiteSpace(invoiceLookupNumber))">
+                        @if (isLookingUpInvoice)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-search"></i>
+                        }
+                        <span>Search</span>
+                    </button>
+                </div>
+
+                @if (invoiceLookupResult != null)
+                {
+                    @if (invoiceLookupResult.Success && invoiceLookupResult.Data != null)
+                    {
+                        <div class="rx-invoice-result">
+                            @* QR Code *@
+                            @if (!string.IsNullOrEmpty(invoiceLookupResult.QRcode))
+                            {
+                                <div class="rx-qr-section">
+                                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=@(Uri.EscapeDataString(invoiceLookupResult.QRcode))"
+                                         alt="Fiscal QR Code" class="rx-qr-img" />
+                                    @if (!string.IsNullOrEmpty(invoiceLookupResult.VerificationCode))
+                                    {
+                                        <span class="rx-verification-code">@invoiceLookupResult.VerificationCode</span>
+                                    }
+                                </div>
+                            }
+
+                            @* Invoice Summary *@
+                            <div class="rx-detail"><span class="rx-label">Invoice #</span><span class="rx-value mono">@invoiceLookupResult.Data.InvoiceNo</span></div>
+                            <div class="rx-detail"><span class="rx-label">Type</span>
+                                <span class="rx-day-badge rx-badge-green">@invoiceLookupResult.Data.ReceiptType</span>
+                            </div>
+                            <div class="rx-detail"><span class="rx-label">Total</span><span class="rx-value">@invoiceLookupResult.Data.ReceiptCurrency @invoiceLookupResult.Data.ReceiptTotal.ToString("N2")</span></div>
+                            <div class="rx-detail"><span class="rx-label">Receipt #</span><span class="rx-value mono">@invoiceLookupResult.Data.ReceiptGlobalNo</span></div>
+                            <div class="rx-detail"><span class="rx-label">Receipt Counter</span><span class="rx-value mono">@invoiceLookupResult.Data.ReceiptCounter</span></div>
+                            <div class="rx-detail"><span class="rx-label">Date</span><span class="rx-value">@invoiceLookupResult.Data.ReceiptDate</span></div>
+                            <div class="rx-detail"><span class="rx-label">Fiscal Day</span><span class="rx-value mono">@invoiceLookupResult.FiscalDay</span></div>
+                            <div class="rx-detail"><span class="rx-label">Device Serial</span><span class="rx-value mono">@invoiceLookupResult.DeviceSerialNumber</span></div>
+                            @if (!string.IsNullOrEmpty(invoiceLookupResult.Data.ReceiptNotes))
+                            {
+                                <div class="rx-detail"><span class="rx-label">Notes</span><span class="rx-value">@invoiceLookupResult.Data.ReceiptNotes</span></div>
+                            }
+                            <div class="rx-detail"><span class="rx-label">Tax Inclusive</span><span class="rx-value">@(invoiceLookupResult.Data.ReceiptLinesTaxInclusive ? "Yes" : "No")</span></div>
+
+                            @* Tax Summary *@
+                            @if (invoiceLookupResult.Data.ReceiptTaxes?.Count > 0)
+                            {
+                                <div class="rx-section-label">Tax Summary</div>
+                                @foreach (var tax in invoiceLookupResult.Data.ReceiptTaxes)
+                                {
+                                    <div class="rx-detail">
+                                        <span class="rx-label">@tax.TaxCode (@tax.TaxPercent%)</span>
+                                        <span class="rx-value">Tax: @invoiceLookupResult.Data.ReceiptCurrency @tax.TaxAmount.ToString("N2") &mdash; Total: @invoiceLookupResult.Data.ReceiptCurrency @tax.SalesAmountWithTax.ToString("N2")</span>
+                                    </div>
+                                }
+                            }
+
+                            @* Payment Summary *@
+                            @if (invoiceLookupResult.Data.ReceiptPayments?.Count > 0)
+                            {
+                                <div class="rx-section-label">Payments</div>
+                                @foreach (var pay in invoiceLookupResult.Data.ReceiptPayments)
+                                {
+                                    <div class="rx-detail">
+                                        <span class="rx-label">@pay.MoneyTypeCode</span>
+                                        <span class="rx-value">@invoiceLookupResult.Data.ReceiptCurrency @pay.PaymentAmount.ToString("N2")</span>
+                                    </div>
+                                }
+                            }
+
+                            @* Line Items *@
+                            @if (invoiceLookupResult.Data.ReceiptLines?.Count > 0)
+                            {
+                                <div class="rx-section-label">Line Items (@invoiceLookupResult.Data.ReceiptLines.Count)</div>
+                                <div class="rx-unprocessed-table">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>#</th>
+                                                <th>Item</th>
+                                                <th>Qty</th>
+                                                <th>Price</th>
+                                                <th>Total</th>
+                                                <th>Tax</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var line in invoiceLookupResult.Data.ReceiptLines)
+                                            {
+                                                <tr>
+                                                    <td class="mono">@line.ReceiptLineNo</td>
+                                                    <td>@line.ReceiptLineName</td>
+                                                    <td class="mono">@line.ReceiptLineQuantity</td>
+                                                    <td class="mono">@line.ReceiptLinePrice.ToString("N2")</td>
+                                                    <td class="mono">@line.ReceiptLineTotal.ToString("N2")</td>
+                                                    <td>@line.TaxCode @line.TaxPercent%</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="rx-empty rx-empty-warn">
+                            <i class="bi bi-info-circle"></i>
+                            <span>@(invoiceLookupResult.Message ?? "Invoice not found on REVMax")</span>
+                        </div>
+                    }
+                }
+
+                @if (invoiceLookupError != null)
+                {
+                    <div class="rx-empty rx-empty-warn">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <span>@invoiceLookupError</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Z-Report & Unprocessed -->
+        <div class="rx-action-card">
+            <div class="rx-card-header">
+                <i class="bi bi-file-earmark-bar-graph"></i>
+                <span>Reports & Queue</span>
+            </div>
+            <div class="rx-card-body">
+                <div class="rx-btn-group">
+                    <button class="rx-btn rx-btn-outline" @onclick="GenerateZReport" disabled="@isGeneratingZReport">
+                        @if (isGeneratingZReport)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        <i class="bi bi-file-earmark-text"></i>
+                        <span>Generate Z-Report</span>
+                    </button>
+                    <button class="rx-btn rx-btn-outline" @onclick="LoadUnprocessedInvoices" disabled="@isLoadingUnprocessed">
+                        @if (isLoadingUnprocessed)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        <i class="bi bi-hourglass-split"></i>
+                        <span>Unprocessed Invoices</span>
+                    </button>
+                </div>
+
+                @if (zReportResult != null)
+                {
+                    <div class="rx-report-result">
+                        <div class="rx-report-badge @(zReportResult.Code == "1" ? "rx-badge-green" : "rx-badge-red")">
+                            Z-Report: @(zReportResult.Code == "1" ? "Success" : "Failed")
+                        </div>
+                        @if (!string.IsNullOrEmpty(zReportResult.Message))
+                        {
+                            <div class="rx-detail"><span class="rx-label">Message</span><span class="rx-value">@zReportResult.Message</span></div>
+                        }
+                        @if (!string.IsNullOrEmpty(zReportResult.FiscalDay))
+                        {
+                            <div class="rx-detail"><span class="rx-label">Fiscal Day</span><span class="rx-value mono">@zReportResult.FiscalDay</span></div>
+                        }
+                    </div>
+                }
+
+                @if (unprocessedResult?.Data != null)
+                {
+                    <div class="rx-unprocessed">
+                        <div class="rx-unprocessed-header">
+                            <span>@unprocessedResult.Data.Count unprocessed invoice(s)</span>
+                        </div>
+                        @if (unprocessedResult.Data.Count > 0)
+                        {
+                            <div class="rx-unprocessed-table">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Invoice #</th>
+                                            <th>Amount</th>
+                                            <th>Currency</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var inv in unprocessedResult.Data)
+                                        {
+                                            <tr>
+                                                <td class="mono">@inv.InvoiceNumber</td>
+                                                <td>@inv.InvoiceAmount.ToString("N2")</td>
+                                                <td>@inv.Currency</td>
+                                                <td>@inv.Status</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Set License Section -->
+    <div class="rx-license-section">
+        <div class="rx-card">
+            <div class="rx-card-header">
+                <i class="bi bi-key"></i>
+                <span>Update License</span>
+            </div>
+            <div class="rx-card-body">
+                <div class="rx-search-row">
+                    <input type="text" class="rx-input" placeholder="Enter new license key..."
+                           @bind="newLicenseKey" @bind:event="oninput" />
+                    <button class="rx-btn rx-btn-warn" @onclick="SetLicense"
+                            disabled="@(isSettingLicense || string.IsNullOrWhiteSpace(newLicenseKey))">
+                        @if (isSettingLicense)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                        }
+                        <i class="bi bi-upload"></i>
+                        <span>Set License</span>
+                    </button>
+                </div>
+                @if (setLicenseMessage != null)
+                {
+                    <div class="rx-empty @(setLicenseSuccess ? "" : "rx-empty-warn")">
+                        <i class="bi @(setLicenseSuccess ? "bi-check-circle" : "bi-exclamation-triangle")"></i>
+                        <span>@setLicenseMessage</span>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private RevmaxCardDetailsResponse? cardDetails;
+    private RevmaxDayStatusResponse? dayStatus;
+    private RevmaxLicenseResponse? license;
+    private RevmaxZReportResponse? zReportResult;
+    private RevmaxInvoiceResponse? invoiceLookupResult;
+    private RevmaxUnprocessedSummaryResponse? unprocessedResult;
+
+    private bool isRefreshing;
+    private bool isLoadingCard;
+    private bool isLoadingDay;
+    private bool isLoadingLicense;
+    private bool isGeneratingZReport;
+    private bool isLookingUpInvoice;
+    private bool isLoadingUnprocessed;
+    private bool isSettingLicense;
+    private bool hasLoadedOnce;
+
+    private string? invoiceLookupNumber;
+    private string? invoiceLookupError;
+    private string? newLicenseKey;
+    private string? setLicenseMessage;
+    private bool setLicenseSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAll();
+    }
+
+    private async Task RefreshAll()
+    {
+        isRefreshing = true;
+        StateHasChanged();
+
+        try
+        {
+            // Load all status data in parallel
+            var cardTask = LoadCardDetails();
+            var dayTask = LoadDayStatus();
+            var licenseTask = LoadLicense();
+
+            await Task.WhenAll(cardTask, dayTask, licenseTask);
+            hasLoadedOnce = true;
+        }
+        finally
+        {
+            isRefreshing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadCardDetails()
+    {
+        isLoadingCard = true;
+        try
+        {
+            cardDetails = await RevmaxService.GetCardDetailsAsync();
+        }
+        finally
+        {
+            isLoadingCard = false;
+        }
+    }
+
+    private async Task LoadDayStatus()
+    {
+        isLoadingDay = true;
+        try
+        {
+            dayStatus = await RevmaxService.GetDayStatusAsync();
+        }
+        finally
+        {
+            isLoadingDay = false;
+        }
+    }
+
+    private async Task LoadLicense()
+    {
+        isLoadingLicense = true;
+        try
+        {
+            license = await RevmaxService.GetLicenseAsync();
+        }
+        finally
+        {
+            isLoadingLicense = false;
+        }
+    }
+
+    private async Task LookupInvoice()
+    {
+        if (string.IsNullOrWhiteSpace(invoiceLookupNumber)) return;
+
+        isLookingUpInvoice = true;
+        invoiceLookupError = null;
+        invoiceLookupResult = null;
+        StateHasChanged();
+
+        try
+        {
+            invoiceLookupResult = await RevmaxService.GetInvoiceAsync(invoiceLookupNumber.Trim());
+            if (invoiceLookupResult == null)
+            {
+                invoiceLookupError = "Failed to connect to REVMax. Please try again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            invoiceLookupError = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLookingUpInvoice = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleInvoiceLookupKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await LookupInvoice();
+        }
+    }
+
+    private async Task GenerateZReport()
+    {
+        isGeneratingZReport = true;
+        zReportResult = null;
+        StateHasChanged();
+
+        try
+        {
+            zReportResult = await RevmaxService.GetZReportAsync();
+        }
+        finally
+        {
+            isGeneratingZReport = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadUnprocessedInvoices()
+    {
+        isLoadingUnprocessed = true;
+        unprocessedResult = null;
+        StateHasChanged();
+
+        try
+        {
+            unprocessedResult = await RevmaxService.GetUnprocessedInvoicesSummaryAsync();
+        }
+        finally
+        {
+            isLoadingUnprocessed = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SetLicense()
+    {
+        if (string.IsNullOrWhiteSpace(newLicenseKey)) return;
+
+        isSettingLicense = true;
+        setLicenseMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await RevmaxService.SetLicenseAsync(newLicenseKey.Trim());
+            if (result != null && result.Code == "1")
+            {
+                setLicenseSuccess = true;
+                setLicenseMessage = "License updated successfully.";
+                newLicenseKey = "";
+                // Refresh license info
+                await LoadLicense();
+            }
+            else
+            {
+                setLicenseSuccess = false;
+                setLicenseMessage = result?.Message ?? "Failed to set license.";
+            }
+        }
+        catch (Exception ex)
+        {
+            setLicenseSuccess = false;
+            setLicenseMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isSettingLicense = false;
+            StateHasChanged();
+        }
+    }
+}
+
+<style>
+    /* ── REVMax Page Styles ── */
+    .rx-page {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 1.5rem;
+    }
+
+    .rx-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 2rem;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+
+    .rx-header-left {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .rx-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.15));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        color: #6366f1;
+    }
+
+    .rx-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin: 0;
+    }
+
+    .rx-subtitle {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        margin: 0;
+    }
+
+    /* ── Buttons ── */
+    .rx-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+        border: none;
+        transition: all 0.2s;
+        white-space: nowrap;
+    }
+
+    .rx-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .rx-btn-primary {
+        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        color: white;
+    }
+
+    .rx-btn-primary:hover:not(:disabled) {
+        background: linear-gradient(135deg, #4f46e5, #7c3aed);
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+    }
+
+    .rx-btn-outline {
+        background: var(--light-color);
+        color: var(--text-primary);
+        border: 1px solid var(--border-color);
+    }
+
+    .rx-btn-outline:hover:not(:disabled) {
+        background: var(--primary-light);
+        border-color: #6366f1;
+    }
+
+    .rx-btn-warn {
+        background: linear-gradient(135deg, #f59e0b, #d97706);
+        color: white;
+    }
+
+    .rx-btn-warn:hover:not(:disabled) {
+        background: linear-gradient(135deg, #d97706, #b45309);
+        box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+    }
+
+    /* ── Cards Grid ── */
+    .rx-cards-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1.25rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .rx-card {
+        background: var(--light-color);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        overflow: hidden;
+        transition: border-color 0.3s;
+        box-shadow: var(--shadow-sm);
+    }
+
+    .rx-card-ok {
+        border-color: rgba(34, 197, 94, 0.4);
+    }
+
+    .rx-card-err {
+        border-color: rgba(239, 68, 68, 0.4);
+    }
+
+    .rx-card-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.85rem 1.25rem;
+        background: var(--primary-light);
+        border-bottom: 1px solid var(--border-color);
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: var(--text-primary);
+    }
+
+    .rx-card-header i {
+        color: #6366f1;
+        font-size: 1rem;
+    }
+
+    .rx-card-body {
+        padding: 1rem 1.25rem;
+    }
+
+    /* ── Details ── */
+    .rx-detail {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        padding: 0.4rem 0;
+        border-bottom: 1px solid var(--border-color);
+        gap: 0.75rem;
+    }
+
+    .rx-detail:last-child {
+        border-bottom: none;
+    }
+
+    .rx-label {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        flex-shrink: 0;
+        min-width: 90px;
+    }
+
+    .rx-value {
+        font-size: 0.85rem;
+        color: var(--text-primary);
+        text-align: right;
+        word-break: break-word;
+    }
+
+    .rx-value.mono {
+        font-family: 'Cascadia Code', 'Fira Code', monospace;
+        font-size: 0.8rem;
+    }
+
+    /* ── Badges ── */
+    .rx-day-status {
+        display: flex;
+        justify-content: center;
+        padding: 0.5rem 0;
+    }
+
+    .rx-day-badge, .rx-report-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.3rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+    }
+
+    .rx-badge-green {
+        background: rgba(34, 197, 94, 0.12);
+        color: #16a34a;
+        border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .rx-badge-amber {
+        background: rgba(245, 158, 11, 0.12);
+        color: #d97706;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .rx-badge-red {
+        background: rgba(239, 68, 68, 0.12);
+        color: #dc2626;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    /* Dark mode badge adjustments */
+    :global(.dark-theme) .rx-badge-green {
+        color: #4ade80;
+    }
+
+    :global(.dark-theme) .rx-badge-amber {
+        color: #fbbf24;
+    }
+
+    :global(.dark-theme) .rx-badge-red {
+        color: #f87171;
+    }
+
+    /* ── Empty State ── */
+    .rx-empty {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 1rem;
+        border-radius: 8px;
+        background: var(--primary-light);
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        margin-top: 0.75rem;
+    }
+
+    .rx-empty-warn {
+        background: rgba(245, 158, 11, 0.08);
+        color: #b45309;
+    }
+
+    :global(.dark-theme) .rx-empty-warn {
+        color: #fbbf24;
+    }
+
+    .rx-empty i {
+        flex-shrink: 0;
+    }
+
+    /* ── Actions Row ── */
+    .rx-actions-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+        gap: 1.25rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .rx-action-card {
+        background: var(--light-color);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: var(--shadow-sm);
+    }
+
+    /* ── Search / Input Row ── */
+    .rx-search-row {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .rx-input {
+        flex: 1;
+        padding: 0.5rem 0.75rem;
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+        background: var(--light-color);
+        color: var(--text-primary);
+        font-size: 0.85rem;
+        outline: none;
+        transition: border-color 0.2s;
+    }
+
+    .rx-input:focus {
+        border-color: #6366f1;
+        box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+    }
+
+    .rx-input::placeholder {
+        color: var(--text-muted);
+    }
+
+    /* ── Invoice Result ── */
+    .rx-invoice-result {
+        margin-top: 0.75rem;
+        padding: 0.75rem;
+        background: rgba(34, 197, 94, 0.05);
+        border: 1px solid rgba(34, 197, 94, 0.2);
+        border-radius: 8px;
+    }
+
+    /* ── QR Code ── */
+    .rx-qr-section {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 0 1rem;
+        border-bottom: 1px solid var(--border-color);
+        margin-bottom: 0.5rem;
+    }
+
+    .rx-qr-img {
+        width: 160px;
+        height: 160px;
+        border-radius: 8px;
+        border: 2px solid var(--border-color);
+        background: white;
+        padding: 4px;
+    }
+
+    .rx-verification-code {
+        font-family: 'Cascadia Code', 'Fira Code', monospace;
+        font-size: 0.8rem;
+        color: #6366f1;
+        letter-spacing: 1px;
+    }
+
+    /* ── Section Labels ── */
+    .rx-section-label {
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+        padding: 0.75rem 0 0.25rem;
+        margin-top: 0.5rem;
+        border-top: 1px solid var(--border-color);
+    }
+
+    /* ── Button Group ── */
+    .rx-btn-group {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    /* ── Report Result ── */
+    .rx-report-result {
+        margin-top: 0.75rem;
+        padding: 0.75rem;
+        background: var(--primary-light);
+        border-radius: 8px;
+    }
+
+    /* ── Unprocessed Invoices ── */
+    .rx-unprocessed {
+        margin-top: 0.75rem;
+    }
+
+    .rx-unprocessed-header {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        padding: 0.5rem 0;
+        font-weight: 600;
+    }
+
+    .rx-unprocessed-table {
+        overflow-x: auto;
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+    }
+
+    .rx-unprocessed-table table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8rem;
+    }
+
+    .rx-unprocessed-table th {
+        padding: 0.5rem 0.75rem;
+        text-align: left;
+        background: var(--primary-light);
+        color: var(--text-secondary);
+        font-weight: 600;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .rx-unprocessed-table td {
+        padding: 0.5rem 0.75rem;
+        color: var(--text-primary);
+        border-top: 1px solid var(--border-color);
+    }
+
+    .rx-unprocessed-table .mono {
+        font-family: 'Cascadia Code', 'Fira Code', monospace;
+    }
+
+    /* ── License Section ── */
+    .rx-license-section {
+        margin-bottom: 2rem;
+    }
+
+    /* ── Responsive ── */
+    @@media (max-width: 768px) {
+        .rx-page {
+            padding: 1rem;
+        }
+
+        .rx-header {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .rx-cards-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .rx-actions-row {
+            grid-template-columns: 1fr;
+        }
+
+        .rx-search-row {
+            flex-direction: column;
+        }
+
+        .rx-btn-group {
+            flex-direction: column;
+        }
+    }
+</style>

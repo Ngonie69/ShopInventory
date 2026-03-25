@@ -8,6 +8,7 @@ public interface IInvoiceService
 {
     Task<InvoiceListResponse?> GetInvoicesAsync(int page = 1, int pageSize = 20);
     Task<InvoiceDto?> GetInvoiceByDocEntryAsync(int docEntry);
+    Task<InvoiceDto?> GetInvoiceByDocNumAsync(int docNum);
     Task<InvoiceDateResponse?> GetInvoicesByCustomerAsync(string cardCode);
     Task<InvoiceDateResponse?> GetInvoicesByDateAsync(DateTime date);
     Task<InvoiceDateResponse?> GetInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate);
@@ -43,6 +44,18 @@ public class InvoiceService : IInvoiceService
         try
         {
             return await _httpClient.GetFromJsonAsync<InvoiceDto>($"api/invoice/{docEntry}");
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<InvoiceDto?> GetInvoiceByDocNumAsync(int docNum)
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<InvoiceDto>($"api/invoice/by-docnum/{docNum}");
         }
         catch
         {

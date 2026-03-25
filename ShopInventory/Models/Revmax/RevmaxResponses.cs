@@ -121,27 +121,118 @@ public class InvoiceResponse
 
 public class InvoiceData
 {
-    public string? InvoiceNumber { get; set; }
-    public string? Currency { get; set; }
-    public string? BranchName { get; set; }
-    public decimal InvoiceAmount { get; set; }
-    public decimal InvoiceTaxAmount { get; set; }
-    public string? Istatus { get; set; }
-    public string? CustomerName { get; set; }
-    public string? CustomerVatNumber { get; set; }
-    public string? Cashier { get; set; }
+    [JsonPropertyName("receiptType")]
+    public string? ReceiptType { get; set; }
+
+    [JsonPropertyName("receiptCurrency")]
+    public string? ReceiptCurrency { get; set; }
+
+    [JsonPropertyName("receiptCounter")]
+    public int ReceiptCounter { get; set; }
 
     [JsonPropertyName("receiptGlobalNo")]
     public long ReceiptGlobalNo { get; set; }
 
-    [JsonPropertyName("fiscalDayNo")]
-    public int FiscalDayNo { get; set; }
+    [JsonPropertyName("invoiceNo")]
+    public string? InvoiceNo { get; set; }
 
-    [JsonPropertyName("deviceSerial")]
-    public string? DeviceSerial { get; set; }
+    [JsonPropertyName("buyerData")]
+    public string? BuyerData { get; set; }
+
+    [JsonPropertyName("receiptNotes")]
+    public string? ReceiptNotes { get; set; }
 
     [JsonPropertyName("receiptDate")]
     public string? ReceiptDate { get; set; }
+
+    [JsonPropertyName("creditDebitNote")]
+    public object? CreditDebitNote { get; set; }
+
+    [JsonPropertyName("receiptLinesTaxInclusive")]
+    public bool ReceiptLinesTaxInclusive { get; set; }
+
+    [JsonPropertyName("receiptLines")]
+    public List<ReceiptLine>? ReceiptLines { get; set; }
+
+    [JsonPropertyName("receiptTaxes")]
+    public List<ReceiptTax>? ReceiptTaxes { get; set; }
+
+    [JsonPropertyName("receiptPayments")]
+    public List<ReceiptPayment>? ReceiptPayments { get; set; }
+
+    [JsonPropertyName("receiptTotal")]
+    public decimal ReceiptTotal { get; set; }
+
+    [JsonPropertyName("receiptPrintForm")]
+    public string? ReceiptPrintForm { get; set; }
+
+    // Legacy aliases used by controller code
+    [JsonIgnore]
+    public int FiscalDayNo => 0; // fiscal day is on the parent response, not Data
+
+    // Keep backward compat for serialization to web client
+    [JsonPropertyName("deviceSerial")]
+    public string? DeviceSerial { get; set; }
+}
+
+public class ReceiptLine
+{
+    [JsonPropertyName("receiptLineName")]
+    public string? ReceiptLineName { get; set; }
+
+    [JsonPropertyName("receiptLineNo")]
+    public int ReceiptLineNo { get; set; }
+
+    [JsonPropertyName("receiptLineQuantity")]
+    public decimal ReceiptLineQuantity { get; set; }
+
+    [JsonPropertyName("receiptLineType")]
+    public string? ReceiptLineType { get; set; }
+
+    [JsonPropertyName("receiptLineTotal")]
+    public decimal ReceiptLineTotal { get; set; }
+
+    [JsonPropertyName("taxID")]
+    public int TaxID { get; set; }
+
+    [JsonPropertyName("receiptLineHSCode")]
+    public string? ReceiptLineHSCode { get; set; }
+
+    [JsonPropertyName("receiptLinePrice")]
+    public decimal ReceiptLinePrice { get; set; }
+
+    [JsonPropertyName("taxCode")]
+    public string? TaxCode { get; set; }
+
+    [JsonPropertyName("taxPercent")]
+    public decimal TaxPercent { get; set; }
+}
+
+public class ReceiptTax
+{
+    [JsonPropertyName("salesAmountWithTax")]
+    public decimal SalesAmountWithTax { get; set; }
+
+    [JsonPropertyName("taxAmount")]
+    public decimal TaxAmount { get; set; }
+
+    [JsonPropertyName("taxID")]
+    public int TaxID { get; set; }
+
+    [JsonPropertyName("taxCode")]
+    public string? TaxCode { get; set; }
+
+    [JsonPropertyName("taxPercent")]
+    public decimal TaxPercent { get; set; }
+}
+
+public class ReceiptPayment
+{
+    [JsonPropertyName("moneyTypeCode")]
+    public string? MoneyTypeCode { get; set; }
+
+    [JsonPropertyName("paymentAmount")]
+    public decimal PaymentAmount { get; set; }
 }
 
 /// <summary>

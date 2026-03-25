@@ -128,9 +128,13 @@ try
     builder.Services.AddScoped<ICustomerLinkedAccountService, CustomerLinkedAccountService>();
     builder.Services.AddScoped<ICustomerAuthService, CustomerAuthService>();
     builder.Services.AddScoped<ICustomerStatementService, CustomerStatementService>();
+    builder.Services.AddScoped<IPodService, PodService>();
 
     // Add Desktop Integration service (for viewing desktop app transactions)
     builder.Services.AddScoped<IDesktopIntegrationService, DesktopIntegrationService>();
+
+    // Add REVMax fiscal device service
+    builder.Services.AddScoped<IRevmaxService, RevmaxService>();
 
     // Add Email service with MailKit
     builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));

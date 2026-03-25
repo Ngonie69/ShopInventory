@@ -704,7 +704,9 @@
                                     }
 
                                     <!-- Payment Method Tabs -->
-                                    @{ var availMethods = AvailablePaymentMethods; }
+                                    @{
+                                        var availMethods = AvailablePaymentMethods;
+                                    }
                                     @if (availMethods.Count > 1)
                                     {
                                         <div class="method-tabs" style="margin-bottom:1rem;">
@@ -713,8 +715,7 @@
                                                 if (AllPaymentMethods.TryGetValue(methodKey, out var info))
                                                 {
                                                     <div class="method-tab @GetMethodTabClass(methodKey)"
-                                                         @onclick="() => SetPaymentMethod(info.Type)"
-                                                         style="cursor:pointer;">
+                                                         @onclick="() => SetPaymentMethod(info.Type)" style="cursor:pointer;">
                                                         <span class="tab-icon"><i class="bi @info.Icon"></i></span>
                                                         <span class="tab-label">@info.Label</span>
                                                     </div>
@@ -876,7 +877,7 @@
                                                                                    class="form-control form-control-sm @(invoiceValidationErrors.ContainsKey(index) && invoiceValidationErrors[index].ContainsKey("DocEntry") ? "validation-error" : "")"
                                                                                    placeholder="DocEntry" @bind="invoiceLines[index].DocEntry" />
                                                                             @if (invoiceValidationErrors.ContainsKey(index) &&
-                                                                                                                invoiceValidationErrors[index].ContainsKey("DocEntry"))
+                                                                                                                                                                                            invoiceValidationErrors[index].ContainsKey("DocEntry"))
                                                                             {
                                                                                 <div class="val-msg">@invoiceValidationErrors[index]["DocEntry"]</div>
                                                                             }
@@ -887,7 +888,7 @@
                                                                                    class="form-control form-control-sm @(invoiceValidationErrors.ContainsKey(index) && invoiceValidationErrors[index].ContainsKey("SumApplied") ? "validation-error" : "")"
                                                                                    step="0.01" min="0" placeholder="0.00" @bind="invoiceLines[index].SumApplied" />
                                                                             @if (invoiceValidationErrors.ContainsKey(index) &&
-                                                                                                                invoiceValidationErrors[index].ContainsKey("SumApplied"))
+                                                                                                                                                                                            invoiceValidationErrors[index].ContainsKey("SumApplied"))
                                                                             {
                                                                                 <div class="val-msg">@invoiceValidationErrors[index]["SumApplied"]</div>
                                                                             }
@@ -940,6 +941,12 @@
                                                                     </span>
                                                                     Method details filled
                                                                 </li>
+                                                                <li>
+                                                                    <span class="check-icon @(paymentAttachment != null ? "pass" : "fail")">
+                                                                        <i class="bi @(paymentAttachment != null ? "bi-check" : "bi-x")"></i>
+                                                                    </span>
+                                                                    Attachment uploaded
+                                                                </li>
                                                             </ul>
                                                         </div>
 
@@ -978,7 +985,7 @@
                                                                                     <span class="sum-value">@invoiceLines.Sum(l => l.SumApplied).ToString("N2")</span>
                                                                                 </div>
                                                                                 <div style="font-size:.78rem; color:#6b7280; text-align:right;">@invoiceLines.Count(l =>
-                                                                                                                    l.DocEntry > 0) invoice(s)</div>
+                                                                                                                                                                                                        l.DocEntry > 0) invoice(s)</div>
                                                                                 }
 
                                                                                 <hr class="sum-divider" />
@@ -1045,7 +1052,8 @@
     private bool isAdmin = false;
     private List<string> userAllowedPaymentMethods = new();
 
-    private static readonly Dictionary<string, (string Label, string Icon, PaymentMethodType Type)> AllPaymentMethods = new()
+    private static readonly Dictionary<string, (string Label, string Icon, PaymentMethodType Type)> AllPaymentMethods =
+new()
     {
         { "cash", ("Cash", "bi-cash-coin", PaymentMethodType.Cash) },
         { "transfer", ("Transfer", "bi-bank", PaymentMethodType.Transfer) },
@@ -1108,6 +1116,9 @@
 
     // Invoice lines
     private List<InvoiceLineModel> invoiceLines = new();
+
+    // Attachment (mandatory)
+    private IBrowserFile? paymentAttachment;
 
     // Validation
     private Dictionary<string, string> validationErrors = new();
@@ -1348,6 +1359,16 @@
         if (checkSum < 0) validationErrors["PaymentAmount"] = "Check amount cannot be negative";
         if (creditSum < 0) validationErrors["PaymentAmount"] = "Credit card amount cannot be negative";
 
+        // Attachment validation - mandatory
+        if (paymentAttachment == null)
+        {
+            validationErrors["Attachment"] = "An attachment is required to create a payment";
+        }
+        else if (paymentAttachment.Size > 20 * 1024 * 1024)
+        {
+            validationErrors["Attachment"] = "Attachment is too large. Maximum size is 20MB";
+        }
+
         // Validate invoice lines
         for (int i = 0; i < invoiceLines.Count; i++)
         {
@@ -1454,6 +1475,27 @@ VoucherNum = creditVoucherNum
 
             if (success)
             {
+                // Upload the mandatory attachment
+                if (paymentAttachment != null && payment?.DocEntry > 0)
+                {
+                    try
+                    {
+                        using var attachStream = paymentAttachment.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+                        var (attachSuccess, attachMsg) = await PaymentService.UploadPaymentAttachmentAsync(
+                            payment.DocEntry, attachStream, paymentAttachment.Name, paymentAttachment.ContentType,
+                            $"Payment #{payment.DocNum} attachment");
+
+                        if (!attachSuccess)
+                        {
+                            Logger.LogWarning("Payment created but attachment upload failed: {Message}", attachMsg);
+                        }
+                    }
+                    catch (Exception attachEx)
+                    {
+                        Logger.LogError(attachEx, "Error uploading attachment for payment #{DocNum}", payment.DocNum);
+                    }
+                }
+
                 Logger.LogInformation("Incoming payment #{DocNum} (DocEntry: {DocEntry}) created successfully",
                 payment?.DocNum, payment?.DocEntry);
                 successMessage = $"Payment #{payment?.DocNum} created successfully! Total: {payment?.DocTotal:N2}";
@@ -1522,6 +1564,18 @@ VoucherNum = creditVoucherNum
         invoiceLines.Clear();
         validationErrors.Clear();
         invoiceValidationErrors.Clear();
+        paymentAttachment = null;
+    }
+
+    private void OnAttachmentSelected(InputFileChangeEventArgs e)
+    {
+        paymentAttachment = e.File;
+        validationErrors.Remove("Attachment");
+    }
+
+    private void RemoveAttachment()
+    {
+        paymentAttachment = null;
     }
 
     private class InvoiceLineModel
