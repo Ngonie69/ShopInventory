@@ -6,7 +6,7 @@ namespace ShopInventory.Web.Services;
 
 public interface IPodService
 {
-    Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
+    Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? search = null);
     Task<PodAttachmentListResponse?> GetAllPodsForAccountsAsync(int page, int pageSize, List<string> cardCodes, DateTime? fromDate = null, DateTime? toDate = null);
     Task<DocumentAttachmentListResponse?> GetInvoicePodsAsync(int docEntry);
     Task<(bool Success, string Message, DocumentAttachmentDto? Attachment)> UploadPodAsync(int docEntry, Stream fileStream, string fileName, string contentType, string? description = null);
@@ -25,7 +25,7 @@ public class PodService : IPodService
         _logger = logger;
     }
 
-    public async Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null)
+    public async Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? search = null)
     {
         try
         {
@@ -36,6 +36,8 @@ public class PodService : IPodService
                 url += $"&fromDate={fromDate.Value:yyyy-MM-dd}";
             if (toDate.HasValue)
                 url += $"&toDate={toDate.Value:yyyy-MM-dd}";
+            if (!string.IsNullOrEmpty(search))
+                url += $"&search={Uri.EscapeDataString(search)}";
 
             return await _httpClient.GetFromJsonAsync<PodAttachmentListResponse>(url);
         }

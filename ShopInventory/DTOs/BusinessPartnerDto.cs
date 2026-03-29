@@ -21,6 +21,8 @@ public class BusinessPartnerDto
     public int? PriceListNum { get; set; }
     public string? PriceListName { get; set; }
     public int? PayTermGrpCode { get; set; }
+    public string? VatRegNo { get; set; }
+    public string? TinNumber { get; set; }
 }
 
 /// <summary>

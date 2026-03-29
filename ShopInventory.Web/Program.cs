@@ -186,7 +186,14 @@ try
     }
 
     // Load cached application settings (CompanyName, DateFormat, etc.)
-    await app.Services.GetRequiredService<IAppSettingsProvider>().ReloadAsync();
+    try
+    {
+        await app.Services.GetRequiredService<IAppSettingsProvider>().ReloadAsync();
+    }
+    catch (Exception ex)
+    {
+        Log.Warning(ex, "Could not load cached application settings — will use defaults until database is available");
+    }
 
     // Configure the HTTP request pipeline.
 

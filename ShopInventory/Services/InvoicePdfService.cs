@@ -76,24 +76,10 @@ public class InvoicePdfService : IInvoicePdfService
             // 6. Line items table
             AddLineItemsTable(document, invoice);
 
-            // 7. Push remaining content to the bottom of the page
-            var currentArea = document.GetRenderer().GetCurrentArea();
-            if (currentArea != null)
-            {
-                var bbox = currentArea.GetBBox();
-                float availableHeight = bbox.GetHeight();
-                float bottomContentHeight = 140f; // estimated height for bank+totals+customer copy
-                float spacerHeight = availableHeight - bottomContentHeight;
-                if (spacerHeight > 0)
-                {
-                    document.Add(new Div().SetHeight(spacerHeight));
-                }
-            }
-
-            // 8. Bank details (left) + Totals table (right)
+            // 7. Bank details (left) + Totals table (right)
             AddBankAndTotals(document, invoice);
 
-            // 9. "CUSTOMER COPY" label
+            // 8. "CUSTOMER COPY" label
             AddCustomerCopyLabel(document);
 
             document.Close();
@@ -291,10 +277,9 @@ public class InvoicePdfService : IInvoicePdfService
         // Address fields
         var addrDiv = new Div().SetPadding(6).SetPaddingTop(4);
         addrDiv.Add(AddrLine("Customer Name:", invoice.CardName ?? "-"));
-        addrDiv.Add(AddrLine("Customer Address:", ""));
-        addrDiv.Add(AddrLine("Customer Address:", ""));
-        addrDiv.Add(AddrLine("VAT NO:", ""));
-        addrDiv.Add(AddrLine("TIN NUMBER", ""));
+        addrDiv.Add(AddrLine("Customer Address:", FormatFullAddress(invoice.BillToAddress)));
+        addrDiv.Add(AddrLine("VAT NO:", invoice.CustomerVatNo ?? ""));
+        addrDiv.Add(AddrLine("TIN NUMBER", invoice.CustomerTinNumber ?? ""));
         invCell.Add(addrDiv);
 
         table.AddCell(invCell);
@@ -311,13 +296,33 @@ public class InvoicePdfService : IInvoicePdfService
             .SetFont(_boldFont).SetFontSize(8).SetFontColor(Black).SetMarginBottom(0));
         delCell.Add(delHeaderDiv);
 
-        // Empty space for address
-        delCell.Add(new Div().SetMinHeight(55));
+        // Delivery address content
+        var delAddrDiv = new Div().SetPadding(6).SetPaddingTop(2).SetPaddingBottom(0);
+        if (!string.IsNullOrWhiteSpace(invoice.ShipToAddress))
+        {
+            var shipLines = invoice.ShipToAddress.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var line in shipLines)
+            {
+                delAddrDiv.Add(new Paragraph(line.Trim())
+                    .SetFont(_regularFont).SetFontSize(7).SetFontColor(Black).SetMarginBottom(1));
+            }
+        }
+        else
+        {
+            delAddrDiv.SetMinHeight(40);
+        }
+        delCell.Add(delAddrDiv);
 
-        // "Contact Details:" at bottom
+        // "Contact Details:" at bottom with phone/email
         var contactDiv = new Div().SetPadding(6).SetPaddingTop(0);
+        var contactText = BuildContactDetails(invoice.CustomerPhone, invoice.CustomerEmail);
         contactDiv.Add(new Paragraph("Contact Details:")
-            .SetFont(_boldFont).SetFontSize(7).SetFontColor(Black));
+            .SetFont(_boldFont).SetFontSize(7).SetFontColor(Black).SetMarginBottom(1));
+        if (!string.IsNullOrWhiteSpace(contactText))
+        {
+            contactDiv.Add(new Paragraph(contactText)
+                .SetFont(_regularFont).SetFontSize(7).SetFontColor(Black));
+        }
         delCell.Add(contactDiv);
 
         table.AddCell(delCell);
@@ -347,7 +352,6 @@ public class InvoicePdfService : IInvoicePdfService
         }
 
         // Data rows
-        int dataRows = 0;
         if (invoice.Lines != null && invoice.Lines.Count > 0)
         {
             var lineTotalSum = invoice.Lines.Sum(l => l.LineTotal);
@@ -375,20 +379,6 @@ public class InvoicePdfService : IInvoicePdfService
                 ItemCell(table, totalExc.ToString("N2"), TextAlignment.RIGHT);
                 ItemCell(table, vatAmount.ToString("N2"), TextAlignment.RIGHT);
                 ItemCell(table, totalInc.ToString("N2"), TextAlignment.RIGHT);
-                dataRows++;
-            }
-        }
-
-        // Fill remaining empty rows so the table area is consistent
-        int minRows = 10;
-        for (int i = dataRows; i < minRows; i++)
-        {
-            for (int j = 0; j < 7; j++)
-            {
-                var ec = new Cell().SetPadding(2).SetMinHeight(12)
-                    .SetBorder(Border.NO_BORDER);
-                ec.Add(new Paragraph("").SetFontSize(7));
-                table.AddCell(ec);
             }
         }
 
@@ -554,6 +544,28 @@ public class InvoicePdfService : IInvoicePdfService
             .SetFont(_boldFont).SetFontSize(20).SetFontColor(Black).SetMarginBottom(0));
         cell.Add(new Paragraph("QUALITY DAIRY PRODUCE")
             .SetFont(_regularFont).SetFontSize(5.5f).SetFontColor(Black));
+    }
+
+    private string FormatAddressLine(string? fullAddress, int lineIndex)
+    {
+        if (string.IsNullOrWhiteSpace(fullAddress)) return "";
+        var lines = fullAddress.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        return lineIndex < lines.Length ? lines[lineIndex].Trim() : "";
+    }
+
+    private string FormatFullAddress(string? fullAddress)
+    {
+        if (string.IsNullOrWhiteSpace(fullAddress)) return "";
+        var lines = fullAddress.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        return string.Join(", ", lines.Select(l => l.Trim()).Where(l => l.Length > 0));
+    }
+
+    private string BuildContactDetails(string? phone, string? email)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(phone)) parts.Add(phone);
+        if (!string.IsNullOrWhiteSpace(email)) parts.Add(email);
+        return string.Join(" | ", parts);
     }
 
     private string FormatDate(string? docDate)

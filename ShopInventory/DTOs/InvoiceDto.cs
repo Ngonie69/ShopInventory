@@ -21,6 +21,15 @@ public class InvoiceDto
     public decimal PaidToDate { get; set; }
     public decimal VatSum { get; set; }
     public string? DocCurrency { get; set; }
+
+    // Address & tax fields (populated from SAP invoice + business partner)
+    public string? BillToAddress { get; set; }
+    public string? ShipToAddress { get; set; }
+    public string? CustomerVatNo { get; set; }
+    public string? CustomerTinNumber { get; set; }
+    public string? CustomerPhone { get; set; }
+    public string? CustomerEmail { get; set; }
+
     public List<InvoiceLineDto>? Lines { get; set; }
 }
 
@@ -34,6 +43,7 @@ public class InvoiceLineDto
     public string? ItemDescription { get; set; }
     public decimal Quantity { get; set; }
     public decimal UnitPrice { get; set; }
+    public decimal GrossPrice { get; set; }
     public decimal LineTotal { get; set; }
     public string? WarehouseCode { get; set; }
     public decimal DiscountPercent { get; set; }

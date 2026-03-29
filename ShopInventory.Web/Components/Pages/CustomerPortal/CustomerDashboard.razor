@@ -59,7 +59,7 @@
                     {
                         <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
                             <i class="bi bi-diagram-3 me-1"></i> Multi-Account &mdash; @(customerInfo.LinkedAccounts?.Count ??
-                                                                                                                                    0) linked accounts
+                                                                                                                                                                0) linked accounts
                         </span>
                     }
                 </div>
@@ -93,7 +93,7 @@
                                             @if (customerInfo.AccountStructure == "Multi")
                                             {
                                                 <span>Combined across @(dashboard?.AccountBreakdown?.Count(a => a.AccountType == "Main")
-                                                                                                                                                                                                                                                    ?? 0) main accounts</span>
+                                                                                                                                                                                                                                                                                                        ?? 0) main accounts</span>
                                                 }
                                     else
                                                 {
@@ -199,7 +199,7 @@
                                                     <h2 class="stat-value @(lastPaymentAmount > 0 ? "text-success" : "text-muted")">
                                                         @FormatCurrency(lastPaymentAmount)</h2>
                                                         <p class="text-muted mb-0 small">@(dashboard?.LastPaymentDate?.ToString("MMM dd, yyyy") ??
-                                                                                                                                                                                                                                                                           "No payments")</p>
+                                                                                                                                                                                                                                                                                                                                       "No payments")</p>
                                                         </div>
                                                         <div class="stat-icon">
                                                             <svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" fill="currentColor"
@@ -283,7 +283,7 @@
                                                                                 <div class="d-flex justify-content-between align-items-center mb-1">
                                                                                     <small class="text-muted">Outstanding</small>
                                                                                     <span class="fw-semibold">@FormatCurrencyWithCode(account.TotalOutstanding,
-                                                                                                                                                                                                                                                                                                                                                                                                            account.Currency)</span>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    account.Currency)</span>
                                                                                     </div>
                                                                                     <div class="d-flex justify-content-between align-items-center">
                                                                                         <small class="text-muted">Open Invoices</small>
@@ -360,22 +360,22 @@
                                                                 </div>
                                                                 <div class="legend-item">
                                                                     <span class="legend-color days-30"></span>
-                                                                    <span class="legend-label">1-30 Days</span>
+                                                                    <span class="legend-label">@(dashboard?.Aging?.Bucket1Label ?? "1-30 Days")</span>
                                                                     <span class="legend-value">@FormatCurrency(dashboard?.Aging?.Days1To30 ?? 0)</span>
                                                                 </div>
                                                                 <div class="legend-item">
                                                                     <span class="legend-color days-60"></span>
-                                                                    <span class="legend-label">31-60 Days</span>
+                                                                    <span class="legend-label">@(dashboard?.Aging?.Bucket2Label ?? "31-60 Days")</span>
                                                                     <span class="legend-value">@FormatCurrency(dashboard?.Aging?.Days31To60 ?? 0)</span>
                                                                 </div>
                                                                 <div class="legend-item">
                                                                     <span class="legend-color days-90"></span>
-                                                                    <span class="legend-label">61-90 Days</span>
+                                                                    <span class="legend-label">@(dashboard?.Aging?.Bucket3Label ?? "61-90 Days")</span>
                                                                     <span class="legend-value">@FormatCurrency(dashboard?.Aging?.Days61To90 ?? 0)</span>
                                                                 </div>
                                                                 <div class="legend-item">
                                                                     <span class="legend-color over-90"></span>
-                                                                    <span class="legend-label">90+ Days</span>
+                                                                    <span class="legend-label">@(dashboard?.Aging?.Bucket4Label ?? "Over 90 Days")</span>
                                                                     <span class="legend-value">@FormatCurrency(dashboard?.Aging?.Over90Days ?? 0)</span>
                                                                 </div>
                                                             </div>

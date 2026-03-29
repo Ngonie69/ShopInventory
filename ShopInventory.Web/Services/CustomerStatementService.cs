@@ -87,6 +87,17 @@ public class CustomerStatementService : ICustomerStatementService
                 Lines = new List<StatementLine>()
             };
 
+            // Populate payment terms on customer info
+            if (customer.PayTermGrpCode.HasValue)
+            {
+                var paymentTerms = await _businessPartnerService.GetPaymentTermsAsync(customer.PayTermGrpCode.Value);
+                if (paymentTerms != null)
+                {
+                    response.Customer.PaymentTermsName = paymentTerms.PaymentTermsGroupName;
+                    response.Customer.PaymentTermsDays = (paymentTerms.NumberOfAdditionalMonths * 30) + paymentTerms.NumberOfAdditionalDays;
+                }
+            }
+
             // For multi-account: get invoices/payments from all main accounts
             // For single-account: just use the one cardCode
             var invoiceCardCodes = await _linkedAccountService.GetMainAccountCardCodesAsync(cardCode);
@@ -242,9 +253,12 @@ public class CustomerStatementService : ICustomerStatementService
             };
 
             // Phase 2: Fetch invoices, payments, monthly spend, payment terms, and account breakdown in parallel
-            var invoicesTask = GetOpenInvoicesAsync(cardCode);
-            var paymentsTask = GetPaymentHistoryAsync(cardCode, IAuditService.ToCAT(DateTime.UtcNow).AddMonths(-3), IAuditService.ToCAT(DateTime.UtcNow));
-            var monthlySpendTask = GetMonthlySpendAsync(cardCode);
+            // Limit dashboard to the last 31 days to avoid loading too much data from SAP
+            var now = IAuditService.ToCAT(DateTime.UtcNow);
+            var dashboardFrom = now.AddDays(-31);
+            var invoicesTask = GetOpenInvoicesAsync(cardCode, dashboardFrom, now);
+            var paymentsTask = GetPaymentHistoryAsync(cardCode, dashboardFrom, now);
+            var monthlySpendTask = GetMonthlySpendAsync(cardCode, 1);
 
             // Fetch payment terms for aging calculation
             var paymentTermsTask = customer.PayTermGrpCode.HasValue
@@ -285,7 +299,7 @@ public class CustomerStatementService : ICustomerStatementService
             summary.RecentInvoices = openInvoices.Take(5).ToList();
 
             // Derive aging from already-fetched invoices (no extra SAP call)
-            summary.Aging = CalculateAgingFromInvoices(openInvoices);
+            summary.Aging = CalculateAgingFromInvoices(openInvoices, paymentTermsDays);
 
             // Process payments
             var payments = paymentsTask.Result;
@@ -325,10 +339,18 @@ public class CustomerStatementService : ICustomerStatementService
 
     /// <summary>
     /// Calculate aging buckets from an already-fetched list of open invoices.
+    /// Bucket boundaries are based on customer payment terms (e.g., 7-day terms → 1-7, 8-14, 15-21, 21+).
+    /// Falls back to standard 30-day buckets when payment terms are 0 or not set.
     /// </summary>
-    private static AgingSummary CalculateAgingFromInvoices(List<CustomerInvoiceSummary> openInvoices)
+    private static AgingSummary CalculateAgingFromInvoices(List<CustomerInvoiceSummary> openInvoices, int paymentTermsDays = 0)
     {
         var aging = new AgingSummary();
+        int bucket = paymentTermsDays > 0 ? paymentTermsDays : 30;
+
+        aging.Bucket1Label = $"1-{bucket} Days";
+        aging.Bucket2Label = $"{bucket + 1}-{bucket * 2} Days";
+        aging.Bucket3Label = $"{bucket * 2 + 1}-{bucket * 3} Days";
+        aging.Bucket4Label = $"Over {bucket * 3} Days";
 
         foreach (var invoice in openInvoices)
         {
@@ -336,11 +358,11 @@ public class CustomerStatementService : ICustomerStatementService
 
             if (daysOverdue <= 0)
                 aging.Current += invoice.Balance;
-            else if (daysOverdue <= 30)
+            else if (daysOverdue <= bucket)
                 aging.Days1To30 += invoice.Balance;
-            else if (daysOverdue <= 60)
+            else if (daysOverdue <= bucket * 2)
                 aging.Days31To60 += invoice.Balance;
-            else if (daysOverdue <= 90)
+            else if (daysOverdue <= bucket * 3)
                 aging.Days61To90 += invoice.Balance;
             else
                 aging.Over90Days += invoice.Balance;
@@ -647,36 +669,36 @@ public class CustomerStatementService : ICustomerStatementService
     }
 
     /// <summary>
-    /// Get aging summary (current, 30, 60, 90, 90+ days)
+    /// Get aging summary with dynamic buckets based on customer payment terms.
     /// </summary>
     public async Task<AgingSummary> GetAgingSummaryAsync(string cardCode)
     {
         try
         {
             var openInvoices = await GetOpenInvoicesAsync(cardCode);
-            var today = DateTime.Today;
 
-            var aging = new AgingSummary();
-
-            foreach (var invoice in openInvoices)
+            // Fetch payment terms for dynamic aging buckets
+            int paymentTermsDays = 0;
+            var customer = await _businessPartnerService.GetBusinessPartnerByCodeAsync(cardCode);
+            if (customer?.PayTermGrpCode.HasValue == true)
             {
-                var daysOverdue = invoice.DaysOverdue;
+                var paymentTerms = await _businessPartnerService.GetPaymentTermsAsync(customer.PayTermGrpCode.Value);
+                if (paymentTerms != null)
+                {
+                    paymentTermsDays = (paymentTerms.NumberOfAdditionalMonths * 30) + paymentTerms.NumberOfAdditionalDays;
 
-                if (daysOverdue <= 0)
-                    aging.Current += invoice.Balance;
-                else if (daysOverdue <= 30)
-                    aging.Days1To30 += invoice.Balance;
-                else if (daysOverdue <= 60)
-                    aging.Days31To60 += invoice.Balance;
-                else if (daysOverdue <= 90)
-                    aging.Days61To90 += invoice.Balance;
-                else
-                    aging.Over90Days += invoice.Balance;
+                    // Recalculate DaysOverdue using payment terms
+                    if (paymentTermsDays > 0)
+                    {
+                        foreach (var invoice in openInvoices)
+                        {
+                            invoice.DaysOverdue = CalculateDaysOverdueFromTerms(invoice.DocDate, paymentTermsDays);
+                        }
+                    }
+                }
             }
 
-            aging.Total = aging.Current + aging.Days1To30 + aging.Days31To60 + aging.Days61To90 + aging.Over90Days;
-
-            return aging;
+            return CalculateAgingFromInvoices(openInvoices, paymentTermsDays);
         }
         catch (Exception ex)
         {

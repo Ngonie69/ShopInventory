@@ -66,6 +66,8 @@ public static class MappingExtensions
             DocTotal = model.DocTotal,
             VatSum = model.VatSum,
             DocCurrency = model.DocCurrency,
+            BillToAddress = model.Address,
+            ShipToAddress = model.Address2,
             Lines = model.DocumentLines?.Select(l => l.ToDto()).ToList()
         };
     }
@@ -82,6 +84,7 @@ public static class MappingExtensions
             ItemDescription = model.ItemDescription,
             Quantity = model.Quantity,
             UnitPrice = model.UnitPrice,
+            GrossPrice = model.GrossPrice,
             LineTotal = model.LineTotal,
             WarehouseCode = model.WarehouseCode,
             DiscountPercent = model.DiscountPercent,

@@ -52,7 +52,7 @@
                 </div>
                 <div class="col-md-2 d-flex align-items-end">
                     <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" OnClick="LookupInvoice"
-                               Disabled="@(uploadDocNum <= 0 || isLookingUp)" Class="pod-lookup-btn">
+                               Disabled="@(uploadDocNum is null or <= 0 || isLookingUp)" Class="pod-lookup-btn">
                         @if (isLookingUp)
                         {
                             <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
@@ -88,7 +88,7 @@
             <div class="row g-3 align-items-end">
                 <div class="col-md-4">
                     <label class="pod-label">POD File(s)</label>
-                    <InputFile OnChange="OnFilesSelected" class="form-control pod-input" accept=".jpg,.jpeg,.png,.webp,.pdf" multiple />
+                    <InputFile @key="inputFileKey" OnChange="OnFilesSelected" class="form-control pod-input" accept=".jpg,.jpeg,.png,.webp,.pdf" multiple />
                     <div class="form-text">JPG, PNG, WebP, PDF &mdash; max 20MB each. Select multiple files.</div>
                 </div>
                 <div class="col-md-5">
@@ -161,11 +161,11 @@
                     </div>
                     <div class="pod-invoice-field">
                         <span class="pod-field-label">Invoice Date</span>
-                        <span class="pod-field-value">@lookupInvoice.DocDate</span>
+                        <span class="pod-field-value">@FormatDate(lookupInvoice.DocDate)</span>
                     </div>
                     <div class="pod-invoice-field">
                         <span class="pod-field-label">Due Date</span>
-                        <span class="pod-field-value">@(lookupInvoice.DocDueDate ?? "-")</span>
+                        <span class="pod-field-value">@FormatDate(lookupInvoice.DocDueDate)</span>
                     </div>
                     <div class="pod-invoice-field">
                         <span class="pod-field-label">Total</span>
@@ -248,19 +248,33 @@
                 <span class="pod-record-count">@(podResponse?.TotalCount ?? 0) records</span>
             </div>
             <div class="pod-filter-bar">
-                <div class="row g-3 align-items-end">
-                    <div class="col-md-4">
-                        <label class="pod-label">Filter by Customer Code</label>
-                        <input type="text" class="form-control pod-input" @bind="filterCardCode" placeholder="e.g. C00001" />
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-3">
+                        <label class="pod-label">Search</label>
+                        <input type="text" class="form-control pod-input" @bind="filterSearch" @bind:event="oninput"
+                               @onkeydown="OnFilterKeyDown" placeholder="Invoice #, customer name or code" />
                     </div>
                     <div class="col-md-2">
+                        <label class="pod-label">Customer Code</label>
+                        <input type="text" class="form-control pod-input" @bind="filterCardCode" @bind:event="oninput"
+                               @onkeydown="OnFilterKeyDown" placeholder="e.g. C00001" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="pod-label">From Date</label>
+                        <input type="date" class="form-control pod-input" @bind="filterFromDate" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="pod-label">To Date</label>
+                        <input type="date" class="form-control pod-input" @bind="filterToDate" />
+                    </div>
+                    <div class="col-md-1">
                         <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" OnClick="ApplyFilter" Class="pod-filter-btn">
                             <i class="bi bi-funnel me-1"></i>Filter
                         </MudButton>
                     </div>
-                    @if (!string.IsNullOrEmpty(activeFilterCardCode))
+                    @if (HasActiveFilters)
                     {
-                        <div class="col-md-2">
+                        <div class="col-md-1">
                             <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" OnClick="ClearFilter">
                                 <i class="bi bi-x-circle me-1"></i>Clear
                             </MudButton>
@@ -346,7 +360,7 @@
                     </div>
 
                     @* Pagination *@
-                    @if (podResponse.TotalCount > pageSize)
+                    @if (totalPages > 1)
                     {
                         <div class="pod-pagination">
                             <span class="pod-pagination-info">
@@ -355,14 +369,40 @@
                             </span>
                             <div class="pod-pagination-btns">
                                 <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(currentPage <= 1)"
-                                           OnClick="() => LoadPage(currentPage - 1)">
-                                    <i class="bi bi-chevron-left me-1"></i>Previous
+                                           OnClick="() => LoadPage(1)" title="First page">
+                                    <i class="bi bi-chevron-double-left"></i>
                                 </MudButton>
+                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(currentPage <= 1)"
+                                           OnClick="() => LoadPage(currentPage - 1)">
+                                    <i class="bi bi-chevron-left"></i>
+                                </MudButton>
+                                @foreach (var p in GetPageNumbers())
+                                {
+                                    @if (p == -1)
+                                    {
+                                        <span class="pod-page-ellipsis">…</span>
+                                    }
+                                    else
+                                    {
+                                        <MudButton Variant="@(p == currentPage ? Variant.Filled : Variant.Outlined)"
+                                                   Color="@(p == currentPage ? Color.Primary : Color.Default)"
+                                                   Size="Size.Small" OnClick="() => LoadPage(p)" Class="pod-page-btn">
+                                            @p
+                                        </MudButton>
+                                    }
+                                }
                                 <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(!podResponse.HasMore)"
                                            OnClick="() => LoadPage(currentPage + 1)">
-                                    Next<i class="bi bi-chevron-right ms-1"></i>
+                                    <i class="bi bi-chevron-right"></i>
+                                </MudButton>
+                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(!podResponse.HasMore)"
+                                           OnClick="() => LoadPage(totalPages)" title="Last page">
+                                    <i class="bi bi-chevron-double-right"></i>
                                 </MudButton>
                             </div>
+                            <span class="pod-pagination-info">
+                                Page @currentPage of @totalPages
+                            </span>
                         </div>
                     }
                 }
@@ -853,6 +893,8 @@
         align-items: center;
         padding: 0.85rem 1.5rem;
         border-top: 1px solid #f1f5f9;
+        flex-wrap: wrap;
+        gap: 0.5rem;
     }
     .pod-pagination-info {
         font-size: 0.8rem;
@@ -860,7 +902,16 @@
     }
     .pod-pagination-btns {
         display: flex;
-        gap: 0.5rem;
+        gap: 0.35rem;
+        align-items: center;
+    }
+    .pod-page-btn {
+        min-width: 36px !important;
+    }
+    .pod-page-ellipsis {
+        padding: 0 0.25rem;
+        color: #94a3b8;
+        font-size: 0.85rem;
     }
 
     /* ── Empty / Loading ─────────────────────────── */
@@ -982,10 +1033,27 @@
     private int currentPage = 1;
     private const int pageSize = 20;
     private string? filterCardCode;
+    private string? filterSearch;
+    private DateTime? filterFromDate;
+    private DateTime? filterToDate;
     private string? activeFilterCardCode;
+    private string? activeFilterSearch;
+    private DateTime? activeFilterFromDate;
+    private DateTime? activeFilterToDate;
+
+    private int totalPages => podResponse != null && podResponse.TotalCount > 0
+        ? (int)Math.Ceiling((double)podResponse.TotalCount / pageSize)
+        : 1;
+
+    private bool HasActiveFilters =>
+        !string.IsNullOrEmpty(activeFilterCardCode) ||
+        !string.IsNullOrEmpty(activeFilterSearch) ||
+        activeFilterFromDate.HasValue ||
+        activeFilterToDate.HasValue;
 
     // Upload state
-    private int uploadDocNum;
+    private int? uploadDocNum;
+    private int inputFileKey;
     private List<IBrowserFile> selectedFiles = new();
     private string? uploadDescription;
     private bool isUploading;
@@ -1022,7 +1090,7 @@
 
         try
         {
-            podResponse = await PodService.GetAllPodsAsync(currentPage, pageSize, activeFilterCardCode);
+            podResponse = await PodService.GetAllPodsAsync(currentPage, pageSize, activeFilterCardCode, activeFilterFromDate, activeFilterToDate, activeFilterSearch);
         }
         catch (Exception ex)
         {
@@ -1049,6 +1117,9 @@
     private async Task ApplyFilter()
     {
         activeFilterCardCode = string.IsNullOrWhiteSpace(filterCardCode) ? null : filterCardCode.Trim();
+        activeFilterSearch = string.IsNullOrWhiteSpace(filterSearch) ? null : filterSearch.Trim();
+        activeFilterFromDate = filterFromDate;
+        activeFilterToDate = filterToDate;
         currentPage = 1;
         await LoadPods();
     }
@@ -1056,14 +1127,48 @@
     private async Task ClearFilter()
     {
         filterCardCode = null;
+        filterSearch = null;
+        filterFromDate = null;
+        filterToDate = null;
         activeFilterCardCode = null;
+        activeFilterSearch = null;
+        activeFilterFromDate = null;
+        activeFilterToDate = null;
         currentPage = 1;
         await LoadPods();
     }
 
+    private async Task OnFilterKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await ApplyFilter();
+    }
+
+    private List<int> GetPageNumbers()
+    {
+        var pages = new List<int>();
+        if (totalPages <= 7)
+        {
+            for (int i = 1; i <= totalPages; i++)
+                pages.Add(i);
+        }
+        else
+        {
+            pages.Add(1);
+            if (currentPage > 3)
+                pages.Add(-1); // ellipsis
+            for (int i = Math.Max(2, currentPage - 1); i <= Math.Min(totalPages - 1, currentPage + 1); i++)
+                pages.Add(i);
+            if (currentPage < totalPages - 2)
+                pages.Add(-1); // ellipsis
+            pages.Add(totalPages);
+        }
+        return pages;
+    }
+
     private async Task LookupInvoice()
     {
-        if (uploadDocNum <= 0 || isLookingUp) return;
+        if (uploadDocNum is null or <= 0 || isLookingUp) return;
 
         isLookingUp = true;
         lookupInvoice = null;
@@ -1071,7 +1176,7 @@
 
         try
         {
-            lookupInvoice = await InvoiceService.GetInvoiceByDocNumAsync(uploadDocNum);
+            lookupInvoice = await InvoiceService.GetInvoiceByDocNumAsync(uploadDocNum.Value);
             if (lookupInvoice == null)
             {
                 lookupError = "Invoice not found";
@@ -1135,7 +1240,8 @@
                     ? "POD uploaded successfully."
                     : $"All {successCount} PODs uploaded successfully.";
                 selectedFiles.Clear();
-                uploadDocNum = 0;
+                inputFileKey++;
+                uploadDocNum = null;
                 uploadDescription = null;
                 lookupInvoice = null;
                 lookupError = null;
@@ -1243,6 +1349,12 @@
         {
             isDeleting = false;
         }
+    }
+
+    private static string FormatDate(string? dateStr)
+    {
+        if (string.IsNullOrWhiteSpace(dateStr)) return "-";
+        return DateTime.TryParse(dateStr, out var dt) ? dt.ToString("dd MMM yyyy") : dateStr;
     }
 
     private static string FormatFileSize(long bytes) => bytes switch

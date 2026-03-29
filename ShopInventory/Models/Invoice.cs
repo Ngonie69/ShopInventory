@@ -51,6 +51,15 @@ public class Invoice
     [JsonPropertyName("SalesPersonCode")]
     public int? SalesPersonCode { get; set; }
 
+    [JsonPropertyName("Address")]
+    public string? Address { get; set; }
+
+    [JsonPropertyName("Address2")]
+    public string? Address2 { get; set; }
+
+    [JsonPropertyName("ContactPersonCode")]
+    public int? ContactPersonCode { get; set; }
+
     [JsonPropertyName("DocumentLines")]
     [Required(ErrorMessage = "At least one document line is required")]
     [MinLength(1, ErrorMessage = "At least one document line is required")]
@@ -79,6 +88,9 @@ public class InvoiceLine
 
     [JsonPropertyName("Price")]
     public decimal Price { get; set; }
+
+    [JsonPropertyName("GrossPrice")]
+    public decimal GrossPrice { get; set; }
 
     [JsonPropertyName("LineTotal")]
     public decimal LineTotal { get; set; }

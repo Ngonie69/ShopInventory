@@ -617,6 +617,27 @@ public class InvoiceController : ControllerBase
             }
 
             var invoiceDto = invoice.ToDto();
+
+            // Enrich with business partner details (VAT, TIN, phone, email)
+            if (!string.IsNullOrEmpty(invoice.CardCode))
+            {
+                try
+                {
+                    var bp = await _sapClient.GetBusinessPartnerByCodeAsync(invoice.CardCode, cancellationToken);
+                    if (bp != null)
+                    {
+                        invoiceDto.CustomerVatNo = bp.VatRegNo;
+                        invoiceDto.CustomerTinNumber = bp.TinNumber;
+                        invoiceDto.CustomerPhone = bp.Phone1;
+                        invoiceDto.CustomerEmail = bp.Email;
+                    }
+                }
+                catch (Exception bpEx)
+                {
+                    _logger.LogWarning(bpEx, "Could not fetch business partner {CardCode} for PDF enrichment", invoice.CardCode);
+                }
+            }
+
             var pdfBytes = await _invoicePdfService.GenerateInvoicePdfAsync(invoiceDto);
 
             var fileName = $"Invoice_{invoiceDto.DocNum}_{DateTime.Now:yyyyMMdd}.pdf";
@@ -838,13 +859,14 @@ public class InvoiceController : ControllerBase
         [FromQuery] string? cardCode = null,
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null,
+        [FromQuery] string? search = null,
         CancellationToken cancellationToken = default)
     {
         if (page < 1) page = 1;
         if (pageSize < 1) pageSize = 20;
         if (pageSize > 100) pageSize = 100;
 
-        var result = await _documentService.GetAllPodAttachmentsAsync(page, pageSize, cardCode, cancellationToken, fromDate, toDate);
+        var result = await _documentService.GetAllPodAttachmentsAsync(page, pageSize, cardCode, cancellationToken, fromDate, toDate, search);
         return Ok(result);
     }
 
@@ -1098,10 +1120,13 @@ public class InvoiceController : ControllerBase
         }
     }
 
-    private Guid GetUserId()
+    private Guid? GetUserId()
     {
         var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        return Guid.Parse(userIdClaim ?? throw new UnauthorizedAccessException("User ID not found"));
+        if (!string.IsNullOrEmpty(userIdClaim) && Guid.TryParse(userIdClaim, out var userId) && userId != Guid.Empty)
+            return userId;
+
+        return null;
     }
 
     #endregion

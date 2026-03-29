@@ -199,6 +199,12 @@ public class AgingSummary
     public decimal Days61To90 { get; set; }
     public decimal Over90Days { get; set; }
     public decimal Total { get; set; }
+
+    // Dynamic labels based on customer payment terms
+    public string Bucket1Label { get; set; } = "1-30 Days";
+    public string Bucket2Label { get; set; } = "31-60 Days";
+    public string Bucket3Label { get; set; } = "61-90 Days";
+    public string Bucket4Label { get; set; } = "Over 90 Days";
 }
 
 /// <summary>

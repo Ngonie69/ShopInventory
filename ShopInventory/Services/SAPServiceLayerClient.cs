@@ -3466,7 +3466,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
     // Use $select to avoid SAP resolving FK references (e.g., Discount Groups/ODIS) via GetByKey,
     // which causes error -2028 when referenced records are deleted or invalid.
-    private const string BusinessPartnerSelectFields = "$select=CardCode,CardName,CardType,GroupCode,Phone1,Phone2,EmailAddress,Address,City,Country,Currency,CurrentAccountBalance,Frozen,PriceListNum,PayTermGrpCode";
+    private const string BusinessPartnerSelectFields = "$select=CardCode,CardName,CardType,GroupCode,Phone1,Phone2,EmailAddress,Address,City,Country,Currency,CurrentAccountBalance,Frozen,PriceListNum,PayTermsGrpCode,FederalTaxID,VatIDUnCmp,CardForeignName";
 
     public async Task<List<BusinessPartnerDto>> GetBusinessPartnersAsync(CancellationToken cancellationToken = default)
     {
@@ -3766,7 +3766,9 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             Balance = item.TryGetProperty("CurrentAccountBalance", out var balance) ? balance.GetDecimal() : null,
             IsActive = !IsFrozen(item),
             PriceListNum = item.TryGetProperty("PriceListNum", out var priceListNum) ? GetIntOrNull(priceListNum) : null,
-            PayTermGrpCode = item.TryGetProperty("PayTermGrpCode", out var payTermGrpCode) ? GetIntOrNull(payTermGrpCode) : null
+            PayTermGrpCode = item.TryGetProperty("PayTermsGrpCode", out var payTermGrpCode) ? GetIntOrNull(payTermGrpCode) : null,
+            VatRegNo = item.TryGetProperty("FederalTaxID", out var fedTaxId) ? fedTaxId.GetString() : null,
+            TinNumber = item.TryGetProperty("CardForeignName", out var cardForeignName) ? cardForeignName.GetString() : null
         };
     }
 

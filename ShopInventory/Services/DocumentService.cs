@@ -27,13 +27,13 @@ public interface IDocumentService
     Task<GenerateDocumentResponseDto> EmailDocumentAsync(EmailDocumentRequest request, Guid userId, CancellationToken cancellationToken = default);
 
     // Document Attachments
-    Task<DocumentAttachmentDto> UploadAttachmentAsync(UploadAttachmentRequest request, Stream fileStream, string fileName, string mimeType, Guid userId, CancellationToken cancellationToken = default);
+    Task<DocumentAttachmentDto> UploadAttachmentAsync(UploadAttachmentRequest request, Stream fileStream, string fileName, string mimeType, Guid? userId, CancellationToken cancellationToken = default);
     Task<DocumentAttachmentListResponseDto> GetAttachmentsAsync(string entityType, int entityId, CancellationToken cancellationToken = default);
     Task<(Stream? stream, string? fileName, string? mimeType)> DownloadAttachmentAsync(int id, CancellationToken cancellationToken = default);
     Task<bool> DeleteAttachmentAsync(int id, CancellationToken cancellationToken = default);
 
     // POD (Proof of Delivery)
-    Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null);
+    Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null);
     Task EnsureInvoiceCachedAsync(int sapDocEntry, int sapDocNum, string cardCode, string? cardName, CancellationToken cancellationToken = default);
 
     // Document History
@@ -419,7 +419,7 @@ public class DocumentService : IDocumentService
 
     #region Document Attachments
 
-    public async Task<DocumentAttachmentDto> UploadAttachmentAsync(UploadAttachmentRequest request, Stream fileStream, string fileName, string mimeType, Guid userId, CancellationToken cancellationToken = default)
+    public async Task<DocumentAttachmentDto> UploadAttachmentAsync(UploadAttachmentRequest request, Stream fileStream, string fileName, string mimeType, Guid? userId, CancellationToken cancellationToken = default)
     {
         // Generate unique filename
         var fileExtension = Path.GetExtension(fileName);
@@ -512,7 +512,7 @@ public class DocumentService : IDocumentService
         return true;
     }
 
-    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null)
+    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null)
     {
         var query = _context.Set<DocumentAttachmentEntity>()
             .Include(a => a.UploadedByUser)
@@ -547,6 +547,21 @@ public class DocumentService : IDocumentService
                 .Select(i => i.SAPDocEntry!.Value);
 
             query = query.Where(a => invoiceDocEntries.Contains(a.EntityId));
+        }
+
+        // Free-text search across invoice number, customer name, and customer code
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            var matchingDocEntries = _context.Invoices
+                .Where(i => i.SAPDocEntry != null && (
+                    (i.SAPDocNum != null && i.SAPDocNum.ToString()!.Contains(term)) ||
+                    (i.CardName != null && i.CardName.ToLower().Contains(term.ToLower())) ||
+                    i.CardCode.ToLower().Contains(term.ToLower())
+                ))
+                .Select(i => i.SAPDocEntry!.Value);
+
+            query = query.Where(a => matchingDocEntries.Contains(a.EntityId));
         }
 
         var totalCount = await query.CountAsync(cancellationToken);

@@ -26,6 +26,7 @@ public class InvoiceLineDto
     public string? ItemDescription { get; set; }
     public decimal Quantity { get; set; }
     public decimal UnitPrice { get; set; }
+    public decimal GrossPrice { get; set; }
     public decimal LineTotal { get; set; }
     public string? WarehouseCode { get; set; }
     public decimal DiscountPercent { get; set; }

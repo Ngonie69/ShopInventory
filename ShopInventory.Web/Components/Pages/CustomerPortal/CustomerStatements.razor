@@ -28,8 +28,10 @@
     {
         <div class="card dashboard-panel">
             <div class="card-body text-center py-5">
-                <svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" fill="currentColor" viewBox="0 0 16 16" class="mb-3">
-                    <path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+                <svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" fill="currentColor" viewBox="0 0 16 16"
+                     class="mb-3">
+                    <path
+                    d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
                 </svg>
                 <h2 class="mb-2">Authentication Required</h2>
                 <p class="text-muted mb-4">Please login to view your statements.</p>
@@ -43,9 +45,12 @@
             <div class="page-header staff-dashboard-header">
                 <div class="dashboard-title">
                     <h2>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16">
-                            <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zM4 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.5L9.5 0H4z"/>
-                            <path d="M4.5 12.5A.5.5 0 0 1 5 12h3a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zm0-2A.5.5 0 0 1 5 10h6a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zm0-2A.5.5 0 0 1 5 8h6a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zm0-2A.5.5 0 0 1 5 6h6a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5z"/>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor"
+                             viewBox="0 0 16 16">
+                            <path
+                            d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zM4 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.5L9.5 0H4z" />
+                            <path
+                            d="M4.5 12.5A.5.5 0 0 1 5 12h3a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zm0-2A.5.5 0 0 1 5 10h6a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zm0-2A.5.5 0 0 1 5 8h6a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zm0-2A.5.5 0 0 1 5 6h6a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5z" />
                         </svg>
                         Account Statement
                     </h2>
@@ -74,8 +79,8 @@
                     </span>
                     <div class="d-flex flex-wrap gap-2 mt-2">
                         <a href="/customer-portal/dashboard" class="btn btn-outline-primary btn-sm">Back to Dashboard</a>
-                        <MudButton Variant="Variant.Filled" Color="Color.Dark" Size="Size.Small"
-                                   OnClick="DownloadPdf" Disabled="@(isDownloading || statement == null)">
+                        <MudButton Variant="Variant.Filled" Color="Color.Dark" Size="Size.Small" OnClick="DownloadPdf"
+                                   Disabled="@(isDownloading || statement == null)">
                             @if (isDownloading)
                             {
                                 <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
@@ -85,8 +90,10 @@
                             {
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
                                      viewBox="0 0 16 16" class="me-1">
-                                    <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
-                                    <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z" />
+                                    <path
+                                    d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
+                                    <path
+                                    d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z" />
                                 </svg>
                                 <span>Download PDF</span>
                             }
@@ -100,8 +107,10 @@
         <div class="card dashboard-panel mb-3">
             <div class="card-header dashboard-panel-header">
                 <h5 class="mb-0 d-flex align-items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" class="panel-icon">
-                        <path d="M1.5 1.5A.5.5 0 0 1 2 1h12a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.128.334L10 8.692V13.5a.5.5 0 0 1-.342.474l-3 1A.5.5 0 0 1 6 14.5V8.692L1.628 3.834A.5.5 0 0 1 1.5 3.5v-2z"/>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"
+                         class="panel-icon">
+                        <path
+                        d="M1.5 1.5A.5.5 0 0 1 2 1h12a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.128.334L10 8.692V13.5a.5.5 0 0 1-.342.474l-3 1A.5.5 0 0 1 6 14.5V8.692L1.628 3.834A.5.5 0 0 1 1.5 3.5v-2z" />
                     </svg>
                     Filters
                 </h5>
@@ -119,8 +128,8 @@
                                      Color="Color.Dark" Dense="true" />
                     </div>
                     <div class="col-md-3">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100"
-                                   OnClick="GenerateStatement" Disabled="@isLoading">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="GenerateStatement"
+                                   Disabled="@isLoading">
                             @if (isLoading)
                             {
                                 <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
@@ -182,8 +191,10 @@
             <div class="card dashboard-panel mb-3">
                 <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
                     <h5 class="mb-0 d-flex align-items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" class="panel-icon">
-                            <path d="M0 1.5A.5.5 0 0 1 .5 1H2a.5.5 0 0 1 .485.379L2.89 3H14.5a.5.5 0 0 1 .491.592l-1.5 8A.5.5 0 0 1 13 12H4a.5.5 0 0 1-.491-.408L2.01 3.607 1.61 2H.5a.5.5 0 0 1-.5-.5z"/>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"
+                             class="panel-icon">
+                            <path
+                            d="M0 1.5A.5.5 0 0 1 .5 1H2a.5.5 0 0 1 .485.379L2.89 3H14.5a.5.5 0 0 1 .491.592l-1.5 8A.5.5 0 0 1 13 12H4a.5.5 0 0 1-.491-.408L2.01 3.607 1.61 2H.5a.5.5 0 0 1-.5-.5z" />
                         </svg>
                         Transaction Details
                     </h5>
@@ -240,164 +251,166 @@
                                                 }
                                                 @if (line.DaysOverdue > 0)
                                                 {
-                                                    <span class="badge bg-danger ms-1" style="font-size: 0.65rem;">@line.DaysOverdue days overdue</span>
-                                                }
-                                            </td>
-                                            <td class="text-end fw-semibold @(line.Debit > 0 ? "text-dark" : "")">
-                                                @(line.Debit > 0 ? FormatCurrency(line.Debit) : "-")
-                                            </td>
-                                            <td class="text-end fw-semibold @(line.Credit > 0 ? "text-success" : "")">
-                                                @(line.Credit > 0 ? FormatCurrency(line.Credit) : "-")
-                                            </td>
-                                            <td class="text-end fw-bold">@FormatCurrency(line.Balance)</td>
+                                                    <span class="badge bg-danger ms-1" style="font-size: 0.65rem;">@line.DaysOverdue days
+                                                        overdue</span>
+                                                    }
+                                                </td>
+                                                <td class="text-end fw-semibold @(line.Debit > 0 ? "text-dark" : "")">
+                                                    @(line.Debit > 0 ? FormatCurrency(line.Debit) : "-")
+                                                </td>
+                                                <td class="text-end fw-semibold @(line.Credit > 0 ? "text-success" : "")">
+                                                    @(line.Credit > 0 ? FormatCurrency(line.Credit) : "-")
+                                                </td>
+                                                <td class="text-end fw-bold">@FormatCurrency(line.Balance)</td>
+                                            </tr>
+                                        }
+
+                                        <tr class="table-dark">
+                                            <td>@statement.ToDate.ToString("MMM dd, yyyy")</td>
+                                            <td colspan="3"><strong>Closing Balance</strong></td>
+                                            <td class="text-end fw-bold">@FormatCurrency(statement.TotalInvoices)</td>
+                                            <td class="text-end fw-bold">@FormatCurrency(statement.TotalPayments)</td>
+                                            <td class="text-end fw-bold">@FormatCurrency(statement.ClosingBalance)</td>
                                         </tr>
-                                    }
-
-                                    <tr class="table-dark">
-                                        <td>@statement.ToDate.ToString("MMM dd, yyyy")</td>
-                                        <td colspan="3"><strong>Closing Balance</strong></td>
-                                        <td class="text-end fw-bold">@FormatCurrency(statement.TotalInvoices)</td>
-                                        <td class="text-end fw-bold">@FormatCurrency(statement.TotalPayments)</td>
-                                        <td class="text-end fw-bold">@FormatCurrency(statement.ClosingBalance)</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
                     else
-                    {
-                        <div class="text-center py-5 dashboard-empty">
-                            <p class="text-muted mb-0">No transactions found for this period.</p>
-                        </div>
-                    }
+                        {
+                            <div class="text-center py-5 dashboard-empty">
+                                <p class="text-muted mb-0">No transactions found for this period.</p>
+                            </div>
+                        }
+                    </div>
                 </div>
-            </div>
 
-            <!-- Aging Summary -->
-            <div class="card dashboard-panel mb-3">
-                <div class="card-header dashboard-panel-header">
-                    <h5 class="mb-0 d-flex align-items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" class="panel-icon">
-                            <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/>
-                            <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
-                        </svg>
-                        Aging Summary
-                    </h5>
-                </div>
-                <div class="card-body">
-                    <div class="row g-3">
-                        <div class="col-6 col-md-4 col-xl-2">
-                            <div class="aging-card-v2 aging-current">
-                                <span class="aging-lbl">Current</span>
-                                <span class="aging-val">@FormatCurrency(statement.Aging.Current)</span>
+                <!-- Aging Summary -->
+                <div class="card dashboard-panel mb-3">
+                    <div class="card-header dashboard-panel-header">
+                        <h5 class="mb-0 d-flex align-items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"
+                                 class="panel-icon">
+                                <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z" />
+                                <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z" />
+                            </svg>
+                            Aging Summary
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-6 col-md-4 col-xl-2">
+                                <div class="aging-card-v2 aging-current">
+                                    <span class="aging-lbl">Current</span>
+                                    <span class="aging-val">@FormatCurrency(statement.Aging.Current)</span>
+                                </div>
                             </div>
-                        </div>
-                        <div class="col-6 col-md-4 col-xl-2">
-                            <div class="aging-card-v2 aging-30">
-                                <span class="aging-lbl">1-30 Days</span>
-                                <span class="aging-val">@FormatCurrency(statement.Aging.Days1To30)</span>
+                            <div class="col-6 col-md-4 col-xl-2">
+                                <div class="aging-card-v2 aging-30">
+                                    <span class="aging-lbl">@statement.Aging.Bucket1Label</span>
+                                    <span class="aging-val">@FormatCurrency(statement.Aging.Days1To30)</span>
+                                </div>
                             </div>
-                        </div>
-                        <div class="col-6 col-md-4 col-xl-2">
-                            <div class="aging-card-v2 aging-60">
-                                <span class="aging-lbl">31-60 Days</span>
-                                <span class="aging-val">@FormatCurrency(statement.Aging.Days31To60)</span>
+                            <div class="col-6 col-md-4 col-xl-2">
+                                <div class="aging-card-v2 aging-60">
+                                    <span class="aging-lbl">@statement.Aging.Bucket2Label</span>
+                                    <span class="aging-val">@FormatCurrency(statement.Aging.Days31To60)</span>
+                                </div>
                             </div>
-                        </div>
-                        <div class="col-6 col-md-4 col-xl-2">
-                            <div class="aging-card-v2 aging-90">
-                                <span class="aging-lbl">61-90 Days</span>
-                                <span class="aging-val">@FormatCurrency(statement.Aging.Days61To90)</span>
+                            <div class="col-6 col-md-4 col-xl-2">
+                                <div class="aging-card-v2 aging-90">
+                                    <span class="aging-lbl">@statement.Aging.Bucket3Label</span>
+                                    <span class="aging-val">@FormatCurrency(statement.Aging.Days61To90)</span>
+                                </div>
                             </div>
-                        </div>
-                        <div class="col-6 col-md-4 col-xl-2">
-                            <div class="aging-card-v2 aging-over90">
-                                <span class="aging-lbl">Over 90 Days</span>
-                                <span class="aging-val">@FormatCurrency(statement.Aging.Over90Days)</span>
+                            <div class="col-6 col-md-4 col-xl-2">
+                                <div class="aging-card-v2 aging-over90">
+                                    <span class="aging-lbl">@statement.Aging.Bucket4Label</span>
+                                    <span class="aging-val">@FormatCurrency(statement.Aging.Over90Days)</span>
+                                </div>
                             </div>
-                        </div>
-                        <div class="col-6 col-md-4 col-xl-2">
-                            <div class="aging-card-v2 aging-total">
-                                <span class="aging-lbl">Total</span>
-                                <span class="aging-val">@FormatCurrency(statement.Aging.Total)</span>
+                            <div class="col-6 col-md-4 col-xl-2">
+                                <div class="aging-card-v2 aging-total">
+                                    <span class="aging-lbl">Total</span>
+                                    <span class="aging-val">@FormatCurrency(statement.Aging.Total)</span>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
+            }
+
+            <div class="text-center text-muted small py-3">
+                <p class="mb-1">Statement generated on @IAuditService.ToCAT(DateTime.UtcNow).ToString("MMMM dd, yyyy 'at' HH:mm") CAT</p>
+                <p class="mb-0">If you have any questions about this statement, please contact our accounts department.</p>
             </div>
         }
+    </div>
 
-        <div class="text-center text-muted small py-3">
-            <p class="mb-1">Statement generated on @IAuditService.ToCAT(DateTime.UtcNow).ToString("MMMM dd, yyyy 'at' HH:mm") CAT</p>
-            <p class="mb-0">If you have any questions about this statement, please contact our accounts department.</p>
-        </div>
-    }
-</div>
+    <style>
+        .customer-statements .aging-card-v2 {
+            padding: 1rem;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            text-align: center;
+            transition: transform 0.2s;
+        }
 
-<style>
-    .customer-statements .aging-card-v2 {
-        padding: 1rem;
-        border-radius: 10px;
-        display: flex;
-        flex-direction: column;
-        gap: 0.35rem;
-        text-align: center;
-        transition: transform 0.2s;
-    }
+        .customer-statements .aging-card-v2:hover {
+            transform: translateY(-2px);
+        }
 
-    .customer-statements .aging-card-v2:hover {
-        transform: translateY(-2px);
-    }
+        .customer-statements .aging-lbl {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            opacity: 0.8;
+        }
 
-    .customer-statements .aging-lbl {
-        font-size: 0.7rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        opacity: 0.8;
-    }
+        .customer-statements .aging-val {
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
 
-    .customer-statements .aging-val {
-        font-size: 1.1rem;
-        font-weight: 700;
-    }
+        .customer-statements .aging-current {
+            background: #f0f4f8;
+            border: 1px solid #d0d8e0;
+            color: #344054;
+        }
 
-    .customer-statements .aging-current {
-        background: #f0f4f8;
-        border: 1px solid #d0d8e0;
-        color: #344054;
-    }
+        .customer-statements .aging-30 {
+            background: #fff8e6;
+            border: 1px solid #f0d060;
+            color: #7a5c00;
+        }
 
-    .customer-statements .aging-30 {
-        background: #fff8e6;
-        border: 1px solid #f0d060;
-        color: #7a5c00;
-    }
+        .customer-statements .aging-60 {
+            background: #fff0e0;
+            border: 1px solid #f0a030;
+            color: #7a4000;
+        }
 
-    .customer-statements .aging-60 {
-        background: #fff0e0;
-        border: 1px solid #f0a030;
-        color: #7a4000;
-    }
+        .customer-statements .aging-90 {
+            background: #ffe8e8;
+            border: 1px solid #e06060;
+            color: #7a1010;
+        }
 
-    .customer-statements .aging-90 {
-        background: #ffe8e8;
-        border: 1px solid #e06060;
-        color: #7a1010;
-    }
+        .customer-statements .aging-over90 {
+            background: #2d2d2d;
+            border: 1px solid #000;
+            color: #fff;
+        }
 
-    .customer-statements .aging-over90 {
-        background: #2d2d2d;
-        border: 1px solid #000;
-        color: #fff;
-    }
-
-    .customer-statements .aging-total {
-        background: var(--bs-primary);
-        border: 1px solid var(--bs-primary);
-        color: #fff;
-    }
-</style>
+        .customer-statements .aging-total {
+            background: var(--bs-primary);
+            border: 1px solid var(--bs-primary);
+            color: #fff;
+        }
+    </style>
 
 @code {
     private CustomerInfo? customerInfo;
