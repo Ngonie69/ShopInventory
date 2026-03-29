@@ -6,10 +6,12 @@ namespace ShopInventory.Web.Services;
 
 public interface IPodService
 {
-    Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null);
+    Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
+    Task<PodAttachmentListResponse?> GetAllPodsForAccountsAsync(int page, int pageSize, List<string> cardCodes, DateTime? fromDate = null, DateTime? toDate = null);
     Task<DocumentAttachmentListResponse?> GetInvoicePodsAsync(int docEntry);
     Task<(bool Success, string Message, DocumentAttachmentDto? Attachment)> UploadPodAsync(int docEntry, Stream fileStream, string fileName, string contentType, string? description = null);
     Task<byte[]?> DownloadPodAsync(int docEntry, int attachmentId);
+    Task<bool> DeletePodAsync(int attachmentId);
 }
 
 public class PodService : IPodService
@@ -23,13 +25,17 @@ public class PodService : IPodService
         _logger = logger;
     }
 
-    public async Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null)
+    public async Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null)
     {
         try
         {
             var url = $"api/invoice/pods?page={page}&pageSize={pageSize}";
             if (!string.IsNullOrEmpty(cardCode))
                 url += $"&cardCode={Uri.EscapeDataString(cardCode)}";
+            if (fromDate.HasValue)
+                url += $"&fromDate={fromDate.Value:yyyy-MM-dd}";
+            if (toDate.HasValue)
+                url += $"&toDate={toDate.Value:yyyy-MM-dd}";
 
             return await _httpClient.GetFromJsonAsync<PodAttachmentListResponse>(url);
         }
@@ -38,6 +44,13 @@ public class PodService : IPodService
             _logger.LogError(ex, "Error fetching all PODs");
             return null;
         }
+    }
+
+    public async Task<PodAttachmentListResponse?> GetAllPodsForAccountsAsync(int page, int pageSize, List<string> cardCodes, DateTime? fromDate = null, DateTime? toDate = null)
+    {
+        if (cardCodes.Count == 0) return null;
+        var joined = string.Join(",", cardCodes);
+        return await GetAllPodsAsync(page, pageSize, joined, fromDate, toDate);
     }
 
     public async Task<DocumentAttachmentListResponse?> GetInvoicePodsAsync(int docEntry)
@@ -69,8 +82,15 @@ public class PodService : IPodService
     {
         try
         {
+            // Buffer the Blazor BrowserFileStream into a MemoryStream.
+            // BrowserFileStream is non-seekable (reads via SignalR) and causes
+            // MultipartFormDataContent to fail computing content-length.
+            using var memoryStream = new MemoryStream();
+            await fileStream.CopyToAsync(memoryStream);
+            memoryStream.Position = 0;
+
             using var content = new MultipartFormDataContent();
-            var streamContent = new StreamContent(fileStream);
+            var streamContent = new StreamContent(memoryStream);
             streamContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
             content.Add(streamContent, "file", fileName);
 
@@ -88,8 +108,8 @@ public class PodService : IPodService
             }
 
             var error = await response.Content.ReadAsStringAsync();
-            _logger.LogWarning("POD upload failed for invoice {DocEntry}: {Error}", docEntry, error);
-            return (false, "Failed to upload POD. Please try again.", null);
+            _logger.LogWarning("POD upload failed for invoice {DocEntry}: {StatusCode} {Error}", docEntry, (int)response.StatusCode, error);
+            return (false, $"Upload failed ({(int)response.StatusCode}). Please try again.", null);
         }
         catch (Exception ex)
         {
@@ -116,6 +136,20 @@ public class PodService : IPodService
         {
             _logger.LogError(ex, "Error downloading POD {AttachmentId} for invoice {DocEntry}", attachmentId, docEntry);
             return null;
+        }
+    }
+
+    public async Task<bool> DeletePodAsync(int attachmentId)
+    {
+        try
+        {
+            var response = await _httpClient.DeleteAsync($"api/document/attachments/{attachmentId}");
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting POD {AttachmentId}", attachmentId);
+            return false;
         }
     }
 

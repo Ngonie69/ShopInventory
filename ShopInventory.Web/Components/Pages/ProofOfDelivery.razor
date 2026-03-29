@@ -2,7 +2,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
-@attribute [Authorize(Roles = "Admin,Cashier")]
+@attribute [Authorize(Roles = "Admin,Cashier,PodOperator")]
 @inject IPodService PodService
 @inject IInvoiceService InvoiceService
 @inject IJSRuntime JS
@@ -11,19 +11,27 @@
 
 <PageTitle>Proof of Delivery - Shop Inventory</PageTitle>
 
-<div class="container-fluid fade-in">
-    <div class="page-header">
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+<div class="container-fluid fade-in staff-dashboard staff-shell">
+    @* Hero Header *@
+    <div class="pod-hero">
+        <div class="pod-hero-content">
             <div>
-                <h2>
-                    <i class="bi bi-clipboard-check me-2" style="color: var(--primary-color);"></i>
+                <h2 class="pod-hero-title">
+                    <span class="pod-hero-icon">
+                        <i class="bi bi-clipboard-check"></i>
+                    </span>
                     Proof of Delivery
                 </h2>
-                <span class="text-muted">Upload and manage POD attachments for invoices</span>
+                <p class="pod-hero-subtitle">Upload and manage POD attachments for invoices</p>
             </div>
-            <div class="d-flex gap-2">
+            <div class="d-flex gap-2 align-items-center">
+                <span class="pod-stat-pill">
+                    <i class="bi bi-file-earmark-check me-1"></i>
+                    @(podResponse?.TotalCount ?? 0) records
+                </span>
                 <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="RefreshData"
-                           StartIcon="@Icons.Material.Filled.Refresh" Disabled="@isLoading">
+                           StartIcon="@Icons.Material.Filled.Refresh" Disabled="@isLoading"
+                           Class="pod-refresh-btn">
                     Refresh
                 </MudButton>
             </div>
@@ -31,19 +39,20 @@
     </div>
 
     @* Upload Section *@
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5 class="mb-0"><i class="bi bi-upload me-2"></i>Upload POD</h5>
+    <div class="pod-upload-card">
+        <div class="pod-upload-header">
+            <i class="bi bi-cloud-arrow-up"></i>
+            <span>Upload POD</span>
         </div>
-        <div class="card-body">
+        <div class="pod-upload-body">
             <div class="row g-3 align-items-end mb-3">
                 <div class="col-md-4">
-                    <label class="form-label">Invoice Number</label>
-                    <input type="number" class="form-control" @bind="uploadDocNum" placeholder="e.g. 10001" />
+                    <label class="pod-label">Invoice Number</label>
+                    <input type="number" class="form-control pod-input" @bind="uploadDocNum" placeholder="e.g. 10001" />
                 </div>
                 <div class="col-md-2 d-flex align-items-end">
                     <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" OnClick="LookupInvoice"
-                               Disabled="@(uploadDocNum <= 0 || isLookingUp)">
+                               Disabled="@(uploadDocNum <= 0 || isLookingUp)" Class="pod-lookup-btn">
                         @if (isLookingUp)
                         {
                             <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
@@ -78,31 +87,47 @@
             </div>
             <div class="row g-3 align-items-end">
                 <div class="col-md-4">
-                    <label class="form-label">POD File</label>
-                    <InputFile OnChange="OnFileSelected" class="form-control" accept=".jpg,.jpeg,.png,.webp,.pdf" />
-                    <div class="form-text">JPG, PNG, WebP, PDF &mdash; max 20MB</div>
+                    <label class="pod-label">POD File(s)</label>
+                    <InputFile OnChange="OnFilesSelected" class="form-control pod-input" accept=".jpg,.jpeg,.png,.webp,.pdf" multiple />
+                    <div class="form-text">JPG, PNG, WebP, PDF &mdash; max 20MB each. Select multiple files.</div>
                 </div>
                 <div class="col-md-5">
-                    <label class="form-label">Description (optional)</label>
-                    <input type="text" class="form-control" @bind="uploadDescription"
+                    <label class="pod-label">Description (optional)</label>
+                    <input type="text" class="form-control pod-input" @bind="uploadDescription"
                            placeholder="e.g. Signed delivery note from driver" />
                 </div>
                 <div class="col-md-3">
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="UploadPod"
-                               Disabled="@(isUploading || lookupInvoice == null || selectedFile == null)" FullWidth="true"
-                               StartIcon="@Icons.Material.Filled.CloudUpload">
+                               Disabled="@(isUploading || lookupInvoice == null || !selectedFiles.Any())" FullWidth="true"
+                               StartIcon="@Icons.Material.Filled.CloudUpload" Class="pod-upload-btn">
                         @if (isUploading)
                         {
                             <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                            <text>Uploading...</text>
+                            <text>Uploading @uploadProgress...</text>
                         }
                         else
                         {
-                            <text>Upload POD</text>
+                            <text>Upload @(selectedFiles.Count > 1 ? $"{selectedFiles.Count} PODs" : "POD")</text>
                         }
                     </MudButton>
                 </div>
             </div>
+
+            @if (selectedFiles.Count > 0 && !isUploading)
+            {
+                <div class="pod-file-chips">
+                    <span class="text-muted small">@selectedFiles.Count file(s) selected:</span>
+                    <div class="d-flex flex-wrap gap-1 mt-1">
+                        @foreach (var f in selectedFiles)
+                        {
+                            <span class="pod-file-chip">
+                                <i class="bi bi-file-earmark me-1"></i>@f.Name
+                                <span class="pod-file-chip-size">(@FormatFileSize(f.Size))</span>
+                            </span>
+                        }
+                    </div>
+                </div>
+            }
 
             @if (!string.IsNullOrEmpty(uploadMessage))
             {
@@ -116,43 +141,45 @@
     @* Invoice Details *@
     @if (lookupInvoice != null)
     {
-        <div class="card mb-4">
-            <div class="card-header">
-                <div class="d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0"><i class="bi bi-receipt me-2"></i>Invoice #@lookupInvoice.DocNum</h5>
-                    <span class="badge @(lookupInvoice.DocStatus == "O" ? "bg-warning" : "bg-success")">
-                        @(lookupInvoice.DocStatus == "O" ? "Open" : "Closed")
-                    </span>
+        <div class="pod-invoice-card">
+            <div class="pod-invoice-header">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-receipt"></i>
+                    <span>Invoice #@lookupInvoice.DocNum</span>
                 </div>
+                <span class="pod-status-badge @(lookupInvoice.DocStatus == "O" ? "pod-status-open" : "pod-status-closed")">
+                    <span class="pod-status-dot"></span>
+                    @(lookupInvoice.DocStatus == "O" ? "Open" : "Closed")
+                </span>
             </div>
-            <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-md-3">
-                        <div class="text-muted small">Customer</div>
-                        <div class="fw-semibold">@lookupInvoice.CardName</div>
-                        <div class="text-muted small">@lookupInvoice.CardCode</div>
+            <div class="pod-invoice-body">
+                <div class="pod-invoice-grid">
+                    <div class="pod-invoice-field">
+                        <span class="pod-field-label">Customer</span>
+                        <span class="pod-field-value">@lookupInvoice.CardName</span>
+                        <span class="pod-field-sub">@lookupInvoice.CardCode</span>
                     </div>
-                    <div class="col-md-2">
-                        <div class="text-muted small">Invoice Date</div>
-                        <div class="fw-semibold">@lookupInvoice.DocDate</div>
+                    <div class="pod-invoice-field">
+                        <span class="pod-field-label">Invoice Date</span>
+                        <span class="pod-field-value">@lookupInvoice.DocDate</span>
                     </div>
-                    <div class="col-md-2">
-                        <div class="text-muted small">Due Date</div>
-                        <div class="fw-semibold">@(lookupInvoice.DocDueDate ?? "-")</div>
+                    <div class="pod-invoice-field">
+                        <span class="pod-field-label">Due Date</span>
+                        <span class="pod-field-value">@(lookupInvoice.DocDueDate ?? "-")</span>
                     </div>
-                    <div class="col-md-2">
-                        <div class="text-muted small">Total</div>
-                        <div class="fw-semibold">@lookupInvoice.DocCurrency @lookupInvoice.DocTotal.ToString("N2")</div>
+                    <div class="pod-invoice-field">
+                        <span class="pod-field-label">Total</span>
+                        <span class="pod-field-value">@lookupInvoice.DocCurrency @lookupInvoice.DocTotal.ToString("N2")</span>
                     </div>
-                    <div class="col-md-3">
-                        <div class="text-muted small">Paid</div>
-                        <div class="fw-semibold">@lookupInvoice.DocCurrency @lookupInvoice.PaidToDate.ToString("N2")</div>
+                    <div class="pod-invoice-field">
+                        <span class="pod-field-label">Paid</span>
+                        <span class="pod-field-value">@lookupInvoice.DocCurrency @lookupInvoice.PaidToDate.ToString("N2")</span>
                         @{
                             var balance = lookupInvoice.DocTotal - lookupInvoice.PaidToDate;
                         }
                         @if (balance > 0)
                         {
-                            <div class="text-danger small">Balance: @lookupInvoice.DocCurrency @balance.ToString("N2")</div>
+                            <span class="pod-field-balance">Balance: @lookupInvoice.DocCurrency @balance.ToString("N2")</span>
                         }
                     </div>
                 </div>
@@ -212,21 +239,22 @@
         }
 
         @* Filter & List *@
-        <div class="card">
-            <div class="card-header">
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                    <h5 class="mb-0"><i class="bi bi-list-task me-2"></i>All POD Uploads</h5>
-                    <span class="text-muted small">@(podResponse?.TotalCount ?? 0) records found</span>
+        <div class="pod-list-card">
+            <div class="pod-list-header">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-list-task"></i>
+                    <span>All POD Uploads</span>
                 </div>
+                <span class="pod-record-count">@(podResponse?.TotalCount ?? 0) records</span>
             </div>
-            <div class="card-body pb-0">
-                <div class="row g-3 align-items-end mb-3">
+            <div class="pod-filter-bar">
+                <div class="row g-3 align-items-end">
                     <div class="col-md-4">
-                        <label class="form-label">Filter by Customer Code</label>
-                        <input type="text" class="form-control" @bind="filterCardCode" placeholder="e.g. C00001" />
+                        <label class="pod-label">Filter by Customer Code</label>
+                        <input type="text" class="form-control pod-input" @bind="filterCardCode" placeholder="e.g. C00001" />
                     </div>
                     <div class="col-md-2">
-                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" OnClick="ApplyFilter">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" OnClick="ApplyFilter" Class="pod-filter-btn">
                             <i class="bi bi-funnel me-1"></i>Filter
                         </MudButton>
                     </div>
@@ -240,21 +268,19 @@
                     }
                 </div>
             </div>
-            <div class="card-body p-0">
+            <div class="pod-table-wrap">
                 @if (isLoading)
                 {
-                    <div class="text-center py-5">
-                        <div class="spinner-border" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <p class="text-muted mt-3 mb-0">Loading PODs...</p>
+                    <div class="pod-loading-state">
+                        <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Medium" />
+                        <p class="pod-loading-text">Loading PODs...</p>
                     </div>
                 }
                 else if (podResponse?.Items?.Any() == true)
                 {
                     <div class="table-responsive">
-                        <table class="table table-hover mb-0 align-middle">
-                            <thead class="table-light">
+                        <table class="pod-table">
+                            <thead>
                                 <tr>
                                     <th>Invoice #</th>
                                     <th>Customer</th>
@@ -267,32 +293,53 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var pod in podResponse.Items)
+                                @{ var grouped = podResponse.Items.GroupBy(p => p.InvoiceDocEntry).ToList(); }
+                                @foreach (var group in grouped)
                                 {
-                                    <tr>
-                                        <td><span class="badge bg-primary">@pod.InvoiceDocNum</span></td>
-                                        <td>
-                                            <div class="fw-semibold">@(pod.CardName ?? "-")</div>
-                                            <div class="text-muted small">@(pod.CardCode ?? "-")</div>
-                                        </td>
-                                        <td>
-                                            <div class="fw-semibold">@pod.FileName</div>
-                                            <div class="text-muted small">@pod.MimeType</div>
-                                        </td>
-                                        <td>@(pod.Description ?? "-")</td>
-                                        <td>@pod.FileSizeFormatted</td>
-                                        <td>
-                                            <div>@pod.UploadedAt.ToString("MMM dd, yyyy")</div>
-                                            <div class="text-muted small">@pod.UploadedAt.ToString("HH:mm")</div>
-                                        </td>
-                                        <td>@(pod.UploadedByUserName ?? "-")</td>
-                                        <td class="text-end">
-                                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
-                                                       OnClick="() => DownloadPod(pod)">
-                                                <i class="bi bi-download me-1"></i> Download
-                                            </MudButton>
-                                        </td>
-                                    </tr>
+                                    var first = group.First();
+                                    var pods = group.ToList();
+                                    @foreach (var (pod, idx) in pods.Select((p, i) => (p, i)))
+                                    {
+                                        <tr class="pod-row">
+                                            @if (idx == 0)
+                                            {
+                                                <td rowspan="@pods.Count" class="align-middle">
+                                                    <span class="pod-invoice-badge">@(first.InvoiceDocNum > 0 ? first.InvoiceDocNum.ToString() : "-")</span>
+                                                </td>
+                                                <td rowspan="@pods.Count" class="align-middle">
+                                                    <div class="pod-customer-name">@(first.CardName ?? "-")</div>
+                                                    <div class="pod-customer-code">@(first.CardCode ?? "-")</div>
+                                                </td>
+                                            }
+                                            <td>
+                                                <div class="pod-file-name">@pod.FileName</div>
+                                                <div class="pod-file-type">@pod.MimeType</div>
+                                            </td>
+                                            <td class="pod-description">@(pod.Description ?? "-")</td>
+                                            <td class="pod-size">@pod.FileSizeFormatted</td>
+                                            <td>
+                                                <div class="pod-date">@pod.UploadedAt.ToString("MMM dd, yyyy")</div>
+                                                <div class="pod-time">@pod.UploadedAt.ToString("HH:mm")</div>
+                                            </td>
+                                            <td class="pod-user">@(pod.UploadedByUserName ?? "-")</td>
+                                            <td class="text-end">
+                                                <div class="pod-actions">
+                                                    @if (IsViewable(pod.MimeType))
+                                                    {
+                                                        <button class="pod-action-btn pod-action-view" @onclick="() => ViewPod(pod)" title="View">
+                                                            <i class="bi bi-eye"></i>
+                                                        </button>
+                                                    }
+                                                    <button class="pod-action-btn pod-action-download" @onclick="() => DownloadPod(pod)" title="Download">
+                                                        <i class="bi bi-download"></i>
+                                                    </button>
+                                                    <button class="pod-action-btn pod-action-delete" @onclick="() => ConfirmDeletePod(pod)" title="Delete">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
                                 }
                             </tbody>
                         </table>
@@ -301,32 +348,633 @@
                     @* Pagination *@
                     @if (podResponse.TotalCount > pageSize)
                     {
-                        <div class="d-flex justify-content-between align-items-center p-3 border-top">
-                            <span class="text-muted small">
-                                Showing @((currentPage - 1) * pageSize + 1)–@Math.Min(currentPage * pageSize,
-                                                                                                            podResponse.TotalCount)
+                        <div class="pod-pagination">
+                            <span class="pod-pagination-info">
+                                Showing @((currentPage - 1) * pageSize + 1)–@Math.Min(currentPage * pageSize, podResponse.TotalCount)
                                 of @podResponse.TotalCount
                             </span>
-                            <div class="btn-group">
+                            <div class="pod-pagination-btns">
                                 <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(currentPage <= 1)"
-                                           OnClick="() => LoadPage(currentPage - 1)">Previous</MudButton>
+                                           OnClick="() => LoadPage(currentPage - 1)">
+                                    <i class="bi bi-chevron-left me-1"></i>Previous
+                                </MudButton>
                                 <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(!podResponse.HasMore)"
-                                           OnClick="() => LoadPage(currentPage + 1)">Next</MudButton>
+                                           OnClick="() => LoadPage(currentPage + 1)">
+                                    Next<i class="bi bi-chevron-right ms-1"></i>
+                                </MudButton>
                             </div>
                         </div>
                     }
                 }
                 else
                 {
-                    <div class="text-center py-5">
-                        <i class="bi bi-clipboard-x" style="font-size: 3rem; color: #ccc;"></i>
-                        <p class="text-muted mt-3 mb-0">No POD records found.</p>
-                        <p class="text-muted small">Upload a POD using the form above.</p>
+                    <div class="pod-empty-state">
+                        <div class="pod-empty-icon">
+                            <i class="bi bi-clipboard-x"></i>
+                        </div>
+                        <p class="pod-empty-title">No POD records found</p>
+                        <p class="pod-empty-sub">Upload a POD using the form above.</p>
                     </div>
                 }
             </div>
         </div>
     </div>
+
+@* POD Viewer Modal *@
+@if (showViewer)
+{
+    <div class="pod-viewer-overlay" @onclick="CloseViewer">
+        <div class="pod-viewer-container" @onclick:stopPropagation>
+            <div class="pod-viewer-header">
+                <h6 class="mb-0 text-truncate">@viewerFileName</h6>
+                <div class="d-flex gap-2">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                               OnClick="() => DownloadPod(viewerPod!)">
+                        <i class="bi bi-download me-1"></i> Download
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                               OnClick="CloseViewer">
+                        <i class="bi bi-x-lg"></i>
+                    </MudButton>
+                </div>
+            </div>
+            <div class="pod-viewer-body">
+                @if (isLoadingViewer)
+                {
+                    <div class="d-flex justify-content-center align-items-center h-100">
+                        <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+                    </div>
+                }
+                else if (viewerMimeType?.StartsWith("image/") == true)
+                {
+                    <img src="@viewerDataUri" alt="@viewerFileName" class="pod-viewer-image" />
+                }
+                else if (viewerMimeType == "application/pdf")
+                {
+                    <iframe src="@viewerDataUri" class="pod-viewer-pdf" title="@viewerFileName"></iframe>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@* Delete Confirmation Modal *@
+@if (showDeleteConfirm)
+{
+    <div class="pod-viewer-overlay" @onclick="CancelDelete">
+        <div class="pod-delete-dialog" @onclick:stopPropagation>
+            <div class="p-4 text-center">
+                <i class="bi bi-exclamation-triangle" style="font-size: 2.5rem; color: var(--mud-palette-error);"></i>
+                <h5 class="mt-3 mb-2">Delete POD?</h5>
+                <p class="text-muted mb-1">Are you sure you want to delete this attachment?</p>
+                <p class="fw-semibold mb-3">@deletePod?.FileName</p>
+                @if (isDeleting)
+                {
+                    <MudProgressCircular Indeterminate="true" Color="Color.Error" Size="Size.Small" />
+                }
+                else
+                {
+                    <div class="d-flex gap-2 justify-content-center">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="CancelDelete">Cancel</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="DeletePod">
+                            <i class="bi bi-trash me-1"></i> Delete
+                        </MudButton>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(deleteMessage))
+                {
+                    <MudAlert Severity="@(deleteSuccess ? Severity.Success : Severity.Error)" Class="mt-3" Dense="true">
+                        @deleteMessage
+                    </MudAlert>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    /* ── Hero ─────────────────────────────────────── */
+    .pod-hero {
+        background: linear-gradient(135deg, #0f766e 0%, #0d9488 50%, #14b8a6 100%);
+        border-radius: 16px;
+        padding: 2rem 2.5rem;
+        margin-bottom: 1.5rem;
+        color: #fff;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .pod-hero::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -20%;
+        width: 300px;
+        height: 300px;
+        background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+        border-radius: 50%;
+    }
+
+    .pod-hero-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+        position: relative;
+        z-index: 1;
+    }
+
+    .pod-hero-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .pod-hero-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 42px;
+        height: 42px;
+        background: rgba(255,255,255,0.2);
+        border-radius: 12px;
+        font-size: 1.25rem;
+        backdrop-filter: blur(4px);
+    }
+
+    .pod-hero-subtitle {
+        margin: 0.25rem 0 0;
+        font-size: 0.9rem;
+        opacity: 0.85;
+    }
+
+    .pod-stat-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        background: rgba(255,255,255,0.2);
+        backdrop-filter: blur(4px);
+        border-radius: 20px;
+        padding: 0.4rem 1rem;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #fff;
+    }
+
+    .pod-refresh-btn {
+        border-color: rgba(255,255,255,0.4) !important;
+        color: #fff !important;
+    }
+    .pod-refresh-btn:hover {
+        background: rgba(255,255,255,0.15) !important;
+    }
+
+    /* ── Upload Card ──────────────────────────────── */
+    .pod-upload-card {
+        background: #fff;
+        border-radius: 16px;
+        border: 1px solid rgba(15,23,42,0.08);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        margin-bottom: 1.5rem;
+        overflow: hidden;
+    }
+
+    .pod-upload-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 1rem 1.5rem;
+        background: linear-gradient(135deg, #f0fdfa 0%, #f0f9ff 100%);
+        border-bottom: 1px solid rgba(15,23,42,0.06);
+        font-weight: 600;
+        font-size: 1rem;
+        color: #0f766e;
+    }
+
+    .pod-upload-body {
+        padding: 1.5rem;
+    }
+
+    .pod-label {
+        display: block;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        margin-bottom: 0.4rem;
+    }
+
+    .pod-input {
+        border-radius: 10px !important;
+        border-color: #e2e8f0 !important;
+        transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .pod-input:focus {
+        border-color: #0f766e !important;
+        box-shadow: 0 0 0 3px rgba(15,118,110,0.12) !important;
+    }
+
+    .pod-lookup-btn, .pod-upload-btn {
+        border-radius: 10px !important;
+        min-height: 38px;
+    }
+
+    .pod-file-chips {
+        margin-top: 0.75rem;
+    }
+
+    .pod-file-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        background: #f0fdfa;
+        border: 1px solid #99f6e4;
+        color: #0f766e;
+        border-radius: 20px;
+        padding: 0.25rem 0.75rem;
+        font-size: 0.8rem;
+        font-weight: 500;
+    }
+    .pod-file-chip-size {
+        color: #64748b;
+        font-weight: 400;
+    }
+
+    /* ── Invoice Card ─────────────────────────────── */
+    .pod-invoice-card {
+        background: #fff;
+        border-radius: 16px;
+        border: 1px solid rgba(15,23,42,0.08);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        margin-bottom: 1.5rem;
+        overflow: hidden;
+    }
+
+    .pod-invoice-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 1.5rem;
+        background: linear-gradient(135deg, #f0fdfa 0%, #f0f9ff 100%);
+        border-bottom: 1px solid rgba(15,23,42,0.06);
+        font-weight: 600;
+        font-size: 1rem;
+        color: #0f766e;
+    }
+
+    .pod-invoice-body {
+        padding: 1.5rem;
+    }
+
+    .pod-invoice-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 1.25rem;
+    }
+
+    .pod-invoice-field {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .pod-field-label {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #94a3b8;
+        font-weight: 600;
+        margin-bottom: 0.15rem;
+    }
+
+    .pod-field-value {
+        font-weight: 600;
+        color: #0f172a;
+        font-size: 0.95rem;
+    }
+
+    .pod-field-sub {
+        font-size: 0.8rem;
+        color: #64748b;
+    }
+
+    .pod-field-balance {
+        font-size: 0.8rem;
+        color: #dc2626;
+        font-weight: 600;
+    }
+
+    .pod-status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        border-radius: 20px;
+        padding: 0.3rem 0.85rem;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+    .pod-status-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+    .pod-status-open {
+        background: #fef3c7;
+        color: #92400e;
+    }
+    .pod-status-open .pod-status-dot {
+        background: #f59e0b;
+    }
+    .pod-status-closed {
+        background: #dcfce7;
+        color: #166534;
+    }
+    .pod-status-closed .pod-status-dot {
+        background: #16a34a;
+    }
+
+    /* ── List Card ────────────────────────────────── */
+    .pod-list-card {
+        background: #fff;
+        border-radius: 16px;
+        border: 1px solid rgba(15,23,42,0.08);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        overflow: hidden;
+    }
+
+    .pod-list-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 1.5rem;
+        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+        border-bottom: 1px solid rgba(15,23,42,0.06);
+        font-weight: 600;
+        font-size: 1rem;
+        color: #0f172a;
+    }
+
+    .pod-record-count {
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: #64748b;
+        background: #f1f5f9;
+        border-radius: 20px;
+        padding: 0.25rem 0.75rem;
+    }
+
+    .pod-filter-bar {
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid rgba(15,23,42,0.05);
+        background: #fafbfc;
+    }
+
+    .pod-filter-btn {
+        border-radius: 10px !important;
+    }
+
+    /* ── Table ────────────────────────────────────── */
+    .pod-table-wrap {
+        padding: 0;
+    }
+
+    .pod-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        margin: 0;
+    }
+
+    .pod-table thead th {
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #64748b;
+        padding: 0.85rem 1rem;
+        border-bottom: 2px solid #f1f5f9;
+        background: #fafbfc;
+        white-space: nowrap;
+    }
+
+    .pod-table tbody td {
+        padding: 0.85rem 1rem;
+        border-bottom: 1px solid #f1f5f9;
+        font-size: 0.875rem;
+        color: #334155;
+        vertical-align: middle;
+    }
+
+    .pod-row {
+        transition: background 0.15s;
+    }
+    .pod-row:hover {
+        background: #f0fdfa;
+    }
+
+    .pod-invoice-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 52px;
+        padding: 0.3rem 0.65rem;
+        background: linear-gradient(135deg, #0f766e, #14b8a6);
+        color: #fff;
+        border-radius: 8px;
+        font-weight: 700;
+        font-size: 0.85rem;
+        letter-spacing: 0.02em;
+    }
+
+    .pod-customer-name { font-weight: 600; color: #0f172a; }
+    .pod-customer-code { font-size: 0.78rem; color: #94a3b8; }
+    .pod-file-name { font-weight: 600; color: #0f172a; font-size: 0.85rem; }
+    .pod-file-type { font-size: 0.75rem; color: #94a3b8; }
+    .pod-description { color: #64748b; }
+    .pod-size { font-weight: 500; font-variant-numeric: tabular-nums; }
+    .pod-date { font-weight: 500; color: #0f172a; }
+    .pod-time { font-size: 0.78rem; color: #94a3b8; }
+    .pod-user { color: #64748b; }
+
+    /* ── Action Buttons (icon-only) ──────────────── */
+    .pod-actions {
+        display: flex;
+        gap: 0.35rem;
+        justify-content: flex-end;
+    }
+
+    .pod-action-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        background: transparent;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 0.95rem;
+    }
+
+    .pod-action-view {
+        color: #0f766e;
+    }
+    .pod-action-view:hover {
+        background: #f0fdfa;
+        border-color: #99f6e4;
+    }
+
+    .pod-action-download {
+        color: #0369a1;
+    }
+    .pod-action-download:hover {
+        background: #f0f9ff;
+        border-color: #7dd3fc;
+    }
+
+    .pod-action-delete {
+        color: #dc2626;
+    }
+    .pod-action-delete:hover {
+        background: #fef2f2;
+        border-color: #fca5a5;
+    }
+
+    /* ── Pagination ───────────────────────────────── */
+    .pod-pagination {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.85rem 1.5rem;
+        border-top: 1px solid #f1f5f9;
+    }
+    .pod-pagination-info {
+        font-size: 0.8rem;
+        color: #64748b;
+    }
+    .pod-pagination-btns {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    /* ── Empty / Loading ─────────────────────────── */
+    .pod-loading-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 3rem 1rem;
+    }
+    .pod-loading-text {
+        margin-top: 1rem;
+        color: #94a3b8;
+        font-size: 0.9rem;
+    }
+
+    .pod-empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 3rem 1rem;
+    }
+    .pod-empty-icon {
+        width: 64px;
+        height: 64px;
+        border-radius: 16px;
+        background: #f1f5f9;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.75rem;
+        color: #94a3b8;
+        margin-bottom: 0.75rem;
+    }
+    .pod-empty-title {
+        font-weight: 600;
+        color: #334155;
+        margin-bottom: 0.25rem;
+    }
+    .pod-empty-sub {
+        font-size: 0.85rem;
+        color: #94a3b8;
+    }
+
+    /* ── Modals (Viewer & Delete) ─────────────────── */
+    .pod-viewer-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(4px);
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+    }
+
+    .pod-viewer-container {
+        background: #fff;
+        border-radius: 16px;
+        max-width: 90vw;
+        max-height: 90vh;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        box-shadow: 0 24px 48px rgba(15, 23, 42, 0.2);
+    }
+
+    .pod-viewer-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid #f1f5f9;
+        gap: 1rem;
+    }
+
+    .pod-viewer-body {
+        flex: 1;
+        overflow: auto;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        min-height: 300px;
+        max-height: calc(90vh - 70px);
+        background: #f8fafc;
+    }
+
+    .pod-viewer-image {
+        max-width: 100%;
+        height: auto;
+        object-fit: contain;
+    }
+
+    .pod-viewer-pdf {
+        width: 100%;
+        height: calc(90vh - 70px);
+        border: none;
+    }
+
+    .pod-delete-dialog {
+        background: #fff;
+        border-radius: 16px;
+        max-width: 420px;
+        width: 100%;
+        box-shadow: 0 24px 48px rgba(15, 23, 42, 0.2);
+    }
+
+</style>
 
 @code {
     private PodAttachmentListResponse? podResponse;
@@ -338,14 +986,30 @@
 
     // Upload state
     private int uploadDocNum;
-    private IBrowserFile? selectedFile;
+    private List<IBrowserFile> selectedFiles = new();
     private string? uploadDescription;
     private bool isUploading;
+    private string? uploadProgress;
     private string? uploadMessage;
     private bool uploadSuccess;
     private InvoiceDto? lookupInvoice;
     private string? lookupError;
     private bool isLookingUp;
+
+    // Viewer state
+    private bool showViewer;
+    private bool isLoadingViewer;
+    private string? viewerDataUri;
+    private string? viewerFileName;
+    private string? viewerMimeType;
+    private PodAttachmentItemDto? viewerPod;
+
+    // Delete state
+    private bool showDeleteConfirm;
+    private bool isDeleting;
+    private string? deleteMessage;
+    private bool deleteSuccess;
+    private PodAttachmentItemDto? deletePod;
 
     protected override async Task OnInitializedAsync()
     {
@@ -423,44 +1087,69 @@
         }
     }
 
-    private void OnFileSelected(InputFileChangeEventArgs e)
+    private void OnFilesSelected(InputFileChangeEventArgs e)
     {
-        selectedFile = e.File;
+        selectedFiles = e.GetMultipleFiles(20).ToList();
         uploadMessage = null;
     }
 
     private async Task UploadPod()
     {
-        if (lookupInvoice == null || selectedFile == null || isUploading) return;
+        if (lookupInvoice == null || !selectedFiles.Any() || isUploading) return;
 
         isUploading = true;
         uploadMessage = null;
 
         try
         {
-            if (selectedFile.Size > 20 * 1024 * 1024)
+            var total = selectedFiles.Count;
+            var successCount = 0;
+            var failedFiles = new List<string>();
+
+            for (var i = 0; i < total; i++)
             {
-                uploadMessage = "File is too large. Maximum size is 20MB.";
-                uploadSuccess = false;
-                return;
+                var file = selectedFiles[i];
+                uploadProgress = $"({i + 1}/{total})";
+                StateHasChanged();
+
+                if (file.Size > 20 * 1024 * 1024)
+                {
+                    failedFiles.Add($"{file.Name} (too large)");
+                    continue;
+                }
+
+                using var stream = file.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+                var (success, message, _) = await PodService.UploadPodAsync(
+                    lookupInvoice.DocEntry, stream, file.Name, file.ContentType, uploadDescription);
+
+                if (success)
+                    successCount++;
+                else
+                    failedFiles.Add(file.Name);
             }
 
-            using var stream = selectedFile.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
-            var (success, message, _) = await PodService.UploadPodAsync(
-                lookupInvoice.DocEntry, stream, selectedFile.Name, selectedFile.ContentType, uploadDescription);
-
-            uploadSuccess = success;
-            uploadMessage = message;
-
-            if (success)
+            if (failedFiles.Count == 0)
             {
-                selectedFile = null;
+                uploadSuccess = true;
+                uploadMessage = total == 1
+                    ? "POD uploaded successfully."
+                    : $"All {successCount} PODs uploaded successfully.";
+                selectedFiles.Clear();
                 uploadDocNum = 0;
                 uploadDescription = null;
                 lookupInvoice = null;
                 lookupError = null;
                 currentPage = 1;
                 await LoadPods();
+            }
+            else
+            {
+                uploadSuccess = successCount > 0;
+                uploadMessage = successCount > 0
+                    ? $"{successCount} of {total} uploaded. Failed: {string.Join(", ", failedFiles)}"
+                    : $"Upload failed for: {string.Join(", ", failedFiles)}";
+                if (successCount > 0)
+                    await LoadPods();
             }
         }
         catch (Exception ex)
@@ -479,19 +1168,87 @@
     {
         try
         {
-            var data = await PodService.DownloadPodAsync(pod.InvoiceDocEntry, pod.Id);
-            if (data == null)
-            {
-                return;
-            }
-
-            var base64 = Convert.ToBase64String(data);
-            var contentType = pod.MimeType ?? "application/octet-stream";
-            await JS.InvokeVoidAsync("downloadFile", pod.FileName, contentType, base64);
+            var url = $"/download/pod/{pod.InvoiceDocEntry}/{pod.Id}";
+            await JS.InvokeVoidAsync("open", url, "_blank");
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error downloading POD {PodId}", pod.Id);
         }
     }
+
+    private static bool IsViewable(string? mimeType) =>
+        mimeType != null && (mimeType.StartsWith("image/") || mimeType == "application/pdf");
+
+    private void ViewPod(PodAttachmentItemDto pod)
+    {
+        viewerPod = pod;
+        viewerFileName = pod.FileName;
+        viewerMimeType = pod.MimeType;
+        viewerDataUri = $"/download/pod/{pod.InvoiceDocEntry}/{pod.Id}";
+        showViewer = true;
+        isLoadingViewer = false;
+    }
+
+    private void CloseViewer()
+    {
+        showViewer = false;
+        viewerDataUri = null;
+        viewerPod = null;
+    }
+
+    private void ConfirmDeletePod(PodAttachmentItemDto pod)
+    {
+        deletePod = pod;
+        deleteMessage = null;
+        showDeleteConfirm = true;
+    }
+
+    private void CancelDelete()
+    {
+        showDeleteConfirm = false;
+        deletePod = null;
+        deleteMessage = null;
+    }
+
+    private async Task DeletePod()
+    {
+        if (deletePod == null || isDeleting) return;
+
+        isDeleting = true;
+        deleteMessage = null;
+
+        try
+        {
+            var success = await PodService.DeletePodAsync(deletePod.Id);
+            if (success)
+            {
+                showDeleteConfirm = false;
+                deletePod = null;
+                await LoadPods();
+            }
+            else
+            {
+                deleteSuccess = false;
+                deleteMessage = "Failed to delete the attachment. Please try again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting POD {PodId}", deletePod.Id);
+            deleteSuccess = false;
+            deleteMessage = "An unexpected error occurred.";
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+
+    private static string FormatFileSize(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:N1} KB",
+        _ => $"{bytes / (1024.0 * 1024.0):N1} MB"
+    };
 }

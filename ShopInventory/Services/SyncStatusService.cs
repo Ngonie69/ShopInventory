@@ -392,13 +392,16 @@ public class SyncStatusService : ISyncStatusService
             else break;
         }
 
+        var firstSuccess = recentLogs.FirstOrDefault(l => l.IsSuccess);
+        var firstFailure = recentLogs.FirstOrDefault(l => !l.IsSuccess);
+
         return new SapConnectionStatusDto
         {
             IsConnected = isConnected,
             Status = !_sapSettings.Enabled ? "Disabled" : isConnected ? "Connected" : "Error",
-            LastConnectedAt = recentLogs.FirstOrDefault(l => l.IsSuccess)?.CheckedAt,
-            LastErrorAt = recentLogs.FirstOrDefault(l => !l.IsSuccess)?.CheckedAt,
-            LastError = error ?? recentLogs.FirstOrDefault(l => !l.IsSuccess)?.ErrorMessage,
+            LastConnectedAt = firstSuccess?.CheckedAt,
+            LastErrorAt = firstFailure?.CheckedAt,
+            LastError = error ?? firstFailure?.ErrorMessage,
             ConsecutiveFailures = consecutiveFailures,
             ResponseTimeMs = isConnected ? stopwatch.ElapsedMilliseconds : null,
             CompanyDb = _sapSettings.CompanyDB

@@ -141,7 +141,7 @@ public class AuthController : ControllerBase
             User.Identity?.Name, request.Username);
 
         // Validate role
-        var validRoles = new[] { "Admin", "Cashier", "StockController", "DepotController" };
+        var validRoles = new[] { "Admin", "Cashier", "StockController", "DepotController", "PodOperator" };
         if (!validRoles.Contains(request.Role, StringComparer.OrdinalIgnoreCase))
         {
             return BadRequest(new ErrorResponseDto

@@ -531,7 +531,7 @@ public class PriceController : ControllerBase
                 .Where(p => p.PriceList == priceListNum && p.SyncedFromSAP)
                 .ToListAsync(cancellationToken);
 
-            var cacheExpiry = TimeSpan.FromHours(1);
+            var cacheExpiry = TimeSpan.FromMinutes(15);
             var oldestAllowed = DateTime.UtcNow.Subtract(cacheExpiry);
 
             // If forceRefresh or cache is empty or stale, sync from SAP
@@ -807,8 +807,8 @@ public class PriceController : ControllerBase
                 "Fetching prices for business partner {CardCode} using price list {PriceListNum}",
                 cardCode, priceListNum);
 
-            // Delegate to the existing price list endpoint logic
-            return await GetPricesByPriceList(priceListNum, forceRefresh, cancellationToken);
+            // Always force-refresh from SAP when loading BP prices to ensure invoice accuracy
+            return await GetPricesByPriceList(priceListNum, forceRefresh: true, cancellationToken);
         }
         catch (Exception ex)
         {

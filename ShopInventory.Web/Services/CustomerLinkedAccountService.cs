@@ -123,11 +123,17 @@ public class CustomerLinkedAccountService : ICustomerLinkedAccountService
         if (user.AccountStructure == "Single" || !user.LinkedAccounts.Any())
             return new List<string> { cardCode };
 
-        return user.LinkedAccounts
+        var codes = user.LinkedAccounts
             .Where(la => la.IsActive)
             .Select(la => la.CardCode)
             .Distinct()
             .ToList();
+
+        // Always include the portal user's own CardCode
+        if (!codes.Contains(cardCode, StringComparer.OrdinalIgnoreCase))
+            codes.Add(cardCode);
+
+        return codes;
     }
 
     public async Task<List<string>> GetMainAccountCardCodesAsync(string cardCode)

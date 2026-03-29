@@ -33,7 +33,8 @@ public interface IDocumentService
     Task<bool> DeleteAttachmentAsync(int id, CancellationToken cancellationToken = default);
 
     // POD (Proof of Delivery)
-    Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default);
+    Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null);
+    Task EnsureInvoiceCachedAsync(int sapDocEntry, int sapDocNum, string cardCode, string? cardName, CancellationToken cancellationToken = default);
 
     // Document History
     Task<DocumentHistoryListResponseDto> GetDocumentHistoryAsync(string? documentType = null, int? entityId = null, int page = 1, int pageSize = 20, CancellationToken cancellationToken = default);
@@ -83,6 +84,7 @@ public class DocumentService : IDocumentService
     public async Task<DocumentTemplateDto?> GetTemplateByIdAsync(int id, CancellationToken cancellationToken = default)
     {
         var template = await _context.Set<DocumentTemplateEntity>()
+            .AsNoTracking()
             .Include(t => t.CreatedByUser)
             .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
 
@@ -92,6 +94,7 @@ public class DocumentService : IDocumentService
     public async Task<DocumentTemplateDto?> GetDefaultTemplateAsync(string documentType, CancellationToken cancellationToken = default)
     {
         var template = await _context.Set<DocumentTemplateEntity>()
+            .AsNoTracking()
             .Include(t => t.CreatedByUser)
             .FirstOrDefaultAsync(t => t.DocumentType == documentType && t.IsDefault && t.IsActive, cancellationToken);
 
@@ -101,6 +104,7 @@ public class DocumentService : IDocumentService
     public async Task<DocumentTemplateListResponseDto> GetAllTemplatesAsync(string? documentType = null, bool? activeOnly = null, int page = 1, int pageSize = 20, CancellationToken cancellationToken = default)
     {
         var query = _context.Set<DocumentTemplateEntity>()
+            .AsNoTracking()
             .Include(t => t.CreatedByUser)
             .AsQueryable();
 
@@ -508,7 +512,7 @@ public class DocumentService : IDocumentService
         return true;
     }
 
-    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default)
+    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null)
     {
         var query = _context.Set<DocumentAttachmentEntity>()
             .Include(a => a.UploadedByUser)
@@ -520,10 +524,26 @@ public class DocumentService : IDocumentService
             )
             .AsQueryable();
 
+        if (fromDate.HasValue)
+        {
+            // UploadedAt is timestamptz — Npgsql requires DateTime.Utc for comparisons
+            var fromUtc = DateTime.SpecifyKind(fromDate.Value.Date, DateTimeKind.Utc);
+            query = query.Where(a => a.UploadedAt >= fromUtc);
+        }
+
+        if (toDate.HasValue)
+        {
+            var toUtc = DateTime.SpecifyKind(toDate.Value.Date.AddDays(1), DateTimeKind.Utc);
+            query = query.Where(a => a.UploadedAt < toUtc);
+        }
+
         if (!string.IsNullOrEmpty(cardCode))
         {
+            // Support comma-separated card codes for multi-account customers
+            var cardCodes = cardCode.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
             var invoiceDocEntries = _context.Invoices
-                .Where(i => i.CardCode == cardCode && i.SAPDocEntry != null)
+                .Where(i => cardCodes.Contains(i.CardCode) && i.SAPDocEntry != null)
                 .Select(i => i.SAPDocEntry!.Value);
 
             query = query.Where(a => invoiceDocEntries.Contains(a.EntityId));
@@ -575,6 +595,41 @@ public class DocumentService : IDocumentService
             PageSize = pageSize,
             HasMore = (page * pageSize) < totalCount
         };
+    }
+
+    public async Task EnsureInvoiceCachedAsync(int sapDocEntry, int sapDocNum, string cardCode, string? cardName, CancellationToken cancellationToken = default)
+    {
+        var existing = await _context.Invoices
+            .FirstOrDefaultAsync(i => i.SAPDocEntry == sapDocEntry, cancellationToken);
+
+        if (existing != null)
+        {
+            // Update if DocNum or customer info was missing
+            if (existing.SAPDocNum == null || existing.SAPDocNum == 0)
+                existing.SAPDocNum = sapDocNum;
+            if (string.IsNullOrEmpty(existing.CardCode))
+                existing.CardCode = cardCode;
+            if (string.IsNullOrEmpty(existing.CardName))
+                existing.CardName = cardName;
+            existing.UpdatedAt = DateTime.UtcNow;
+        }
+        else
+        {
+            _context.Invoices.Add(new Models.Entities.InvoiceEntity
+            {
+                SAPDocEntry = sapDocEntry,
+                SAPDocNum = sapDocNum,
+                CardCode = cardCode,
+                CardName = cardName,
+                DocDate = DateTime.UtcNow,
+                Status = "Synced",
+                SyncedToSAP = true,
+                SyncedAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
     }
 
     #endregion

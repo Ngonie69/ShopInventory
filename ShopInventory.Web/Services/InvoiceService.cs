@@ -9,7 +9,7 @@ public interface IInvoiceService
     Task<InvoiceListResponse?> GetInvoicesAsync(int page = 1, int pageSize = 20);
     Task<InvoiceDto?> GetInvoiceByDocEntryAsync(int docEntry);
     Task<InvoiceDto?> GetInvoiceByDocNumAsync(int docNum);
-    Task<InvoiceDateResponse?> GetInvoicesByCustomerAsync(string cardCode);
+    Task<InvoiceDateResponse?> GetInvoicesByCustomerAsync(string cardCode, DateTime? fromDate = null, DateTime? toDate = null);
     Task<InvoiceDateResponse?> GetInvoicesByDateAsync(DateTime date);
     Task<InvoiceDateResponse?> GetInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate);
     Task<(bool Success, string Message, InvoiceDto? Invoice, FiscalizationResult? Fiscalization)> CreateInvoiceAsync(CreateInvoiceRequest request);
@@ -63,11 +63,19 @@ public class InvoiceService : IInvoiceService
         }
     }
 
-    public async Task<InvoiceDateResponse?> GetInvoicesByCustomerAsync(string cardCode)
+    public async Task<InvoiceDateResponse?> GetInvoicesByCustomerAsync(string cardCode, DateTime? fromDate = null, DateTime? toDate = null)
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<InvoiceDateResponse>($"api/invoice/customer/{cardCode}");
+            var url = $"api/invoice/customer/{Uri.EscapeDataString(cardCode)}";
+            var queryParams = new List<string>();
+            if (fromDate.HasValue)
+                queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+            if (toDate.HasValue)
+                queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+            if (queryParams.Count > 0)
+                url += "?" + string.Join("&", queryParams);
+            return await _httpClient.GetFromJsonAsync<InvoiceDateResponse>(url);
         }
         catch
         {

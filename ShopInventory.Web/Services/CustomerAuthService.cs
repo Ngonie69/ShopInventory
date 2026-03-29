@@ -27,6 +27,7 @@ public interface ICustomerAuthService
     Task RevokeAllTokensAsync(string cardCode, string ipAddress, string reason);
     bool IsLockedOut(string cardCode, string ipAddress);
     Task<bool> RegisterCustomerAsync(string cardCode, string email, string password, string ipAddress);
+    Task<List<CustomerSecurityAuditLog>> GetSecurityLogsAsync(string cardCode, int page = 1, int pageSize = 20);
 }
 
 /// <summary>
@@ -1135,4 +1136,29 @@ public class CustomerAuthService : ICustomerAuthService
     }
 
     #endregion
+
+    public async Task<List<CustomerSecurityAuditLog>> GetSecurityLogsAsync(string cardCode, int page = 1, int pageSize = 20)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+        return await dbContext.Set<CustomerSecurityLog>()
+            .Where(l => l.CardCode == cardCode)
+            .OrderByDescending(l => l.Timestamp)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(l => new CustomerSecurityAuditLog
+            {
+                Id = l.Id,
+                CardCode = l.CardCode,
+                Action = l.Action,
+                Timestamp = l.Timestamp,
+                IpAddress = l.IpAddress,
+                UserAgent = l.UserAgent,
+                Details = l.Details,
+                Success = l.Success,
+                FailureReason = l.FailureReason
+            })
+            .AsNoTracking()
+            .ToListAsync();
+    }
 }

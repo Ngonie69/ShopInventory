@@ -14,6 +14,7 @@
 @inject IAppSettingsProvider AppSettingsProvider
 @inject IJSRuntime JS
 @inject IThemeService ThemeService
+@inject ISAPSettingsService SAPSettingsService
 @attribute [Authorize(Roles = "Admin")]
 @rendermode InteractiveServer
 
@@ -90,6 +91,11 @@
                 <i class="bi bi-cash-coin"></i>
                 <span>Payments</span>
             </MudButton>
+            <MudButton Class="@($"settings-tab {(selectedCategory == SAPCategory ? "active" : "")}")"
+                       OnClick="() => SelectCategory(SAPCategory)">
+                <i class="bi bi-cloud-arrow-up"></i>
+                <span>SAP Connection</span>
+            </MudButton>
             <MudButton Class="@($"settings-tab {(selectedCategory == DataManagementCategory ? "active" : "")}")"
                        OnClick="() => SelectCategory(DataManagementCategory)">
                 <i class="bi bi-arrow-repeat"></i>
@@ -134,21 +140,18 @@
                                     </span>
                                 </div>
                                 <div class="setting-control" style="min-width: 350px;">
-                                    <MudAutocomplete T="CachedGLAccount" Label="Search G/L Account"
-                                                     Value="selectedGLAccount"
-                                                     ValueChanged="OnGLAccountSelected"
-                                                     SearchFunc="@SearchGLAccountsAsync"
+                                    <MudAutocomplete T="CachedGLAccount" Label="Search G/L Account" Value="selectedGLAccount"
+                                                     ValueChanged="OnGLAccountSelected" SearchFunc="@SearchGLAccountsAsync"
                                                      ToStringFunc="@(gl => gl == null ? string.Empty : $"{gl.Code} - {gl.Name}")"
-                                                     ShowProgressIndicator="true" MinCharacters="0" Immediate="true"
-                                                     ResetValueOnEmptyText="true" CoerceText="false" CoerceValue="false"
-                                                     Variant="Variant.Outlined" Dense="true" Margin="Margin.Dense"
-                                                     Clearable="true" DebounceInterval="200" MaxItems="20"
-                                                     AdornmentIcon="@Icons.Material.Filled.Search"
-                                                     AdornmentColor="Color.Primary">
+                                                     ShowProgressIndicator="true" MinCharacters="0" Immediate="true" ResetValueOnEmptyText="true"
+                                                     CoerceText="false" CoerceValue="false" Variant="Variant.Outlined" Dense="true"
+                                                     Margin="Margin.Dense" Clearable="true" DebounceInterval="200" MaxItems="20"
+                                                     AdornmentIcon="@Icons.Material.Filled.Search" AdornmentColor="Color.Primary">
                                         <ItemTemplate Context="gl">
                                             <MudText>
                                                 <b>@gl.Code</b> — @gl.Name
-                                                <MudText Typo="Typo.caption" Class="ms-2">(@FormatAccountType(gl.AccountType))</MudText>
+                                                <MudText Typo="Typo.caption" Class="ms-2">(@FormatAccountType(gl.AccountType))
+                                                </MudText>
                                             </MudText>
                                         </ItemTemplate>
                                         <NoItemsTemplate>
@@ -311,446 +314,573 @@
                             </div>
                         </div>
                     }
-        else if (selectedCategory == DangerZoneCategory)
+        else if (selectedCategory == SAPCategory)
                     {
-                        <!-- Danger Zone Section -->
-                        <div class="settings-section" style="animation-delay: 0.05s; border: 1px solid #dc3545; border-radius: 8px;">
+                        <!-- SAP Connection Settings Section -->
+                        <div class="settings-section" style="animation-delay: 0.05s;">
                             <div class="section-header">
-                                <div class="section-icon" style="background: linear-gradient(135deg, #dc3545, #c82333);">
-                                    <i class="bi bi-exclamation-triangle-fill" style="color: white;"></i>
+                                <div class="section-icon" style="background: linear-gradient(135deg, #2563eb, #3b82f6);">
+                                    <i class="bi bi-cloud-arrow-up" style="color: white;"></i>
                                 </div>
                                 <div>
-                                    <h5 class="section-title" style="color: #dc3545;">Danger Zone</h5>
-                                    <p class="section-desc">Irreversible actions that affect your entire database. Proceed with extreme
-                                        caution.</p>
-                                    </div>
+                                    <h5 class="section-title">SAP Business One Connection</h5>
+                                    <p class="section-desc">Configure the connection to your SAP Business One Service Layer.</p>
                                 </div>
-
-                                <div class="setting-items">
-                                    <div class="setting-item"
-                                         style="border: 1px solid #dc354544; border-radius: 8px; padding: 1.5rem; background: #dc354508;">
-                                        <div class="setting-info" style="flex: 1;">
-                                            <label class="setting-label" style="color: #dc3545; font-weight: 600; font-size: 1rem;">
-                                                <i class="bi bi-database-x me-2"></i>Reset Database
-                                            </label>
-                                            <span class="setting-desc" style="margin-top: 0.5rem; display: block;">
-                                                Permanently delete all transactional data including invoices, orders, payments,
-                                                products, transfers, and audit logs. Admin user accounts will be preserved.
-                                                <strong>This action cannot be undone.</strong> Consider creating a backup first.
-                                            </span>
-                                        </div>
-                                        <div class="setting-control">
-                                            <MudButton Class="btn-danger-action"
-                                                       Style="background: #dc3545; color: white; border: none; padding: 0.5rem 1.25rem; border-radius: 6px; font-weight: 600;"
-                                                       OnClick="ShowResetConfirmation" Disabled="@isResettingDatabase">
-                                                @if (isResettingDatabase)
-                                                {
-                                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                                                    <span>Resetting...</span>
-                                                }
-                                                else
-                                                {
-                                                    <i class="bi bi-trash3 me-1"></i>
-                                                    <span>Reset Database</span>
-                                                }
-                                            </MudButton>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                @if (!string.IsNullOrEmpty(resetMessage))
-                                {
-                                    <div class="settings-alert @(resetSuccess ? "settings-alert-success" : "settings-alert-error") mt-3">
-                                        <i class="bi @(resetSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
-                                        <span>@resetMessage</span>
-                                        <MudIconButton Icon="@Icons.Material.Filled.Close" Class="settings-alert-close"
-                                                       OnClick="() => resetMessage = null" Size="Size.Small" />
-                                    </div>
-                                }
                             </div>
-                        }
-        else if (selectedCategory == DataManagementCategory)
-                        {
-                            <!-- Data Management Section -->
-                            <div class="settings-section" style="animation-delay: 0.05s;">
-                                <div class="section-header">
-                                    <div class="section-icon section-icon-blue">
-                                        <i class="bi bi-cloud-arrow-down"></i>
-                                    </div>
-                                    <div>
-                                        <h5 class="section-title">Data Synchronization</h5>
-                                        <p class="section-desc">Manually refresh cached data from SAP. Use when data has changed in the
-                                            source system.</p>
-                                        </div>
-                                    </div>
 
-                                    <div class="sync-grid">
-                                        <!-- Products -->
-                                        <div class="sync-card">
-                                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);">
-                                                <i class="bi bi-box-seam"></i>
-                                            </div>
-                                            <div class="sync-card-body">
-                                                <h6>Products</h6>
-                                                <p>Sync product catalog from SAP</p>
-                                                @if (productsLastSync.HasValue)
-                                                {
-                                                    <span class="sync-timestamp">
-                                                        <i class="bi bi-clock-history"></i> @productsLastSync.Value.ToString("dd MMM yyyy HH:mm")
-                                                    </span>
-                                                }
-                                            </div>
-                                            <MudButton Class="btn-sync" OnClick="RefreshProducts" Disabled="@isRefreshingProducts">
-                                                @if (isRefreshingProducts)
-                                                {
-                                                    <span class="spinner-border spinner-border-sm" role="status"></span>
-                                                }
-                                                else
-                                                {
-                                                    <i class="bi bi-arrow-repeat"></i>
-                                                }
-                                            </MudButton>
-                                        </div>
-
-                                        <!-- Prices -->
-                                        <div class="sync-card">
-                                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #11998e, #38ef7d);">
-                                                <i class="bi bi-tag"></i>
-                                            </div>
-                                            <div class="sync-card-body">
-                                                <h6>Prices</h6>
-                                                <p>Sync item prices from SAP</p>
-                                                @if (pricesLastSync.HasValue)
-                                                {
-                                                    <span class="sync-timestamp">
-                                                        <i class="bi bi-clock-history"></i> @pricesLastSync.Value.ToString("dd MMM yyyy HH:mm")
-                                                    </span>
-                                                }
-                                            </div>
-                                            <MudButton Class="btn-sync" OnClick="RefreshPrices" Disabled="@isRefreshingPrices">
-                                                @if (isRefreshingPrices)
-                                                {
-                                                    <span class="spinner-border spinner-border-sm" role="status"></span>
-                                                }
-                                                else
-                                                {
-                                                    <i class="bi bi-arrow-repeat"></i>
-                                                }
-                                            </MudButton>
-                                        </div>
-
-                                        <!-- Business Partners -->
-                                        <div class="sync-card">
-                                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #f093fb, #f5576c);">
-                                                <i class="bi bi-people"></i>
-                                            </div>
-                                            <div class="sync-card-body">
-                                                <h6>Business Partners</h6>
-                                                <p>Sync customers and suppliers</p>
-                                                @if (bpLastSync.HasValue)
-                                                {
-                                                    <span class="sync-timestamp">
-                                                        <i class="bi bi-clock-history"></i> @bpLastSync.Value.ToString("dd MMM yyyy HH:mm")
-                                                    </span>
-                                                }
-                                            </div>
-                                            <MudButton Class="btn-sync" OnClick="RefreshBusinessPartners" Disabled="@isRefreshingBP">
-                                                @if (isRefreshingBP)
-                                                {
-                                                    <span class="spinner-border spinner-border-sm" role="status"></span>
-                                                }
-                                                else
-                                                {
-                                                    <i class="bi bi-arrow-repeat"></i>
-                                                }
-                                            </MudButton>
-                                        </div>
-
-                                        <!-- Warehouses -->
-                                        <div class="sync-card">
-                                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #f7971e, #ffd200);">
-                                                <i class="bi bi-building"></i>
-                                            </div>
-                                            <div class="sync-card-body">
-                                                <h6>Warehouses</h6>
-                                                <p>Sync warehouse list from SAP</p>
-                                                @if (warehousesLastSync.HasValue)
-                                                {
-                                                    <span class="sync-timestamp">
-                                                        <i class="bi bi-clock-history"></i> @warehousesLastSync.Value.ToString("dd MMM yyyy HH:mm")
-                                                    </span>
-                                                }
-                                            </div>
-                                            <MudButton Class="btn-sync" OnClick="RefreshWarehouses" Disabled="@isRefreshingWarehouses">
-                                                @if (isRefreshingWarehouses)
-                                                {
-                                                    <span class="spinner-border spinner-border-sm" role="status"></span>
-                                                }
-                                                else
-                                                {
-                                                    <i class="bi bi-arrow-repeat"></i>
-                                                }
-                                            </MudButton>
-                                        </div>
-
-                                        <!-- Cost Centres -->
-                                        <div class="sync-card">
-                                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #4facfe, #00f2fe);">
-                                                <i class="bi bi-diagram-3"></i>
-                                            </div>
-                                            <div class="sync-card-body">
-                                                <h6>Cost Centres</h6>
-                                                <p>Sync profit centers from SAP</p>
-                                                @if (costCentresLastSync.HasValue)
-                                                {
-                                                    <span class="sync-timestamp">
-                                                        <i class="bi bi-clock-history"></i> @costCentresLastSync.Value.ToString("dd MMM yyyy HH:mm")
-                                                    </span>
-                                                }
-                                            </div>
-                                            <MudButton Class="btn-sync" OnClick="RefreshCostCentres" Disabled="@isRefreshingCostCentres">
-                                                @if (isRefreshingCostCentres)
-                                                {
-                                                    <span class="spinner-border spinner-border-sm" role="status"></span>
-                                                }
-                                                else
-                                                {
-                                                    <i class="bi bi-arrow-repeat"></i>
-                                                }
-                                            </MudButton>
-                                        </div>
-
-                                        <!-- Refresh All -->
-                                        <div class="sync-card sync-card-all">
-                                            <div class="sync-card-icon" style="background: linear-gradient(135deg, #1a1a2e, #16213e);">
-                                                <i class="bi bi-arrow-clockwise"></i>
-                                            </div>
-                                            <div class="sync-card-body">
-                                                <h6>Sync Everything</h6>
-                                                <p>Refresh all master data in one go</p>
-                                            </div>
-                                            <MudButton Class="btn-sync btn-sync-all" OnClick="RefreshAllData" Disabled="@isRefreshingAll">
-                                                @if (isRefreshingAll)
-                                                {
-                                                    <span class="spinner-border spinner-border-sm" role="status"></span>
-                                                }
-                                                else
-                                                {
-                                                    <i class="bi bi-arrow-repeat"></i>
-                                                }
-                                            </MudButton>
-                                        </div>
-                                    </div>
-
-                                    @if (!string.IsNullOrEmpty(refreshMessage))
-                                    {
-                                        <div class="settings-alert @(refreshSuccess ? "settings-alert-success" : "settings-alert-error") mt-3">
-                                            <i class="bi @(refreshSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
-                                            <span>@refreshMessage</span>
-                                            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="settings-alert-close"
-                                                           OnClick="() => refreshMessage = null" Size="Size.Small" />
-                                        </div>
-                                    }
-                                </div>
-                            }
-        else if (categorySettings.Any())
+                            @if (isLoadingSAPSettings)
                             {
-                                <!-- Dynamic Settings -->
-                                <div class="settings-section" style="animation-delay: 0.05s;">
-                                    <div class="section-header">
-                                        <div class="section-icon @GetSectionIconClass(selectedCategory)">
-                                            <i class="bi @GetCategoryIcon(selectedCategory)"></i>
-                                        </div>
-                                        <div>
-                                            <h5 class="section-title">@selectedCategory</h5>
-                                            <p class="section-desc">@GetCategoryDescription(selectedCategory)</p>
-                                        </div>
-                                    </div>
-
-                                    <div class="setting-items">
-                                        @foreach (var setting in categorySettings)
-                                        {
-                                            <div class="setting-item">
-                                                <div class="setting-info">
-                                                    <label class="setting-label">@FormatLabel(setting.Key)</label>
-                                                    @if (!string.IsNullOrEmpty(setting.Description))
-                                                    {
-                                                        <span class="setting-desc">@setting.Description</span>
-                                                    }
-                                                    @if (setting.LastModifiedBy != null)
-                                                    {
-                                                        <span class="setting-meta">
-                                                            <i class="bi bi-pencil-square"></i> @setting.LastModifiedBy &middot;
-                                                            @setting.LastModifiedAt.ToString("dd MMM yyyy HH:mm")
-                                                        </span>
-                                                    }
-                                                </div>
-                                                <div class="setting-control">
-                                                    @if (setting.DataType == "bool")
-                                                    {
-                                                        <label class="toggle-switch">
-                                                            <input type="checkbox" checked="@GetBoolValue(setting.Key)"
-                                                                   disabled="@(!setting.IsEditable)"
-                                                                   @onchange="e => OnBoolSettingChanged(setting.Key, e)" />
-                                                            <span class="toggle-slider"></span>
-                                                            <span class="toggle-text">@(GetBoolValue(setting.Key) ? "On" : "Off")</span>
-                                                        </label>
-                                                    }
-                                                    else if (setting.DataType == "int")
-                                                    {
-                                                        <input type="number" class="field-input field-input-sm" value="@GetValue(setting.Key)"
-                                                               disabled="@(!setting.IsEditable)"
-                                                               @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())" />
-                                                    }
-                                                    else if (setting.Key == SettingKeys.PrinterName)
-                                                    {
-                                                        <select class="field-input field-input-sm" @bind:get="editedValues[setting.Key]"
-                                                                @bind:set="v => OnSettingChanged(setting.Key, v)" disabled="@(!setting.IsEditable)">
-                                                            <option value="">-- Select Printer --</option>
-                                                            @foreach (var printer in installedPrinters)
-                                                            {
-                                                                <option value="@printer">@printer</option>
-                                                            }
-                                                        </select>
-                                                    }
-                                                    else if (setting.Key == SettingKeys.SavedPrinters)
-                                                    {
-                                                        <div style="display:flex; flex-direction:column; gap:.35rem;">
-                                                            @{
-                                                                var saved = GetSavedPrintersList();
-                                                            }
-                                                            @foreach (var printer in installedPrinters)
-                                                            {
-                                                                <label
-                                                                    style="display:flex; align-items:center; gap:.4rem; font-size:.85rem; cursor:pointer;">
-                                                                    <input type="checkbox" checked="@saved.Contains(printer)"
-                                                                           @onchange="e => OnSavedPrinterToggled(printer, (bool)(e.Value ?? false))" />
-                                                                    @printer
-                                                                </label>
-                                                            }
-                                                            @if (!installedPrinters.Any())
-                                                            {
-                                                                <span style="font-size:.8rem; color:#6b7280;">No printers found on this machine.</span>
-                                                            }
-                                                        </div>
-                                                    }
-                                                    else if (setting.Key == SettingKeys.Theme)
-                                                    {
-                                                        <select class="field-input field-input-sm" value="@GetValue(setting.Key)"
-                                                                disabled="@(!setting.IsEditable)"
-                                                                @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())">
-                                                            <option value="light">Light</option>
-                                                            <option value="dark">Dark</option>
-                                                        </select>
-                                                    }
-                                                    else if (setting.Key == SettingKeys.DateFormat)
-                                                    {
-                                                        <select class="field-input field-input-sm" value="@GetValue(setting.Key)"
-                                                                disabled="@(!setting.IsEditable)"
-                                                                @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())">
-                                                            <option value="dd MMM yyyy">04 Jan 2026</option>
-                                                            <option value="dd/MM/yyyy">04/01/2026</option>
-                                                            <option value="MM/dd/yyyy">01/04/2026</option>
-                                                            <option value="yyyy-MM-dd">2026-01-04</option>
-                                                        </select>
-                                                    }
-                                                    else
-                                                    {
-                                                        <input type="text" class="field-input field-input-sm" value="@GetValue(setting.Key)"
-                                                               disabled="@(!setting.IsEditable)"
-                                                               @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())" />
-                                                    }
-                                                </div>
-                                            </div>
-                                        }
-                                    </div>
+                                <div style="text-align:center; padding:2rem;">
+                                    <MudProgressCircular Indeterminate="true" Size="Size.Medium" />
+                                    <MudText Typo="Typo.body2" Class="mt-2">Loading SAP settings...</MudText>
                                 </div>
                             }
                             else
                             {
-                                <div class="settings-empty">
-                                    <i class="bi bi-inbox"></i>
-                                    <p>No settings available for this category.</p>
+                                <div class="setting-items">
+                                    <!-- Connection Status -->
+                                    @if (sapConnectionTested)
+                                    {
+                                        <div class="settings-alert @(sapConnectionSuccess ? "settings-alert-success" : "settings-alert-error")"
+                                             style="margin-bottom: 1rem;">
+                                            <i class="bi @(sapConnectionSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+                                            <span>@sapConnectionMessage</span>
+                                            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="settings-alert-close"
+                                                           OnClick="() => sapConnectionTested = false" Size="Size.Small" />
+                                        </div>
+                                    }
+
+                                    <!-- Service Layer URL -->
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">
+                                                <i class="bi bi-link-45deg me-1"></i>Service Layer URL
+                                            </label>
+                                            <span class="setting-desc">The base URL for SAP Business One Service Layer (e.g.
+                                                https://server:50000/b1s/v1/)</span>
+                                            </div>
+                                            <div class="setting-control" style="min-width: 350px;">
+                                                <MudTextField @bind-Value="sapServiceLayerUrl" Label="Service Layer URL"
+                                                              Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="https://server:50000/b1s/v1/"
+                                                              FullWidth="true" />
+                                            </div>
+                                        </div>
+
+                                        <!-- Company Database -->
+                                        <div class="setting-item">
+                                            <div class="setting-info">
+                                                <label class="setting-label">
+                                                    <i class="bi bi-database me-1"></i>Company Database
+                                                </label>
+                                                <span class="setting-desc">The SAP Business One company database name.</span>
+                                            </div>
+                                            <div class="setting-control" style="min-width: 350px;">
+                                                <MudTextField @bind-Value="sapCompanyDB" Label="Company Database" Variant="Variant.Outlined"
+                                                              Margin="Margin.Dense" Placeholder="COMPANY_DB" FullWidth="true" />
+                                            </div>
+                                        </div>
+
+                                        <!-- Username -->
+                                        <div class="setting-item">
+                                            <div class="setting-info">
+                                                <label class="setting-label">
+                                                    <i class="bi bi-person me-1"></i>Username
+                                                </label>
+                                                <span class="setting-desc">SAP Business One service user account.</span>
+                                            </div>
+                                            <div class="setting-control" style="min-width: 350px;">
+                                                <MudTextField @bind-Value="sapUsername" Label="Username" Variant="Variant.Outlined"
+                                                              Margin="Margin.Dense" Placeholder="manager" FullWidth="true" />
+                                            </div>
+                                        </div>
+
+                                        <!-- Password -->
+                                        <div class="setting-item">
+                                            <div class="setting-info">
+                                                <label class="setting-label">
+                                                    <i class="bi bi-key me-1"></i>Password
+                                                </label>
+                                                <span class="setting-desc">SAP Business One service user password. Leave blank to keep the
+                                                    current password.</span>
+                                                </div>
+                                                <div class="setting-control" style="min-width: 350px;">
+                                                    <MudTextField @bind-Value="sapPassword" Label="Password" Variant="Variant.Outlined"
+                                                                  Margin="Margin.Dense" Placeholder="Enter new password"
+                                                                  InputType="@(showSAPPassword ? InputType.Text : InputType.Password)"
+                                                                  Adornment="Adornment.End"
+                                                                  AdornmentIcon="@(showSAPPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                                                  OnAdornmentClick="() => showSAPPassword = !showSAPPassword" FullWidth="true" />
+                                                </div>
+                                            </div>
+
+                                            <!-- Test Connection -->
+                                            <div class="setting-item">
+                                                <div class="setting-info">
+                                                    <label class="setting-label">
+                                                        <i class="bi bi-plug me-1"></i>Connection Test
+                                                    </label>
+                                                    <span class="setting-desc">Verify the SAP connection with the current saved credentials.</span>
+                                                </div>
+                                                <div class="setting-control">
+                                                    <MudCheckBox @bind-Value="sapTestOnSave" Label="Test connection on save" Dense="true" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Action Buttons -->
+                                        <div
+                                            style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #e5e7eb;">
+                                            <MudButton OnClick="TestSAPConnection" Variant="Variant.Outlined" Color="Color.Primary"
+                                                       Disabled="@isSAPTesting" StartIcon="@Icons.Material.Filled.NetworkCheck">
+                                                @if (isSAPTesting)
+                                                {
+                                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                                                }
+                                                Test Connection
+                                            </MudButton>
+                                            <MudButton OnClick="SaveSAPSettings" Variant="Variant.Filled" Color="Color.Primary"
+                                                       Disabled="@(isSAPSaving || string.IsNullOrWhiteSpace(sapServiceLayerUrl) || string.IsNullOrWhiteSpace(sapCompanyDB) || string.IsNullOrWhiteSpace(sapUsername))"
+                                                       StartIcon="@Icons.Material.Filled.Save">
+                                                @if (isSAPSaving)
+                                                {
+                                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                                                }
+                                                Save SAP Settings
+                                            </MudButton>
+                                        </div>
+                                    }
+                                </div>
+                            }
+        else if (selectedCategory == DangerZoneCategory)
+                            {
+                                <!-- Danger Zone Section -->
+                                <div class="settings-section" style="animation-delay: 0.05s; border: 1px solid #dc3545; border-radius: 8px;">
+                                    <div class="section-header">
+                                        <div class="section-icon" style="background: linear-gradient(135deg, #dc3545, #c82333);">
+                                            <i class="bi bi-exclamation-triangle-fill" style="color: white;"></i>
+                                        </div>
+                                        <div>
+                                            <h5 class="section-title" style="color: #dc3545;">Danger Zone</h5>
+                                            <p class="section-desc">Irreversible actions that affect your entire database. Proceed with extreme
+                                                caution.</p>
+                                            </div>
+                                        </div>
+
+                                        <div class="setting-items">
+                                            <div class="setting-item"
+                                                 style="border: 1px solid #dc354544; border-radius: 8px; padding: 1.5rem; background: #dc354508;">
+                                                <div class="setting-info" style="flex: 1;">
+                                                    <label class="setting-label" style="color: #dc3545; font-weight: 600; font-size: 1rem;">
+                                                        <i class="bi bi-database-x me-2"></i>Reset Database
+                                                    </label>
+                                                    <span class="setting-desc" style="margin-top: 0.5rem; display: block;">
+                                                        Permanently delete all transactional data including invoices, orders, payments,
+                                                        products, transfers, and audit logs. Admin user accounts will be preserved.
+                                                        <strong>This action cannot be undone.</strong> Consider creating a backup first.
+                                                    </span>
+                                                </div>
+                                                <div class="setting-control">
+                                                    <MudButton Class="btn-danger-action"
+                                                               Style="background: #dc3545; color: white; border: none; padding: 0.5rem 1.25rem; border-radius: 6px; font-weight: 600;"
+                                                               OnClick="ShowResetConfirmation" Disabled="@isResettingDatabase">
+                                                        @if (isResettingDatabase)
+                                                        {
+                                                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                                            <span>Resetting...</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <i class="bi bi-trash3 me-1"></i>
+                                                            <span>Reset Database</span>
+                                                        }
+                                                    </MudButton>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        @if (!string.IsNullOrEmpty(resetMessage))
+                                        {
+                                            <div class="settings-alert @(resetSuccess ? "settings-alert-success" : "settings-alert-error") mt-3">
+                                                <i class="bi @(resetSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+                                                <span>@resetMessage</span>
+                                                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="settings-alert-close"
+                                                               OnClick="() => resetMessage = null" Size="Size.Small" />
+                                            </div>
+                                        }
+                                    </div>
+                                }
+        else if (selectedCategory == DataManagementCategory)
+                                {
+                                    <!-- Data Management Section -->
+                                    <div class="settings-section" style="animation-delay: 0.05s;">
+                                        <div class="section-header">
+                                            <div class="section-icon section-icon-blue">
+                                                <i class="bi bi-cloud-arrow-down"></i>
+                                            </div>
+                                            <div>
+                                                <h5 class="section-title">Data Synchronization</h5>
+                                                <p class="section-desc">Manually refresh cached data from SAP. Use when data has changed in the
+                                                    source system.</p>
+                                                </div>
+                                            </div>
+
+                                            <div class="sync-grid">
+                                                <!-- Products -->
+                                                <div class="sync-card">
+                                                    <div class="sync-card-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);">
+                                                        <i class="bi bi-box-seam"></i>
+                                                    </div>
+                                                    <div class="sync-card-body">
+                                                        <h6>Products</h6>
+                                                        <p>Sync product catalog from SAP</p>
+                                                        @if (productsLastSync.HasValue)
+                                                        {
+                                                            <span class="sync-timestamp">
+                                                                <i class="bi bi-clock-history"></i> @productsLastSync.Value.ToString("dd MMM yyyy HH:mm")
+                                                            </span>
+                                                        }
+                                                    </div>
+                                                    <MudButton Class="btn-sync" OnClick="RefreshProducts" Disabled="@isRefreshingProducts">
+                                                        @if (isRefreshingProducts)
+                                                        {
+                                                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <i class="bi bi-arrow-repeat"></i>
+                                                        }
+                                                    </MudButton>
+                                                </div>
+
+                                                <!-- Prices -->
+                                                <div class="sync-card">
+                                                    <div class="sync-card-icon" style="background: linear-gradient(135deg, #11998e, #38ef7d);">
+                                                        <i class="bi bi-tag"></i>
+                                                    </div>
+                                                    <div class="sync-card-body">
+                                                        <h6>Prices</h6>
+                                                        <p>Sync item prices from SAP</p>
+                                                        @if (pricesLastSync.HasValue)
+                                                        {
+                                                            <span class="sync-timestamp">
+                                                                <i class="bi bi-clock-history"></i> @pricesLastSync.Value.ToString("dd MMM yyyy HH:mm")
+                                                            </span>
+                                                        }
+                                                    </div>
+                                                    <MudButton Class="btn-sync" OnClick="RefreshPrices" Disabled="@isRefreshingPrices">
+                                                        @if (isRefreshingPrices)
+                                                        {
+                                                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <i class="bi bi-arrow-repeat"></i>
+                                                        }
+                                                    </MudButton>
+                                                </div>
+
+                                                <!-- Business Partners -->
+                                                <div class="sync-card">
+                                                    <div class="sync-card-icon" style="background: linear-gradient(135deg, #f093fb, #f5576c);">
+                                                        <i class="bi bi-people"></i>
+                                                    </div>
+                                                    <div class="sync-card-body">
+                                                        <h6>Business Partners</h6>
+                                                        <p>Sync customers and suppliers</p>
+                                                        @if (bpLastSync.HasValue)
+                                                        {
+                                                            <span class="sync-timestamp">
+                                                                <i class="bi bi-clock-history"></i> @bpLastSync.Value.ToString("dd MMM yyyy HH:mm")
+                                                            </span>
+                                                        }
+                                                    </div>
+                                                    <MudButton Class="btn-sync" OnClick="RefreshBusinessPartners" Disabled="@isRefreshingBP">
+                                                        @if (isRefreshingBP)
+                                                        {
+                                                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <i class="bi bi-arrow-repeat"></i>
+                                                        }
+                                                    </MudButton>
+                                                </div>
+
+                                                <!-- Warehouses -->
+                                                <div class="sync-card">
+                                                    <div class="sync-card-icon" style="background: linear-gradient(135deg, #f7971e, #ffd200);">
+                                                        <i class="bi bi-building"></i>
+                                                    </div>
+                                                    <div class="sync-card-body">
+                                                        <h6>Warehouses</h6>
+                                                        <p>Sync warehouse list from SAP</p>
+                                                        @if (warehousesLastSync.HasValue)
+                                                        {
+                                                            <span class="sync-timestamp">
+                                                                <i class="bi bi-clock-history"></i> @warehousesLastSync.Value.ToString("dd MMM yyyy HH:mm")
+                                                            </span>
+                                                        }
+                                                    </div>
+                                                    <MudButton Class="btn-sync" OnClick="RefreshWarehouses" Disabled="@isRefreshingWarehouses">
+                                                        @if (isRefreshingWarehouses)
+                                                        {
+                                                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <i class="bi bi-arrow-repeat"></i>
+                                                        }
+                                                    </MudButton>
+                                                </div>
+
+                                                <!-- Cost Centres -->
+                                                <div class="sync-card">
+                                                    <div class="sync-card-icon" style="background: linear-gradient(135deg, #4facfe, #00f2fe);">
+                                                        <i class="bi bi-diagram-3"></i>
+                                                    </div>
+                                                    <div class="sync-card-body">
+                                                        <h6>Cost Centres</h6>
+                                                        <p>Sync profit centers from SAP</p>
+                                                        @if (costCentresLastSync.HasValue)
+                                                        {
+                                                            <span class="sync-timestamp">
+                                                                <i class="bi bi-clock-history"></i> @costCentresLastSync.Value.ToString("dd MMM yyyy HH:mm")
+                                                            </span>
+                                                        }
+                                                    </div>
+                                                    <MudButton Class="btn-sync" OnClick="RefreshCostCentres" Disabled="@isRefreshingCostCentres">
+                                                        @if (isRefreshingCostCentres)
+                                                        {
+                                                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <i class="bi bi-arrow-repeat"></i>
+                                                        }
+                                                    </MudButton>
+                                                </div>
+
+                                                <!-- Refresh All -->
+                                                <div class="sync-card sync-card-all">
+                                                    <div class="sync-card-icon" style="background: linear-gradient(135deg, #1a1a2e, #16213e);">
+                                                        <i class="bi bi-arrow-clockwise"></i>
+                                                    </div>
+                                                    <div class="sync-card-body">
+                                                        <h6>Sync Everything</h6>
+                                                        <p>Refresh all master data in one go</p>
+                                                    </div>
+                                                    <MudButton Class="btn-sync btn-sync-all" OnClick="RefreshAllData" Disabled="@isRefreshingAll">
+                                                        @if (isRefreshingAll)
+                                                        {
+                                                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <i class="bi bi-arrow-repeat"></i>
+                                                        }
+                                                    </MudButton>
+                                                </div>
+                                            </div>
+
+                                            @if (!string.IsNullOrEmpty(refreshMessage))
+                                            {
+                                                <div class="settings-alert @(refreshSuccess ? "settings-alert-success" : "settings-alert-error") mt-3">
+                                                    <i class="bi @(refreshSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+                                                    <span>@refreshMessage</span>
+                                                    <MudIconButton Icon="@Icons.Material.Filled.Close" Class="settings-alert-close"
+                                                                   OnClick="() => refreshMessage = null" Size="Size.Small" />
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+        else if (categorySettings.Any())
+                                    {
+                                        <!-- Dynamic Settings -->
+                                        <div class="settings-section" style="animation-delay: 0.05s;">
+                                            <div class="section-header">
+                                                <div class="section-icon @GetSectionIconClass(selectedCategory)">
+                                                    <i class="bi @GetCategoryIcon(selectedCategory)"></i>
+                                                </div>
+                                                <div>
+                                                    <h5 class="section-title">@selectedCategory</h5>
+                                                    <p class="section-desc">@GetCategoryDescription(selectedCategory)</p>
+                                                </div>
+                                            </div>
+
+                                            <div class="setting-items">
+                                                @foreach (var setting in categorySettings)
+                                                {
+                                                    <div class="setting-item">
+                                                        <div class="setting-info">
+                                                            <label class="setting-label">@FormatLabel(setting.Key)</label>
+                                                            @if (!string.IsNullOrEmpty(setting.Description))
+                                                            {
+                                                                <span class="setting-desc">@setting.Description</span>
+                                                            }
+                                                            @if (setting.LastModifiedBy != null)
+                                                            {
+                                                                <span class="setting-meta">
+                                                                    <i class="bi bi-pencil-square"></i> @setting.LastModifiedBy &middot;
+                                                                    @setting.LastModifiedAt.ToString("dd MMM yyyy HH:mm")
+                                                                </span>
+                                                            }
+                                                        </div>
+                                                        <div class="setting-control">
+                                                            @if (setting.DataType == "bool")
+                                                            {
+                                                                <label class="toggle-switch">
+                                                                    <input type="checkbox" checked="@GetBoolValue(setting.Key)"
+                                                                           disabled="@(!setting.IsEditable)"
+                                                                           @onchange="e => OnBoolSettingChanged(setting.Key, e)" />
+                                                                    <span class="toggle-slider"></span>
+                                                                    <span class="toggle-text">@(GetBoolValue(setting.Key) ? "On" : "Off")</span>
+                                                                </label>
+                                                            }
+                                                            else if (setting.DataType == "int")
+                                                            {
+                                                                <input type="number" class="field-input field-input-sm" value="@GetValue(setting.Key)"
+                                                                       disabled="@(!setting.IsEditable)"
+                                                                       @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())" />
+                                                            }
+                                                            else if (setting.Key == SettingKeys.PrinterName)
+                                                            {
+                                                                <select class="field-input field-input-sm" @bind:get="editedValues[setting.Key]"
+                                                                        @bind:set="v => OnSettingChanged(setting.Key, v)" disabled="@(!setting.IsEditable)">
+                                                                    <option value="">-- Select Printer --</option>
+                                                                    @foreach (var printer in installedPrinters)
+                                                                    {
+                                                                        <option value="@printer">@printer</option>
+                                                                    }
+                                                                </select>
+                                                            }
+                                                            else if (setting.Key == SettingKeys.SavedPrinters)
+                                                            {
+                                                                <div style="display:flex; flex-direction:column; gap:.35rem;">
+                                                                    @{
+                                                                        var saved = GetSavedPrintersList();
+                                                                    }
+                                                                    @foreach (var printer in installedPrinters)
+                                                                    {
+                                                                        <label
+                                                                            style="display:flex; align-items:center; gap:.4rem; font-size:.85rem; cursor:pointer;">
+                                                                            <input type="checkbox" checked="@saved.Contains(printer)"
+                                                                                   @onchange="e => OnSavedPrinterToggled(printer, (bool)(e.Value ?? false))" />
+                                                                            @printer
+                                                                        </label>
+                                                                    }
+                                                                    @if (!installedPrinters.Any())
+                                                                    {
+                                                                        <span style="font-size:.8rem; color:#6b7280;">No printers found on this machine.</span>
+                                                                    }
+                                                                </div>
+                                                            }
+                                                            else if (setting.Key == SettingKeys.Theme)
+                                                            {
+                                                                <select class="field-input field-input-sm" value="@GetValue(setting.Key)"
+                                                                        disabled="@(!setting.IsEditable)"
+                                                                        @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())">
+                                                                    <option value="light">Light</option>
+                                                                    <option value="dark">Dark</option>
+                                                                </select>
+                                                            }
+                                                            else if (setting.Key == SettingKeys.DateFormat)
+                                                            {
+                                                                <select class="field-input field-input-sm" value="@GetValue(setting.Key)"
+                                                                        disabled="@(!setting.IsEditable)"
+                                                                        @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())">
+                                                                    <option value="dd MMM yyyy">04 Jan 2026</option>
+                                                                    <option value="dd/MM/yyyy">04/01/2026</option>
+                                                                    <option value="MM/dd/yyyy">01/04/2026</option>
+                                                                    <option value="yyyy-MM-dd">2026-01-04</option>
+                                                                </select>
+                                                            }
+                                                            else
+                                                            {
+                                                                <input type="text" class="field-input field-input-sm" value="@GetValue(setting.Key)"
+                                                                       disabled="@(!setting.IsEditable)"
+                                                                       @onchange="e => OnSettingChanged(setting.Key, e.Value?.ToString())" />
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="settings-empty">
+                                            <i class="bi bi-inbox"></i>
+                                            <p>No settings available for this category.</p>
+                                        </div>
+                                    }
                                 </div>
                             }
                         </div>
-                    }
-                </div>
 
-                <!-- Reset Database Confirmation Dialog -->
-                @if (showResetConfirmation)
-                {
-                    <div class="modal-backdrop"
-                         style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 9999; display: flex; align-items: center; justify-content: center;"
-                         @onclick="CancelReset">
-                        <div class="modal-dialog"
-                             style="background: var(--mud-palette-surface, #fff); border-radius: 12px; padding: 2rem; max-width: 500px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); border: 2px solid #dc3545;"
-                             @onclick:stopPropagation="true">
-                            <div style="text-align: center; margin-bottom: 1.5rem;">
-                                <div
-                                    style="width: 64px; height: 64px; border-radius: 50%; background: #dc354515; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 1rem;">
-                                    <i class="bi bi-exclamation-triangle-fill" style="font-size: 2rem; color: #dc3545;"></i>
+                        <!-- Reset Database Confirmation Dialog -->
+                        <MudOverlay Visible="@showResetConfirmation" DarkBackground="true" ZIndex="9999" OnClick="@(() => { })">
+                            <MudPaper Elevation="8"
+                                      Style="border-radius: 12px; padding: 2rem; max-width: 500px; width: 90vw; border: 2px solid #dc3545;">
+                                <div style="text-align: center; margin-bottom: 1.5rem;">
+                                    <div
+                                        style="width: 64px; height: 64px; border-radius: 50%; background: #dc354515; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 1rem;">
+                                        <MudIcon Icon="@Icons.Material.Filled.Warning" Style="font-size: 2rem; color: #dc3545;" />
+                                    </div>
+                                    <MudText Typo="Typo.h5" Style="color: #dc3545;">Reset Database</MudText>
+                                    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary, #666);">
+                                        This will permanently delete <strong>all</strong> transactional data. This action cannot be undone.
+                                    </MudText>
                                 </div>
-                                <h4 style="color: #dc3545; margin: 0 0 0.5rem 0;">Reset Database</h4>
-                                <p style="color: var(--mud-palette-text-secondary, #666); margin: 0;">
-                                    This will permanently delete <strong>all</strong> transactional data. This action cannot be undone.
-                                </p>
-                            </div>
 
-                            <div
-                                style="background: #dc354508; border: 1px solid #dc354530; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;">
-                                <p style="font-size: 0.85rem; color: var(--mud-palette-text-secondary, #666); margin: 0 0 0.5rem 0;">
-                                    The following data will be deleted:
-                                </p>
-                                <ul
-                                    style="font-size: 0.85rem; color: var(--mud-palette-text-secondary, #666); margin: 0; padding-left: 1.5rem;">
-                                    <li>All invoices, sales orders, and purchase orders</li>
-                                    <li>All payments and credit notes</li>
-                                    <li>All products and price lists</li>
-                                    <li>All inventory transfers and stock reservations</li>
-                                    <li>All audit logs and notifications</li>
-                                    <li>All webhooks, templates, and system configs</li>
-                                </ul>
-                                <p
-                                    style="font-size: 0.85rem; color: var(--mud-palette-text-primary, #333); margin: 0.75rem 0 0 0; font-weight: 600;">
-                                    <i class="bi bi-shield-check me-1"></i>Admin user accounts will be preserved.
-                                </p>
-                            </div>
+                                <div
+                                    style="background: #dc354508; border: 1px solid #dc354530; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;">
+                                    <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary, #666); margin-bottom: 0.5rem;">
+                                        The following data will be deleted:
+                                    </MudText>
+                                    <ul
+                                        style="font-size: 0.85rem; color: var(--mud-palette-text-secondary, #666); margin: 0; padding-left: 1.5rem;">
+                                        <li>All invoices, sales orders, and purchase orders</li>
+                                        <li>All payments and credit notes</li>
+                                        <li>All products and price lists</li>
+                                        <li>All inventory transfers and stock reservations</li>
+                                        <li>All audit logs and notifications</li>
+                                        <li>All webhooks, templates, and system configs</li>
+                                    </ul>
+                                    <MudText Typo="Typo.caption"
+                                             Style="color: var(--mud-palette-text-primary, #333); margin-top: 0.75rem; font-weight: 600;">
+                                        <MudIcon Icon="@Icons.Material.Filled.ShieldMoon" Size="Size.Small" Class="me-1" />Admin user accounts
+                                        will be preserved.
+                                    </MudText>
+                                </div>
 
-                            <div style="margin-bottom: 1.5rem;">
-                                <label
-                                    style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--mud-palette-text-primary, #333);">
-                                    Type <strong style="color: #dc3545;">RESET</strong> to confirm:
-                                </label>
-                                <input type="text" class="field-input" @bind="resetConfirmationText" @bind:event="oninput"
-                                       placeholder="Type RESET here"
-                                       style="width: 100%; padding: 0.6rem 0.75rem; border: 2px solid #ddd; border-radius: 6px; font-size: 0.9rem;" />
-                            </div>
+                                <div style="margin-bottom: 1.5rem;">
+                                    <MudTextField @bind-Value="resetConfirmationText" Label="Type RESET to confirm"
+                                                  Placeholder="Type RESET here" Variant="Variant.Outlined" Immediate="true" FullWidth="true"
+                                                  Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Lock" />
+                                </div>
 
-                            <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
-                                <MudButton OnClick="CancelReset"
-                                           Style="background: transparent; border: 1px solid #ddd; padding: 0.5rem 1.25rem; border-radius: 6px;">
-                                    Cancel
-                                </MudButton>
-                                <MudButton OnClick="ConfirmResetDatabase"
-                                           Disabled="@(resetConfirmationText != "RESET" || isResettingDatabase)"
-                                           Style="@($"background: {(resetConfirmationText == "RESET" ? "#dc3545" : "#ccc")}; color: white; border: none; padding: 0.5rem 1.25rem; border-radius: 6px; font-weight: 600;")">
-                                    @if (isResettingDatabase)
-                                    {
-                                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                                    }
-                                    <i class="bi bi-database-x me-1"></i>
-                                    Reset Database
-                                </MudButton>
-                            </div>
-                        </div>
-                    </div>
-                }
+                                <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+                                    <MudButton OnClick="CancelReset" Variant="Variant.Outlined">
+                                        Cancel
+                                    </MudButton>
+                                    <MudButton OnClick="ConfirmResetDatabase"
+                                               Disabled="@(resetConfirmationText != "RESET" || isResettingDatabase)" Variant="Variant.Filled"
+                                               Color="Color.Error" StartIcon="@Icons.Material.Filled.DeleteForever">
+                                        @if (isResettingDatabase)
+                                        {
+                                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                                        }
+                                        Reset Database
+                                    </MudButton>
+                                </div>
+                            </MudPaper>
+                        </MudOverlay>
 
 @code {
     private const string DataManagementCategory = "Data Management";
     private const string DangerZoneCategory = "Danger Zone";
     private const string PaymentsCategory = "Payments";
+    private const string SAPCategory = "SAP Connection";
 
     private List<AppSetting> allSettings = new();
     private List<AppSetting> categorySettings = new();
@@ -812,6 +942,20 @@
     private string? resetMessage;
     private bool resetSuccess = false;
 
+    // SAP settings fields
+    private string sapServiceLayerUrl = string.Empty;
+    private string sapCompanyDB = string.Empty;
+    private string sapUsername = string.Empty;
+    private string sapPassword = string.Empty;
+    private bool showSAPPassword = false;
+    private bool sapTestOnSave = true;
+    private bool isLoadingSAPSettings = false;
+    private bool isSAPSaving = false;
+    private bool isSAPTesting = false;
+    private bool sapConnectionTested = false;
+    private bool sapConnectionSuccess = false;
+    private string? sapConnectionMessage;
+
     // Printer discovery
     private List<string> installedPrinters = new();
 
@@ -821,6 +965,7 @@
         await LoadSettings();
         await LoadLastSyncTimes();
         await LoadPaymentSettingsData();
+        await LoadSAPSettings();
         LoadInstalledPrinters();
         await LogAudit(AuditActions.ViewSettings);
     }
@@ -1249,6 +1394,99 @@
         public string Role { get; set; } = "Cashier";
     }
 
+    // SAP Settings Methods
+    private async Task LoadSAPSettings()
+    {
+        isLoadingSAPSettings = true;
+        try
+        {
+            var settings = await SAPSettingsService.GetSettingsAsync();
+            if (settings != null)
+            {
+                sapServiceLayerUrl = settings.ServiceLayerUrl ?? string.Empty;
+                sapCompanyDB = settings.CompanyDB ?? string.Empty;
+                sapUsername = settings.UserName ?? string.Empty;
+                sapPassword = string.Empty; // Never pre-fill password
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load SAP settings: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingSAPSettings = false;
+        }
+    }
+
+    private async Task SaveSAPSettings()
+    {
+        isSAPSaving = true;
+        sapConnectionTested = false;
+        StateHasChanged();
+
+        try
+        {
+            var request = new SAPSettingsUpdateRequest
+            {
+                ServiceLayerUrl = sapServiceLayerUrl.Trim(),
+                CompanyDB = sapCompanyDB.Trim(),
+                UserName = sapUsername.Trim(),
+                Password = sapPassword,
+                TestConnection = sapTestOnSave
+            };
+
+            var result = await SAPSettingsService.UpdateSettingsAsync(request);
+
+            sapConnectionTested = true;
+            sapConnectionSuccess = result.Success;
+            sapConnectionMessage = result.Message;
+
+            if (result.Success)
+            {
+                sapPassword = string.Empty; // Clear password after successful save
+                await LogAudit(AuditActions.UpdateSettings, $"Updated SAP connection settings (CompanyDB: {sapCompanyDB})");
+            }
+        }
+        catch (Exception ex)
+        {
+            sapConnectionTested = true;
+            sapConnectionSuccess = false;
+            sapConnectionMessage = $"Error saving SAP settings: {ex.Message}";
+        }
+        finally
+        {
+            isSAPSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TestSAPConnection()
+    {
+        isSAPTesting = true;
+        sapConnectionTested = false;
+        StateHasChanged();
+
+        try
+        {
+            var result = await SAPSettingsService.TestConnectionAsync();
+            sapConnectionTested = true;
+            sapConnectionSuccess = result.Connected;
+            sapConnectionMessage = result.Message;
+        }
+        catch (Exception ex)
+        {
+            sapConnectionTested = true;
+            sapConnectionSuccess = false;
+            sapConnectionMessage = $"Connection test error: {ex.Message}";
+        }
+        finally
+        {
+            isSAPTesting = false;
+            StateHasChanged();
+        }
+    }
+
     // Payment Settings Methods
     private async Task LoadPaymentSettingsData()
     {
@@ -1288,7 +1526,8 @@
         }
     }
 
-    private async Task<IEnumerable<CachedGLAccount>> SearchGLAccountsAsync(string searchText, CancellationToken cancellationToken)
+    private async Task<IEnumerable<CachedGLAccount>> SearchGLAccountsAsync(string searchText, CancellationToken
+cancellationToken)
     {
         var eligible = paymentEligibleGLAccounts;
         if (string.IsNullOrWhiteSpace(searchText))
@@ -1390,7 +1629,23 @@
 
             if (success)
             {
-                await LogAudit(AuditActions.ResetDatabase, "Database reset completed - all transactional data deleted");
+                // Clear cached master data from web database so stale test data doesn't persist
+                await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+                await dbContext.CachedProducts.ExecuteDeleteAsync();
+                await dbContext.CachedPrices.ExecuteDeleteAsync();
+                await dbContext.CachedBusinessPartners.ExecuteDeleteAsync();
+                await dbContext.CachedWarehouses.ExecuteDeleteAsync();
+                await dbContext.CachedWarehouseStocks.ExecuteDeleteAsync();
+                await dbContext.CachedGLAccounts.ExecuteDeleteAsync();
+                await dbContext.CachedCostCentres.ExecuteDeleteAsync();
+                await dbContext.CachedIncomingPayments.ExecuteDeleteAsync();
+                await dbContext.CachedInventoryTransfers.ExecuteDeleteAsync();
+                await dbContext.CacheSyncInfo.ExecuteDeleteAsync();
+
+                // Invalidate in-memory caches so fresh data is fetched on next access
+                CacheService.InvalidateCache();
+
+                await LogAudit(AuditActions.ResetDatabase, "Database reset completed - all transactional and cached data deleted");
             }
         }
         catch (Exception ex)

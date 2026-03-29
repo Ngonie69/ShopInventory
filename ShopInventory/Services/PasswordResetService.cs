@@ -62,6 +62,7 @@ public class PasswordResetService : IPasswordResetService
     {
         // Rate limiting check
         var recentAttempts = await _context.PasswordResetTokens
+            .AsNoTracking()
             .Where(t => t.RequestedByIp == ipAddress &&
                         t.CreatedAt > DateTime.UtcNow.AddHours(-1))
             .CountAsync();
@@ -74,6 +75,7 @@ public class PasswordResetService : IPasswordResetService
         }
 
         var user = await _context.Users
+            .AsNoTracking()
             .FirstOrDefaultAsync(u => u.Email != null && u.Email.ToLower() == email.ToLower());
 
         if (user == null)
@@ -131,6 +133,7 @@ public class PasswordResetService : IPasswordResetService
         var tokenHash = HashToken(token);
 
         var resetToken = await _context.PasswordResetTokens
+            .AsNoTracking()
             .FirstOrDefaultAsync(t => t.TokenHash == tokenHash);
 
         if (resetToken == null)

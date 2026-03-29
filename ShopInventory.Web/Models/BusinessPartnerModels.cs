@@ -17,9 +17,18 @@ public class BusinessPartnerDto
     public bool IsActive { get; set; }
     public int? PriceListNum { get; set; }
     public string? PriceListName { get; set; }
+    public int? PayTermGrpCode { get; set; }
 
     // Display helper
     public string DisplayName => $"{CardCode} - {CardName}";
+}
+
+public class PaymentTermsDto
+{
+    public int GroupNumber { get; set; }
+    public string? PaymentTermsGroupName { get; set; }
+    public int NumberOfAdditionalDays { get; set; }
+    public int NumberOfAdditionalMonths { get; set; }
 }
 
 public class BusinessPartnerListResponse

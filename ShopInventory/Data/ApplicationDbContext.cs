@@ -218,6 +218,7 @@ public class ApplicationDbContext : DbContext
       entity.HasIndex(i => i.CardCode);
       entity.HasIndex(i => i.DocDate);
       entity.HasIndex(i => i.Status);
+      entity.HasIndex(i => new { i.CardCode, i.Status, i.DocDate });
 
       entity.HasMany(i => i.DocumentLines)
                 .WithOne(l => l.Invoice)
@@ -332,6 +333,7 @@ public class ApplicationDbContext : DbContext
       entity.HasIndex(p => p.CardCode);
       entity.HasIndex(p => p.DocDate);
       entity.HasIndex(p => p.Status);
+      entity.HasIndex(p => new { p.CardCode, p.Status, p.DocDate });
 
       entity.HasMany(p => p.PaymentInvoices)
                 .WithOne(i => i.IncomingPayment)
@@ -548,6 +550,7 @@ public class ApplicationDbContext : DbContext
       entity.HasIndex(e => e.Status);
       entity.HasIndex(e => e.OrderDate);
       entity.HasIndex(e => e.SAPDocEntry);
+      entity.HasIndex(e => new { e.CardCode, e.Status, e.OrderDate });
 
       entity.HasMany(e => e.Lines)
             .WithOne(l => l.SalesOrder)
@@ -595,6 +598,7 @@ public class ApplicationDbContext : DbContext
       entity.HasIndex(e => e.Status);
       entity.HasIndex(e => e.OrderDate);
       entity.HasIndex(e => e.SAPDocEntry);
+      entity.HasIndex(e => new { e.CardCode, e.Status, e.OrderDate });
 
       entity.HasMany(e => e.Lines)
             .WithOne(l => l.PurchaseOrder)
@@ -637,6 +641,7 @@ public class ApplicationDbContext : DbContext
       entity.HasIndex(e => e.Status);
       entity.HasIndex(e => e.CreditNoteDate);
       entity.HasIndex(e => e.SAPDocEntry);
+      entity.HasIndex(e => new { e.CardCode, e.Status, e.CreditNoteDate });
 
       entity.HasMany(e => e.Lines)
             .WithOne(l => l.CreditNote)

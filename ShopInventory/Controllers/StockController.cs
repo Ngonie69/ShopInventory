@@ -31,6 +31,7 @@ public class StockController : ControllerBase
     /// </summary>
     /// <returns>List of warehouses</returns>
     [HttpGet("warehouses")]
+    [ResponseCache(Duration = 300)]
     [ProducesResponseType(typeof(WarehouseListResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetWarehouses(CancellationToken cancellationToken)
@@ -77,6 +78,7 @@ public class StockController : ControllerBase
     /// <param name="includeInactive">Include inactive warehouses (default: false)</param>
     /// <returns>List of warehouse codes</returns>
     [HttpGet("warehouse-codes")]
+    [ResponseCache(Duration = 300)]
     [ProducesResponseType(typeof(IEnumerable<string>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetWarehouseCodes(

@@ -4949,3 +4949,269 @@ html.dark-theme {
 .dark-theme .form-actions {
     border-top-color: #334155 !important;
 }
+
+/* ═══════════════════════════════════════════════════
+   POD (Proof of Delivery) page – dark mode
+   ═══════════════════════════════════════════════════ */
+.dark-theme .pod-upload-card,
+.dark-theme .pod-invoice-card,
+.dark-theme .pod-list-card,
+.dark-theme .pod-delete-dialog,
+.dark-theme .pod-viewer-container {
+    background: #1e293b;
+    border-color: #334155;
+}
+.dark-theme .pod-upload-header,
+.dark-theme .pod-invoice-header {
+    background: linear-gradient(135deg, #1e293b 0%, #1a2332 100%);
+    border-bottom-color: #334155;
+    color: #f1f5f9;
+}
+.dark-theme .pod-upload-header i,
+.dark-theme .pod-invoice-header i {
+    color: #2dd4bf;
+}
+.dark-theme .pod-upload-body,
+.dark-theme .pod-invoice-body {
+    color: #f1f5f9;
+}
+.dark-theme .pod-label {
+    color: #94a3b8;
+}
+.dark-theme .pod-input,
+.dark-theme .pod-input.form-control {
+    background-color: #1e293b !important;
+    border-color: #334155 !important;
+    color: #f1f5f9 !important;
+}
+.dark-theme .pod-input:focus,
+.dark-theme .pod-input.form-control:focus {
+    background-color: #334155 !important;
+    border-color: #818cf8 !important;
+    box-shadow: 0 0 0 3px rgba(129,140,248,0.15) !important;
+    color: #f1f5f9 !important;
+}
+.dark-theme .pod-input::placeholder {
+    color: #64748b !important;
+}
+.dark-theme .pod-list-header {
+    background: linear-gradient(135deg, #1e293b 0%, #1a2332 100%);
+    border-bottom-color: #334155;
+    color: #f1f5f9;
+}
+.dark-theme .pod-record-count {
+    background: #334155;
+    color: #94a3b8;
+}
+.dark-theme .pod-filter-bar {
+    background: #1e293b;
+    border-bottom-color: #334155;
+}
+.dark-theme .pod-table thead th {
+    background-color: #1e293b;
+    color: #94a3b8;
+    border-bottom-color: #334155;
+}
+.dark-theme .pod-table tbody td {
+    color: #f1f5f9;
+    border-bottom-color: #334155;
+}
+.dark-theme .pod-row:hover {
+    background: #334155;
+}
+.dark-theme .pod-customer-name,
+.dark-theme .pod-file-name,
+.dark-theme .pod-date {
+    color: #f1f5f9;
+}
+.dark-theme .pod-customer-code,
+.dark-theme .pod-file-type,
+.dark-theme .pod-time,
+.dark-theme .pod-user,
+.dark-theme .pod-description {
+    color: #94a3b8;
+}
+.dark-theme .pod-field-value {
+    color: #f1f5f9;
+}
+.dark-theme .pod-field-label {
+    color: #64748b;
+}
+.dark-theme .pod-field-sub {
+    color: #94a3b8;
+}
+.dark-theme .pod-empty-icon {
+    background: #334155;
+    color: #64748b;
+}
+.dark-theme .pod-empty-title {
+    color: #f1f5f9;
+}
+.dark-theme .pod-empty-sub,
+.dark-theme .pod-loading-text {
+    color: #64748b;
+}
+.dark-theme .pod-pagination {
+    border-top-color: #334155;
+}
+.dark-theme .pod-pagination-info {
+    color: #94a3b8;
+}
+.dark-theme .pod-file-chip {
+    background: #334155;
+    border-color: rgba(148,163,184,0.2);
+    color: #f1f5f9;
+}
+.dark-theme .pod-file-chip-size {
+    color: #94a3b8;
+}
+.dark-theme .pod-status-open {
+    background: #78350f;
+    color: #fbbf24;
+}
+.dark-theme .pod-status-closed {
+    background: #064e3b;
+    color: #34d399;
+}
+.dark-theme .pod-viewer-overlay {
+    background: rgba(0, 0, 0, 0.7);
+}
+.dark-theme .pod-viewer-header {
+    border-bottom-color: #334155;
+    color: #f1f5f9;
+}
+.dark-theme .pod-viewer-body {
+    background: #0f172a;
+}
+.dark-theme .pod-action-view {
+    color: #2dd4bf;
+}
+.dark-theme .pod-action-view:hover {
+    background: rgba(45,212,191,0.1);
+    border-color: rgba(45,212,191,0.25);
+}
+.dark-theme .pod-action-download {
+    color: #38bdf8;
+}
+.dark-theme .pod-action-download:hover {
+    background: rgba(56,189,248,0.1);
+    border-color: rgba(56,189,248,0.25);
+}
+.dark-theme .pod-action-delete {
+    color: #f87171;
+}
+.dark-theme .pod-action-delete:hover {
+    background: rgba(248,113,113,0.1);
+    border-color: rgba(248,113,113,0.25);
+}
+.dark-theme .pod-upload-body .form-text {
+    color: #64748b !important;
+}
+.dark-theme .pod-invoice-body .table-light {
+    --bs-table-bg: #1e293b;
+    --bs-table-color: #f1f5f9;
+    --bs-table-border-color: #334155;
+}
+.dark-theme .pod-invoice-body .table {
+    color: #f1f5f9;
+    --bs-table-hover-bg: #334155;
+}
+.dark-theme .pod-invoice-body .table td,
+.dark-theme .pod-invoice-body .table th {
+    border-color: #334155;
+    color: #f1f5f9;
+}
+.dark-theme .pod-invoice-body code {
+    color: #818cf8;
+    background: rgba(129,140,248,0.1);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Customer Portal – Proof of Delivery (cpod-) dark mode
+   ══════════════════════════════════════════════════════════════════ */
+.dark-theme .cpod-card {
+    background: #1e293b;
+    border-color: #334155;
+}
+.dark-theme .cpod-card-header {
+    background: linear-gradient(135deg, #0f2b2a 0%, #0f172a 100%);
+    border-bottom-color: #334155;
+    color: #5eead4;
+}
+.dark-theme .cpod-record-count {
+    background: #334155;
+    color: #94a3b8;
+}
+.dark-theme .cpod-table thead th {
+    background: #0f172a;
+    color: #94a3b8;
+    border-bottom-color: #334155;
+}
+.dark-theme .cpod-table tbody td {
+    color: #e2e8f0;
+    border-bottom-color: #334155;
+}
+.dark-theme .cpod-row:hover {
+    background: rgba(45, 212, 191, 0.06);
+}
+.dark-theme .cpod-customer-name {
+    color: #f1f5f9;
+}
+.dark-theme .cpod-file-name {
+    color: #f1f5f9;
+}
+.dark-theme .cpod-file-type {
+    color: #64748b;
+}
+.dark-theme .cpod-description {
+    color: #cbd5e1;
+}
+.dark-theme .cpod-size {
+    color: #e2e8f0;
+}
+.dark-theme .cpod-date {
+    color: #f1f5f9;
+}
+.dark-theme .cpod-time {
+    color: #64748b;
+}
+.dark-theme .cpod-action-view {
+    color: #5eead4;
+}
+.dark-theme .cpod-action-view:hover {
+    background: rgba(45, 212, 191, 0.1);
+    border-color: rgba(45, 212, 191, 0.3);
+}
+.dark-theme .cpod-action-download {
+    color: #7dd3fc;
+}
+.dark-theme .cpod-action-download:hover {
+    background: rgba(56, 189, 248, 0.1);
+    border-color: rgba(56, 189, 248, 0.3);
+}
+.dark-theme .cpod-pagination {
+    border-top-color: #334155;
+}
+.dark-theme .cpod-pagination-info {
+    color: #94a3b8;
+}
+.dark-theme .cpod-empty-icon {
+    background: #334155;
+    color: #64748b;
+}
+.dark-theme .cpod-empty-title {
+    color: #e2e8f0;
+}
+.dark-theme .cpod-empty-sub {
+    color: #64748b;
+}
+.dark-theme .cpod-viewer-container {
+    background: #1e293b;
+}
+.dark-theme .cpod-viewer-header {
+    border-bottom-color: #334155;
+    color: #f1f5f9;
+}
+.dark-theme .cpod-viewer-body {
+    background: #0f172a;
+}

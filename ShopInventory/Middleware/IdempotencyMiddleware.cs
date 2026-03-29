@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Threading;
 
 namespace ShopInventory.Middleware;
 
@@ -14,7 +15,7 @@ public class IdempotencyMiddleware
     private readonly RequestDelegate _next;
     private readonly ILogger<IdempotencyMiddleware> _logger;
     private static readonly ConcurrentDictionary<string, (DateTime Timestamp, int StatusCode)> ProcessedKeys = new();
-    private static DateTime _lastCleanup = DateTime.UtcNow;
+    private static long _lastCleanupTicks = DateTime.UtcNow.Ticks;
 
     // How long to remember idempotency keys (default 60 minutes)
     private const int DefaultExpirationMinutes = 60;
@@ -93,19 +94,21 @@ public class IdempotencyMiddleware
 
     private static void CleanupExpiredKeys()
     {
-        if ((DateTime.UtcNow - _lastCleanup).TotalMinutes < 10)
+        var now = DateTime.UtcNow;
+        var lastTicks = Interlocked.Read(ref _lastCleanupTicks);
+        if ((now - new DateTime(lastTicks, DateTimeKind.Utc)).TotalMinutes < 10)
             return;
 
-        var cutoff = DateTime.UtcNow.AddMinutes(-DefaultExpirationMinutes);
-        var keysToRemove = ProcessedKeys
-            .Where(kvp => kvp.Value.Timestamp < cutoff)
-            .Select(kvp => kvp.Key)
-            .ToList();
+        // Atomic compare-and-swap to prevent concurrent cleanup runs
+        if (Interlocked.CompareExchange(ref _lastCleanupTicks, now.Ticks, lastTicks) != lastTicks)
+            return;
 
-        foreach (var key in keysToRemove)
-            ProcessedKeys.TryRemove(key, out _);
-
-        _lastCleanup = DateTime.UtcNow;
+        var cutoff = now.AddMinutes(-DefaultExpirationMinutes);
+        foreach (var kvp in ProcessedKeys)
+        {
+            if (kvp.Value.Timestamp < cutoff)
+                ProcessedKeys.TryRemove(kvp.Key, out _);
+        }
     }
 }
 

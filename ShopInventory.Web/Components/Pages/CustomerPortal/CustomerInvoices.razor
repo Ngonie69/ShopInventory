@@ -61,7 +61,14 @@
                         Open Balance
                     </span>
                     <span class="meta-subtitle">
-                        @FormatCurrency(totalOutstanding) across @invoices.Count invoices
+                        @if (hasLoaded)
+                        {
+                            @($"{FormatCurrency(totalOutstanding)} across {invoices.Count} invoices")
+                        }
+                        else
+                        {
+                            <text>Select date range and load invoices</text>
+                        }
                     </span>
                     <div class="d-flex flex-wrap gap-2 mt-2">
                         <a href="/customer-portal/dashboard" class="btn btn-outline-primary btn-sm">Back to Dashboard</a>
@@ -71,6 +78,44 @@
             </div>
         </div>
 
+        <!-- Filters -->
+        <div class="card dashboard-panel mb-3">
+            <div class="card-header dashboard-panel-header">
+                <h5 class="mb-0 d-flex align-items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" class="panel-icon">
+                        <path d="M1.5 1.5A.5.5 0 0 1 2 1h12a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.128.334L10 8.692V13.5a.5.5 0 0 1-.342.474l-3 1A.5.5 0 0 1 6 14.5V8.692L1.628 3.834A.5.5 0 0 1 1.5 3.5v-2z"/>
+                    </svg>
+                    Filters
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-4">
+                        <FlexibleDatePicker Label="From" @bind-Date="fromDate" />
+                    </div>
+                    <div class="col-md-4">
+                        <FlexibleDatePicker Label="To" @bind-Date="toDate" />
+                    </div>
+                    <div class="col-md-4">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100"
+                                   OnClick="LoadInvoices" Disabled="@isLoading">
+                            @if (isLoading)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                <span>Loading...</span>
+                            }
+                            else
+                            {
+                                <span>Load Invoices</span>
+                            }
+                        </MudButton>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (hasLoaded)
+        {
         <div class="card dashboard-panel">
             <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
                 <h5 class="mb-0 d-flex align-items-center gap-2">
@@ -137,11 +182,12 @@
                 else
                 {
                     <div class="text-center py-5 dashboard-empty">
-                        <p class="text-muted mb-0">No open invoices found.</p>
+                        <p class="text-muted mb-0">No open invoices found for the selected period.</p>
                     </div>
                 }
             </div>
         </div>
+        }
     }
 </div>
 
@@ -270,9 +316,12 @@
     private CustomerInfo? customerInfo;
     private List<CustomerInvoiceSummary> invoices = new();
     private bool isLoading = true;
+    private bool hasLoaded = false;
     private DateTime? lastUpdated;
     private decimal totalOutstanding;
     private bool isMultiAccount;
+    private DateTime? fromDate = DateTime.Today.AddMonths(-3);
+    private DateTime? toDate = DateTime.Today;
     private CustomerInvoiceSummary? selectedInvoiceSummary;
     private InvoiceDto? selectedInvoice;
     private List<DocumentAttachmentDto> podAttachments = new();
@@ -283,34 +332,43 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadInvoices();
+        await LoadCustomerInfo();
+        isLoading = false;
     }
 
-    private async Task LoadInvoices()
+    private async Task LoadCustomerInfo()
     {
-        isLoading = true;
-
         try
         {
             var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
 
-            if (string.IsNullOrEmpty(customerInfoJson))
+            if (!string.IsNullOrEmpty(customerInfoJson))
             {
-                customerInfo = null;
-                invoices = new List<CustomerInvoiceSummary>();
-                totalOutstanding = 0;
-                return;
+                customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
+                if (customerInfo != null)
+                {
+                    isMultiAccount = customerInfo.AccountStructure == "Multi";
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading customer info");
+        }
+    }
 
-            customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
+    private async Task LoadInvoices()
+    {
+        if (customerInfo == null) return;
 
-            if (customerInfo != null)
-            {
-                isMultiAccount = customerInfo.AccountStructure == "Multi";
-                invoices = await StatementService.GetOpenInvoicesAsync(customerInfo.CardCode);
-                totalOutstanding = invoices.Sum(i => i.Balance);
-                lastUpdated = DateTime.UtcNow;
-            }
+        isLoading = true;
+
+        try
+        {
+            invoices = await StatementService.GetOpenInvoicesAsync(customerInfo.CardCode, fromDate, toDate);
+            totalOutstanding = invoices.Sum(i => i.Balance);
+            lastUpdated = DateTime.UtcNow;
+            hasLoaded = true;
         }
         catch (Exception ex)
         {

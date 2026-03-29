@@ -38,6 +38,7 @@ public class ReportController : ControllerBase
     /// <param name="fromDate">Start date (defaults to 30 days ago)</param>
     /// <param name="toDate">End date (defaults to today)</param>
     [HttpGet("sales-summary")]
+    [ResponseCache(Duration = 900)]
     [ProducesResponseType(typeof(SalesSummaryReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetSalesSummary(
@@ -68,6 +69,7 @@ public class ReportController : ControllerBase
     /// <param name="topCount">Number of top products to return (default 10)</param>
     /// <param name="warehouseCode">Optional warehouse filter</param>
     [HttpGet("top-products")]
+    [ResponseCache(Duration = 900)]
     [ProducesResponseType(typeof(TopProductsReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetTopProducts(
@@ -99,6 +101,7 @@ public class ReportController : ControllerBase
     /// <param name="toDate">End date</param>
     /// <param name="daysThreshold">Days without sale to be considered slow moving (default 30)</param>
     [HttpGet("slow-moving-products")]
+    [ResponseCache(Duration = 900)]
     [ProducesResponseType(typeof(SlowMovingProductsReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetSlowMovingProducts(
@@ -127,6 +130,7 @@ public class ReportController : ControllerBase
     /// </summary>
     /// <param name="warehouseCode">Optional warehouse filter</param>
     [HttpGet("stock-summary")]
+    [ResponseCache(Duration = 900)]
     [ProducesResponseType(typeof(StockSummaryReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetStockSummary(
@@ -152,6 +156,7 @@ public class ReportController : ControllerBase
     /// <param name="toDate">End date</param>
     /// <param name="warehouseCode">Optional warehouse filter</param>
     [HttpGet("stock-movement")]
+    [ResponseCache(Duration = 900)]
     [ProducesResponseType(typeof(StockMovementReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetStockMovement(
@@ -181,6 +186,7 @@ public class ReportController : ControllerBase
     /// <param name="warehouseCode">Optional warehouse filter</param>
     /// <param name="threshold">Reorder level threshold (default 10)</param>
     [HttpGet("low-stock-alerts")]
+    [ResponseCache(Duration = 900)]
     [ProducesResponseType(typeof(LowStockAlertReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetLowStockAlerts(
@@ -206,6 +212,7 @@ public class ReportController : ControllerBase
     /// <param name="fromDate">Start date</param>
     /// <param name="toDate">End date</param>
     [HttpGet("payment-summary")]
+    [ResponseCache(Duration = 900)]
     [ProducesResponseType(typeof(PaymentSummaryReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetPaymentSummary(
@@ -235,6 +242,7 @@ public class ReportController : ControllerBase
     /// <param name="toDate">End date</param>
     /// <param name="topCount">Number of top customers to return (default 10)</param>
     [HttpGet("top-customers")]
+    [ResponseCache(Duration = 900)]
     [ProducesResponseType(typeof(TopCustomersReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetTopCustomers(
@@ -264,6 +272,7 @@ public class ReportController : ControllerBase
     /// <param name="fromDate">Start date</param>
     /// <param name="toDate">End date</param>
     [HttpGet("order-fulfillment")]
+    [ResponseCache(Duration = 900)]
     [ProducesResponseType(typeof(OrderFulfillmentReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetOrderFulfillment(
@@ -290,6 +299,7 @@ public class ReportController : ControllerBase
     /// Gets credit notes summary report
     /// </summary>
     [HttpGet("credit-notes")]
+    [ResponseCache(Duration = 900)]
     [ProducesResponseType(typeof(CreditNoteSummaryReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetCreditNoteSummary(
@@ -316,6 +326,7 @@ public class ReportController : ControllerBase
     /// Gets purchase orders summary report
     /// </summary>
     [HttpGet("purchase-orders")]
+    [ResponseCache(Duration = 900)]
     [ProducesResponseType(typeof(PurchaseOrderSummaryReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetPurchaseOrderSummary(
@@ -342,6 +353,7 @@ public class ReportController : ControllerBase
     /// Gets receivables aging report
     /// </summary>
     [HttpGet("receivables-aging")]
+    [ResponseCache(Duration = 900)]
     [ProducesResponseType(typeof(ReceivablesAgingReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetReceivablesAging(CancellationToken cancellationToken = default)
@@ -362,6 +374,7 @@ public class ReportController : ControllerBase
     /// Gets profit overview report
     /// </summary>
     [HttpGet("profit-overview")]
+    [ResponseCache(Duration = 900)]
     [ProducesResponseType(typeof(ProfitOverviewReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetProfitOverview(

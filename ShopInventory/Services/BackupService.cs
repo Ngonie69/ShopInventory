@@ -339,6 +339,10 @@ public class BackupService : IBackupService
             await _context.StockReservationLines.ExecuteDeleteAsync(cancellationToken);
             await _context.StockReservations.ExecuteDeleteAsync(cancellationToken);
 
+            // Quotations (must be before Sales Orders and Products due to FK references)
+            await _context.QuotationLines.ExecuteDeleteAsync(cancellationToken);
+            await _context.Quotations.ExecuteDeleteAsync(cancellationToken);
+
             // Sales orders
             await _context.SalesOrderLines.ExecuteDeleteAsync(cancellationToken);
             await _context.SalesOrders.ExecuteDeleteAsync(cancellationToken);

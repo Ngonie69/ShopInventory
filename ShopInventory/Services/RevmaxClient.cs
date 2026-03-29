@@ -50,6 +50,7 @@ public class RevmaxClient : IRevmaxClient
         _jsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = null, // Preserve exact names
+            PropertyNameCaseInsensitive = true, // Handle any casing from REVMax device
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
             WriteIndented = false
         };

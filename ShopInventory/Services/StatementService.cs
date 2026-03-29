@@ -46,6 +46,21 @@ namespace ShopInventory.Services
             _logger = logger;
         }
 
+        private static string GetCurrencySymbol(string? currency)
+        {
+            return currency?.ToUpperInvariant() switch
+            {
+                "USD" => "$",
+                "ZIG" => "ZiG",
+                "EUR" => "€",
+                "GBP" => "£",
+                "ZAR" => "R",
+                null or "" or "##" => "$",
+                var c when c.All(char.IsLetter) => c,
+                _ => "$"
+            };
+        }
+
         private void InitializeFonts()
         {
             _boldFont = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
@@ -292,7 +307,7 @@ namespace ShopInventory.Services
                 .SetFontColor(TextMuted)
                 .SetMarginBottom(2));
 
-            customerCell.Add(new Paragraph($"Currency: {customer.Currency ?? "USD"}")
+            customerCell.Add(new Paragraph($"Currency: {GetCurrencySymbol(customer.Currency)}")
                 .SetFont(_regularFont)
                 .SetFontSize(9)
                 .SetFontColor(TextMuted));
@@ -315,7 +330,7 @@ namespace ShopInventory.Services
             var balance = customer.Balance ?? 0;
             var balanceColor = balance > 0 ? DangerColor : balance < 0 ? SuccessColor : TextDark;
 
-            balanceCell.Add(new Paragraph($"{customer.Currency ?? "USD"} {balance:N2}")
+            balanceCell.Add(new Paragraph($"{GetCurrencySymbol(customer.Currency)} {balance:N2}")
                 .SetFont(_boldFont)
                 .SetFontSize(24)
                 .SetFontColor(balanceColor)
@@ -594,7 +609,7 @@ namespace ShopInventory.Services
             document.Add(ledgerTable);
 
             // Closing balance note
-            var closingNote = new Paragraph($"Closing Balance: {customer.Currency ?? "USD"} {runningBalance:N2}")
+            var closingNote = new Paragraph($"Closing Balance: {GetCurrencySymbol(customer.Currency)} {runningBalance:N2}")
                 .SetFont(_boldFont)
                 .SetFontSize(10)
                 .SetFontColor(runningBalance > 0 ? DangerColor : SuccessColor)

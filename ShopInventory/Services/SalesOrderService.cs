@@ -131,6 +131,7 @@ public class SalesOrderService : ISalesOrderService
         var query = _context.SalesOrders
             .Include(o => o.Lines)
             .Include(o => o.CreatedByUser)
+            .Include(o => o.ApprovedByUser)
             .AsNoTracking()
             .AsQueryable();
 

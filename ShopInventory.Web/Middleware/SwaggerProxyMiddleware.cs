@@ -77,6 +77,20 @@ public class SwaggerProxyMiddleware
         }
     }
 
+    // Headers that must NOT be forwarded between connections (RFC 7230 §6.1)
+    private static readonly HashSet<string> HopByHopHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Connection", "Keep-Alive", "Transfer-Encoding", "TE",
+        "Trailer", "Upgrade", "Proxy-Authorization", "Proxy-Authenticate"
+    };
+
+    // Headers managed by HttpContent or the transport layer
+    private static readonly HashSet<string> ContentHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Content-Length", "Content-Type", "Content-Encoding",
+        "Content-Language", "Content-Location", "Content-Range"
+    };
+
     private async Task ProxyApiRequestAsync(HttpContext context)
     {
         var targetUrl = $"{_apiBaseUrl}{context.Request.Path}{context.Request.QueryString}";
@@ -86,10 +100,12 @@ public class SwaggerProxyMiddleware
         {
             var requestMessage = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUrl);
 
-            // Forward request headers
+            // Forward request headers — skip hop-by-hop and content headers
             foreach (var header in context.Request.Headers)
             {
                 if (header.Key.Equals("Host", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (HopByHopHeaders.Contains(header.Key) || ContentHeaders.Contains(header.Key))
                     continue;
                 requestMessage.Headers.TryAddWithoutValidation(header.Key, header.Value.ToArray());
             }
@@ -103,23 +119,29 @@ public class SwaggerProxyMiddleware
                     requestMessage.Content.Headers.ContentType =
                         System.Net.Http.Headers.MediaTypeHeaderValue.Parse(context.Request.ContentType);
                 }
+                if (context.Request.ContentLength.HasValue)
+                {
+                    requestMessage.Content.Headers.ContentLength = context.Request.ContentLength;
+                }
             }
 
             var response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead);
 
             context.Response.StatusCode = (int)response.StatusCode;
 
-            // Forward response headers
+            // Forward response headers — skip hop-by-hop headers
             foreach (var header in response.Headers)
             {
+                if (HopByHopHeaders.Contains(header.Key))
+                    continue;
                 context.Response.Headers[header.Key] = header.Value.ToArray();
             }
             foreach (var header in response.Content.Headers)
             {
+                if (HopByHopHeaders.Contains(header.Key))
+                    continue;
                 context.Response.Headers[header.Key] = header.Value.ToArray();
             }
-            // Remove transfer-encoding since Kestrel handles this
-            context.Response.Headers.Remove("transfer-encoding");
 
             await response.Content.CopyToAsync(context.Response.Body);
         }

@@ -130,22 +130,15 @@ public class ReportService : IReportService
             invoices = await _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
         }
 
-        // Flatten all invoice lines
-        var allLines = invoices
+        // Flatten all invoice lines and filter in single enumeration
+        var topProducts = invoices
             .Where(inv => inv.DocumentLines != null)
             .SelectMany(inv => inv.DocumentLines!.Select(line => new
             {
                 Line = line,
                 Currency = inv.DocCurrency
             }))
-            .ToList();
-
-        if (!string.IsNullOrEmpty(warehouseCode))
-        {
-            allLines = allLines.Where(l => l.Line.WarehouseCode == warehouseCode).ToList();
-        }
-
-        var productSales = allLines
+            .Where(l => string.IsNullOrEmpty(warehouseCode) || l.Line.WarehouseCode == warehouseCode)
             .GroupBy(l => new { l.Line.ItemCode, l.Line.ItemDescription })
             .Select(g => new
             {
@@ -158,18 +151,17 @@ public class ReportService : IReportService
             })
             .OrderByDescending(p => p.TotalQuantity)
             .Take(topCount)
+            .Select((p, index) => new TopProductDto
+            {
+                Rank = index + 1,
+                ItemCode = p.ItemCode,
+                ItemName = p.ItemName,
+                TotalQuantitySold = p.TotalQuantity,
+                TotalRevenueUSD = p.TotalRevenueUSD,
+                TotalRevenueZIG = p.TotalRevenueZIG,
+                TimesOrdered = p.TimesOrdered
+            })
             .ToList();
-
-        var topProducts = productSales.Select((p, index) => new TopProductDto
-        {
-            Rank = index + 1,
-            ItemCode = p.ItemCode,
-            ItemName = p.ItemName,
-            TotalQuantitySold = p.TotalQuantity,
-            TotalRevenueUSD = p.TotalRevenueUSD,
-            TotalRevenueZIG = p.TotalRevenueZIG,
-            TimesOrdered = p.TimesOrdered
-        }).ToList();
 
         return new TopProductsReportDto
         {

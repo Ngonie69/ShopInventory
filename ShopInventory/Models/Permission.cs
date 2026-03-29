@@ -256,6 +256,10 @@ public static class Permissions
                 ViewDashboard, ViewProducts, ViewInvoices, ViewPayments,
                 ViewStock, ViewInventory, ViewCustomers, ViewReports
             },
+            "PodOperator" => new List<string>
+            {
+                ViewDashboard, ViewInvoices
+            },
             _ => new List<string> { ViewDashboard }
         };
     }

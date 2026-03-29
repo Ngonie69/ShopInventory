@@ -1,5 +1,5 @@
 // Shop Inventory Service Worker
-const CACHE_NAME = 'shop-inventory-v4';
+const CACHE_NAME = 'shop-inventory-v5';
 const OFFLINE_URL = '/offline.html';
 
 // Only cache truly static assets that rarely change
@@ -91,6 +91,12 @@ self.addEventListener('fetch', (event) => {
 
     // NEVER intercept Blazor framework assets - let the server handle them directly
     if (isBlazorAsset(url.pathname)) {
+        return;
+    }
+
+    // Skip Blazor enhanced navigation requests (fetch-based page transitions)
+    // These have a special header and must go directly to the server
+    if (request.headers.get('blazor-enhanced-nav')) {
         return;
     }
 

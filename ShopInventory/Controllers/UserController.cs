@@ -146,7 +146,7 @@ public class UserController : ControllerBase
         }
 
         // Validate role
-        var validRoles = new[] { "Admin", "Cashier", "StockController", "DepotController" };
+        var validRoles = new[] { "Admin", "Cashier", "StockController", "DepotController", "PodOperator" };
         if (!validRoles.Contains(request.Role))
         {
             return BadRequest(new ErrorResponseDto { Message = $"Invalid role. Valid roles are: {string.Join(", ", validRoles)}" });
@@ -226,7 +226,7 @@ public class UserController : ControllerBase
         // Validate role
         if (!string.IsNullOrEmpty(request.Role))
         {
-            var validRoles = new[] { "Admin", "Cashier", "StockController", "DepotController" };
+            var validRoles = new[] { "Admin", "Cashier", "StockController", "DepotController", "PodOperator" };
             if (!validRoles.Contains(request.Role))
             {
                 return BadRequest(new ErrorResponseDto { Message = $"Invalid role. Valid roles are: {string.Join(", ", validRoles)}" });
@@ -427,7 +427,7 @@ public class UserController : ControllerBase
     [ProducesResponseType(typeof(IEnumerable<string>), StatusCodes.Status200OK)]
     public IActionResult GetRoles()
     {
-        var roles = new[] { "Admin", "Cashier", "StockController", "DepotController" };
+        var roles = new[] { "Admin", "Cashier", "StockController", "DepotController", "PodOperator" };
         return Ok(roles);
     }
 }

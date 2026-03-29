@@ -1800,7 +1800,6 @@
             {
                 line.CostCentreCode = defaultCostCentre;
             }
-            StateHasChanged();
         }
     }
 
@@ -1854,7 +1853,6 @@
         if (index >= 0 && index < invoice.Lines.Count)
         {
             invoice.Lines[index].CostCentreCode = costCentre?.CenterCode;
-            StateHasChanged();
         }
     }
 
@@ -1918,7 +1916,6 @@
         }
 
         state.ShowProductDropdown = state.FilteredProducts.Any();
-        StateHasChanged();
     }
 
     private async Task OnItemCodeKeyDown(int index, KeyboardEventArgs e)
@@ -1952,7 +1949,6 @@
                     state.SuggestionSuffix = string.Empty;
                 }
             }
-            StateHasChanged();
         }
         else if (e.Key == "ArrowUp" && state.ShowProductDropdown && state.FilteredProducts.Any())
         {
@@ -1974,7 +1970,6 @@
                     state.SuggestionSuffix = string.Empty;
                 }
             }
-            StateHasChanged();
         }
         else if (e.Key == "Enter" && state.SuggestedProduct != null)
         {
@@ -1985,7 +1980,6 @@
             state.ShowProductDropdown = false;
             state.SuggestedProduct = null;
             state.SuggestionSuffix = string.Empty;
-            StateHasChanged();
         }
     }
 
@@ -2008,7 +2002,6 @@
         var state = GetLineState(index);
         state.ShowProductDropdown = false;
         state.SuggestionSuffix = string.Empty;
-        StateHasChanged();
     }
 
     private void OnQuantityChange(int index, string? value)
@@ -2035,8 +2028,6 @@
         {
             errors.Remove("Quantity");
         }
-
-        StateHasChanged();
     }
 
     private void OnUnitPriceChange(int index, string? value)
@@ -2056,8 +2047,6 @@
         {
             line.UnitPrice = 0;
         }
-
-        StateHasChanged();
     }
 
     private async Task SelectProduct(int index, ProductDto product)
@@ -2108,8 +2097,6 @@
         {
             errors.Remove("ItemCode");
         }
-
-        StateHasChanged();
     }
 
     private async Task SelectBusinessPartnerAsync(BusinessPartnerDto bp)
@@ -2127,20 +2114,26 @@
         // Clear validation error
         validationErrors.Remove("Customer");
 
-        // Load prices from customer's assigned price list via business partner endpoint
-        if (!string.IsNullOrEmpty(bp.CardCode))
+        // Clear old prices immediately before loading new ones
+        customerPriceListPrices.Clear();
+        customerPriceListNum = null;
+
+        // Load prices using the BP's assigned price list number (available from cached data)
+        if (bp.PriceListNum.HasValue && bp.PriceListNum.Value > 0)
         {
+            Logger.LogInformation("BP {CardCode} has price list {PriceListNum}, loading directly", bp.CardCode, bp.PriceListNum.Value);
             await LoadBusinessPartnerPrices(bp.CardCode);
         }
-        else
+        else if (!string.IsNullOrEmpty(bp.CardCode))
         {
-            // Reset to default product prices
-            customerPriceListPrices.Clear();
-            customerPriceListNum = null;
+            // PriceListNum not in cached data — look up from SAP via API
+            Logger.LogInformation("BP {CardCode} has no cached PriceListNum, fetching from SAP", bp.CardCode);
+            await LoadBusinessPartnerPrices(bp.CardCode);
         }
 
         // Update prices on any existing lines to reflect the customer's price list
         UpdateExistingLinePrices();
+        StateHasChanged();
     }
 
     private async Task SelectBusinessPartner(BusinessPartnerDto bp)
@@ -2265,21 +2258,78 @@
             }
             else
             {
-                Logger.LogWarning("No prices found for business partner {CardCode}", cardCode);
-                customerPriceListPrices.Clear();
-                customerPriceListNum = null;
+                Logger.LogWarning("No prices returned from API for business partner {CardCode}, trying cached price list", cardCode);
+
+                // Fallback: use PriceListNum from the cached BP data
+                if (selectedBusinessPartner?.PriceListNum is > 0)
+                {
+                    await LoadCustomerPriceListFallback(selectedBusinessPartner.PriceListNum.Value);
+                }
+                else
+                {
+                    customerPriceListPrices.Clear();
+                    customerPriceListNum = null;
+                }
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error loading prices for business partner {CardCode}", cardCode);
-            customerPriceListPrices.Clear();
-            customerPriceListNum = null;
+            Logger.LogError(ex, "Error loading prices for business partner {CardCode}, trying cached price list", cardCode);
+
+            // Fallback: use PriceListNum from the cached BP data
+            if (selectedBusinessPartner?.PriceListNum is > 0)
+            {
+                await LoadCustomerPriceListFallback(selectedBusinessPartner.PriceListNum.Value);
+            }
+            else
+            {
+                customerPriceListPrices.Clear();
+                customerPriceListNum = null;
+            }
         }
         finally
         {
             isLoadingCustomerPrices = false;
             StateHasChanged();
+        }
+    }
+
+    private async Task LoadCustomerPriceListFallback(int priceListNum)
+    {
+        try
+        {
+            Logger.LogInformation("Fallback: loading prices from price list {PriceListNum}", priceListNum);
+
+            // Try in-memory cache first
+            var cachedPrices = await CacheService.GetPricesByPriceListAsync(priceListNum);
+            if (cachedPrices.Count > 0)
+            {
+                customerPriceListPrices = new Dictionary<string, decimal>(cachedPrices);
+                customerPriceListNum = priceListNum;
+                Logger.LogInformation("Fallback: loaded {Count} prices from cache for price list {PriceListNum}", cachedPrices.Count, priceListNum);
+                return;
+            }
+
+            // Try API without going through BP endpoint
+            var response = await PriceService.GetPricesByPriceListAsync(priceListNum);
+            if (response?.Prices != null && response.Prices.Any())
+            {
+                customerPriceListPrices.Clear();
+                foreach (var price in response.Prices)
+                {
+                    if (!string.IsNullOrEmpty(price.ItemCode))
+                    {
+                        customerPriceListPrices[price.ItemCode] = price.Price;
+                    }
+                }
+                customerPriceListNum = priceListNum;
+                CacheService.StorePriceListPrices(priceListNum, new Dictionary<string, decimal>(customerPriceListPrices));
+                Logger.LogInformation("Fallback: loaded {Count} prices from API for price list {PriceListNum}", customerPriceListPrices.Count, priceListNum);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fallback price loading also failed for price list {PriceListNum}", priceListNum);
         }
     }
 
@@ -2454,7 +2504,6 @@
             }
         }
 
-        StateHasChanged();
         return isValid;
     }
 

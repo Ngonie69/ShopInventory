@@ -1,0 +1,369 @@
+@page "/customer-portal/item-summary"
+@using ShopInventory.Web.Models
+@inject ICustomerStatementService StatementService
+@inject IJSRuntime JSRuntime
+@inject ILogger<CustomerItemSummary> Logger
+@attribute [AllowAnonymous]
+@rendermode InteractiveServer
+@layout CustomerPortalLayout
+
+<PageTitle>Item Summary - Customer Portal</PageTitle>
+
+<div class="container-fluid fade-in staff-dashboard staff-shell customer-dashboard">
+    @if (isLoading)
+    {
+        <div class="card dashboard-panel">
+            <div class="card-body text-center py-5">
+                <div class="spinner-border" role="status" style="width: 2.5rem; height: 2.5rem;">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="text-muted mt-3 mb-0">Loading item summary...</p>
+            </div>
+        </div>
+    }
+    else if (customerInfo == null)
+    {
+        <div class="card dashboard-panel">
+            <div class="card-body text-center py-5">
+                <svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" fill="currentColor" viewBox="0 0 16 16"
+                     class="mb-3">
+                    <path
+                    d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+                </svg>
+                <h2 class="mb-2">Authentication Required</h2>
+                <p class="text-muted mb-4">Please login to access your account.</p>
+                <a href="/customer-portal/login" class="btn btn-primary">Login to Portal</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="page-header staff-dashboard-header mb-4">
+            <div class="dashboard-title">
+                <h2>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16">
+                        <path
+                        d="M0 2.5A.5.5 0 0 1 .5 2H2a.5.5 0 0 1 .485.379L2.89 4H14.5a.5.5 0 0 1 .485.621l-1.5 6A.5.5 0 0 1 13 11H4a.5.5 0 0 1-.485-.379L1.61 3H.5a.5.5 0 0 1-.5-.5zM3.14 5l1.25 5h8.22l1.25-5H3.14zM5 13a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm-2 1a2 2 0 1 1 4 0 2 2 0 0 1-4 0zm9-1a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm-2 1a2 2 0 1 1 4 0 2 2 0 0 1-4 0z" />
+                    </svg>
+                    Item Purchase Summary
+                </h2>
+                <span class="text-muted">Invoiced items adjusted for credit notes &mdash; @customerInfo.CardName
+                    (@customerInfo.CardCode)</span>
+                </div>
+                <div class="dashboard-meta">
+                    <div class="d-flex flex-wrap gap-2 align-items-end">
+                        <MudDatePicker @bind-Date="fromDate" Label="From Date" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                       DateFormat="yyyy-MM-dd" Style="min-width: 160px;" Editable="true" />
+                        <MudDatePicker @bind-Date="toDate" Label="To Date" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                       DateFormat="yyyy-MM-dd" Style="min-width: 160px;" Editable="true" />
+                        <MudSelect T="string" @bind-Value="selectedCategory" Label="Product Category" Variant="Variant.Outlined"
+                                   Margin="Margin.Dense" Style="min-width: 180px;" Clearable="true">
+                            <MudSelectItem T="string" Value="@((string)null!)">All Categories</MudSelectItem>
+                            @foreach (var cat in availableCategories)
+                            {
+                                <MudSelectItem T="string" Value="@cat">@cat</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="ApplyFilters"
+                                   StartIcon="@Icons.Material.Filled.FilterAlt" Disabled="@(isLoading || !fromDate.HasValue || !toDate.HasValue)">Apply</MudButton>
+                        <MudTextField T="string" @bind-Value="searchText" Placeholder="Search item code or description..."
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Search" Class="item-search" Style="min-width: 250px;" />
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" OnClick="RefreshData"
+                                   StartIcon="@Icons.Material.Filled.Refresh" Disabled="@(!hasLoadedData)">Refresh</MudButton>
+                    </div>
+                </div>
+            </div>
+
+            @* Summary cards *@
+            <div class="row mb-4 g-4 dashboard-stats">
+                <div class="col-md-4">
+                    <div class="card stat-card staff-stat-card bg-primary">
+                        <div class="card-body">
+                            <p class="stat-label mb-2">Total Purchased</p>
+                            <h2 class="stat-value">@FormatCurrency(items?.Sum(i => i.InvoicedAmount) ?? 0)</h2>
+                            <p class="text-muted mb-0 small">across @(items?.Sum(i => i.InvoiceCount) ?? 0) items on invoices</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card stat-card staff-stat-card bg-info">
+                        <div class="card-body">
+                            <p class="stat-label mb-2">Total Returns</p>
+                            <h2 class="stat-value text-danger">-@FormatCurrency(items?.Sum(i => i.CreditedAmount) ?? 0)</h2>
+                            <p class="text-muted mb-0 small">across @(items?.Sum(i => i.CreditNoteCount) ?? 0) items returned</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card stat-card staff-stat-card bg-success">
+                        <div class="card-body">
+                            <p class="stat-label mb-2">Net Spend</p>
+                            <h2 class="stat-value">@FormatCurrency(items?.Sum(i => i.NetAmount) ?? 0)</h2>
+                            <p class="text-muted mb-0 small">@(filteredItems?.Count() ?? 0) unique items</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            @* Main table *@
+            <div class="card dashboard-panel">
+                <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
+                    <h5 class="mb-0 d-flex align-items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"
+                             class="panel-icon">
+                            <path
+                            d="M0 2.5A.5.5 0 0 1 .5 2H2a.5.5 0 0 1 .485.379L2.89 4H14.5a.5.5 0 0 1 .485.621l-1.5 6A.5.5 0 0 1 13 11H4a.5.5 0 0 1-.485-.379L1.61 3H.5a.5.5 0 0 1-.5-.5zM3.14 5l1.25 5h8.22l1.25-5H3.14zM5 13a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm-2 1a2 2 0 1 1 4 0 2 2 0 0 1-4 0zm9-1a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm-2 1a2 2 0 1 1 4 0 2 2 0 0 1-4 0z" />
+                        </svg>
+                        Items
+                    </h5>
+                    <div class="d-flex align-items-center gap-3">
+                        <MudSwitch T="bool" @bind-Value="showBreakdown" Color="Color.Primary" Label="Show Breakdown" Size="Size.Small" />
+                        <span class="badge bg-primary">@(filteredItems?.Count() ?? 0) items</span>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    @if (filteredItems?.Any() == true)
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0 align-middle dashboard-table">
+                                <thead>
+                                    <tr>
+                                        <th style="cursor:pointer" @onclick='() => SetSort("ItemCode")'>
+                                            Item Code @SortIndicator("ItemCode")
+                                        </th>
+                                        <th style="cursor:pointer" @onclick='() => SetSort("Description")'>
+                                            Description @SortIndicator("Description")
+                                        </th>
+                                        @if (showBreakdown)
+                                        {
+                                            <th class="text-end" style="cursor:pointer" @onclick='() => SetSort("InvoicedQty")'>
+                                                Purchased Qty @SortIndicator("InvoicedQty")
+                                            </th>
+                                            <th class="text-end" style="cursor:pointer" @onclick='() => SetSort("InvoicedAmt")'>
+                                                Purchased Amt @SortIndicator("InvoicedAmt")
+                                            </th>
+                                            <th class="text-end" style="cursor:pointer" @onclick='() => SetSort("CreditedQty")'>
+                                                Returned Qty @SortIndicator("CreditedQty")
+                                            </th>
+                                            <th class="text-end" style="cursor:pointer" @onclick='() => SetSort("CreditedAmt")'>
+                                                Returned Amt @SortIndicator("CreditedAmt")
+                                            </th>
+                                        }
+                                        <th class="text-end" style="cursor:pointer" @onclick='() => SetSort("NetQty")'>
+                                            Qty @SortIndicator("NetQty")
+                                        </th>
+                                        <th class="text-end" style="cursor:pointer" @onclick='() => SetSort("NetAmt")'>
+                                            Amount @SortIndicator("NetAmt")
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in filteredItems)
+                                    {
+                                        <tr>
+                                            <td><span class="badge bg-dark">@item.ItemCode</span></td>
+                                            <td class="text-truncate" style="max-width: 250px;" title="@item.ItemDescription">
+                                                @(item.ItemDescription ?? "-")</td>
+                                            @if (showBreakdown)
+                                            {
+                                                <td class="text-end">@item.InvoicedQuantity.ToString("N2")</td>
+                                                <td class="text-end">@FormatCurrency(item.InvoicedAmount)</td>
+                                                <td class="text-end @(item.CreditedQuantity > 0 ? "text-danger" : "")">
+                                                    @(item.CreditedQuantity > 0 ? $"-{item.CreditedQuantity:N2}" : "0.00")
+                                                </td>
+                                                <td class="text-end @(item.CreditedAmount > 0 ? "text-danger" : "")">
+                                                    @(item.CreditedAmount > 0 ? $"-{FormatCurrency(item.CreditedAmount)}" :
+                                                        FormatCurrency(0))
+                                                </td>
+                                            }
+                                            <td class="text-end fw-semibold">@item.NetQuantity.ToString("N2")</td>
+                                            <td class="text-end fw-semibold">@FormatCurrency(item.NetAmount)</td>
+                                        </tr>
+                                    }
+                                    </tbody>
+                                    <tfoot>
+                                        <tr class="fw-bold" style="border-top: 2px solid var(--staff-ink, #333);">
+                                            <td colspan="2">Total</td>
+                                            @if (showBreakdown)
+                                            {
+                                                <td class="text-end">@filteredItems.Sum(i => i.InvoicedQuantity).ToString("N2")</td>
+                                                <td class="text-end">@FormatCurrency(filteredItems.Sum(i => i.InvoicedAmount))</td>
+                                                <td class="text-end text-danger">-@filteredItems.Sum(i => i.CreditedQuantity).ToString("N2")</td>
+                                                <td class="text-end text-danger">-@FormatCurrency(filteredItems.Sum(i => i.CreditedAmount))</td>
+                                            }
+                                            <td class="text-end">@filteredItems.Sum(i => i.NetQuantity).ToString("N2")</td>
+                                            <td class="text-end">@FormatCurrency(filteredItems.Sum(i => i.NetAmount))</td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        }
+                else
+                        {
+                            <div class="text-center py-5 dashboard-empty">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" viewBox="0 0 16 16"
+                                     class="text-muted mb-3">
+                                    <path
+                                    d="M0 2.5A.5.5 0 0 1 .5 2H2a.5.5 0 0 1 .485.379L2.89 4H14.5a.5.5 0 0 1 .485.621l-1.5 6A.5.5 0 0 1 13 11H4a.5.5 0 0 1-.485-.379L1.61 3H.5a.5.5 0 0 1-.5-.5zM3.14 5l1.25 5h8.22l1.25-5H3.14zM5 13a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm-2 1a2 2 0 1 1 4 0 2 2 0 0 1-4 0zm9-1a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm-2 1a2 2 0 1 1 4 0 2 2 0 0 1-4 0z" />
+                                </svg>
+                                <p class="text-muted mb-0">
+                                    @if (!string.IsNullOrEmpty(searchText))
+                                    {
+                                        <span>No items matching "<strong>@searchText</strong>"</span>
+                                    }
+                                    else
+                                    {
+                                        <span>@(hasLoadedData ? "No invoiced items found" : "Select a date range and click Apply to load items")</span>
+                                    }
+                                </p>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+@code {
+    private CustomerInfo? customerInfo;
+    private List<ItemCodeSummary>? items;
+    private bool isLoading = true;
+    private bool hasLoadedData;
+    private bool showBreakdown;
+    private string searchText = string.Empty;
+    private string sortColumn = "NetAmt";
+    private bool sortAscending = false;
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string? selectedCategory;
+    private List<string> availableCategories = new();
+
+    private IEnumerable<ItemCodeSummary> filteredItems =>
+        ApplySort(ApplyFilter(items ?? Enumerable.Empty<ItemCodeSummary>()));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCustomerInfo();
+    }
+
+    private async Task LoadCustomerInfo()
+    {
+        try
+        {
+            var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
+
+            if (!string.IsNullOrEmpty(customerInfoJson))
+            {
+                customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading customer info");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+
+        try
+        {
+            if (customerInfo != null)
+            {
+                items = await StatementService.GetItemCodeSummaryAsync(customerInfo.CardCode, fromDate, toDate);
+                availableCategories = items
+                    .Select(i => i.ItemGroup)
+                    .Where(g => !string.IsNullOrEmpty(g))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(g => g)
+                    .ToList();
+                hasLoadedData = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading item summary data");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        if (!fromDate.HasValue || !toDate.HasValue) return;
+        await LoadData();
+    }
+
+    private async Task ApplyFilters()
+    {
+        if (!fromDate.HasValue || !toDate.HasValue) return;
+        await LoadData();
+    }
+
+    private IEnumerable<ItemCodeSummary> ApplyFilter(IEnumerable<ItemCodeSummary> source)
+    {
+        if (!string.IsNullOrWhiteSpace(selectedCategory))
+        {
+            source = source.Where(i => string.Equals(i.ItemGroup, selectedCategory, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (string.IsNullOrWhiteSpace(searchText))
+            return source;
+
+        var term = searchText.Trim();
+        return source.Where(i =>
+            (i.ItemCode?.Contains(term, StringComparison.OrdinalIgnoreCase) == true) ||
+            (i.ItemDescription?.Contains(term, StringComparison.OrdinalIgnoreCase) == true));
+    }
+
+    private IEnumerable<ItemCodeSummary> ApplySort(IEnumerable<ItemCodeSummary> source)
+    {
+        return sortColumn switch
+        {
+            "ItemCode" => sortAscending ? source.OrderBy(i => i.ItemCode) : source.OrderByDescending(i => i.ItemCode),
+            "Description" => sortAscending ? source.OrderBy(i => i.ItemDescription) : source.OrderByDescending(i =>
+i.ItemDescription),
+            "InvoicedQty" => sortAscending ? source.OrderBy(i => i.InvoicedQuantity) : source.OrderByDescending(i =>
+i.InvoicedQuantity),
+            "InvoicedAmt" => sortAscending ? source.OrderBy(i => i.InvoicedAmount) : source.OrderByDescending(i =>
+i.InvoicedAmount),
+            "CreditedQty" => sortAscending ? source.OrderBy(i => i.CreditedQuantity) : source.OrderByDescending(i =>
+i.CreditedQuantity),
+            "CreditedAmt" => sortAscending ? source.OrderBy(i => i.CreditedAmount) : source.OrderByDescending(i =>
+i.CreditedAmount),
+            "NetQty" => sortAscending ? source.OrderBy(i => i.NetQuantity) : source.OrderByDescending(i => i.NetQuantity),
+            "NetAmt" => sortAscending ? source.OrderBy(i => i.NetAmount) : source.OrderByDescending(i => i.NetAmount),
+            _ => source
+        };
+    }
+
+    private void SetSort(string column)
+    {
+        if (sortColumn == column)
+            sortAscending = !sortAscending;
+        else
+        {
+            sortColumn = column;
+            sortAscending = column is "ItemCode" or "Description";
+        }
+    }
+
+    private MarkupString SortIndicator(string column)
+    {
+        if (sortColumn != column)
+            return new MarkupString("");
+        return new MarkupString(sortAscending ? "&#9650;" : "&#9660;");
+    }
+
+    private string FormatCurrency(decimal amount)
+    {
+        return $"${amount:N2}";
+    }
+}

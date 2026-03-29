@@ -153,4 +153,36 @@ public class BusinessPartnerController : ControllerBase
             return StatusCode(500, new ErrorResponseDto { Message = $"Error retrieving business partner: {ex.Message}" });
         }
     }
+
+    /// <summary>
+    /// Gets payment terms details by group number from SAP
+    /// </summary>
+    [HttpGet("paymentterms/{groupNumber:int}")]
+    [ProducesResponseType(typeof(PaymentTermsDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetPaymentTerms(int groupNumber, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!_settings.Enabled)
+            {
+                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+            }
+
+            var terms = await _sapClient.GetPaymentTermsByCodeAsync(groupNumber, cancellationToken);
+
+            if (terms == null)
+            {
+                return NotFound(new ErrorResponseDto { Message = $"Payment terms with group number '{groupNumber}' not found" });
+            }
+
+            return Ok(terms);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving payment terms {GroupNumber}", groupNumber);
+            return StatusCode(500, new ErrorResponseDto { Message = $"Error retrieving payment terms: {ex.Message}" });
+        }
+    }
 }

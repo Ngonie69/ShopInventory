@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using ShopInventory.Authentication;
@@ -8,6 +10,7 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Middleware;
 using ShopInventory.Services;
+using System.IO.Compression;
 using System.Text;
 using System.Threading.RateLimiting;
 
@@ -17,9 +20,38 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
+// Add response compression for bandwidth savings on JSON payloads
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(
+        ["application/json", "application/xml", "text/plain"]);
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+    options.Level = CompressionLevel.Fastest);
+builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+    options.Level = CompressionLevel.Fastest);
+
+// Add memory cache for expensive queries and SAP call results
+builder.Services.AddMemoryCache();
+
+// Add output caching for read-heavy GET endpoints
+builder.Services.AddOutputCache(options =>
+{
+    options.AddBasePolicy(builder => builder.NoCache());
+    options.AddPolicy("warehouses", builder => builder.Cache().Expire(TimeSpan.FromMinutes(5)).SetVaryByQuery("*").Tag("warehouses"));
+    options.AddPolicy("reports", builder => builder.Cache().Expire(TimeSpan.FromMinutes(15)).SetVaryByQuery("*").Tag("reports"));
+});
+
 // Configure PostgreSQL Database
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+{
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
+    // Default to NoTracking for read-heavy workloads — opt-in to tracking only when writes are needed
+    options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
+});
 
 // Configure Swagger with JWT authentication support
 builder.Services.AddSwaggerGen(c =>
@@ -154,7 +186,7 @@ builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
     options.AddPolicy("ApiAccess", policy =>
-        policy.RequireRole("Admin", "ApiUser", "User", "Cashier", "StockController", "DepotController", "Manager")
+        policy.RequireRole("Admin", "ApiUser", "User", "Cashier", "StockController", "DepotController", "Manager", "PodOperator")
               .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
 });
 
@@ -330,9 +362,8 @@ builder.Services.AddPermissionAuthorization();
 // Configure HttpClient for SAP Service Layer
 builder.Services.AddHttpClient<ISAPServiceLayerClient, SAPServiceLayerClient>((serviceProvider, client) =>
 {
-    var configuration = serviceProvider.GetRequiredService<IConfiguration>();
-    var sapSettings = configuration.GetSection("SAP").Get<SAPSettings>();
-    client.BaseAddress = new Uri(sapSettings?.ServiceLayerUrl ?? "https://10.10.10.6:50000/b1s/v1/");
+    var sapSettings = serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value;
+    client.BaseAddress = new Uri(sapSettings.ServiceLayerUrl ?? "https://10.10.10.6:50000/b1s/v1/");
     client.DefaultRequestHeaders.Add("Accept", "application/json");
     client.Timeout = TimeSpan.FromMinutes(5); // Increased timeout for large data operations
 })
@@ -357,8 +388,8 @@ builder.Services.AddHttpClient<ISAPServiceLayerClient, SAPServiceLayerClient>((s
             }
         },
         // Recycle connections to avoid stale/aborted TCP connections
-        PooledConnectionLifetime = TimeSpan.FromMinutes(2),
-        PooledConnectionIdleTimeout = TimeSpan.FromSeconds(60),
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
         // Keep-alive to detect dead connections early
         KeepAlivePingPolicy = HttpKeepAlivePingPolicy.WithActiveRequests,
         KeepAlivePingDelay = TimeSpan.FromSeconds(30),
@@ -434,6 +465,9 @@ app.UseExceptionHandler(errorApp =>
     });
 });
 
+// Response compression - must be before any middleware that writes response body
+app.UseResponseCompression();
+
 // Security middleware - order matters!
 app.UseRequestSizeLimit();   // Enforce size limits first (DoS protection)
 app.UseRequestValidation();  // Validate & block malicious requests
@@ -478,6 +512,9 @@ app.UseAuthorization();
 
 // Idempotency check after auth (needs user context for better key scoping)
 app.UseIdempotency();
+
+// Output caching for GET endpoints
+app.UseOutputCache();
 
 // Map controllers with default rate limiting
 app.MapControllers().RequireRateLimiting("api");

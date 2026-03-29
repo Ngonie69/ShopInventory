@@ -58,7 +58,14 @@
                         Payment Summary
                     </span>
                     <span class="meta-subtitle">
-                        @FormatCurrency(totalPaid) across @payments.Count payments
+                        @if (hasLoaded)
+                        {
+                            @($"{FormatCurrency(totalPaid)} across {payments.Count} payments")
+                        }
+                        else
+                        {
+                            <text>Select date range and load payments</text>
+                        }
                     </span>
                     <div class="d-flex flex-wrap gap-2 mt-2">
                         <a href="/customer-portal/dashboard" class="btn btn-outline-primary btn-sm">Back to Dashboard</a>
@@ -90,11 +97,22 @@
                         <FlexibleDatePicker Label="To" @bind-Date="toDate" />
                     </div>
                     <div class="col-md-4">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="ApplyFilters" Disabled="@isLoading">Apply
-                            Filters</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="ApplyFilters" Disabled="@isLoading">
+                            @if (isLoading)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                <span>Loading...</span>
+                            }
+                            else
+                            {
+                                <span>Load Payments</span>
+                            }
+                        </MudButton>
                     </div>
                 </div>
 
+                @if (hasLoaded)
+                {
                 @if (payments.Any())
                 {
                     <div class="table-responsive">
@@ -129,6 +147,7 @@
                         <p class="text-muted mb-0">No payments found for the selected period.</p>
                     </div>
                 }
+                }
             </div>
         </div>
     }
@@ -138,6 +157,7 @@
     private CustomerInfo? customerInfo;
     private List<CustomerPaymentSummary> payments = new();
     private bool isLoading = true;
+    private bool hasLoaded = false;
     private DateTime? lastUpdated;
     private decimal totalPaid;
     private DateTime? fromDate = DateTime.Today.AddMonths(-6);
@@ -145,7 +165,25 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadPayments();
+        await LoadCustomerInfo();
+        isLoading = false;
+    }
+
+    private async Task LoadCustomerInfo()
+    {
+        try
+        {
+            var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
+
+            if (!string.IsNullOrEmpty(customerInfoJson))
+            {
+                customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading customer info");
+        }
     }
 
     private async Task ApplyFilters()
@@ -155,28 +193,16 @@
 
     private async Task LoadPayments()
     {
+        if (customerInfo == null) return;
+
         isLoading = true;
 
         try
         {
-            var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
-
-            if (string.IsNullOrEmpty(customerInfoJson))
-            {
-                customerInfo = null;
-                payments = new List<CustomerPaymentSummary>();
-                totalPaid = 0;
-                return;
-            }
-
-            customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
-
-            if (customerInfo != null)
-            {
-                payments = await StatementService.GetPaymentHistoryAsync(customerInfo.CardCode, fromDate, toDate);
-                totalPaid = payments.Sum(p => p.DocTotal);
-                lastUpdated = DateTime.UtcNow;
-            }
+            payments = await StatementService.GetPaymentHistoryAsync(customerInfo.CardCode, fromDate, toDate);
+            totalPaid = payments.Sum(p => p.DocTotal);
+            lastUpdated = DateTime.UtcNow;
+            hasLoaded = true;
         }
         catch (Exception ex)
         {

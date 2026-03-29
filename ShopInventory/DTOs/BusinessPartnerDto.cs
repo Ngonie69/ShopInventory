@@ -20,6 +20,18 @@ public class BusinessPartnerDto
     public bool IsActive { get; set; }
     public int? PriceListNum { get; set; }
     public string? PriceListName { get; set; }
+    public int? PayTermGrpCode { get; set; }
+}
+
+/// <summary>
+/// DTO for SAP Payment Terms (OCTG table)
+/// </summary>
+public class PaymentTermsDto
+{
+    public int GroupNumber { get; set; }
+    public string PaymentTermsGroupName { get; set; } = string.Empty;
+    public int NumberOfAdditionalDays { get; set; }
+    public int NumberOfAdditionalMonths { get; set; }
 }
 
 /// <summary>

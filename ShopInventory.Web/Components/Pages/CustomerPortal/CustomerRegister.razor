@@ -1,0 +1,553 @@
+@page "/customer-portal/register"
+@using System.ComponentModel.DataAnnotations
+@using ShopInventory.Web.Models
+@inject ICustomerAuthService CustomerAuthService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+@inject ILogger<CustomerRegister> Logger
+@attribute [AllowAnonymous]
+@rendermode InteractiveServer
+@layout EmptyLayout
+
+<PageTitle>Request Access - Customer Portal</PageTitle>
+
+<div class="customer-register-page auth-page">
+    <div class="auth-shell">
+        <section class="auth-visual">
+            <div class="orb orb-1"></div>
+            <div class="orb orb-2"></div>
+            <div class="orb orb-3"></div>
+            <div class="orb orb-4"></div>
+            <div class="visual-content">
+                <div class="visual-brand">
+                    <div class="brand-logo">
+                        <img src="images/kefalos-logo.jpg" alt="Kefalos" />
+                    </div>
+                    <div class="brand-text">
+                        <span class="brand-name">Kefalos Network</span>
+                        <span class="brand-tag">Customer Portal</span>
+                    </div>
+                </div>
+                <div class="visual-card">
+                    <p class="visual-eyebrow">Self-Service Registration</p>
+                    <h2>Get started in minutes.</h2>
+                    <p class="visual-copy">
+                        Register with your customer code to access statements, invoices, and account information online.
+                    </p>
+                    <div class="visual-footer">
+                        <span>Already registered?</span>
+                        <a class="visual-link" href="/customer-portal/login">Sign in &rarr;</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="auth-form">
+            <div class="login-header">
+                <span class="eyebrow">Customer Portal</span>
+                <h1>Request Access</h1>
+                <p class="subtitle">
+                    Enter your customer code and create a password to register.
+                </p>
+            </div>
+
+            @if (isRegistered)
+            {
+                <div class="success-message">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z" />
+                    </svg>
+                    <span>Registration successful! You can now sign in.</span>
+                </div>
+
+                <a href="/customer-portal/login" class="submit-btn" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; text-decoration: none; margin-top: 1rem;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                        <path fill-rule="evenodd" d="M6 3.5a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-2a.5.5 0 0 0-1 0v2A1.5 1.5 0 0 0 6.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 14.5 2h-8A1.5 1.5 0 0 0 5 3.5v2a.5.5 0 0 0 1 0v-2z" />
+                        <path fill-rule="evenodd" d="M11.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L10.293 7.5H1.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z" />
+                    </svg>
+                    <span>Go to Sign In</span>
+                </a>
+            }
+            else
+            {
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="error-message">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z" />
+                        </svg>
+                        <span>@errorMessage</span>
+                    </div>
+                }
+
+                <EditForm Model="registerModel" OnValidSubmit="HandleRegister" FormName="CustomerRegisterForm">
+                    <DataAnnotationsValidator />
+
+                    <div class="form-group">
+                        <label for="cardCode">Customer Code</label>
+                        <div class="input-wrapper">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1H0V4zm0 3v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7H0zm3 2h1a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-1a1 1 0 0 1 1-1z"/>
+                            </svg>
+                            <InputText id="cardCode" class="form-input" @bind-Value="registerModel.CardCode"
+                                placeholder="e.g. C00001" autocomplete="off" />
+                        </div>
+                        <ValidationMessage For="@(() => registerModel.CardCode)" class="validation-msg" />
+                        <small class="form-hint">Your customer code from your invoice or statement</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="email">Email Address</label>
+                        <div class="input-wrapper">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4Zm2-1a1 1 0 0 0-1 1v.217l7 4.2 7-4.2V4a1 1 0 0 0-1-1H2Zm13 2.383-4.708 2.825L15 11.105V5.383Zm-.034 6.876-5.64-3.471L8 9.583l-1.326-.795-5.64 3.47A1 1 0 0 0 2 13h12a1 1 0 0 0 .966-.741ZM1 11.105l4.708-2.897L1 5.383v5.722Z"/>
+                            </svg>
+                            <InputText id="email" class="form-input" @bind-Value="registerModel.Email"
+                                placeholder="your.email@company.com" autocomplete="email" />
+                        </div>
+                        <ValidationMessage For="@(() => registerModel.Email)" class="validation-msg" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <div class="input-wrapper">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/>
+                            </svg>
+                            <input id="password" type="@(showPassword ? "text" : "password")"
+                                class="form-input password-input" @bind="registerModel.Password"
+                                placeholder="Min 8 characters" autocomplete="new-password" />
+                            <button type="button" class="password-toggle" @onclick="TogglePassword" tabindex="-1">
+                                @if (showPassword)
+                                {
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                                        <path d="M13.359 11.238C15.06 9.72 16 8 16 8s-3-5.5-8-5.5a7.028 7.028 0 0 0-2.79.588l.77.771A5.944 5.944 0 0 1 8 3.5c2.12 0 3.879 1.168 5.168 2.457A13.134 13.134 0 0 1 14.828 8c-.058.087-.122.183-.195.288-.335.48-.83 1.12-1.465 1.755-.165.165-.337.328-.517.486l.708.709z"/>
+                                        <path d="M11.297 9.176a3.5 3.5 0 0 0-4.474-4.474l.823.823a2.5 2.5 0 0 1 2.829 2.829l.822.822zm-2.943 1.299.822.822a3.5 3.5 0 0 1-4.474-4.474l.823.823a2.5 2.5 0 0 0 2.829 2.829z"/>
+                                        <path d="M3.35 5.47c-.18.16-.353.322-.518.487A13.134 13.134 0 0 0 1.172 8l.195.288c.335.48.83 1.12 1.465 1.755C4.121 11.332 5.881 12.5 8 12.5c.716 0 1.39-.133 2.02-.36l.77.772A7.029 7.029 0 0 1 8 13.5C3 13.5 0 8 0 8s.939-1.721 2.641-3.238l.708.709zm10.296 8.884-12-12 .708-.708 12 12-.708.708z"/>
+                                    </svg>
+                                }
+                                else
+                                {
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                                        <path d="M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8zM1.173 8a13.133 13.133 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5c2.12 0 3.879 1.168 5.168 2.457A13.133 13.133 0 0 1 14.828 8c-.058.087-.122.183-.195.288-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.119 12.5 8 12.5c-2.12 0-3.879-1.168-5.168-2.457A13.134 13.134 0 0 1 1.172 8z"/>
+                                        <path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0z"/>
+                                    </svg>
+                                }
+                            </button>
+                        </div>
+                        <ValidationMessage For="@(() => registerModel.Password)" class="validation-msg" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="confirmPassword">Confirm Password</label>
+                        <div class="input-wrapper">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/>
+                            </svg>
+                            <input id="confirmPassword" type="@(showPassword ? "text" : "password")"
+                                class="form-input password-input" @bind="registerModel.ConfirmPassword"
+                                placeholder="Re-enter password" autocomplete="new-password" />
+                        </div>
+                        <ValidationMessage For="@(() => registerModel.ConfirmPassword)" class="validation-msg" />
+                    </div>
+
+                    <MudButton ButtonType="ButtonType.Submit" Class="submit-btn" Disabled="@isLoading">
+                        @if (isLoading)
+                        {
+                            <span class="spinner"></span>
+                            <span>Creating account...</span>
+                        }
+                        else
+                        {
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M15 14s1 0 1-1-1-4-5-4-5 3-5 4 1 1 1 1h8Zm-7.978-1A.261.261 0 0 1 7 12.996c.001-.264.167-1.03.76-1.72C8.312 10.629 9.282 10 11 10c1.717 0 2.687.63 3.24 1.276.593.69.758 1.457.76 1.72l-.008.002a.274.274 0 0 1-.014.002H7.022ZM11 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm3-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM6.936 9.28a5.88 5.88 0 0 0-1.23-.247A7.35 7.35 0 0 0 5 9c-4 0-5 3-5 4 0 .667.333 1 1 1h4.216A2.238 2.238 0 0 1 5 13c0-.455.108-.985.338-1.543.364-.888.998-1.717 1.846-2.29.427-.288.89-.502 1.391-.641a.85.85 0 0 0-.64.058l.001-.005Zm-.284-.726a3 3 0 1 1 .716-.436C6.406 8.585 5.846 9.183 5.28 9.99l.013-.007 1.359-.43ZM6 5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/>
+                            </svg>
+                            <span>Create Account</span>
+                        }
+                    </MudButton>
+                </EditForm>
+
+                <div class="login-footer">
+                    <a href="/customer-portal/login" class="forgot-password-link">&larr; Back to Sign In</a>
+                    <a href="/login" class="staff-login-link">Staff login &rarr;</a>
+                </div>
+            }
+
+            <div class="security-notice">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M8 0c-.69 0-1.843.265-2.928.56-1.11.3-2.229.655-2.887.87a1.54 1.54 0 0 0-1.044 1.262c-.596 4.477.787 7.795 2.465 9.99a11.777 11.777 0 0 0 2.517 2.453c.386.273.744.482 1.048.625.28.132.581.24.829.24s.548-.108.829-.24a7.159 7.159 0 0 0 1.048-.625 11.775 11.775 0 0 0 2.517-2.453c1.678-2.195 3.061-5.513 2.465-9.99a1.541 1.541 0 0 0-1.044-1.263 62.467 62.467 0 0 0-2.887-.87C9.843.266 8.69 0 8 0zm-.5 5a.5.5 0 0 1 1 0v1.5H10a.5.5 0 0 1 0 1H8.5V9a.5.5 0 0 1-1 0V7.5H6a.5.5 0 0 1 0-1h1.5V5z"/>
+                </svg>
+                <span>Secured with 256-bit encryption</span>
+            </div>
+
+            <p class="footer-text">&copy; 2026 Shop Inventory System - Customer Portal</p>
+        </section>
+    </div>
+</div>
+
+<style>
+    .customer-register-page.auth-page {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2.5rem 1.5rem;
+        background: linear-gradient(135deg, #0b0b0b 0%, #151515 45%, #242424 100%);
+        font-family: "Outfit", "Segoe UI", sans-serif;
+        color: #111111;
+    }
+
+    .customer-register-page .auth-shell {
+        width: min(1100px, 100%);
+        min-height: 640px;
+        background: #ffffff;
+        border-radius: 28px;
+        overflow: hidden;
+        display: grid;
+        grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+        box-shadow: 0 40px 90px rgba(0, 0, 0, 0.35);
+    }
+
+    .customer-register-page .auth-visual {
+        position: relative;
+        padding: 3rem;
+        background:
+            radial-gradient(circle at 18% 20%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 45%),
+            radial-gradient(circle at 85% 18%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 40%),
+            radial-gradient(circle at 20% 85%, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 50%),
+            linear-gradient(145deg, #0b0b0b 0%, #1a1a1a 55%, #111111 100%);
+        color: #f5f5f5;
+        overflow: hidden;
+    }
+
+    .customer-register-page .auth-visual::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(120deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0));
+        pointer-events: none;
+    }
+
+    .customer-register-page .orb {
+        position: absolute;
+        border-radius: 50%;
+        opacity: 0.95;
+        animation: regFloat 12s ease-in-out infinite;
+    }
+
+    .customer-register-page .orb-1 {
+        width: 170px; height: 170px; top: -40px; left: -20px;
+        background: radial-gradient(circle at 30% 30%, #f5f5f5, #9c9c9c);
+    }
+
+    .customer-register-page .orb-2 {
+        width: 120px; height: 120px; top: 40px; right: 60px;
+        background: radial-gradient(circle at 30% 30%, #ededed, #7d7d7d);
+        animation-delay: 1.5s;
+    }
+
+    .customer-register-page .orb-3 {
+        width: 220px; height: 220px; bottom: -90px; left: 35%;
+        background: radial-gradient(circle at 30% 30%, #d6d6d6, #4a4a4a);
+        animation-delay: 3s;
+    }
+
+    .customer-register-page .orb-4 {
+        width: 140px; height: 140px; bottom: 40px; right: -30px;
+        border: 14px solid rgba(255, 255, 255, 0.35);
+        background: transparent;
+        animation-delay: 2.2s;
+    }
+
+    .customer-register-page .visual-content {
+        position: relative; z-index: 1; height: 100%;
+        display: flex; flex-direction: column; justify-content: center; gap: 2rem;
+    }
+
+    .customer-register-page .visual-brand {
+        display: flex; align-items: center; gap: 1rem;
+    }
+
+    .customer-register-page .brand-logo {
+        width: 56px; height: 56px; border-radius: 16px;
+        background: rgba(255, 255, 255, 0.9);
+        display: flex; align-items: center; justify-content: center;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+    }
+
+    .customer-register-page .brand-logo img { width: 40px; height: auto; }
+
+    .customer-register-page .brand-text {
+        display: flex; flex-direction: column; gap: 0.2rem;
+    }
+
+    .customer-register-page .brand-name {
+        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+        font-size: 1.05rem; font-weight: 600; letter-spacing: 0.02em;
+    }
+
+    .customer-register-page .brand-tag {
+        font-size: 0.85rem; color: rgba(255, 255, 255, 0.72);
+    }
+
+    .customer-register-page .visual-card {
+        background: rgba(17, 17, 17, 0.62);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        padding: 2rem; border-radius: 22px;
+        box-shadow: 0 22px 50px rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(12px);
+        animation: regFadeUp 0.8s ease-out;
+    }
+
+    .customer-register-page .visual-eyebrow {
+        text-transform: uppercase; font-size: 0.72rem;
+        letter-spacing: 0.25em; color: rgba(255, 255, 255, 0.6);
+        margin-bottom: 0.75rem;
+    }
+
+    .customer-register-page .visual-card h2 {
+        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+        font-size: 2rem; margin: 0 0 0.75rem;
+    }
+
+    .customer-register-page .visual-copy {
+        color: rgba(245, 245, 245, 0.78); line-height: 1.6; margin: 0;
+    }
+
+    .customer-register-page .visual-footer {
+        display: flex; align-items: center; gap: 0.75rem;
+        margin-top: 1.5rem; font-size: 0.95rem;
+    }
+
+    .customer-register-page .visual-link {
+        color: #ffffff; text-decoration: none;
+        font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.4);
+        transition: border-color 0.2s;
+    }
+
+    .customer-register-page .visual-link:hover {
+        border-color: #ffffff;
+    }
+
+    .customer-register-page .auth-form {
+        padding: 3rem 2.5rem;
+        display: flex; flex-direction: column; justify-content: center;
+    }
+
+    .customer-register-page .login-header { margin-bottom: 2rem; }
+
+    .customer-register-page .eyebrow {
+        text-transform: uppercase; font-size: 0.72rem;
+        letter-spacing: 0.2em; color: #5a5a5a;
+    }
+
+    .customer-register-page .login-header h1 {
+        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+        font-size: 2rem; font-weight: 700;
+        margin: 0.5rem 0 0.25rem; color: #0a0a0a;
+    }
+
+    .customer-register-page .subtitle {
+        font-size: 0.95rem; color: #5a5a5a; line-height: 1.5; margin: 0;
+    }
+
+    .customer-register-page .form-group {
+        margin-bottom: 1.25rem;
+    }
+
+    .customer-register-page .form-group label {
+        display: block; font-size: 0.85rem;
+        font-weight: 600; margin-bottom: 0.4rem; color: #111111;
+    }
+
+    .customer-register-page .form-hint {
+        display: block; font-size: 0.78rem; color: #888;
+        margin-top: 0.25rem;
+    }
+
+    .customer-register-page .input-wrapper {
+        display: flex; align-items: center; gap: 0.75rem;
+        border: 1.5px solid #c8c8c8; border-radius: 12px;
+        padding: 0 1rem; background: #fafafa;
+        transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .customer-register-page .input-wrapper:focus-within {
+        border-color: #111111;
+        box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.08);
+    }
+
+    .customer-register-page .form-input {
+        flex: 1; border: none; background: transparent;
+        padding: 0.85rem 0; font-size: 0.95rem;
+        color: #111111; outline: none;
+    }
+
+    .customer-register-page .password-toggle {
+        background: transparent; border: none;
+        cursor: pointer; color: #5a5a5a; padding: 0;
+        display: flex; align-items: center;
+    }
+
+    .customer-register-page .password-toggle:hover { color: #111111; }
+
+    .customer-register-page .validation-msg {
+        display: block; font-size: 0.82rem;
+        color: #dc2626; margin-top: 0.35rem;
+    }
+
+    .customer-register-page .error-message {
+        display: flex; align-items: center; gap: 0.75rem;
+        padding: 0.85rem 1.25rem; margin-bottom: 1.25rem;
+        background: #fef2f2; border: 1px solid #fecaca;
+        border-radius: 12px; color: #991b1b;
+        font-size: 0.9rem; animation: regFadeIn 0.3s ease-out;
+    }
+
+    .customer-register-page .success-message {
+        display: flex; align-items: center; gap: 0.75rem;
+        padding: 0.85rem 1.25rem; margin-bottom: 1.25rem;
+        background: #f0fdf4; border: 1px solid #86efac;
+        border-radius: 12px; color: #166534;
+        font-size: 0.9rem; animation: regFadeIn 0.3s ease-out;
+    }
+
+    .customer-register-page .submit-btn {
+        width: 100%; padding: 0.9rem;
+        background: #0a0a0a; color: #ffffff;
+        border: none; border-radius: 14px;
+        font-size: 1rem; font-weight: 600;
+        cursor: pointer; display: flex;
+        align-items: center; justify-content: center;
+        gap: 0.6rem; margin-top: 0.5rem;
+        transition: background 0.2s, box-shadow 0.2s;
+    }
+
+    .customer-register-page .submit-btn:hover {
+        background: #1a1a1a;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .customer-register-page .submit-btn:disabled {
+        opacity: 0.6; cursor: not-allowed;
+    }
+
+    .customer-register-page .login-footer {
+        display: flex; justify-content: space-between;
+        align-items: center; margin-top: 1.5rem;
+        padding-top: 1.5rem; border-top: 1px solid #d6d6d6;
+        gap: 1rem; flex-wrap: wrap;
+    }
+
+    .customer-register-page .forgot-password-link,
+    .customer-register-page .staff-login-link {
+        color: #111111; font-size: 0.9rem;
+        text-decoration: none; transition: color 0.2s;
+    }
+
+    .customer-register-page .forgot-password-link:hover,
+    .customer-register-page .staff-login-link:hover {
+        color: #000000; text-decoration: underline;
+    }
+
+    .customer-register-page .security-notice {
+        display: flex; align-items: center; justify-content: center;
+        gap: 0.5rem; padding-top: 1rem;
+        border-top: 1px solid #d6d6d6;
+        color: #2b2b2b; font-size: 0.78rem;
+    }
+
+    .customer-register-page .spinner {
+        width: 20px; height: 20px;
+        border: 2px solid rgba(255, 255, 255, 0.35);
+        border-top-color: white; border-radius: 50%;
+        animation: regSpin 0.8s linear infinite;
+    }
+
+    .customer-register-page .footer-text {
+        text-align: center; color: #9b9b9b;
+        font-size: 0.85rem; margin: 0;
+    }
+
+    @@keyframes regFloat {
+        0%, 100% { transform: translate(0, 0); }
+        33% { transform: translate(8px, -10px); }
+        66% { transform: translate(-6px, 6px); }
+    }
+
+    @@keyframes regFadeUp {
+        from { opacity: 0; transform: translateY(14px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @@keyframes regFadeIn {
+        from { opacity: 0; }
+        to   { opacity: 1; }
+    }
+
+    @@keyframes regSpin {
+        to { transform: rotate(360deg); }
+    }
+
+    @@media (max-width: 768px) {
+        .customer-register-page .auth-shell {
+            grid-template-columns: 1fr;
+            min-height: auto;
+        }
+
+        .customer-register-page .auth-visual {
+            display: none;
+        }
+
+        .customer-register-page .auth-form {
+            padding: 2rem 1.5rem;
+        }
+    }
+</style>
+
+@code {
+    private CustomerRegistrationFormModel registerModel = new();
+    private bool isLoading;
+    private bool isRegistered;
+    private bool showPassword;
+    private string? errorMessage;
+
+    private void TogglePassword()
+    {
+        showPassword = !showPassword;
+    }
+
+    private async Task HandleRegister()
+    {
+        errorMessage = null;
+        isLoading = true;
+
+        try
+        {
+            var success = await CustomerAuthService.RegisterCustomerAsync(
+                registerModel.CardCode.Trim(),
+                registerModel.Email.Trim(),
+                registerModel.Password,
+                "self-service"
+            );
+
+            if (success)
+            {
+                isRegistered = true;
+            }
+            else
+            {
+                errorMessage = "Registration failed. Please check your customer code is valid and not already registered.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Registration error for {CardCode}", registerModel.CardCode);
+            errorMessage = "An error occurred. Please try again later.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

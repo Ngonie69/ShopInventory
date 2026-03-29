@@ -39,9 +39,10 @@ public class UserActivityController : ControllerBase
     [ProducesResponseType(typeof(UserActivityDashboard), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetDashboard(
         [FromQuery] DateTime? startDate = null,
-        [FromQuery] DateTime? endDate = null)
+        [FromQuery] DateTime? endDate = null,
+        CancellationToken cancellationToken = default)
     {
-        var dashboard = await _userActivityService.GetDashboardAsync(startDate, endDate);
+        var dashboard = await _userActivityService.GetDashboardAsync(startDate, endDate, cancellationToken);
         return Ok(dashboard);
     }
 
@@ -55,11 +56,11 @@ public class UserActivityController : ControllerBase
     [RequirePermission(Permission.ViewAuditLogs)]
     [ProducesResponseType(typeof(UserActivitySummary), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetUserActivity(Guid userId, [FromQuery] int recentCount = 20)
+    public async Task<IActionResult> GetUserActivity(Guid userId, [FromQuery] int recentCount = 20, CancellationToken cancellationToken = default)
     {
         try
         {
-            var summary = await _userActivityService.GetUserActivitySummaryAsync(userId, recentCount);
+            var summary = await _userActivityService.GetUserActivitySummaryAsync(userId, recentCount, cancellationToken);
             return Ok(summary);
         }
         catch (InvalidOperationException ex)
@@ -76,7 +77,7 @@ public class UserActivityController : ControllerBase
     [HttpGet("me")]
     [ProducesResponseType(typeof(UserActivitySummary), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> GetMyActivity([FromQuery] int recentCount = 20)
+    public async Task<IActionResult> GetMyActivity([FromQuery] int recentCount = 20, CancellationToken cancellationToken = default)
     {
         var userId = GetCurrentUserId();
         if (userId == null)
@@ -86,7 +87,7 @@ public class UserActivityController : ControllerBase
 
         try
         {
-            var summary = await _userActivityService.GetUserActivitySummaryAsync(userId.Value, recentCount);
+            var summary = await _userActivityService.GetUserActivitySummaryAsync(userId.Value, recentCount, cancellationToken);
             return Ok(summary);
         }
         catch (InvalidOperationException ex)
@@ -116,10 +117,11 @@ public class UserActivityController : ControllerBase
         [FromQuery] string? action = null,
         [FromQuery] string? entityType = null,
         [FromQuery] DateTime? startDate = null,
-        [FromQuery] DateTime? endDate = null)
+        [FromQuery] DateTime? endDate = null,
+        CancellationToken cancellationToken = default)
     {
         var activities = await _userActivityService.GetActivitiesAsync(
-            page, pageSize, userId, action, entityType, startDate, endDate);
+            page, pageSize, userId, action, entityType, startDate, endDate, cancellationToken);
         return Ok(activities);
     }
 
@@ -132,9 +134,9 @@ public class UserActivityController : ControllerBase
     [HttpGet("entity/{entityType}/{entityId}")]
     [RequirePermission(Permission.ViewAuditLogs)]
     [ProducesResponseType(typeof(List<UserActivityItem>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetEntityActivities(string entityType, string entityId)
+    public async Task<IActionResult> GetEntityActivities(string entityType, string entityId, CancellationToken cancellationToken = default)
     {
-        var activities = await _userActivityService.GetEntityActivitiesAsync(entityType, entityId);
+        var activities = await _userActivityService.GetEntityActivitiesAsync(entityType, entityId, cancellationToken);
         return Ok(activities);
     }
 

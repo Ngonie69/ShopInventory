@@ -71,6 +71,16 @@ public class CustomerInfo
     /// All linked accounts for multi-account customers
     /// </summary>
     public List<LinkedAccountInfo> LinkedAccounts { get; set; } = new();
+
+    /// <summary>
+    /// Payment terms name from SAP (e.g., "7DAYS", "30 DAYS")
+    /// </summary>
+    public string? PaymentTermsName { get; set; }
+
+    /// <summary>
+    /// Total payment terms days (months*30 + days) for aging calculation
+    /// </summary>
+    public int PaymentTermsDays { get; set; }
 }
 
 /// <summary>
@@ -339,6 +349,36 @@ public class CustomerDashboardSummary
     /// Shows balances and data for each main/sub account separately.
     /// </summary>
     public List<AccountSummary> AccountBreakdown { get; set; } = new();
+
+    /// <summary>
+    /// Summary of items purchased, grouped by item code.
+    /// Invoiced quantities are reduced by credit note quantities to show net amounts.
+    /// </summary>
+    public List<ItemCodeSummary> ItemCodeSummary { get; set; } = new();
+
+    /// <summary>
+    /// Monthly spend data for chart display (last 6 months)
+    /// </summary>
+    public List<MonthlySpend> MonthlySpend { get; set; } = new();
+}
+
+/// <summary>
+/// Summary of a specific item code across all invoices and credit notes for a customer.
+/// Shows invoiced quantities/amounts minus credited quantities/amounts.
+/// </summary>
+public class ItemCodeSummary
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public string? ItemDescription { get; set; }
+    public string ItemGroup { get; set; } = "Other";
+    public decimal InvoicedQuantity { get; set; }
+    public decimal InvoicedAmount { get; set; }
+    public decimal CreditedQuantity { get; set; }
+    public decimal CreditedAmount { get; set; }
+    public decimal NetQuantity => InvoicedQuantity - CreditedQuantity;
+    public decimal NetAmount => InvoicedAmount - CreditedAmount;
+    public int InvoiceCount { get; set; }
+    public int CreditNoteCount { get; set; }
 }
 
 /// <summary>
@@ -454,6 +494,43 @@ public class LinkedAccountResponse
     public string Message { get; set; } = string.Empty;
     public string AccountStructure { get; set; } = "Single";
     public List<LinkedAccountInfo> LinkedAccounts { get; set; } = new();
+}
+
+#endregion
+#region Monthly Spend
+
+/// <summary>
+/// Monthly spend data point for chart display
+/// </summary>
+public class MonthlySpend
+{
+    public string Month { get; set; } = string.Empty;
+    public decimal Invoiced { get; set; }
+    public decimal Credited { get; set; }
+    public decimal Net => Invoiced - Credited;
+}
+
+#endregion
+
+#region Self-Service Registration
+
+public class CustomerRegistrationFormModel
+{
+    [Required(ErrorMessage = "Customer code is required")]
+    [StringLength(50, MinimumLength = 1)]
+    public string CardCode { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Email is required")]
+    [EmailAddress(ErrorMessage = "Enter a valid email address")]
+    public string Email { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Password is required")]
+    [StringLength(100, MinimumLength = 8, ErrorMessage = "Password must be at least 8 characters")]
+    public string Password { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Please confirm your password")]
+    [Compare(nameof(Password), ErrorMessage = "Passwords do not match")]
+    public string ConfirmPassword { get; set; } = string.Empty;
 }
 
 #endregion

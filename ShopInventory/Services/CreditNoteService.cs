@@ -104,7 +104,13 @@ public class CreditNoteService : ICreditNoteService
             List<SAPCreditNote> sapCreditNotes;
             int totalCount;
 
-            if (!string.IsNullOrEmpty(cardCode))
+            if (!string.IsNullOrEmpty(cardCode) && fromDate.HasValue && toDate.HasValue)
+            {
+                sapCreditNotes = await _sapClient.GetCreditNotesByCustomerAsync(cardCode, fromDate.Value, toDate.Value, cancellationToken);
+                totalCount = sapCreditNotes.Count;
+                sapCreditNotes = sapCreditNotes.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+            }
+            else if (!string.IsNullOrEmpty(cardCode))
             {
                 sapCreditNotes = await _sapClient.GetCreditNotesByCustomerAsync(cardCode, cancellationToken);
                 totalCount = sapCreditNotes.Count;

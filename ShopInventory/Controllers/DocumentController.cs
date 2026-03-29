@@ -11,7 +11,7 @@ namespace ShopInventory.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Policy = "ApiAccess")]
 public class DocumentController : ControllerBase
 {
     private readonly IDocumentService _documentService;

@@ -53,6 +53,13 @@
                     <div class="rx-detail"><span class="rx-label">Device ID</span><span class="rx-value mono">@cardDetails.DeviceID</span></div>
                     <div class="rx-detail"><span class="rx-label">Address</span><span class="rx-value">@cardDetails.Data.ADDRESS</span></div>
                 }
+                else if (!isLoadingCard && hasLoadedOnce && !string.IsNullOrEmpty(cardDetails?.Message))
+                {
+                    <div class="rx-empty">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <span>@cardDetails.Message</span>
+                    </div>
+                }
                 else if (!isLoadingCard && hasLoadedOnce)
                 {
                     <div class="rx-empty">
@@ -128,6 +135,13 @@
                     <div class="rx-detail"><span class="rx-label">Start</span><span class="rx-value">@license.Data.Start</span></div>
                     <div class="rx-detail"><span class="rx-label">End</span><span class="rx-value">@license.Data.End</span></div>
                     <div class="rx-detail"><span class="rx-label">Device ID</span><span class="rx-value mono">@license.DeviceID</span></div>
+                }
+                else if (!isLoadingLicense && hasLoadedOnce && !string.IsNullOrEmpty(license?.Message))
+                {
+                    <div class="rx-empty">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <span>@license.Message</span>
+                    </div>
                 }
                 else if (!isLoadingLicense && hasLoadedOnce)
                 {
@@ -423,9 +437,12 @@
     private string? setLicenseMessage;
     private bool setLicenseSuccess;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        await RefreshAll();
+        if (firstRender)
+        {
+            await RefreshAll();
+        }
     }
 
     private async Task RefreshAll()

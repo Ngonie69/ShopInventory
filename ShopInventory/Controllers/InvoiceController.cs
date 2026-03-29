@@ -59,6 +59,7 @@ public class InvoiceController : ControllerBase
     /// <param name="allocationStrategy">Batch allocation strategy: FEFO (default) or FIFO</param>
     /// <returns>The created invoice with batch allocation details</returns>
     [HttpPost]
+    [Authorize(Roles = "Admin,Cashier")]
     [ProducesResponseType(typeof(InvoiceCreatedResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(BatchStockValidationResponseDto), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status409Conflict)]
@@ -351,6 +352,7 @@ public class InvoiceController : ControllerBase
     /// <param name="strategy">Sorting strategy: FEFO (default) or FIFO</param>
     /// <returns>List of available batches sorted by the specified strategy</returns>
     [HttpGet("{itemCode}/batches/{warehouseCode}")]
+    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
     [ProducesResponseType(typeof(List<AvailableBatchDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetAvailableBatches(
@@ -408,6 +410,7 @@ public class InvoiceController : ControllerBase
     /// <param name="allocationStrategy">Batch allocation strategy to simulate</param>
     /// <returns>Validation result with allocated batches (if successful)</returns>
     [HttpPost("validate")]
+    [Authorize(Roles = "Admin,Cashier")]
     [ProducesResponseType(typeof(BatchAllocationResult), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(BatchStockValidationResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ValidateInvoice(
@@ -498,6 +501,7 @@ public class InvoiceController : ControllerBase
     /// <param name="docEntry">The document entry number</param>
     /// <returns>The invoice details</returns>
     [HttpGet("{docEntry:int}")]
+    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
     [ProducesResponseType(typeof(InvoiceDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
@@ -544,6 +548,7 @@ public class InvoiceController : ControllerBase
     /// <param name="docNum">The document number</param>
     /// <returns>The invoice details</returns>
     [HttpGet("by-docnum/{docNum:int}")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator")]
     [ProducesResponseType(typeof(InvoiceDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
@@ -640,11 +645,14 @@ public class InvoiceController : ControllerBase
     /// <param name="cardCode">The customer code</param>
     /// <returns>List of invoices</returns>
     [HttpGet("customer/{cardCode}")]
+    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
     [ProducesResponseType(typeof(InvoiceDateResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetInvoicesByCustomer(
         string cardCode,
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
         CancellationToken cancellationToken)
     {
         try
@@ -659,7 +667,15 @@ public class InvoiceController : ControllerBase
                 return BadRequest(new ErrorResponseDto { Message = "Customer code is required" });
             }
 
-            var invoices = await _sapClient.GetInvoicesByCustomerAsync(cardCode, cancellationToken);
+            List<Invoice> invoices;
+            if (fromDate.HasValue && toDate.HasValue)
+            {
+                invoices = await _sapClient.GetInvoicesByCustomerAsync(cardCode, fromDate.Value, toDate.Value, cancellationToken);
+            }
+            else
+            {
+                invoices = await _sapClient.GetInvoicesByCustomerAsync(cardCode, cancellationToken);
+            }
 
             _logger.LogInformation("Retrieved {Count} invoices for customer {CardCode}",
                 invoices.Count, cardCode);
@@ -694,6 +710,7 @@ public class InvoiceController : ControllerBase
     /// <param name="docEntry">The invoice document entry</param>
     /// <returns>List of attachments</returns>
     [HttpGet("{docEntry:int}/attachments")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator")]
     [ProducesResponseType(typeof(DocumentAttachmentListResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetInvoiceAttachments(
         int docEntry,
@@ -709,6 +726,7 @@ public class InvoiceController : ControllerBase
     /// <param name="docEntry">The invoice document entry</param>
     /// <param name="attachmentId">The attachment ID</param>
     [HttpGet("{docEntry:int}/attachments/{attachmentId:int}/download")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator")]
     [ProducesResponseType(typeof(FileStreamResult), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DownloadInvoiceAttachment(
@@ -739,6 +757,7 @@ public class InvoiceController : ControllerBase
     /// <param name="file">The POD file (image or PDF)</param>
     /// <param name="description">Optional description</param>
     [HttpPost("{docEntry:int}/pod")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator")]
     [ProducesResponseType(typeof(DocumentAttachmentDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
@@ -774,6 +793,21 @@ public class InvoiceController : ControllerBase
             IncludeInEmail = false
         };
 
+        // Cache invoice info from SAP so POD listings can display DocNum and Customer
+        try
+        {
+            var invoice = await _sapClient.GetInvoiceByDocEntryAsync(docEntry, cancellationToken);
+            if (invoice != null)
+            {
+                await _documentService.EnsureInvoiceCachedAsync(
+                    docEntry, invoice.DocNum, invoice.CardCode, invoice.CardName, cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not cache invoice info for DocEntry {DocEntry} during POD upload", docEntry);
+        }
+
         var userId = GetUserId();
         using var stream = file.OpenReadStream();
 
@@ -793,21 +827,24 @@ public class InvoiceController : ControllerBase
 
     /// <summary>
     /// Get all POD attachments across all invoices (paginated).
-    /// Optionally filter by customer code.
+    /// Optionally filter by customer code and date range.
     /// </summary>
     [HttpGet("pods")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator")]
     [ProducesResponseType(typeof(PodAttachmentListResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAllPods(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string? cardCode = null,
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
         CancellationToken cancellationToken = default)
     {
         if (page < 1) page = 1;
         if (pageSize < 1) pageSize = 20;
         if (pageSize > 100) pageSize = 100;
 
-        var result = await _documentService.GetAllPodAttachmentsAsync(page, pageSize, cardCode, cancellationToken);
+        var result = await _documentService.GetAllPodAttachmentsAsync(page, pageSize, cardCode, cancellationToken, fromDate, toDate);
         return Ok(result);
     }
 
@@ -818,6 +855,7 @@ public class InvoiceController : ControllerBase
     /// <param name="toDate">End date (yyyy-MM-dd)</param>
     /// <returns>List of invoices</returns>
     [HttpGet("date-range")]
+    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
     [ProducesResponseType(typeof(InvoiceDateResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
@@ -875,6 +913,7 @@ public class InvoiceController : ControllerBase
     /// <param name="pageSize">Number of records per page (default: 20, max: 100)</param>
     /// <returns>List of invoices with pagination info</returns>
     [HttpGet("paged")]
+    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
     [ProducesResponseType(typeof(InvoiceListResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]

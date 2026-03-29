@@ -74,6 +74,9 @@ public class AuthService : IAuthService
     private readonly SecuritySettings _securitySettings;
     private readonly ILogger<AuthService> _logger;
 
+    // Pre-built dictionary for O(1) API key lookups instead of O(n) linear scan
+    private readonly Dictionary<string, ApiKeyConfig> _apiKeyLookup;
+
     // In-memory storage for IP-based lockout (could also be moved to Redis for distributed scenarios)
     private static readonly ConcurrentDictionary<string, FailedLoginInfo> _failedAttempts = new();
 
@@ -87,6 +90,11 @@ public class AuthService : IAuthService
         _jwtSettings = jwtSettings.Value;
         _securitySettings = securitySettings.Value;
         _logger = logger;
+
+        // Build dictionary once at construction for fast API key validation
+        _apiKeyLookup = _securitySettings.ApiKeys
+            .Where(k => k.IsActive && !string.IsNullOrEmpty(k.Key))
+            .ToDictionary(k => k.Key, k => k);
     }
 
     public async Task<AuthLoginResponse?> AuthenticateAsync(AuthLoginRequest request, string ipAddress)
@@ -326,10 +334,7 @@ public class AuthService : IAuthService
 
     public ApiKeyConfig? ValidateApiKey(string apiKey)
     {
-        var keyConfig = _securitySettings.ApiKeys
-            .FirstOrDefault(k => k.Key == apiKey && k.IsActive);
-
-        if (keyConfig == null)
+        if (!_apiKeyLookup.TryGetValue(apiKey, out var keyConfig))
         {
             return null;
         }

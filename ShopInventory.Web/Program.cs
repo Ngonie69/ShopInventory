@@ -1,6 +1,7 @@
 using Blazored.LocalStorage;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using Serilog;
@@ -8,6 +9,7 @@ using ShopInventory.Web.Components;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Middleware;
 using ShopInventory.Web.Services;
+using System.IO.Compression;
 
 // Configure Serilog
 Log.Logger = new LoggerConfiguration()
@@ -84,6 +86,16 @@ try
 
     builder.Services.AddMemoryCache();
 
+    // Add response compression for HTTP responses (static files, initial page load)
+    builder.Services.AddResponseCompression(options =>
+    {
+        options.EnableForHttps = true;
+        options.Providers.Add<BrotliCompressionProvider>();
+        options.Providers.Add<GzipCompressionProvider>();
+    });
+    builder.Services.Configure<BrotliCompressionProviderOptions>(options => options.Level = CompressionLevel.Fastest);
+    builder.Services.Configure<GzipCompressionProviderOptions>(options => options.Level = CompressionLevel.SmallestSize);
+
     // Add application services
     builder.Services.AddScoped<IAuthService, AuthService>();
     builder.Services.AddScoped<IInvoiceService, InvoiceService>();
@@ -119,6 +131,7 @@ try
     // Add System services (Exchange Rates, Backups, Webhooks)
     builder.Services.AddScoped<IExchangeRateService, ExchangeRateService>();
     builder.Services.AddScoped<IBackupService, BackupService>();
+    builder.Services.AddScoped<ISAPSettingsService, SAPSettingsService>();
     builder.Services.AddScoped<IWebhookService, WebhookService>();
 
     // Add Two-Factor Authentication service
@@ -181,6 +194,8 @@ try
     // This is critical for IIS behind a reverse proxy (e.g., load balancer terminating SSL)
     app.UseForwardedHeaders();
 
+    app.UseResponseCompression();
+
     if (!app.Environment.IsDevelopment())
     {
         app.UseExceptionHandler("/Error", createScopeForErrors: true);
@@ -234,6 +249,30 @@ try
         var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
         var fileName = response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
                        ?? $"backup-{id}.bak";
+
+        return Results.File(stream, contentType, fileName);
+    });
+
+    // Minimal API endpoint for POD file viewing/downloads.
+    // Streams the file directly via HTTP, bypassing the SignalR connection
+    // which cannot handle large binary payloads (images/PDFs).
+    app.MapGet("/download/pod/{docEntry:int}/{attachmentId:int}", async (int docEntry, int attachmentId, IHttpClientFactory clientFactory, CancellationToken ct) =>
+    {
+        var client = clientFactory.CreateClient("ShopInventoryApi");
+
+        var response = await client.GetAsync(
+            $"api/invoice/{docEntry}/attachments/{attachmentId}/download",
+            HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return Results.StatusCode((int)response.StatusCode);
+        }
+
+        var stream = await response.Content.ReadAsStreamAsync(ct);
+        var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+        var fileName = response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
+                       ?? $"pod-{attachmentId}";
 
         return Results.File(stream, contentType, fileName);
     });

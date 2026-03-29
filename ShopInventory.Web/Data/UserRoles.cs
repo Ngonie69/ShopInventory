@@ -31,6 +31,11 @@ public static class UserRoles
     public const string Manager = "Manager";
 
     /// <summary>
+    /// POD Operator with access to Proof of Delivery only
+    /// </summary>
+    public const string PodOperator = "PodOperator";
+
+    /// <summary>
     /// Comma-separated role strings for use in [Authorize(Roles = "...")] attributes
     /// </summary>
     public const string InvoicingRoles = "Admin,Cashier";
@@ -39,10 +44,12 @@ public static class UserRoles
     public const string SalesOrderRoles = "Admin,Cashier";
     public const string PurchasingRoles = "Admin,Manager";
 
+    public const string PodRoles = "Admin,Cashier,PodOperator";
+
     /// <summary>
     /// Get all available roles
     /// </summary>
-    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager };
+    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager, PodOperator };
 
     /// <summary>
     /// Check if a role has admin privileges

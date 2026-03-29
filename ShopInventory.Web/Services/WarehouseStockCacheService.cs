@@ -90,6 +90,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                 // Return cached data
                 var skip = (page - 1) * pageSize;
                 var cachedItems = await dbContext.CachedWarehouseStocks
+                    .AsNoTracking()
                     .Where(s => s.WarehouseCode == warehouseCode)
                     .OrderBy(s => s.ItemCode)
                     .Skip(skip)
@@ -200,6 +201,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
 
             // Get ALL cached data (no pagination)
             var cachedItems = await dbContext.CachedWarehouseStocks
+                .AsNoTracking()
                 .Where(s => s.WarehouseCode == warehouseCode)
                 .OrderBy(s => s.ItemCode)
                 .ToListAsync();

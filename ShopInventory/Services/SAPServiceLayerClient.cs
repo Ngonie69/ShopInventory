@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
@@ -15,13 +16,12 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     private readonly HttpClient _httpClient;
     private readonly SAPSettings _settings;
     private readonly ILogger<SAPServiceLayerClient> _logger;
+    private readonly IMemoryCache _memoryCache;
     private string? _sessionId;
     private DateTime _sessionExpiry = DateTime.MinValue;
 
-    // Warehouse cache to avoid re-fetching on every request
-    private List<WarehouseDto>? _warehouseCache;
-    private DateTime _warehouseCacheExpiry = DateTime.MinValue;
-    private readonly SemaphoreSlim _warehouseCacheLock = new(1, 1);
+    private const string WarehouseCacheKey = "SAP_Warehouses";
+    private static readonly SemaphoreSlim _warehouseCacheLock = new(1, 1);
 
     // Regex for validating SAP identifiers (item codes, warehouse codes, card codes, etc.)
     // Allows alphanumeric, dashes, underscores, dots, spaces, forward slashes
@@ -63,11 +63,13 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public SAPServiceLayerClient(
         HttpClient httpClient,
         IOptions<SAPSettings> settings,
-        ILogger<SAPServiceLayerClient> logger)
+        ILogger<SAPServiceLayerClient> logger,
+        IMemoryCache memoryCache)
     {
         _httpClient = httpClient;
         _settings = settings.Value;
         _logger = logger;
+        _memoryCache = memoryCache;
     }
 
     private async Task EnsureAuthenticatedAsync(CancellationToken cancellationToken)
@@ -676,6 +678,74 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         }
 
         _logger.LogInformation("Retrieved {Count} invoices for customer {CardCode}", allInvoices.Count, cardCode);
+        return allInvoices;
+    }
+
+    public async Task<List<Invoice>> GetInvoicesByCustomerAsync(
+        string cardCode,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var safeCardCode = SanitizeODataValue(cardCode);
+        var fromDateStr = fromDate.ToString("yyyy-MM-dd");
+        var toDateStr = toDate.ToString("yyyy-MM-dd");
+        var allInvoices = new List<Invoice>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
+
+        while (hasMore)
+        {
+            var url = $"Invoices?$filter=CardCode eq '{safeCardCode}' and DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                _sessionId = null;
+                await EnsureAuthenticatedAsync(cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get invoices for customer {CardCode} in date range: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
+                throw new Exception($"Failed to get invoices: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<Invoice>>(valueArray.GetRawText()) ?? new List<Invoice>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allInvoices.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
+        }
+
+        _logger.LogInformation("Retrieved {Count} invoices for customer {CardCode} between {From} and {To}",
+            allInvoices.Count, cardCode, fromDateStr, toDateStr);
         return allInvoices;
     }
 
@@ -3243,24 +3313,22 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
     public async Task<List<WarehouseDto>> GetWarehousesAsync(CancellationToken cancellationToken = default)
     {
-        // Return cached warehouses if still valid (5 min TTL)
-        if (_warehouseCache != null && DateTime.UtcNow < _warehouseCacheExpiry)
+        if (_memoryCache.TryGetValue(WarehouseCacheKey, out List<WarehouseDto>? cached) && cached != null)
         {
-            return _warehouseCache;
+            return cached;
         }
 
         await _warehouseCacheLock.WaitAsync(cancellationToken);
         try
         {
             // Double-check after acquiring lock
-            if (_warehouseCache != null && DateTime.UtcNow < _warehouseCacheExpiry)
+            if (_memoryCache.TryGetValue(WarehouseCacheKey, out cached) && cached != null)
             {
-                return _warehouseCache;
+                return cached;
             }
 
             var result = await GetWarehousesFromSAPAsync(cancellationToken);
-            _warehouseCache = result;
-            _warehouseCacheExpiry = DateTime.UtcNow.AddMinutes(5);
+            _memoryCache.Set(WarehouseCacheKey, result, TimeSpan.FromMinutes(5));
             return result;
         }
         finally
@@ -3398,7 +3466,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
     // Use $select to avoid SAP resolving FK references (e.g., Discount Groups/ODIS) via GetByKey,
     // which causes error -2028 when referenced records are deleted or invalid.
-    private const string BusinessPartnerSelectFields = "$select=CardCode,CardName,CardType,GroupCode,Phone1,Phone2,EmailAddress,Address,City,Country,Currency,CurrentAccountBalance,Frozen,PriceListNum";
+    private const string BusinessPartnerSelectFields = "$select=CardCode,CardName,CardType,GroupCode,Phone1,Phone2,EmailAddress,Address,City,Country,Currency,CurrentAccountBalance,Frozen,PriceListNum,PayTermGrpCode";
 
     public async Task<List<BusinessPartnerDto>> GetBusinessPartnersAsync(CancellationToken cancellationToken = default)
     {
@@ -3697,7 +3765,8 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             Currency = item.TryGetProperty("Currency", out var currency) ? currency.GetString() : null,
             Balance = item.TryGetProperty("CurrentAccountBalance", out var balance) ? balance.GetDecimal() : null,
             IsActive = !IsFrozen(item),
-            PriceListNum = item.TryGetProperty("PriceListNum", out var priceListNum) ? GetIntOrNull(priceListNum) : null
+            PriceListNum = item.TryGetProperty("PriceListNum", out var priceListNum) ? GetIntOrNull(priceListNum) : null,
+            PayTermGrpCode = item.TryGetProperty("PayTermGrpCode", out var payTermGrpCode) ? GetIntOrNull(payTermGrpCode) : null
         };
     }
 
@@ -3723,6 +3792,63 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             JsonValueKind.False => false,
             _ => false
         };
+    }
+
+    #endregion
+
+    #region Payment Terms
+
+    /// <summary>
+    /// Get payment terms configuration from SAP by GroupNumber.
+    /// Returns the term name and the number of additional days/months.
+    /// </summary>
+    public async Task<PaymentTermsDto?> GetPaymentTermsByCodeAsync(int groupNumber, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var url = $"PaymentTermsTypes({groupNumber})?$select=GroupNumber,PaymentTermsGroupName,NumberOfAdditionalDays,NumberOfAdditionalMonths";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            _sessionId = null;
+            await EnsureAuthenticatedAsync(cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Failed to get payment terms {GroupNumber}: {StatusCode}", groupNumber, response.StatusCode);
+            return null;
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        try
+        {
+            using var doc = JsonDocument.Parse(content);
+            var root = doc.RootElement;
+            return new PaymentTermsDto
+            {
+                GroupNumber = root.TryGetProperty("GroupNumber", out var gn) ? gn.GetInt32() : groupNumber,
+                PaymentTermsGroupName = root.TryGetProperty("PaymentTermsGroupName", out var name) ? name.GetString() ?? "" : "",
+                NumberOfAdditionalDays = root.TryGetProperty("NumberOfAdditionalDays", out var days) ? days.GetInt32() : 0,
+                NumberOfAdditionalMonths = root.TryGetProperty("NumberOfAdditionalMonths", out var months) ? months.GetInt32() : 0
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse payment terms response for {GroupNumber}", groupNumber);
+            return null;
+        }
     }
 
     #endregion
@@ -6312,6 +6438,70 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var result = JsonSerializer.Deserialize<SAPResponse<SAPCreditNote>>(content);
 
         return result?.Value ?? new List<SAPCreditNote>();
+    }
+
+    public async Task<List<SAPCreditNote>> GetCreditNotesByCustomerAsync(string cardCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var safeCardCode = SanitizeODataValue(cardCode);
+        var fromDateStr = fromDate.ToString("yyyy-MM-dd");
+        var toDateStr = toDate.ToString("yyyy-MM-dd");
+        var allCreditNotes = new List<SAPCreditNote>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
+
+        while (hasMore)
+        {
+            var url = $"CreditNotes?$filter=CardCode eq '{safeCardCode}' and DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                _sessionId = null;
+                await EnsureAuthenticatedAsync(cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get credit notes for customer {CardCode} in date range: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
+                throw new Exception($"Failed to get credit notes for customer in date range: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<SAPCreditNote>>(valueArray.GetRawText()) ?? new List<SAPCreditNote>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allCreditNotes.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
+        }
+
+        _logger.LogInformation("Retrieved {Count} credit notes for customer {CardCode} between {From} and {To}",
+            allCreditNotes.Count, cardCode, fromDateStr, toDateStr);
+        return allCreditNotes;
     }
 
     public async Task<List<SAPCreditNote>> GetCreditNotesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)

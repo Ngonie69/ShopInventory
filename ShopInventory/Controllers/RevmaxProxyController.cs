@@ -59,11 +59,6 @@ public class RevmaxProxyController : ControllerBase
 
             var result = await _revmaxClient.GetCardDetailsAsync(cancellationToken);
 
-            if (result != null && result.Code != "1")
-            {
-                return CreateDeviceErrorResponse(result.Code, result.Message, "GetCardDetails", correlationId, result);
-            }
-
             return Ok(result);
         }
         catch (HttpRequestException ex)
@@ -91,11 +86,6 @@ public class RevmaxProxyController : ControllerBase
             _logger.LogInformation("Getting day status. CorrelationId: {CorrelationId}", correlationId);
 
             var result = await _revmaxClient.GetDayStatusAsync(cancellationToken);
-
-            if (result != null && result.Code != "1")
-            {
-                return CreateDeviceErrorResponse(result.Code, result.Message, "GetDayStatus", correlationId, result);
-            }
 
             return Ok(result);
         }

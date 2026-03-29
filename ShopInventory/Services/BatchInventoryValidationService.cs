@@ -399,6 +399,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
     {
         // Try local database first
         var localBatches = await _dbContext.ProductBatches
+            .AsNoTracking()
             .Include(b => b.Product)
             .Where(b => b.Product.ItemCode == itemCode
                      && b.WarehouseCode == warehouseCode

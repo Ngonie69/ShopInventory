@@ -229,13 +229,17 @@
     <AuthorizeView>
         <Authorized>
             @* ── Overview ── *@
-            <div class="nav-section-label">Overview</div>
-            <NavLink class="snav-link" href="/dashboard" Match="NavLinkMatch.All">
-                <span class="snav-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.Dashboard" />
-                </span>
-                <span class="snav-text">Dashboard</span>
-            </NavLink>
+            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="dashboardCtx">
+                <Authorized>
+                    <div class="nav-section-label">Overview</div>
+                    <NavLink class="snav-link" href="/dashboard" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Dashboard" />
+                        </span>
+                        <span class="snav-text">Dashboard</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
 
             @* ── Sales & Billing ── *@
             <AuthorizeView Roles="Admin,Cashier" Context="invoiceCtx">
@@ -344,79 +348,104 @@
             </AuthorizeView>
 
             @* ── Catalogue ── *@
-            <div class="nav-section-label">Catalogue</div>
-            <NavLink class="snav-link" href="/products" Match="NavLinkMatch.Prefix">
-                <span class="snav-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.Inventory2" />
-                </span>
-                <span class="snav-text">Products</span>
-            </NavLink>
-            <NavLink class="snav-link" href="/stock" Match="NavLinkMatch.Prefix">
-                <span class="snav-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.BarChart" />
-                </span>
-                <span class="snav-text">Stock Monitoring</span>
-            </NavLink>
-            <NavLink class="snav-link" href="/customers" Match="NavLinkMatch.Prefix">
-                <span class="snav-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.People" />
-                </span>
-                <span class="snav-text">Customers</span>
-            </NavLink>
-            <NavLink class="snav-link" href="/gl-accounts" Match="NavLinkMatch.Prefix">
-                <span class="snav-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.AccountBalance" />
-                </span>
-                <span class="snav-text">G/L Accounts</span>
-            </NavLink>
+            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="catalogueCtx">
+                <Authorized>
+                    <div class="nav-section-label">Catalogue</div>
+                    <NavLink class="snav-link" href="/products" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Inventory2" />
+                        </span>
+                        <span class="snav-text">Products</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/stock" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.BarChart" />
+                        </span>
+                        <span class="snav-text">Stock Monitoring</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/customers" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.People" />
+                        </span>
+                        <span class="snav-text">Customers</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/gl-accounts" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.AccountBalance" />
+                        </span>
+                        <span class="snav-text">G/L Accounts</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
 
             @* ── Insights ── *@
-            <div class="nav-section-label">Insights</div>
-            <NavLink class="snav-link" href="/reports" Match="NavLinkMatch.Prefix">
-                <span class="snav-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.TrendingUp" />
-                </span>
-                <span class="snav-text">Reports</span>
-            </NavLink>
-            <NavLink class="snav-link" href="/pods" Match="NavLinkMatch.Prefix">
-                <span class="snav-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
-                </span>
-                <span class="snav-text">Proof of Delivery</span>
-            </NavLink>
-            <NavLink class="snav-link" href="/document-templates" Match="NavLinkMatch.Prefix">
-                <span class="snav-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.Description" />
-                </span>
-                <span class="snav-text">Templates</span>
-            </NavLink>
-            <NavLink class="snav-link" href="/ai-assistant" Match="NavLinkMatch.Prefix">
-                <span class="snav-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.SmartToy" />
-                </span>
-                <span class="snav-text">AI Assistant</span>
-            </NavLink>
+            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="insightsCtx">
+                <Authorized>
+                    <div class="nav-section-label">Insights</div>
+                    <NavLink class="snav-link" href="/reports" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.TrendingUp" />
+                        </span>
+                        <span class="snav-text">Reports</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
+            <AuthorizeView Roles="Admin,Cashier,PodOperator" Context="podCtx">
+                <Authorized>
+                    <AuthorizeView Roles="PodOperator" Context="podLabelCtx">
+                        <Authorized>
+                            <div class="nav-section-label">Insights</div>
+                        </Authorized>
+                    </AuthorizeView>
+                    <NavLink class="snav-link" href="/pods" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
+                        </span>
+                        <span class="snav-text">Proof of Delivery</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
+            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="insightsExtraCtx">
+                <Authorized>
+                    <NavLink class="snav-link" href="/document-templates" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Description" />
+                        </span>
+                        <span class="snav-text">Templates</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/ai-assistant" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.SmartToy" />
+                        </span>
+                        <span class="snav-text">AI Assistant</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
 
             @* ── System ── *@
-            <div class="nav-section-label">System</div>
-            <NavLink class="snav-link" href="/sync-status" Match="NavLinkMatch.Prefix">
-                <span class="snav-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.Sync" />
-                </span>
-                <span class="snav-text">Sync Status</span>
-            </NavLink>
-            <NavLink class="snav-link" href="/notifications" Match="NavLinkMatch.Prefix">
-                <span class="snav-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.Notifications" />
-                </span>
-                <span class="snav-text">Notifications</span>
-            </NavLink>
-            <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
-                <span class="snav-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.Security" />
-                </span>
-                <span class="snav-text">Security</span>
-            </NavLink>
+            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="systemCtx">
+                <Authorized>
+                    <div class="nav-section-label">System</div>
+                    <NavLink class="snav-link" href="/sync-status" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Sync" />
+                        </span>
+                        <span class="snav-text">Sync Status</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/notifications" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Notifications" />
+                        </span>
+                        <span class="snav-text">Notifications</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Security" />
+                        </span>
+                        <span class="snav-text">Security</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
 
             <AuthorizeView Roles="Admin" Context="revmaxCtx">
                 <Authorized>

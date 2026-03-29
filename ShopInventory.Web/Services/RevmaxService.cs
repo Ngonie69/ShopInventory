@@ -18,6 +18,7 @@ public class RevmaxService : IRevmaxService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<RevmaxService> _logger;
+    private static readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
 
     public RevmaxService(HttpClient httpClient, ILogger<RevmaxService> logger)
     {
@@ -29,12 +30,22 @@ public class RevmaxService : IRevmaxService
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<RevmaxCardDetailsResponse>("api/revmax/card-details");
+            var response = await _httpClient.GetAsync("api/revmax/card-details");
+            var content = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Card details returned {StatusCode}: {Content}", (int)response.StatusCode, content);
+                return new RevmaxCardDetailsResponse { Code = "0", Message = $"API returned {(int)response.StatusCode}" };
+            }
+
+            if (string.IsNullOrWhiteSpace(content)) return null;
+            return JsonSerializer.Deserialize<RevmaxCardDetailsResponse>(content, _jsonOptions);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get REVMax card details");
-            return null;
+            return new RevmaxCardDetailsResponse { Code = "0", Message = "Connection error: " + ex.Message };
         }
     }
 
@@ -55,12 +66,22 @@ public class RevmaxService : IRevmaxService
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<RevmaxLicenseResponse>("api/revmax/license");
+            var response = await _httpClient.GetAsync("api/revmax/license");
+            var content = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("License returned {StatusCode}: {Content}", (int)response.StatusCode, content);
+                return new RevmaxLicenseResponse { Code = "0", Message = $"API returned {(int)response.StatusCode}" };
+            }
+
+            if (string.IsNullOrWhiteSpace(content)) return null;
+            return JsonSerializer.Deserialize<RevmaxLicenseResponse>(content, _jsonOptions);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get REVMax license");
-            return null;
+            return new RevmaxLicenseResponse { Code = "0", Message = "Connection error: " + ex.Message };
         }
     }
 

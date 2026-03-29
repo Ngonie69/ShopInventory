@@ -86,16 +86,20 @@ public class NotificationService : INotificationService
             query = query.Where(n => n.Category == category);
         }
 
-        var totalCount = await query.CountAsync(cancellationToken);
-        var unreadCount = await query.CountAsync(n => !n.IsRead, cancellationToken);
+        var counts = await query
+            .GroupBy(n => 1)
+            .Select(g => new { Total = g.Count(), Unread = g.Count(n => !n.IsRead) })
+            .FirstOrDefaultAsync(cancellationToken);
+        var totalCount = counts?.Total ?? 0;
+        var unreadCount = counts?.Unread ?? 0;
 
-        var notificationEntities = await query
+        var notifications = (await query
             .OrderByDescending(n => n.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToListAsync(cancellationToken);
-
-        var notifications = notificationEntities.Select(n => MapToDto(n)).ToList();
+            .ToListAsync(cancellationToken))
+            .Select(n => MapToDto(n))
+            .ToList();
 
         return new NotificationListResponseDto
         {

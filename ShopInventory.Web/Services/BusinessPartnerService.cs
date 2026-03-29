@@ -11,6 +11,7 @@ public interface IBusinessPartnerService
     Task<BusinessPartnerListResponse?> GetBusinessPartnersByTypeAsync(string cardType);
     Task<BusinessPartnerListResponse?> SearchBusinessPartnersAsync(string searchTerm);
     Task<BusinessPartnerDto?> GetBusinessPartnerByCodeAsync(string cardCode);
+    Task<PaymentTermsDto?> GetPaymentTermsAsync(int groupNumber);
 
     // Cached operations - use local database
     Task<BusinessPartnerListResponse?> GetCachedBusinessPartnersAsync();
@@ -87,6 +88,19 @@ public class BusinessPartnerService : IBusinessPartnerService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching business partner by code from API");
+            return null;
+        }
+    }
+
+    public async Task<PaymentTermsDto?> GetPaymentTermsAsync(int groupNumber)
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<PaymentTermsDto>($"api/businesspartner/paymentterms/{groupNumber}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching payment terms {GroupNumber} from API", groupNumber);
             return null;
         }
     }

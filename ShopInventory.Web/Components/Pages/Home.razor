@@ -1,10 +1,13 @@
 ﻿@page "/"
 @page "/dashboard"
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @attribute [Authorize]
 @inject IInvoiceService InvoiceService
 @inject IPaymentService PaymentService
 @inject IInventoryTransferService TransferService
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthStateProvider
 @rendermode InteractiveServer
 
 <PageTitle>Dashboard - Shop Inventory</PageTitle>
@@ -173,7 +176,7 @@
                                             <td><span class="badge bg-primary">@invoice.DocNum</span></td>
                                             <td>@invoice.CardName</td>
                                             <td>@(DateTime.TryParse(invoice.DocDate, out var invoiceDate) ?
-                                                                                                                                                                                        invoiceDate.ToString("dd MMM yyyy") : invoice.DocDate)</td>
+                                                                                                                                                                                                                                        invoiceDate.ToString("dd MMM yyyy") : invoice.DocDate)</td>
                                                 <td class="text-end fw-semibold">@invoice.DocCurrency
                                                     @invoice.DocTotal.ToString("N2")</td>
                                                 </tr>
@@ -242,7 +245,7 @@
                                                     <td><span class="badge bg-success">@payment.DocNum</span></td>
                                                     <td>@payment.CardName</td>
                                                     <td>@(DateTime.TryParse(payment.DocDate, out var paymentDate) ?
-                                                                                                                                                                                                        paymentDate.ToString("dd MMM yyyy") : payment.DocDate)</td>
+                                                                                                                                                                                                                                                                paymentDate.ToString("dd MMM yyyy") : payment.DocDate)</td>
                                                         <td class="text-end fw-semibold">@payment.DocCurrency
                                                             @payment.DocTotal.ToString("N2")</td>
                                                         </tr>
@@ -352,12 +355,28 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Redirect PodOperator users to POD page — they have no dashboard access
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.IsInRole("PodOperator"))
+        {
+            Navigation.NavigateTo("/pods", replace: true);
+            return;
+        }
+
         await LoadDashboardData();
     }
 
     private async Task LoadDashboardData()
     {
-        // Load invoices
+        // Load invoices and payments in parallel for faster dashboard load
+        var invoiceTask = LoadInvoicesAsync();
+        var paymentTask = LoadPaymentsAsync();
+        await Task.WhenAll(invoiceTask, paymentTask);
+    }
+
+    private async Task LoadInvoicesAsync()
+    {
         try
         {
             var invoiceResponse = await InvoiceService.GetInvoicesAsync(1, 10);
@@ -369,14 +388,17 @@
         }
         catch
         {
-            // Handle error silently
+            // API unavailable — leave defaults
         }
         finally
         {
             isLoadingInvoices = false;
+            await InvokeAsync(StateHasChanged);
         }
+    }
 
-        // Load payments
+    private async Task LoadPaymentsAsync()
+    {
         try
         {
             var paymentResponse = await PaymentService.GetPaymentsAsync(1, 10);
@@ -388,11 +410,12 @@
         }
         catch
         {
-            // Handle error silently
+            // API unavailable — leave defaults
         }
         finally
         {
             isLoadingPayments = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 }

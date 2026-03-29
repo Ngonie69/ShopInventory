@@ -92,12 +92,12 @@ public class UserManagementService : IUserManagementService
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            search = search.ToLower();
+            var pattern = $"%{search}%";
             query = query.Where(u =>
-                u.Username.ToLower().Contains(search) ||
-                (u.Email != null && u.Email.ToLower().Contains(search)) ||
-                (u.FirstName != null && u.FirstName.ToLower().Contains(search)) ||
-                (u.LastName != null && u.LastName.ToLower().Contains(search)));
+                EF.Functions.ILike(u.Username, pattern) ||
+                (u.Email != null && EF.Functions.ILike(u.Email, pattern)) ||
+                (u.FirstName != null && EF.Functions.ILike(u.FirstName, pattern)) ||
+                (u.LastName != null && EF.Functions.ILike(u.LastName, pattern)));
         }
 
         if (!string.IsNullOrWhiteSpace(role))
@@ -149,7 +149,7 @@ public class UserManagementService : IUserManagementService
         }
 
         // Validate role
-        var validRoles = new[] { "Admin", "Manager", "User", "ReadOnly", "Cashier", "StockController", "DepotController" };
+        var validRoles = new[] { "Admin", "Manager", "User", "ReadOnly", "Cashier", "StockController", "DepotController", "PodOperator" };
         if (!validRoles.Contains(request.Role))
         {
             return ServiceResult<UserDetailDto>.Failure($"Invalid role. Valid roles: {string.Join(", ", validRoles)}");
@@ -238,7 +238,7 @@ public class UserManagementService : IUserManagementService
         // Update role if provided
         if (!string.IsNullOrWhiteSpace(request.Role))
         {
-            var validRoles = new[] { "Admin", "Manager", "User", "ReadOnly", "Cashier", "StockController", "DepotController" };
+            var validRoles = new[] { "Admin", "Manager", "User", "ReadOnly", "Cashier", "StockController", "DepotController", "PodOperator" };
             if (!validRoles.Contains(request.Role))
             {
                 return ServiceResult.Failure($"Invalid role. Valid roles: {string.Join(", ", validRoles)}");

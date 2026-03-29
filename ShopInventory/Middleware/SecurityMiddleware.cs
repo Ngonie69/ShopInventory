@@ -79,13 +79,25 @@ public class SecurityHeadersMiddleware
         // Permissions Policy - restrict browser features
         headers["Permissions-Policy"] = "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=(), interest-cohort=()";
 
-        // Prevent caching of API responses with sensitive data
+        // Cache-Control: allow browser caching for safe GET read endpoints,
+        // but prevent caching for auth/sensitive/mutation requests
         if (!headers.ContainsKey("Cache-Control"))
         {
-            headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
+            var method = context.Request.Method;
+            var isSafeReadEndpoint = HttpMethods.IsGet(method) && !IsSensitivePath(path);
+
+            if (isSafeReadEndpoint)
+            {
+                // Allow private (browser-only) caching for 60s on safe GET endpoints
+                headers["Cache-Control"] = "private, max-age=60, must-revalidate";
+            }
+            else
+            {
+                headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
+                headers["Pragma"] = "no-cache";
+                headers["Expires"] = "0";
+            }
         }
-        headers["Pragma"] = "no-cache";
-        headers["Expires"] = "0";
 
         // Cross-Origin policies (relaxed for Swagger to load UI assets)
         if (isSwaggerPath)
@@ -103,6 +115,19 @@ public class SecurityHeadersMiddleware
         // Remove server identification headers
         headers.Remove("Server");
         headers.Remove("X-Powered-By");
+    }
+
+    /// <summary>
+    /// Paths that contain sensitive data and must never be cached by browsers.
+    /// </summary>
+    private static bool IsSensitivePath(string path)
+    {
+        return path.StartsWith("/api/auth") ||
+               path.StartsWith("/api/user") ||
+               path.StartsWith("/api/password") ||
+               path.StartsWith("/api/customerportal/auth") ||
+               path.StartsWith("/api/backup") ||
+               path.StartsWith("/swagger");
     }
 }
 

@@ -859,6 +859,17 @@ public class MasterDataCacheService : IMasterDataCacheService
     public void StorePriceListPrices(int priceListNum, Dictionary<string, decimal> prices)
     {
         _cachedPriceListPrices[priceListNum] = (prices, DateTime.Now);
+
+        // Evict expired entries to prevent unbounded memory growth
+        foreach (var key in _cachedPriceListPrices.Keys)
+        {
+            if (_cachedPriceListPrices.TryGetValue(key, out var entry) &&
+                (DateTime.Now - entry.LoadedAt) > PriceListCacheDuration)
+            {
+                _cachedPriceListPrices.TryRemove(key, out _);
+            }
+        }
+
         _logger.LogDebug("Stored {Count} prices for price list {PriceListNum} in memory cache",
             prices.Count, priceListNum);
     }

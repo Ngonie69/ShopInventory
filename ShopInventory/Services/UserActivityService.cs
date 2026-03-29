@@ -13,12 +13,12 @@ public interface IUserActivityService
     /// <summary>
     /// Get activity summary for a specific user
     /// </summary>
-    Task<UserActivitySummary> GetUserActivitySummaryAsync(Guid userId, int recentCount = 20);
+    Task<UserActivitySummary> GetUserActivitySummaryAsync(Guid userId, int recentCount = 20, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Get user activity dashboard data
     /// </summary>
-    Task<UserActivityDashboard> GetDashboardAsync(DateTime? startDate = null, DateTime? endDate = null);
+    Task<UserActivityDashboard> GetDashboardAsync(DateTime? startDate = null, DateTime? endDate = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Get recent activities with pagination
@@ -30,12 +30,13 @@ public interface IUserActivityService
         string? action = null,
         string? entityType = null,
         DateTime? startDate = null,
-        DateTime? endDate = null);
+        DateTime? endDate = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Get activities for a specific entity
     /// </summary>
-    Task<List<UserActivityItem>> GetEntityActivitiesAsync(string entityType, string entityId);
+    Task<List<UserActivityItem>> GetEntityActivitiesAsync(string entityType, string entityId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -52,9 +53,9 @@ public class UserActivityService : IUserActivityService
         _logger = logger;
     }
 
-    public async Task<UserActivitySummary> GetUserActivitySummaryAsync(Guid userId, int recentCount = 20)
+    public async Task<UserActivitySummary> GetUserActivitySummaryAsync(Guid userId, int recentCount = 20, CancellationToken cancellationToken = default)
     {
-        var user = await _context.Users.FindAsync(userId);
+        var user = await _context.Users.FindAsync(new object[] { userId }, cancellationToken);
         if (user == null)
         {
             throw new InvalidOperationException("User not found");
@@ -68,13 +69,13 @@ public class UserActivityService : IUserActivityService
         var userLogs = _context.Set<AuditLog>()
             .Where(a => a.UserId == userId.ToString());
 
-        var totalActions = await userLogs.CountAsync();
-        var actionsToday = await userLogs.Where(a => a.Timestamp >= today).CountAsync();
-        var actionsThisWeek = await userLogs.Where(a => a.Timestamp >= weekStart).CountAsync();
+        var totalActions = await userLogs.CountAsync(cancellationToken);
+        var actionsToday = await userLogs.Where(a => a.Timestamp >= today).CountAsync(cancellationToken);
+        var actionsThisWeek = await userLogs.Where(a => a.Timestamp >= weekStart).CountAsync(cancellationToken);
 
         var lastActivity = await userLogs
             .OrderByDescending(a => a.Timestamp)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(cancellationToken);
 
         var recentActivities = await userLogs
             .OrderByDescending(a => a.Timestamp)
@@ -90,7 +91,7 @@ public class UserActivityService : IUserActivityService
                 IsSuccess = a.IsSuccess,
                 Timestamp = a.Timestamp
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return new UserActivitySummary
         {
@@ -105,7 +106,7 @@ public class UserActivityService : IUserActivityService
         };
     }
 
-    public async Task<UserActivityDashboard> GetDashboardAsync(DateTime? startDate = null, DateTime? endDate = null)
+    public async Task<UserActivityDashboard> GetDashboardAsync(DateTime? startDate = null, DateTime? endDate = null, CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
         startDate ??= now.Date;
@@ -119,10 +120,10 @@ public class UserActivityService : IUserActivityService
             .Where(a => a.UserId != null)
             .Select(a => a.UserId)
             .Distinct()
-            .CountAsync();
+            .CountAsync(cancellationToken);
 
         // Get total actions today
-        var actionsToday = await query.CountAsync();
+        var actionsToday = await query.CountAsync(cancellationToken);
 
         // Get most active users
         var userActivity = await query
@@ -136,26 +137,32 @@ public class UserActivityService : IUserActivityService
             })
             .OrderByDescending(x => x.Count)
             .Take(10)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
-        var mostActiveUsers = new List<UserActivitySummary>();
-        foreach (var ua in userActivity)
-        {
-            if (Guid.TryParse(ua.UserId, out var userId))
+        // Batch-load all users in a single query instead of N+1 individual lookups
+        var userIds = userActivity
+            .Where(ua => Guid.TryParse(ua.UserId, out _))
+            .Select(ua => Guid.Parse(ua.UserId!))
+            .ToList();
+
+        var users = await _context.Users
+            .Where(u => userIds.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, cancellationToken);
+
+        var mostActiveUsers = userActivity
+            .Where(ua => Guid.TryParse(ua.UserId, out var uid) && users.ContainsKey(uid))
+            .Select(ua =>
             {
-                var user = await _context.Users.FindAsync(userId);
-                if (user != null)
+                var uid = Guid.Parse(ua.UserId!);
+                return new UserActivitySummary
                 {
-                    mostActiveUsers.Add(new UserActivitySummary
-                    {
-                        UserId = userId,
-                        Username = user.Username,
-                        TotalActions = ua.Count,
-                        LastActivityAt = ua.LastActivity
-                    });
-                }
-            }
-        }
+                    UserId = uid,
+                    Username = users[uid].Username,
+                    TotalActions = ua.Count,
+                    LastActivityAt = ua.LastActivity
+                };
+            })
+            .ToList();
 
         // Get action breakdown
         var actionBreakdown = await query
@@ -167,7 +174,7 @@ public class UserActivityService : IUserActivityService
             })
             .OrderByDescending(x => x.Count)
             .Take(10)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         // Get hourly activity
         var hourlyActivity = await query
@@ -178,7 +185,7 @@ public class UserActivityService : IUserActivityService
                 Count = g.Count()
             })
             .OrderBy(x => x.Hour)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         // Fill in missing hours with 0
         var allHours = Enumerable.Range(0, 24)
@@ -206,7 +213,8 @@ public class UserActivityService : IUserActivityService
         string? action = null,
         string? entityType = null,
         DateTime? startDate = null,
-        DateTime? endDate = null)
+        DateTime? endDate = null,
+        CancellationToken cancellationToken = default)
     {
         var query = _context.Set<AuditLog>().AsQueryable();
 
@@ -236,7 +244,7 @@ public class UserActivityService : IUserActivityService
             query = query.Where(a => a.Timestamp <= endDate.Value);
         }
 
-        var totalCount = await query.CountAsync();
+        var totalCount = await query.CountAsync(cancellationToken);
 
         var items = await query
             .OrderByDescending(a => a.Timestamp)
@@ -253,7 +261,7 @@ public class UserActivityService : IUserActivityService
                 IsSuccess = a.IsSuccess,
                 Timestamp = a.Timestamp
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return new PagedResult<UserActivityItem>
         {
@@ -264,7 +272,7 @@ public class UserActivityService : IUserActivityService
         };
     }
 
-    public async Task<List<UserActivityItem>> GetEntityActivitiesAsync(string entityType, string entityId)
+    public async Task<List<UserActivityItem>> GetEntityActivitiesAsync(string entityType, string entityId, CancellationToken cancellationToken = default)
     {
         return await _context.Set<AuditLog>()
             .Where(a => a.EntityType == entityType && a.EntityId == entityId)
@@ -281,6 +289,6 @@ public class UserActivityService : IUserActivityService
                 IsSuccess = a.IsSuccess,
                 Timestamp = a.Timestamp
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 }
