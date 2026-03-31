@@ -2,6 +2,9 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Processing;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -419,10 +422,26 @@ public class DocumentService : IDocumentService
 
     #region Document Attachments
 
+    /// <summary>
+    /// Image MIME types eligible for compression.
+    /// </summary>
+    private static readonly HashSet<string> CompressibleImageTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/jpeg", "image/png", "image/webp"
+    };
+
+    /// <summary>Max dimension (width or height) for uploaded images.</summary>
+    private const int MaxImageDimension = 1920;
+
+    /// <summary>JPEG quality for compressed images (1-100).</summary>
+    private const int JpegCompressionQuality = 75;
+
     public async Task<DocumentAttachmentDto> UploadAttachmentAsync(UploadAttachmentRequest request, Stream fileStream, string fileName, string mimeType, Guid? userId, CancellationToken cancellationToken = default)
     {
-        // Generate unique filename
-        var fileExtension = Path.GetExtension(fileName);
+        var isCompressibleImage = CompressibleImageTypes.Contains(mimeType);
+
+        // Compressed images are always saved as JPEG
+        var fileExtension = isCompressibleImage ? ".jpg" : Path.GetExtension(fileName);
         var storedFileName = $"{Guid.NewGuid()}{fileExtension}";
         var attachmentPath = Path.Combine(_uploadPath, "attachments", request.EntityType, request.EntityId.ToString());
 
@@ -431,9 +450,16 @@ public class DocumentService : IDocumentService
 
         var fullPath = Path.Combine(attachmentPath, storedFileName);
 
-        // Save file
-        using (var fileStreamDisk = File.Create(fullPath))
+        if (isCompressibleImage)
         {
+            // Compress and resize the image before saving
+            await CompressAndSaveImageAsync(fileStream, fullPath, cancellationToken);
+            mimeType = "image/jpeg";
+        }
+        else
+        {
+            // Save non-image files as-is
+            using var fileStreamDisk = File.Create(fullPath);
             await fileStream.CopyToAsync(fileStreamDisk, cancellationToken);
         }
 
@@ -459,6 +485,28 @@ public class DocumentService : IDocumentService
         await _context.SaveChangesAsync(cancellationToken);
 
         return MapToDto(attachment);
+    }
+
+    private async Task CompressAndSaveImageAsync(Stream sourceStream, string outputPath, CancellationToken cancellationToken)
+    {
+        using var image = await Image.LoadAsync(sourceStream, cancellationToken);
+
+        // Resize if larger than max dimension while preserving aspect ratio
+        if (image.Width > MaxImageDimension || image.Height > MaxImageDimension)
+        {
+            var options = new ResizeOptions
+            {
+                Mode = ResizeMode.Max,
+                Size = new Size(MaxImageDimension, MaxImageDimension)
+            };
+            image.Mutate(x => x.Resize(options));
+        }
+
+        // Auto-orient based on EXIF data (phone photos are often rotated)
+        image.Mutate(x => x.AutoOrient());
+
+        var encoder = new JpegEncoder { Quality = JpegCompressionQuality };
+        await image.SaveAsync(outputPath, encoder, cancellationToken);
     }
 
     public async Task<DocumentAttachmentListResponseDto> GetAttachmentsAsync(string entityType, int entityId, CancellationToken cancellationToken = default)

@@ -1,5 +1,6 @@
 using ShopInventory.Web.Models;
 using System.Net.Http.Json;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace ShopInventory.Web.Services;
 
@@ -29,22 +30,29 @@ public class ReportService : IReportService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<ReportService> _logger;
+    private readonly IMemoryCache _cache;
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(10);
 
-    public ReportService(HttpClient httpClient, ILogger<ReportService> logger)
+    public ReportService(HttpClient httpClient, ILogger<ReportService> logger, IMemoryCache cache)
     {
         _httpClient = httpClient;
         _logger = logger;
+        _cache = cache;
     }
 
     public async Task<SalesSummaryReport?> GetSalesSummaryAsync(DateTime? fromDate, DateTime? toDate)
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var cacheKey = $"report:sales:{from}:{to}";
+        if (_cache.TryGetValue(cacheKey, out SalesSummaryReport? cached)) return cached;
         try
         {
             var response = await _httpClient.GetAsync($"api/report/sales-summary?fromDate={from}&toDate={to}");
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<SalesSummaryReport>();
+            var result = await response.Content.ReadFromJsonAsync<SalesSummaryReport>();
+            _cache.Set(cacheKey, result, CacheDuration);
+            return result;
         }
         catch (HttpRequestException ex)
         {
@@ -57,11 +65,15 @@ public class ReportService : IReportService
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var cacheKey = $"report:topproducts:{from}:{to}:{topCount}";
+        if (_cache.TryGetValue(cacheKey, out TopProductsReport? cached)) return cached;
         try
         {
             var response = await _httpClient.GetAsync($"api/report/top-products?fromDate={from}&toDate={to}&topCount={topCount}");
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<TopProductsReport>();
+            var result = await response.Content.ReadFromJsonAsync<TopProductsReport>();
+            _cache.Set(cacheKey, result, CacheDuration);
+            return result;
         }
         catch (HttpRequestException ex)
         {
@@ -75,11 +87,15 @@ public class ReportService : IReportService
         var url = "api/report/stock-summary";
         if (!string.IsNullOrEmpty(warehouseCode))
             url += $"?warehouseCode={warehouseCode}";
+        var cacheKey = $"report:stock:{warehouseCode}";
+        if (_cache.TryGetValue(cacheKey, out StockSummaryReport? cached)) return cached;
         try
         {
             var response = await _httpClient.GetAsync(url);
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<StockSummaryReport>();
+            var result = await response.Content.ReadFromJsonAsync<StockSummaryReport>();
+            _cache.Set(cacheKey, result, CacheDuration);
+            return result;
         }
         catch (HttpRequestException ex)
         {
@@ -98,11 +114,15 @@ public class ReportService : IReportService
             parameters.Add($"threshold={threshold}");
         if (parameters.Any())
             url += "?" + string.Join("&", parameters);
+        var cacheKey = $"report:lowstock:{warehouseCode}:{threshold}";
+        if (_cache.TryGetValue(cacheKey, out LowStockAlertReport? cached)) return cached;
         try
         {
             var response = await _httpClient.GetAsync(url);
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<LowStockAlertReport>();
+            var result = await response.Content.ReadFromJsonAsync<LowStockAlertReport>();
+            _cache.Set(cacheKey, result, CacheDuration);
+            return result;
         }
         catch (HttpRequestException ex)
         {
@@ -115,11 +135,15 @@ public class ReportService : IReportService
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var cacheKey = $"report:payments:{from}:{to}";
+        if (_cache.TryGetValue(cacheKey, out PaymentSummaryReport? cached)) return cached;
         try
         {
             var response = await _httpClient.GetAsync($"api/report/payment-summary?fromDate={from}&toDate={to}");
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<PaymentSummaryReport>();
+            var result = await response.Content.ReadFromJsonAsync<PaymentSummaryReport>();
+            _cache.Set(cacheKey, result, CacheDuration);
+            return result;
         }
         catch (HttpRequestException ex)
         {
@@ -132,11 +156,15 @@ public class ReportService : IReportService
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var cacheKey = $"report:topcustomers:{from}:{to}:{topCount}";
+        if (_cache.TryGetValue(cacheKey, out TopCustomersReport? cached)) return cached;
         try
         {
             var response = await _httpClient.GetAsync($"api/report/top-customers?fromDate={from}&toDate={to}&topCount={topCount}");
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<TopCustomersReport>();
+            var result = await response.Content.ReadFromJsonAsync<TopCustomersReport>();
+            _cache.Set(cacheKey, result, CacheDuration);
+            return result;
         }
         catch (HttpRequestException ex)
         {
@@ -149,11 +177,15 @@ public class ReportService : IReportService
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var cacheKey = $"report:fulfillment:{from}:{to}";
+        if (_cache.TryGetValue(cacheKey, out OrderFulfillmentReport? cached)) return cached;
         try
         {
             var response = await _httpClient.GetAsync($"api/report/order-fulfillment?fromDate={from}&toDate={to}");
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<OrderFulfillmentReport>();
+            var result = await response.Content.ReadFromJsonAsync<OrderFulfillmentReport>();
+            _cache.Set(cacheKey, result, CacheDuration);
+            return result;
         }
         catch (HttpRequestException ex)
         {
@@ -166,11 +198,15 @@ public class ReportService : IReportService
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var cacheKey = $"report:creditnotes:{from}:{to}";
+        if (_cache.TryGetValue(cacheKey, out CreditNoteSummaryReport? cached)) return cached;
         try
         {
             var response = await _httpClient.GetAsync($"api/report/credit-notes?fromDate={from}&toDate={to}");
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<CreditNoteSummaryReport>();
+            var result = await response.Content.ReadFromJsonAsync<CreditNoteSummaryReport>();
+            _cache.Set(cacheKey, result, CacheDuration);
+            return result;
         }
         catch (HttpRequestException ex)
         {
@@ -183,11 +219,15 @@ public class ReportService : IReportService
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var cacheKey = $"report:purchasing:{from}:{to}";
+        if (_cache.TryGetValue(cacheKey, out PurchaseOrderSummaryReport? cached)) return cached;
         try
         {
             var response = await _httpClient.GetAsync($"api/report/purchase-orders?fromDate={from}&toDate={to}");
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<PurchaseOrderSummaryReport>();
+            var result = await response.Content.ReadFromJsonAsync<PurchaseOrderSummaryReport>();
+            _cache.Set(cacheKey, result, CacheDuration);
+            return result;
         }
         catch (HttpRequestException ex)
         {
@@ -198,11 +238,15 @@ public class ReportService : IReportService
 
     public async Task<ReceivablesAgingReport?> GetReceivablesAgingAsync()
     {
+        var cacheKey = "report:aging";
+        if (_cache.TryGetValue(cacheKey, out ReceivablesAgingReport? cached)) return cached;
         try
         {
             var response = await _httpClient.GetAsync("api/report/receivables-aging");
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<ReceivablesAgingReport>();
+            var result = await response.Content.ReadFromJsonAsync<ReceivablesAgingReport>();
+            _cache.Set(cacheKey, result, CacheDuration);
+            return result;
         }
         catch (HttpRequestException ex)
         {
@@ -215,11 +259,15 @@ public class ReportService : IReportService
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var cacheKey = $"report:profit:{from}:{to}";
+        if (_cache.TryGetValue(cacheKey, out ProfitOverviewReport? cached)) return cached;
         try
         {
             var response = await _httpClient.GetAsync($"api/report/profit-overview?fromDate={from}&toDate={to}");
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<ProfitOverviewReport>();
+            var result = await response.Content.ReadFromJsonAsync<ProfitOverviewReport>();
+            _cache.Set(cacheKey, result, CacheDuration);
+            return result;
         }
         catch (HttpRequestException ex)
         {
@@ -232,11 +280,15 @@ public class ReportService : IReportService
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-90).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var cacheKey = $"report:slowmoving:{from}:{to}:{daysThreshold}";
+        if (_cache.TryGetValue(cacheKey, out SlowMovingProductsReport? cached)) return cached;
         try
         {
             var response = await _httpClient.GetAsync($"api/report/slow-moving-products?fromDate={from}&toDate={to}&daysThreshold={daysThreshold}");
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<SlowMovingProductsReport>();
+            var result = await response.Content.ReadFromJsonAsync<SlowMovingProductsReport>();
+            _cache.Set(cacheKey, result, CacheDuration);
+            return result;
         }
         catch (HttpRequestException ex)
         {

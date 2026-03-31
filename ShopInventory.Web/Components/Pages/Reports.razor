@@ -119,9 +119,9 @@
                                                 </select>
                                             </div>
                                             <div class="col-md-3">
-                                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100 fw-semibold" OnClick="LoadReports" Disabled="@isLoading"
+                                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100 fw-semibold" OnClick="() => LoadTab(activeTab, forceReload: true)" Disabled="@IsTabLoading(activeTab)"
                                                         Style="border-radius: 8px; background: linear-gradient(135deg, #1a237e, #3949ab); border: none; padding: 0.5rem;">
-                                                    @if (isLoading)
+                                                    @if (IsTabLoading(activeTab))
                                                     {
                                                         <span class="spinner-border spinner-border-sm me-2"></span>
                                                         <span>Loading...</span>
@@ -129,7 +129,7 @@
                                                     else
                                                     {
                                                         <i class="bi bi-lightning-charge me-2"></i>
-                                                        <span>Generate Reports</span>
+                                                        <span>Load @GetTabLabel(activeTab)</span>
                                                     }
                                                 </MudButton>
                                             </div>
@@ -146,23 +146,37 @@
                                 }
 
                                 <div class="card border-0 shadow-sm mb-4" style="border-radius: 12px; overflow: hidden;">
-                                    <div class="card-header bg-white border-bottom-0 pt-3 pb-0 px-4">
-                                        <ul class="nav nav-pills gap-1" role="tablist">
-                                            @foreach (var tab in tabs)
-                                            {
-                                                <li class="nav-item">
-                                                    <MudButton Class="@($"nav-link px-3 py-2 {(activeTab == tab.Key ? "active" : "")}")"
-                                                            Style="@($"border-radius: 8px 8px 0 0; {(activeTab == tab.Key ? "background: linear-gradient(135deg, #1a237e, #3949ab); color: white;" : "color: #555;")}")"
-                                                            OnClick="() => SetActiveTab(tab.Key)">
-                                                        <i class="bi @tab.Icon me-1"></i>@tab.Label
-                                                        @if (tab.Key == "alerts" && lowStockReport?.TotalAlerts > 0)
-                                                        {
-                                                            <span class="badge bg-danger ms-1 rounded-pill">@lowStockReport.TotalAlerts</span>
-                                                        }
-                                                    </MudButton>
-                                                </li>
-                                            }
-                                        </ul>
+                                    <div class="card-header bg-white border-bottom-0 pt-3 pb-0 px-3">
+                                        <div style="overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: thin;">
+                                            <ul class="nav nav-pills flex-nowrap gap-1" role="tablist" style="min-width: max-content; padding-bottom: 4px;">
+                                                @foreach (var tab in tabs)
+                                                {
+                                                    <li class="nav-item">
+                                                        <MudButton Class="@($"nav-link px-3 py-2 {(activeTab == tab.Key ? "active" : "")}")"
+                                                                Style="@($"border-radius: 8px 8px 0 0; white-space: nowrap; font-size: 0.85rem; {(activeTab == tab.Key ? "background: linear-gradient(135deg, #1a237e, #3949ab); color: white;" : "color: #555;")}")"
+                                                                OnClick="() => SetActiveTab(tab.Key)">
+                                                            <i class="bi @tab.Icon me-1"></i>@tab.Label
+                                                            @if (tab.Key == "alerts" && lowStockReport?.TotalAlerts > 0)
+                                                            {
+                                                                <span class="badge bg-danger ms-1 rounded-pill">@lowStockReport.TotalAlerts</span>
+                                                            }
+                                                            @if (IsTabLoading(tab.Key))
+                                                            {
+                                                                <span class="spinner-border spinner-border-sm ms-1" style="width: 12px; height: 12px;"></span>
+                                                            }
+                                                            else if (tabErrors.ContainsKey(tab.Key))
+                                                            {
+                                                                <i class="bi bi-exclamation-circle text-danger ms-1"></i>
+                                                            }
+                                                            else if (loadedTabs.Contains(tab.Key))
+                                                            {
+                                                                <i class="bi bi-check-circle-fill ms-1" style="color: #4caf50; font-size: 0.7rem;"></i>
+                                                            }
+                                                        </MudButton>
+                                                    </li>
+                                                }
+                                            </ul>
+                                        </div>
                                     </div>
 
                                     <div class="card-body p-4">
@@ -173,6 +187,28 @@
                                                     <span class="visually-hidden">Loading...</span>
                                                 </div>
                                                 <p class="text-muted">Fetching @GetTabLabel(activeTab) data from SAP...</p>
+                                            </div>
+                                        }
+                                        else if (tabErrors.TryGetValue(activeTab, out var tabError))
+                                        {
+                                            <div class="text-center py-5">
+                                                <i class="bi bi-exclamation-triangle" style="font-size: 3rem; color: #e65100;"></i>
+                                                <p class="mt-3 text-muted">Failed to load @GetTabLabel(activeTab)</p>
+                                                <p class="small text-danger">@tabError</p>
+                                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="() => RetryTab(activeTab)">
+                                                    <i class="bi bi-arrow-clockwise me-1"></i>Retry
+                                                </MudButton>
+                                            </div>
+                                        }
+                                        else if (!loadedTabs.Contains(activeTab))
+                                        {
+                                            <div class="text-center py-5">
+                                                <i class="bi bi-bar-chart-line" style="font-size: 3rem; color: #90a4ae;"></i>
+                                                <p class="mt-3 text-muted">Click the button below to load <strong>@GetTabLabel(activeTab)</strong> report</p>
+                                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => LoadTab(activeTab)"
+                                                        Style="border-radius: 8px; background: linear-gradient(135deg, #1a237e, #3949ab); border: none;">
+                                                    <i class="bi bi-lightning-charge me-2"></i>Load @GetTabLabel(activeTab)
+                                                </MudButton>
                                             </div>
                                         }
                                         else if (activeTab == "sales")
@@ -1500,9 +1536,9 @@ else if (activeTab == "slowmoving")
         </div>
     }
 }
-                                                                                                                </div>
-                                                                                                            </div>
-                                                                                                        </div>
+                                    </div>
+                                </div>
+</div>
 
 @code {
     private record TabInfo(string Key, string Label, string Icon);
@@ -1545,6 +1581,8 @@ new("fulfillment", "Fulfillment", "bi-truck")
     private string currentUsername = "Unknown";
     private string currentUserRole = "User";
     private HashSet<string> loadingTabs = new();
+    private HashSet<string> loadedTabs = new();
+    private Dictionary<string, string> tabErrors = new();
 
     private SalesSummaryReport? salesReport;
     private TopProductsReport? topProductsReport;
@@ -1563,7 +1601,6 @@ new("fulfillment", "Fulfillment", "bi-truck")
     {
         await LoadCurrentUser();
         try { await AuditService.LogAsync("ViewReports", currentUsername, currentUserRole, "Report", null, "Accessed reports page", "/reports"); } catch { }
-        await LoadReports();
     }
 
     private async Task LoadCurrentUser()
@@ -1578,92 +1615,81 @@ new("fulfillment", "Fulfillment", "bi-truck")
         catch { }
     }
 
-    private void SetActiveTab(string tab) { activeTab = tab; }
+    private async Task SetActiveTab(string tab)
+    {
+        activeTab = tab;
+        if (!loadedTabs.Contains(tab) && !loadingTabs.Contains(tab) && !tabErrors.ContainsKey(tab))
+        {
+            await LoadTab(tab);
+        }
+    }
     private bool IsTabLoading(string tab) => loadingTabs.Contains(tab);
     private string GetTabLabel(string tab) => tabs.FirstOrDefault(t => t.Key == tab)?.Label ?? tab;
     private bool HasActiveData() => salesReport != null || topProductsReport != null || stockReport != null || paymentReport
     != null || topCustomersReport != null || lowStockReport != null || fulfillmentReport != null
     || creditNotesReport != null || purchaseOrderReport != null || agingReport != null || profitReport != null || slowMovingReport != null;
 
-    private async Task LoadReports()
+    private async Task LoadTab(string tab, bool forceReload = false)
     {
-        if (isLoading) return;
-        isLoading = true;
+        if (loadingTabs.Contains(tab)) return;
+        if (!forceReload && loadedTabs.Contains(tab)) return;
+
+        tabErrors.Remove(tab);
+        loadingTabs.Add(tab);
         errorMessage = "";
-        loadingTabs = new HashSet<string> { "profit", "sales", "products", "stock", "payments", "customers", "creditnotes", "purchasing", "aging", "alerts", "slowmoving", "fulfillment" };
         await InvokeAsync(StateHasChanged);
-
-        var errors = new System.Collections.Concurrent.ConcurrentBag<string>();
-        var _loadingTabs = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(
-            loadingTabs.Select(t => new KeyValuePair<string, byte>(t, 0)));
-
-        // Batch 1: Profit Overview, Sales, Stock, Payments (most commonly viewed)
-        var batch1 = new (string Tab, Func<Task> Action)[]
-        {
-            ("profit", async () => { profitReport = await ReportService.GetProfitOverviewAsync(fromDate, toDate); }),
-            ("sales", async () => { salesReport = await ReportService.GetSalesSummaryAsync(fromDate, toDate); }),
-            ("stock", async () => { stockReport = await ReportService.GetStockSummaryAsync(); }),
-            ("payments", async () => { paymentReport = await ReportService.GetPaymentSummaryAsync(fromDate, toDate); })
-        };
-
-        // Batch 2: Products, Customers, Credit Notes, Purchasing
-        var batch2 = new (string Tab, Func<Task> Action)[]
-        {
-            ("products", async () => { topProductsReport = await ReportService.GetTopProductsAsync(fromDate, toDate, topProductsCount); }),
-            ("customers", async () => { topCustomersReport = await ReportService.GetTopCustomersAsync(fromDate, toDate, 10); }),
-            ("creditnotes", async () => { creditNotesReport = await ReportService.GetCreditNoteSummaryAsync(fromDate, toDate); }),
-            ("purchasing", async () => { purchaseOrderReport = await ReportService.GetPurchaseOrderSummaryAsync(fromDate, toDate); })
-        };
-
-        // Batch 3: Aging, Alerts, Slow Moving, Fulfillment
-        var batch3 = new (string Tab, Func<Task> Action)[]
-        {
-            ("aging", async () => { agingReport = await ReportService.GetReceivablesAgingAsync(); }),
-            ("alerts", async () => { lowStockReport = await ReportService.GetLowStockAlertsAsync(); }),
-            ("slowmoving", async () => { slowMovingReport = await ReportService.GetSlowMovingProductsAsync(fromDate, toDate, slowMovingDays); }),
-            ("fulfillment", async () => { fulfillmentReport = await ReportService.GetOrderFulfillmentAsync(fromDate, toDate); })
-        };
 
         try
         {
-            foreach (var batch in new[] { batch1, batch2, batch3 })
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            Task action = tab switch
             {
-                var loadTasks = batch.Select(async t =>
-                {
-                    try { await t.Action(); }
-                    catch (Exception ex) { errors.Add($"{t.Tab}: {ex.Message}"); }
-                    finally
-                    {
-                        _loadingTabs.TryRemove(t.Tab, out _);
-                        loadingTabs = new HashSet<string>(_loadingTabs.Keys);
-                        await InvokeAsync(StateHasChanged);
-                    }
-                });
+                "profit" => Task.Run(async () => profitReport = await ReportService.GetProfitOverviewAsync(fromDate, toDate)),
+                "sales" => Task.Run(async () => salesReport = await ReportService.GetSalesSummaryAsync(fromDate, toDate)),
+                "stock" => Task.Run(async () => stockReport = await ReportService.GetStockSummaryAsync()),
+                "payments" => Task.Run(async () => paymentReport = await ReportService.GetPaymentSummaryAsync(fromDate, toDate)),
+                "products" => Task.Run(async () => topProductsReport = await ReportService.GetTopProductsAsync(fromDate, toDate, topProductsCount)),
+                "customers" => Task.Run(async () => topCustomersReport = await ReportService.GetTopCustomersAsync(fromDate, toDate, 10)),
+                "creditnotes" => Task.Run(async () => creditNotesReport = await ReportService.GetCreditNoteSummaryAsync(fromDate, toDate)),
+                "purchasing" => Task.Run(async () => purchaseOrderReport = await ReportService.GetPurchaseOrderSummaryAsync(fromDate, toDate)),
+                "aging" => Task.Run(async () => agingReport = await ReportService.GetReceivablesAgingAsync()),
+                "alerts" => Task.Run(async () => lowStockReport = await ReportService.GetLowStockAlertsAsync()),
+                "slowmoving" => Task.Run(async () => slowMovingReport = await ReportService.GetSlowMovingProductsAsync(fromDate, toDate, slowMovingDays)),
+                "fulfillment" => Task.Run(async () => fulfillmentReport = await ReportService.GetOrderFulfillmentAsync(fromDate, toDate)),
+                _ => Task.CompletedTask
+            };
 
-                await Task.WhenAll(loadTasks);
+            var completed = await Task.WhenAny(action, Task.Delay(Timeout.Infinite, cts.Token));
+            if (completed != action)
+            {
+                tabErrors[tab] = "Request timed out (5 min). SAP may be under heavy load — try again.";
+            }
+            else
+            {
+                await action; // propagate exceptions
+                loadedTabs.Add(tab);
             }
 
-            if (!errors.IsEmpty) errorMessage = $"Some reports had issues: {string.Join("; ", errors)}";
-            try { await AuditService.LogAsync("GenerateReports", currentUsername, currentUserRole, "Report", null, $"Generated reports from {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}", "/reports"); } catch { }
+            try { await AuditService.LogAsync("GenerateReport", currentUsername, currentUserRole, "Report", null, $"Loaded {tab} report ({fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd})", "/reports"); } catch { }
+        }
+        catch (OperationCanceledException)
+        {
+            tabErrors[tab] = "Request timed out. SAP may be under heavy load — try again.";
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to load reports: {ex.Message}";
+            tabErrors[tab] = ex.Message;
         }
         finally
         {
-            isLoading = false;
-            loadingTabs.Clear();
+            loadingTabs.Remove(tab);
             await InvokeAsync(StateHasChanged);
         }
     }
 
     private async Task LoadTopProducts()
     {
-        loadingTabs.Add("products");
-        StateHasChanged();
-        try { topProductsReport = await ReportService.GetTopProductsAsync(fromDate, toDate, topProductsCount); }
-        finally { loadingTabs.Remove("products"); StateHasChanged(); }
+        await LoadTab("products", forceReload: true);
     }
 
     private void OnQuickSelectChanged(ChangeEventArgs e)
@@ -1673,6 +1699,11 @@ new("fulfillment", "Fulfillment", "bi-truck")
             fromDate = DateTime.UtcNow.AddDays(-days);
             toDate = DateTime.UtcNow;
         }
+    }
+
+    private async Task RetryTab(string tab)
+    {
+        await LoadTab(tab, forceReload: true);
     }
 
     private async Task ExportToExcel(string tab)

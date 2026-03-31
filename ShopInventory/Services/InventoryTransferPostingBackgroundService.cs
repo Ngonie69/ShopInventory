@@ -31,8 +31,8 @@ public class InventoryTransferPostingBackgroundService : BackgroundService
         _logger.LogInformation("Inventory Transfer Posting Background Service started - Processing every {Interval}s, Batch size: {BatchSize}",
             _processingInterval.TotalSeconds, _batchSize);
 
-        // Initial delay to let the application fully start
-        await Task.Delay(TimeSpan.FromSeconds(7), stoppingToken);
+        // Initial delay to let the application fully start (staggered from invoice service)
+        await Task.Delay(TimeSpan.FromSeconds(12), stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -61,7 +61,9 @@ public class InventoryTransferPostingBackgroundService : BackgroundService
                 }
             }
 
-            await Task.Delay(_processingInterval, stoppingToken);
+            // Add jitter (±3s) so background services don't all hit SAP simultaneously
+            var jitter = Random.Shared.Next(-3000, 3000);
+            await Task.Delay(_processingInterval + TimeSpan.FromMilliseconds(jitter), stoppingToken);
         }
 
         _logger.LogInformation("Inventory Transfer Posting Background Service stopped");

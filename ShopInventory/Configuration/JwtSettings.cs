@@ -23,7 +23,7 @@ public class JwtSettings
     /// <summary>
     /// Access token expiration in minutes
     /// </summary>
-    public int AccessTokenExpirationMinutes { get; set; } = 15;
+    public int AccessTokenExpirationMinutes { get; set; } = 60;
 
     /// <summary>
     /// Refresh token expiration in days

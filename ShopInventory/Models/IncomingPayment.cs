@@ -64,6 +64,9 @@ public class IncomingPayment
     [JsonPropertyName("TransferAccount")]
     public string? TransferAccount { get; set; }
 
+    [JsonPropertyName("Cancelled")]
+    public string? Cancelled { get; set; }
+
     [JsonPropertyName("PaymentInvoices")]
     public List<PaymentInvoice>? PaymentInvoices { get; set; }
 

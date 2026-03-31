@@ -15,11 +15,23 @@ public class ReportController : ControllerBase
 {
     private readonly IReportService _reportService;
     private readonly ILogger<ReportController> _logger;
+    private static readonly TimeSpan ReportTimeout = TimeSpan.FromMinutes(5);
 
     public ReportController(IReportService reportService, ILogger<ReportController> logger)
     {
         _reportService = reportService;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Creates a cancellation token that is NOT tied to the client disconnection.
+    /// Reports are cached (900s), so we want them to complete even if the client
+    /// disconnects — the next client request will get the cached result.
+    /// Uses a 3-minute timeout to prevent SAP queries from running indefinitely.
+    /// </summary>
+    private static CancellationToken CreateReportTimeout()
+    {
+        return new CancellationTokenSource(ReportTimeout).Token;
     }
 
     /// <summary>
@@ -43,16 +55,20 @@ public class ReportController : ControllerBase
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetSalesSummary(
         [FromQuery] DateTime? fromDate,
-        [FromQuery] DateTime? toDate,
-        CancellationToken cancellationToken)
+        [FromQuery] DateTime? toDate)
     {
         try
         {
             var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
             var to = ToUtc(toDate ?? DateTime.UtcNow);
 
-            var report = await _reportService.GetSalesSummaryAsync(from, to, cancellationToken);
+            var report = await _reportService.GetSalesSummaryAsync(from, to, CreateReportTimeout());
             return Ok(report);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Sales summary report timed out");
+            return StatusCode(504, new ErrorResponseDto { Message = "Report timed out — SAP may be under heavy load. Try again." });
         }
         catch (Exception ex)
         {
@@ -76,16 +92,20 @@ public class ReportController : ControllerBase
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
         [FromQuery] int topCount = 10,
-        [FromQuery] string? warehouseCode = null,
-        CancellationToken cancellationToken = default)
+        [FromQuery] string? warehouseCode = null)
     {
         try
         {
             var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
             var to = ToUtc(toDate ?? DateTime.UtcNow);
 
-            var report = await _reportService.GetTopProductsAsync(from, to, topCount, warehouseCode, cancellationToken);
+            var report = await _reportService.GetTopProductsAsync(from, to, topCount, warehouseCode, CreateReportTimeout());
             return Ok(report);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Top products report timed out");
+            return StatusCode(504, new ErrorResponseDto { Message = "Report timed out — SAP may be under heavy load. Try again." });
         }
         catch (Exception ex)
         {
@@ -107,16 +127,20 @@ public class ReportController : ControllerBase
     public async Task<IActionResult> GetSlowMovingProducts(
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
-        [FromQuery] int daysThreshold = 30,
-        CancellationToken cancellationToken = default)
+        [FromQuery] int daysThreshold = 30)
     {
         try
         {
             var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-90));
             var to = ToUtc(toDate ?? DateTime.UtcNow);
 
-            var report = await _reportService.GetSlowMovingProductsAsync(from, to, daysThreshold, cancellationToken);
+            var report = await _reportService.GetSlowMovingProductsAsync(from, to, daysThreshold, CreateReportTimeout());
             return Ok(report);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Slow moving products report timed out");
+            return StatusCode(504, new ErrorResponseDto { Message = "Report timed out — SAP may be under heavy load. Try again." });
         }
         catch (Exception ex)
         {
@@ -134,13 +158,17 @@ public class ReportController : ControllerBase
     [ProducesResponseType(typeof(StockSummaryReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetStockSummary(
-        [FromQuery] string? warehouseCode = null,
-        CancellationToken cancellationToken = default)
+        [FromQuery] string? warehouseCode = null)
     {
         try
         {
-            var report = await _reportService.GetStockSummaryAsync(warehouseCode, cancellationToken);
+            var report = await _reportService.GetStockSummaryAsync(warehouseCode, CreateReportTimeout());
             return Ok(report);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Stock summary report timed out");
+            return StatusCode(504, new ErrorResponseDto { Message = "Report timed out — SAP may be under heavy load. Try again." });
         }
         catch (Exception ex)
         {
@@ -162,16 +190,20 @@ public class ReportController : ControllerBase
     public async Task<IActionResult> GetStockMovement(
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
-        [FromQuery] string? warehouseCode = null,
-        CancellationToken cancellationToken = default)
+        [FromQuery] string? warehouseCode = null)
     {
         try
         {
             var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
             var to = ToUtc(toDate ?? DateTime.UtcNow);
 
-            var report = await _reportService.GetStockMovementAsync(from, to, warehouseCode, cancellationToken);
+            var report = await _reportService.GetStockMovementAsync(from, to, warehouseCode, CreateReportTimeout());
             return Ok(report);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Stock movement report timed out");
+            return StatusCode(504, new ErrorResponseDto { Message = "Report timed out — SAP may be under heavy load. Try again." });
         }
         catch (Exception ex)
         {
@@ -191,13 +223,17 @@ public class ReportController : ControllerBase
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetLowStockAlerts(
         [FromQuery] string? warehouseCode = null,
-        [FromQuery] decimal? threshold = null,
-        CancellationToken cancellationToken = default)
+        [FromQuery] decimal? threshold = null)
     {
         try
         {
-            var report = await _reportService.GetLowStockAlertsAsync(warehouseCode, threshold, cancellationToken);
+            var report = await _reportService.GetLowStockAlertsAsync(warehouseCode, threshold, CreateReportTimeout());
             return Ok(report);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Low stock alerts report timed out");
+            return StatusCode(504, new ErrorResponseDto { Message = "Report timed out — SAP may be under heavy load. Try again." });
         }
         catch (Exception ex)
         {
@@ -217,16 +253,20 @@ public class ReportController : ControllerBase
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetPaymentSummary(
         [FromQuery] DateTime? fromDate,
-        [FromQuery] DateTime? toDate,
-        CancellationToken cancellationToken = default)
+        [FromQuery] DateTime? toDate)
     {
         try
         {
             var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
             var to = ToUtc(toDate ?? DateTime.UtcNow);
 
-            var report = await _reportService.GetPaymentSummaryAsync(from, to, cancellationToken);
+            var report = await _reportService.GetPaymentSummaryAsync(from, to, CreateReportTimeout());
             return Ok(report);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Payment summary report timed out");
+            return StatusCode(504, new ErrorResponseDto { Message = "Report timed out — SAP may be under heavy load. Try again." });
         }
         catch (Exception ex)
         {
@@ -248,16 +288,20 @@ public class ReportController : ControllerBase
     public async Task<IActionResult> GetTopCustomers(
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
-        [FromQuery] int topCount = 10,
-        CancellationToken cancellationToken = default)
+        [FromQuery] int topCount = 10)
     {
         try
         {
             var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
             var to = ToUtc(toDate ?? DateTime.UtcNow);
 
-            var report = await _reportService.GetTopCustomersAsync(from, to, topCount, cancellationToken);
+            var report = await _reportService.GetTopCustomersAsync(from, to, topCount, CreateReportTimeout());
             return Ok(report);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Top customers report timed out");
+            return StatusCode(504, new ErrorResponseDto { Message = "Report timed out — SAP may be under heavy load. Try again." });
         }
         catch (Exception ex)
         {
@@ -277,16 +321,20 @@ public class ReportController : ControllerBase
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetOrderFulfillment(
         [FromQuery] DateTime? fromDate,
-        [FromQuery] DateTime? toDate,
-        CancellationToken cancellationToken = default)
+        [FromQuery] DateTime? toDate)
     {
         try
         {
             var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
             var to = ToUtc(toDate ?? DateTime.UtcNow);
 
-            var report = await _reportService.GetOrderFulfillmentAsync(from, to, cancellationToken);
+            var report = await _reportService.GetOrderFulfillmentAsync(from, to, CreateReportTimeout());
             return Ok(report);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Order fulfillment report timed out");
+            return StatusCode(504, new ErrorResponseDto { Message = "Report timed out — SAP may be under heavy load. Try again." });
         }
         catch (Exception ex)
         {
@@ -304,16 +352,20 @@ public class ReportController : ControllerBase
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetCreditNoteSummary(
         [FromQuery] DateTime? fromDate,
-        [FromQuery] DateTime? toDate,
-        CancellationToken cancellationToken = default)
+        [FromQuery] DateTime? toDate)
     {
         try
         {
             var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
             var to = ToUtc(toDate ?? DateTime.UtcNow);
 
-            var report = await _reportService.GetCreditNoteSummaryAsync(from, to, cancellationToken);
+            var report = await _reportService.GetCreditNoteSummaryAsync(from, to, CreateReportTimeout());
             return Ok(report);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Credit notes report timed out");
+            return StatusCode(504, new ErrorResponseDto { Message = "Report timed out — SAP may be under heavy load. Try again." });
         }
         catch (Exception ex)
         {
@@ -331,16 +383,20 @@ public class ReportController : ControllerBase
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetPurchaseOrderSummary(
         [FromQuery] DateTime? fromDate,
-        [FromQuery] DateTime? toDate,
-        CancellationToken cancellationToken = default)
+        [FromQuery] DateTime? toDate)
     {
         try
         {
             var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
             var to = ToUtc(toDate ?? DateTime.UtcNow);
 
-            var report = await _reportService.GetPurchaseOrderSummaryAsync(from, to, cancellationToken);
+            var report = await _reportService.GetPurchaseOrderSummaryAsync(from, to, CreateReportTimeout());
             return Ok(report);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Purchase orders report timed out");
+            return StatusCode(504, new ErrorResponseDto { Message = "Report timed out — SAP may be under heavy load. Try again." });
         }
         catch (Exception ex)
         {
@@ -356,12 +412,17 @@ public class ReportController : ControllerBase
     [ResponseCache(Duration = 900)]
     [ProducesResponseType(typeof(ReceivablesAgingReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetReceivablesAging(CancellationToken cancellationToken = default)
+    public async Task<IActionResult> GetReceivablesAging()
     {
         try
         {
-            var report = await _reportService.GetReceivablesAgingAsync(cancellationToken);
+            var report = await _reportService.GetReceivablesAgingAsync(CreateReportTimeout());
             return Ok(report);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Receivables aging report timed out");
+            return StatusCode(504, new ErrorResponseDto { Message = "Report timed out — SAP may be under heavy load. Try again." });
         }
         catch (Exception ex)
         {
@@ -379,16 +440,20 @@ public class ReportController : ControllerBase
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetProfitOverview(
         [FromQuery] DateTime? fromDate,
-        [FromQuery] DateTime? toDate,
-        CancellationToken cancellationToken = default)
+        [FromQuery] DateTime? toDate)
     {
         try
         {
             var from = ToUtc(fromDate ?? DateTime.UtcNow.AddDays(-30));
             var to = ToUtc(toDate ?? DateTime.UtcNow);
 
-            var report = await _reportService.GetProfitOverviewAsync(from, to, cancellationToken);
+            var report = await _reportService.GetProfitOverviewAsync(from, to, CreateReportTimeout());
             return Ok(report);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Profit overview report timed out");
+            return StatusCode(504, new ErrorResponseDto { Message = "Report timed out — SAP may be under heavy load. Try again." });
         }
         catch (Exception ex)
         {

@@ -1244,7 +1244,7 @@
             <param name="docEntry">The invoice document entry</param>
             <param name="attachmentId">The attachment ID</param>
         </member>
-        <member name="M:ShopInventory.Controllers.InvoiceController.UploadPod(System.Int32,Microsoft.AspNetCore.Http.IFormFile,System.String,System.Threading.CancellationToken)">
+        <member name="M:ShopInventory.Controllers.InvoiceController.UploadPod(System.Int32,Microsoft.AspNetCore.Http.IFormFile,System.String,System.String,System.Threading.CancellationToken)">
             <summary>
             Upload a Proof of Delivery (POD) attachment for an invoice.
             Designed for mobile app consumption with multipart/form-data.
@@ -1253,7 +1253,7 @@
             <param name="file">The POD file (image or PDF)</param>
             <param name="description">Optional description</param>
         </member>
-        <member name="M:ShopInventory.Controllers.InvoiceController.GetAllPods(System.Int32,System.Int32,System.String,System.Nullable{System.DateTime},System.Nullable{System.DateTime},System.Threading.CancellationToken)">
+        <member name="M:ShopInventory.Controllers.InvoiceController.GetAllPods(System.Int32,System.Int32,System.String,System.Nullable{System.DateTime},System.Nullable{System.DateTime},System.String,System.Threading.CancellationToken)">
             <summary>
             Get all POD attachments across all invoices (paginated).
             Optionally filter by customer code and date range.
@@ -1764,19 +1764,27 @@
             Controller for business reports and analytics
             </summary>
         </member>
+        <member name="M:ShopInventory.Controllers.ReportController.CreateReportTimeout">
+            <summary>
+            Creates a cancellation token that is NOT tied to the client disconnection.
+            Reports are cached (900s), so we want them to complete even if the client
+            disconnects — the next client request will get the cached result.
+            Uses a 3-minute timeout to prevent SAP queries from running indefinitely.
+            </summary>
+        </member>
         <member name="M:ShopInventory.Controllers.ReportController.ToUtc(System.DateTime)">
             <summary>
             Ensures a DateTime is in UTC format for PostgreSQL compatibility
             </summary>
         </member>
-        <member name="M:ShopInventory.Controllers.ReportController.GetSalesSummary(System.Nullable{System.DateTime},System.Nullable{System.DateTime},System.Threading.CancellationToken)">
+        <member name="M:ShopInventory.Controllers.ReportController.GetSalesSummary(System.Nullable{System.DateTime},System.Nullable{System.DateTime})">
             <summary>
             Gets sales summary report for a date range
             </summary>
             <param name="fromDate">Start date (defaults to 30 days ago)</param>
             <param name="toDate">End date (defaults to today)</param>
         </member>
-        <member name="M:ShopInventory.Controllers.ReportController.GetTopProducts(System.Nullable{System.DateTime},System.Nullable{System.DateTime},System.Int32,System.String,System.Threading.CancellationToken)">
+        <member name="M:ShopInventory.Controllers.ReportController.GetTopProducts(System.Nullable{System.DateTime},System.Nullable{System.DateTime},System.Int32,System.String)">
             <summary>
             Gets top selling products report
             </summary>
@@ -1785,7 +1793,7 @@
             <param name="topCount">Number of top products to return (default 10)</param>
             <param name="warehouseCode">Optional warehouse filter</param>
         </member>
-        <member name="M:ShopInventory.Controllers.ReportController.GetSlowMovingProducts(System.Nullable{System.DateTime},System.Nullable{System.DateTime},System.Int32,System.Threading.CancellationToken)">
+        <member name="M:ShopInventory.Controllers.ReportController.GetSlowMovingProducts(System.Nullable{System.DateTime},System.Nullable{System.DateTime},System.Int32)">
             <summary>
             Gets slow moving products report
             </summary>
@@ -1793,13 +1801,13 @@
             <param name="toDate">End date</param>
             <param name="daysThreshold">Days without sale to be considered slow moving (default 30)</param>
         </member>
-        <member name="M:ShopInventory.Controllers.ReportController.GetStockSummary(System.String,System.Threading.CancellationToken)">
+        <member name="M:ShopInventory.Controllers.ReportController.GetStockSummary(System.String)">
             <summary>
             Gets stock summary report
             </summary>
             <param name="warehouseCode">Optional warehouse filter</param>
         </member>
-        <member name="M:ShopInventory.Controllers.ReportController.GetStockMovement(System.Nullable{System.DateTime},System.Nullable{System.DateTime},System.String,System.Threading.CancellationToken)">
+        <member name="M:ShopInventory.Controllers.ReportController.GetStockMovement(System.Nullable{System.DateTime},System.Nullable{System.DateTime},System.String)">
             <summary>
             Gets stock movement report
             </summary>
@@ -1807,21 +1815,21 @@
             <param name="toDate">End date</param>
             <param name="warehouseCode">Optional warehouse filter</param>
         </member>
-        <member name="M:ShopInventory.Controllers.ReportController.GetLowStockAlerts(System.String,System.Nullable{System.Decimal},System.Threading.CancellationToken)">
+        <member name="M:ShopInventory.Controllers.ReportController.GetLowStockAlerts(System.String,System.Nullable{System.Decimal})">
             <summary>
             Gets low stock alerts
             </summary>
             <param name="warehouseCode">Optional warehouse filter</param>
             <param name="threshold">Reorder level threshold (default 10)</param>
         </member>
-        <member name="M:ShopInventory.Controllers.ReportController.GetPaymentSummary(System.Nullable{System.DateTime},System.Nullable{System.DateTime},System.Threading.CancellationToken)">
+        <member name="M:ShopInventory.Controllers.ReportController.GetPaymentSummary(System.Nullable{System.DateTime},System.Nullable{System.DateTime})">
             <summary>
             Gets payment summary report
             </summary>
             <param name="fromDate">Start date</param>
             <param name="toDate">End date</param>
         </member>
-        <member name="M:ShopInventory.Controllers.ReportController.GetTopCustomers(System.Nullable{System.DateTime},System.Nullable{System.DateTime},System.Int32,System.Threading.CancellationToken)">
+        <member name="M:ShopInventory.Controllers.ReportController.GetTopCustomers(System.Nullable{System.DateTime},System.Nullable{System.DateTime},System.Int32)">
             <summary>
             Gets top customers report
             </summary>
@@ -1829,29 +1837,29 @@
             <param name="toDate">End date</param>
             <param name="topCount">Number of top customers to return (default 10)</param>
         </member>
-        <member name="M:ShopInventory.Controllers.ReportController.GetOrderFulfillment(System.Nullable{System.DateTime},System.Nullable{System.DateTime},System.Threading.CancellationToken)">
+        <member name="M:ShopInventory.Controllers.ReportController.GetOrderFulfillment(System.Nullable{System.DateTime},System.Nullable{System.DateTime})">
             <summary>
             Gets comprehensive order fulfillment report
             </summary>
             <param name="fromDate">Start date</param>
             <param name="toDate">End date</param>
         </member>
-        <member name="M:ShopInventory.Controllers.ReportController.GetCreditNoteSummary(System.Nullable{System.DateTime},System.Nullable{System.DateTime},System.Threading.CancellationToken)">
+        <member name="M:ShopInventory.Controllers.ReportController.GetCreditNoteSummary(System.Nullable{System.DateTime},System.Nullable{System.DateTime})">
             <summary>
             Gets credit notes summary report
             </summary>
         </member>
-        <member name="M:ShopInventory.Controllers.ReportController.GetPurchaseOrderSummary(System.Nullable{System.DateTime},System.Nullable{System.DateTime},System.Threading.CancellationToken)">
+        <member name="M:ShopInventory.Controllers.ReportController.GetPurchaseOrderSummary(System.Nullable{System.DateTime},System.Nullable{System.DateTime})">
             <summary>
             Gets purchase orders summary report
             </summary>
         </member>
-        <member name="M:ShopInventory.Controllers.ReportController.GetReceivablesAging(System.Threading.CancellationToken)">
+        <member name="M:ShopInventory.Controllers.ReportController.GetReceivablesAging">
             <summary>
             Gets receivables aging report
             </summary>
         </member>
-        <member name="M:ShopInventory.Controllers.ReportController.GetProfitOverview(System.Nullable{System.DateTime},System.Nullable{System.DateTime},System.Threading.CancellationToken)">
+        <member name="M:ShopInventory.Controllers.ReportController.GetProfitOverview(System.Nullable{System.DateTime},System.Nullable{System.DateTime})">
             <summary>
             Gets profit overview report
             </summary>
@@ -1977,9 +1985,9 @@
             Update SAP connection settings in web.config environment variables
             </summary>
         </member>
-        <member name="M:ShopInventory.Controllers.SAPSettingsController.TestConnection(System.Threading.CancellationToken)">
+        <member name="M:ShopInventory.Controllers.SAPSettingsController.TestConnection(ShopInventory.DTOs.TestSAPConnectionRequest,System.Threading.CancellationToken)">
             <summary>
-            Test the current SAP connection
+            Test the SAP connection with provided credentials (or current saved credentials if none provided)
             </summary>
         </member>
         <member name="M:ShopInventory.Controllers.StockController.GetWarehouses(System.Threading.CancellationToken)">
@@ -4676,6 +4684,11 @@
             Request to update SAP settings
             </summary>
         </member>
+        <member name="T:ShopInventory.DTOs.TestSAPConnectionRequest">
+            <summary>
+            Request to test SAP connection with specific credentials
+            </summary>
+        </member>
         <member name="T:ShopInventory.DTOs.SAPSettingsDto">
             <summary>
             SAP Settings DTO (read-only, masks sensitive data)
@@ -5076,6 +5089,13 @@
         <member name="T:ShopInventory.Middleware.IdempotencyMiddlewareExtensions">
             <summary>
             Extension method for idempotency middleware
+            </summary>
+        </member>
+        <member name="T:ShopInventory.Middleware.SAPConcurrencyHandler">
+            <summary>
+            DelegatingHandler that limits the number of concurrent HTTP requests to the SAP Service Layer.
+            Prevents parallel operations (Task.WhenAll in validation/reports) from overwhelming SAP
+            with too many simultaneous requests on a single session.
             </summary>
         </member>
         <member name="T:ShopInventory.Middleware.SecurityHeadersMiddleware">
@@ -8992,6 +9012,17 @@
             Document service implementation
             </summary>
         </member>
+        <member name="F:ShopInventory.Services.DocumentService.CompressibleImageTypes">
+            <summary>
+            Image MIME types eligible for compression.
+            </summary>
+        </member>
+        <member name="F:ShopInventory.Services.DocumentService.MaxImageDimension">
+            <summary>Max dimension (width or height) for uploaded images.</summary>
+        </member>
+        <member name="F:ShopInventory.Services.DocumentService.JpegCompressionQuality">
+            <summary>JPEG quality for compressed images (1-100).</summary>
+        </member>
         <member name="T:ShopInventory.Services.IEmailQueueService">
             <summary>
             Service interface for queueing emails
@@ -9654,6 +9685,16 @@
             Tests the connection to SAP Business One Service Layer
             </summary>
         </member>
+        <member name="M:ShopInventory.Services.ISAPServiceLayerClient.TestConnectionWithCredentialsAsync(System.String,System.String,System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Tests the connection to SAP Business One Service Layer using specific credentials
+            </summary>
+        </member>
+        <member name="M:ShopInventory.Services.ISAPServiceLayerClient.LogoutAsync">
+            <summary>
+            Explicitly logs out the current SAP session to free the server-side session slot.
+            </summary>
+        </member>
         <member name="T:ShopInventory.Services.INotificationService">
             <summary>
             Interface for notification service
@@ -9880,6 +9921,12 @@
             Sanitizes a value for safe use in OData filter expressions.
             </summary>
         </member>
+        <member name="M:ShopInventory.Services.SAPServiceLayerClient.LogoutAsync">
+            <summary>
+            Explicitly logs out the current SAP session to free the server-side session slot.
+            Called on application shutdown to prevent session accumulation.
+            </summary>
+        </member>
         <member name="M:ShopInventory.Services.SAPServiceLayerClient.GetSerialNumbersForItemInWarehouseAsync(System.String,System.String,System.Threading.CancellationToken)">
             <summary>
             Gets available serial numbers for an item in a specific warehouse.
@@ -10012,7 +10059,13 @@
         </member>
         <member name="M:ShopInventory.Services.SAPServiceLayerClient.TestConnectionAsync(System.Threading.CancellationToken)">
             <summary>
-            Tests the connection to SAP Business One Service Layer
+            Tests the connection to SAP Business One Service Layer by forcing a fresh login
+            </summary>
+        </member>
+        <member name="M:ShopInventory.Services.SAPServiceLayerClient.TestConnectionWithCredentialsAsync(System.String,System.String,System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Tests the connection to SAP Business One Service Layer using specific credentials
+            (does not affect the cached session used by the rest of the application)
             </summary>
         </member>
         <member name="M:ShopInventory.Services.SAPServiceLayerClient.IsBusinessPartnerDataError(System.String)">

@@ -12,7 +12,7 @@ namespace ShopInventory.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Policy = "ApiAccess")]
 public class PaymentController : ControllerBase
 {
     private readonly IPaymentGatewayService _paymentService;

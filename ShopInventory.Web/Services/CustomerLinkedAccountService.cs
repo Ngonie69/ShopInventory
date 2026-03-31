@@ -29,7 +29,7 @@ public interface ICustomerLinkedAccountService
     Task<List<string>> GetMainAccountCardCodesAsync(string cardCode);
 
     /// <summary>
-    /// Get CardCodes for sub accounts only (for sales orders)
+    /// Get CardCodes for sub accounts only (for sales orders and invoices; balances roll up to parent main account)
     /// </summary>
     Task<List<string>> GetSubAccountCardCodesAsync(string cardCode);
 
@@ -259,7 +259,7 @@ public class CustomerLinkedAccountService : ICustomerLinkedAccountService
             {
                 var allowedTransactions = account.AccountType == "Main"
                     ? "Invoice,Payment"
-                    : "SalesOrder";
+                    : "Invoice,SalesOrder";
 
                 db.CustomerLinkedAccounts.Add(new CustomerLinkedAccount
                 {
@@ -341,7 +341,7 @@ public class CustomerLinkedAccountService : ICustomerLinkedAccountService
 
             var allowedTransactions = request.AccountType == "Main"
                 ? "Invoice,Payment"
-                : "SalesOrder";
+                : "Invoice,SalesOrder";
 
             db.CustomerLinkedAccounts.Add(new CustomerLinkedAccount
             {

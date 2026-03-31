@@ -9,7 +9,7 @@ public interface IPodService
     Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? search = null);
     Task<PodAttachmentListResponse?> GetAllPodsForAccountsAsync(int page, int pageSize, List<string> cardCodes, DateTime? fromDate = null, DateTime? toDate = null);
     Task<DocumentAttachmentListResponse?> GetInvoicePodsAsync(int docEntry);
-    Task<(bool Success, string Message, DocumentAttachmentDto? Attachment)> UploadPodAsync(int docEntry, Stream fileStream, string fileName, string contentType, string? description = null);
+    Task<(bool Success, string Message, DocumentAttachmentDto? Attachment)> UploadPodAsync(int docEntry, Stream fileStream, string fileName, string contentType, string? description = null, string? uploadedByUsername = null);
     Task<byte[]?> DownloadPodAsync(int docEntry, int attachmentId);
     Task<bool> DeletePodAsync(int attachmentId);
 }
@@ -80,7 +80,7 @@ public class PodService : IPodService
     }
 
     public async Task<(bool Success, string Message, DocumentAttachmentDto? Attachment)> UploadPodAsync(
-        int docEntry, Stream fileStream, string fileName, string contentType, string? description = null)
+        int docEntry, Stream fileStream, string fileName, string contentType, string? description = null, string? uploadedByUsername = null)
     {
         try
         {
@@ -99,6 +99,11 @@ public class PodService : IPodService
             if (!string.IsNullOrWhiteSpace(description))
             {
                 content.Add(new StringContent(description), "description");
+            }
+
+            if (!string.IsNullOrWhiteSpace(uploadedByUsername))
+            {
+                content.Add(new StringContent(uploadedByUsername), "uploadedByUsername");
             }
 
             var response = await _httpClient.PostAsync($"api/invoice/{docEntry}/pod", content);

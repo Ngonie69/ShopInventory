@@ -63,7 +63,9 @@ public class InvoicePostingBackgroundService : BackgroundService
                 }
             }
 
-            await Task.Delay(_processingInterval, stoppingToken);
+            // Add jitter (±3s) so background services don't all hit SAP simultaneously
+            var jitter = Random.Shared.Next(-3000, 3000);
+            await Task.Delay(_processingInterval + TimeSpan.FromMilliseconds(jitter), stoppingToken);
         }
 
         _logger.LogInformation("Invoice Posting Background Service stopped");

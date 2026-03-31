@@ -21,6 +21,7 @@ public class InvoiceController : ControllerBase
     private readonly IFiscalizationService _fiscalizationService;
     private readonly IDocumentService _documentService;
     private readonly IInvoicePdfService _invoicePdfService;
+    private readonly IAuthService _authService;
     private readonly SAPSettings _settings;
     private readonly ILogger<InvoiceController> _logger;
 
@@ -32,6 +33,7 @@ public class InvoiceController : ControllerBase
         IFiscalizationService fiscalizationService,
         IDocumentService documentService,
         IInvoicePdfService invoicePdfService,
+        IAuthService authService,
         IOptions<SAPSettings> settings,
         ILogger<InvoiceController> logger)
     {
@@ -42,6 +44,7 @@ public class InvoiceController : ControllerBase
         _fiscalizationService = fiscalizationService;
         _documentService = documentService;
         _invoicePdfService = invoicePdfService;
+        _authService = authService;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -787,6 +790,7 @@ public class InvoiceController : ControllerBase
         int docEntry,
         IFormFile file,
         [FromForm] string? description = null,
+        [FromForm] string? uploadedByUsername = null,
         CancellationToken cancellationToken = default)
     {
         if (file == null || file.Length == 0)
@@ -829,7 +833,14 @@ public class InvoiceController : ControllerBase
             _logger.LogWarning(ex, "Could not cache invoice info for DocEntry {DocEntry} during POD upload", docEntry);
         }
 
+        // Resolve user ID: prefer JWT claim, fall back to username lookup (API key auth)
         var userId = GetUserId();
+        if (userId == null && !string.IsNullOrWhiteSpace(uploadedByUsername))
+        {
+            var user = await _authService.GetUserByUsernameAsync(uploadedByUsername);
+            userId = user?.Id;
+        }
+
         using var stream = file.OpenReadStream();
 
         // Prefix filename with POD_ to make it filterable

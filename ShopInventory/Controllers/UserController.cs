@@ -13,7 +13,7 @@ namespace ShopInventory.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin")]
+[Authorize(Policy = "AdminOnly")]
 public class UserController : ControllerBase
 {
     private readonly ApplicationDbContext _context;

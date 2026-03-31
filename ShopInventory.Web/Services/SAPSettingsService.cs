@@ -6,7 +6,7 @@ public interface ISAPSettingsService
 {
     Task<SAPSettingsResponse?> GetSettingsAsync();
     Task<SAPUpdateResult> UpdateSettingsAsync(SAPSettingsUpdateRequest request);
-    Task<SAPTestConnectionResult> TestConnectionAsync();
+    Task<SAPTestConnectionResult> TestConnectionAsync(SAPTestConnectionRequest? request = null);
 }
 
 public class SAPSettingsService : ISAPSettingsService
@@ -60,11 +60,11 @@ public class SAPSettingsService : ISAPSettingsService
         }
     }
 
-    public async Task<SAPTestConnectionResult> TestConnectionAsync()
+    public async Task<SAPTestConnectionResult> TestConnectionAsync(SAPTestConnectionRequest? request = null)
     {
         try
         {
-            var response = await _httpClient.PostAsync("api/sap-settings/test-connection", null);
+            var response = await _httpClient.PostAsJsonAsync("api/sap-settings/test-connection", request);
             if (response.IsSuccessStatusCode)
             {
                 var result = await response.Content.ReadFromJsonAsync<SAPTestConnectionResult>();
@@ -115,4 +115,12 @@ public class SAPTestConnectionResult
 {
     public bool Connected { get; set; }
     public string? Message { get; set; }
+}
+
+public class SAPTestConnectionRequest
+{
+    public string ServiceLayerUrl { get; set; } = string.Empty;
+    public string CompanyDB { get; set; } = string.Empty;
+    public string UserName { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
 }

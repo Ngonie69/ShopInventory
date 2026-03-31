@@ -211,6 +211,18 @@ public interface ISAPServiceLayerClient
     /// </summary>
     Task<bool> TestConnectionAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Tests the connection to SAP Business One Service Layer using specific credentials
+    /// </summary>
+    Task<bool> TestConnectionWithCredentialsAsync(
+        string serviceLayerUrl, string companyDb, string userName, string password,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Explicitly logs out the current SAP session to free the server-side session slot.
+    /// </summary>
+    Task LogoutAsync();
+
     // Quotation Operations (from SAP)
     Task<List<SAPQuotation>> GetQuotationsFromSAPAsync(CancellationToken cancellationToken = default);
     Task<List<SAPQuotation>> GetPagedQuotationsFromSAPAsync(int page, int pageSize, CancellationToken cancellationToken = default);

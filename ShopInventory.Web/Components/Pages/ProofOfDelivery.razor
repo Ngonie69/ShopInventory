@@ -7,6 +7,7 @@
 @inject IInvoiceService InvoiceService
 @inject IJSRuntime JS
 @inject ILogger<ProofOfDelivery> Logger
+@inject AuthenticationStateProvider AuthStateProvider
 @rendermode InteractiveServer
 
 <PageTitle>Proof of Delivery - Shop Inventory</PageTitle>
@@ -1078,9 +1079,12 @@
     private string? deleteMessage;
     private bool deleteSuccess;
     private PodAttachmentItemDto? deletePod;
+    private string? currentUsername;
 
     protected override async Task OnInitializedAsync()
     {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        currentUsername = authState.User.Identity?.Name;
         await LoadPods();
     }
 
@@ -1225,7 +1229,7 @@
 
                 using var stream = file.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
                 var (success, message, _) = await PodService.UploadPodAsync(
-                    lookupInvoice.DocEntry, stream, file.Name, file.ContentType, uploadDescription);
+                    lookupInvoice.DocEntry, stream, file.Name, file.ContentType, uploadDescription, currentUsername);
 
                 if (success)
                     successCount++;

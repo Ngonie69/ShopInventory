@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <location path="." inheritInChildApplications="false">
+    <system.webServer>
+      <handlers>
+        <add name="aspNetCore" path="*" verb="*" modules="AspNetCoreModuleV2" resourceType="Unspecified" />
+      </handlers>
+      <aspNetCore processPath="dotnet" arguments=".\ShopInventory.dll" stdoutLogEnabled="true" stdoutLogFile=".\logs\stdout" hostingModel="InProcess">
+        <environmentVariables>
+          <environmentVariable name="ASPNETCORE_ENVIRONMENT" value="Production" />
+          <environmentVariable name="ConnectionStrings__DefaultConnection" value="Host=localhost;Port=5432;Database=ShopInventory;Username=postgres;Password=root" />
+          <environmentVariable name="Jwt__SecretKey" value="ShopInventory-Prod-Secret-Key-2026-KefalosCheese-64CharsMinimumRequired!" />
+          <environmentVariable name="SAP__ServiceLayerUrl" value="https://10.10.10.6:50000/b1s/v1/" />
+          <environmentVariable name="SAP__CompanyDB" value="KEFALOS_USD_NEW2" />
+          <environmentVariable name="SAP__Username" value="manager" />
+          <environmentVariable name="SAP__Password" value="%$JmePle17" />
+          <environmentVariable name="SAP__SkipCertificateValidation" value="true" />
+          <environmentVariable name="Security__ApiKeys__0__Key" value="sk_live_ShopInventory_2026_SecureApiKey123!" />
+          <environmentVariable name="Security__AllowedOrigins__0" value="http://localhost:5107" />
+          <environmentVariable name="Email__SmtpServer" value="mail.kefaloscheese.com" />
+          <environmentVariable name="Email__SmtpPort" value="587" />
+          <environmentVariable name="Email__Username" value="alerts@kefaloscheese.com" />
+          <environmentVariable name="Email__Password" value="Y)680907771525an" />
+          <environmentVariable name="Email__FromEmail" value="alerts@kefaloscheese.com" />
+          <environmentVariable name="Email__FromName" value="Shop Inventory System" />
+          <environmentVariable name="Email__UseSsl" value="true" />
+          <environmentVariable name="FileStorage__UploadPath" value="C:\inetpub\ShopInventory-API\uploads" />
+        </environmentVariables>
+      </aspNetCore>
+    </system.webServer>
+  </location>
+</configuration>

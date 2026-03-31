@@ -46,7 +46,7 @@ public class CustomerAuthService : ICustomerAuthService
     // Security constants following OWASP guidelines
     private const int MaxFailedAttempts = 5;
     private const int LockoutDurationMinutes = 30;
-    private const int TokenExpirationMinutes = 15; // Short-lived tokens
+    private const int TokenExpirationMinutes = 60;
     private const int RefreshTokenExpirationDays = 7;
     private const int PasswordMinLength = 8;
     private const int PasswordHistoryCount = 5; // Remember last 5 passwords

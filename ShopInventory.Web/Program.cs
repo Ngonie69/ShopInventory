@@ -33,6 +33,13 @@ try
         {
             // Enable detailed errors for debugging (configured in appsettings)
             options.DetailedErrors = builder.Configuration.GetValue<bool>("DetailedErrors", false);
+        })
+        .AddHubOptions(options =>
+        {
+            // Increase SignalR message size to speed up file uploads (default 32KB is too small).
+            // IBrowserFile.OpenReadStream reads data through SignalR in chunks of this size,
+            // so a 5MB file at 32KB = ~160 round trips vs ~5 at 1MB.
+            options.MaximumReceiveMessageSize = 1024 * 1024; // 1 MB
         });
 
     // Add MudBlazor services

@@ -241,7 +241,7 @@ public class ReportService : IReportService
         }
 
         var results = new System.Collections.Concurrent.ConcurrentBag<(StockByWarehouseDto Dto, int InStock, int OutOfStock, int BelowReorder)>();
-        var semaphore = new SemaphoreSlim(5); // Max 5 concurrent SAP calls
+        var semaphore = new SemaphoreSlim(3); // Max 3 concurrent per report to avoid saturating global SAP semaphore
 
         var tasks = activeWarehouses.Select(async wh =>
         {
@@ -394,7 +394,7 @@ public class ReportService : IReportService
             targetWarehouses = targetWarehouses.Where(w => w.WarehouseCode == warehouseCode).ToList();
         }
 
-        var semaphore = new SemaphoreSlim(5);
+        var semaphore = new SemaphoreSlim(3);
         var tasks = targetWarehouses.Select(async wh =>
         {
             await semaphore.WaitAsync(cancellationToken);

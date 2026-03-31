@@ -13,7 +13,7 @@ namespace ShopInventory.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Policy = "ApiAccess")]
 [Produces("application/json")]
 public class UserManagementController : ControllerBase
 {

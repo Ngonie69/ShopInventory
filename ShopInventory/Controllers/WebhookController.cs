@@ -11,7 +11,7 @@ namespace ShopInventory.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin")]
+[Authorize(Policy = "AdminOnly")]
 public class WebhookController : ControllerBase
 {
     private readonly IWebhookService _webhookService;

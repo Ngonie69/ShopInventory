@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
@@ -17,11 +18,20 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     private readonly SAPSettings _settings;
     private readonly ILogger<SAPServiceLayerClient> _logger;
     private readonly IMemoryCache _memoryCache;
-    private string? _sessionId;
-    private DateTime _sessionExpiry = DateTime.MinValue;
+
+    // Session state is static so all transient instances share a single SAP session
+    // instead of each injected instance creating its own login.
+    private static string? _sessionId;
+    private static DateTime _sessionExpiry = DateTime.MinValue;
+    private static readonly SemaphoreSlim _loginLock = new(1, 1);
 
     private const string WarehouseCacheKey = "SAP_Warehouses";
+    private const string BusinessPartnersCacheKey = "SAP_BusinessPartners";
+    private const string BusinessPartnersByTypeCacheKeyPrefix = "SAP_BusinessPartners_";
+    private const string PriceListsCacheKey = "SAP_PriceLists";
     private static readonly SemaphoreSlim _warehouseCacheLock = new(1, 1);
+    private static readonly SemaphoreSlim _businessPartnerCacheLock = new(1, 1);
+    private static readonly SemaphoreSlim _priceListCacheLock = new(1, 1);
 
     // Regex for validating SAP identifiers (item codes, warehouse codes, card codes, etc.)
     // Allows alphanumeric, dashes, underscores, dots, spaces, forward slashes
@@ -74,12 +84,59 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
     private async Task EnsureAuthenticatedAsync(CancellationToken cancellationToken)
     {
+        // Fast path: session is still valid
         if (!string.IsNullOrEmpty(_sessionId) && DateTime.UtcNow < _sessionExpiry)
         {
             return;
         }
 
-        await LoginAsync(cancellationToken);
+        // Serialize login so concurrent requests don't each create a new SAP session
+        await _loginLock.WaitAsync(cancellationToken);
+        try
+        {
+            // Double-check after acquiring lock (another thread may have logged in)
+            if (!string.IsNullOrEmpty(_sessionId) && DateTime.UtcNow < _sessionExpiry)
+            {
+                return;
+            }
+
+            // Best-effort logout of old session to free SAP server-side slot
+            var oldSession = _sessionId;
+            if (!string.IsNullOrEmpty(oldSession))
+            {
+                try
+                {
+                    var logoutReq = new HttpRequestMessage(HttpMethod.Post, "Logout");
+                    logoutReq.Headers.Add("Cookie", $"B1SESSION={oldSession}");
+                    await _httpClient.SendAsync(logoutReq, cancellationToken);
+                    _logger.LogDebug("Logged out stale SAP session before re-authentication");
+                }
+                catch { /* best effort - session may have already expired on SAP */ }
+            }
+
+            await LoginAsync(cancellationToken);
+        }
+        finally
+        {
+            _loginLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Safely invalidates and re-authenticates after a 401 response.
+    /// Uses compare-and-swap to prevent overwriting a newer session created by another thread.
+    /// </summary>
+    private async Task HandleAuthFailureAsync(string? failedSessionId, CancellationToken cancellationToken)
+    {
+        // Only invalidate if the session is still the one that failed.
+        // If another thread already re-authenticated, _sessionId will differ
+        // and the CAS is a harmless no-op.
+        if (failedSessionId != null)
+        {
+            Interlocked.CompareExchange(ref _sessionId, null, failedSessionId);
+        }
+
+        await EnsureAuthenticatedAsync(cancellationToken);
     }
 
     private async Task LoginAsync(CancellationToken cancellationToken)
@@ -120,11 +177,39 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         }
     }
 
+    /// <summary>
+    /// Explicitly logs out the current SAP session to free the server-side session slot.
+    /// Called on application shutdown to prevent session accumulation.
+    /// </summary>
+    public async Task LogoutAsync()
+    {
+        if (string.IsNullOrEmpty(_sessionId))
+            return;
+
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, "Logout");
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            await _httpClient.SendAsync(request);
+            _logger.LogInformation("SAP session logged out successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to logout SAP session (may have already expired)");
+        }
+        finally
+        {
+            _sessionId = null;
+            _sessionExpiry = DateTime.MinValue;
+        }
+    }
+
     public async Task<List<InventoryTransfer>> GetInventoryTransfersToWarehouseAsync(
         string warehouseCode,
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var safeWarehouse = SanitizeODataValue(warehouseCode);
         var allTransfers = new List<InventoryTransfer>();
@@ -144,8 +229,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -189,6 +273,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var skip = (page - 1) * pageSize;
         var safeWarehouse = SanitizeODataValue(warehouseCode);
@@ -203,8 +288,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -231,6 +315,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var dateStr = date.ToString("yyyy-MM-dd");
         var safeWarehouse = SanitizeODataValue(warehouseCode);
@@ -251,8 +336,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -296,6 +380,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
@@ -317,8 +402,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -360,6 +444,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = $"StockTransfers({docEntry})";
 
@@ -371,8 +456,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -406,6 +490,8 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         ValidateInvoiceRequest(request);
 
         await EnsureAuthenticatedAsync(cancellationToken);
+
+        var currentSession = _sessionId;
 
         // Build the invoice payload for SAP
         // Note: DocCurrency should only be sent if explicitly specified and valid in SAP
@@ -459,8 +545,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             httpRequest = new HttpRequestMessage(HttpMethod.Post, "Invoices");
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -543,6 +628,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = $"Invoices({docEntry})";
 
@@ -554,8 +640,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -584,6 +669,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var filter = $"$filter=DocNum eq {docNum}";
         var url = $"Invoices?{filter}";
@@ -596,8 +682,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -623,6 +708,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var safeCardCode = SanitizeODataValue(cardCode);
         var allInvoices = new List<Invoice>();
@@ -642,8 +728,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -688,6 +773,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var safeCardCode = SanitizeODataValue(cardCode);
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
@@ -709,8 +795,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -755,6 +840,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
@@ -775,8 +861,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -820,6 +905,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var skip = (page - 1) * pageSize;
         var filter = $"$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
@@ -833,8 +919,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -862,6 +947,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<Item>> GetAllItemsAsync(CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var items = new List<Item>();
         int skip = 0;
@@ -881,8 +967,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, endpoint);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -930,6 +1015,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         // First get all batch numbers in the warehouse to identify which items have stock
         var batches = await GetAllBatchNumbersInWarehouseAsync(warehouseCode, cancellationToken);
@@ -970,6 +1056,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var safeItemCode = SanitizeODataValue(itemCode);
         var url = $"Items('{safeItemCode}')";
@@ -982,8 +1069,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -1013,6 +1099,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var queryCode = $"ITEM_BATCHES_{itemCode.Replace("-", "_").ToUpperInvariant()}_{warehouseCode.Replace("-", "_").ToUpperInvariant()}";
 
@@ -1044,8 +1131,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
                 httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -1148,6 +1234,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var queryCode = $"WHS_BATCHES_{warehouseCode.Replace("-", "_").ToUpperInvariant()}";
 
@@ -1183,6 +1270,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
 
+            var currentSession = _sessionId;
             var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -1192,8 +1280,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
                 httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -1248,6 +1335,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var queryCode = $"ITEM_SERIALS_{itemCode.Replace("-", "_").ToUpperInvariant()}_{warehouseCode.Replace("-", "_").ToUpperInvariant()}";
 
@@ -1280,8 +1368,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
                 httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -1360,6 +1447,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<ItemPriceDto>> GetItemPricesAsync(CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         // Try to delete existing query first (in case SQL changed)
         await TryDeleteQueryAsync(PriceQueryCode, cancellationToken);
@@ -1379,6 +1467,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<ItemPriceDto>> GetItemPriceByCodeAsync(string itemCode, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var queryCode = $"SHOP_PRICE_{itemCode.Replace("-", "_").ToUpperInvariant()}";
 
@@ -1426,6 +1515,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var json = JsonSerializer.Serialize(payload);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
+        var currentSession = _sessionId;
         var httpRequest = new HttpRequestMessage(HttpMethod.Post, "SQLQueries");
         httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
         httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -1435,8 +1525,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             httpRequest = new HttpRequestMessage(HttpMethod.Post, "SQLQueries");
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -1453,7 +1542,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             return;
         }
 
-        // 409 Conflict means the query already exists — update its SQL via PATCH
+        // 409 Conflict means the query already exists â€” update its SQL via PATCH
         if (response.StatusCode == HttpStatusCode.Conflict)
         {
             _logger.LogDebug("SQL query '{QueryCode}' already exists (409 Conflict), updating via PATCH", queryCode);
@@ -1478,6 +1567,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var patchPayload = new { SqlText = sqlText };
         var patchJson = JsonSerializer.Serialize(patchPayload);
 
+        var currentSession = _sessionId;
         var httpRequest = new HttpRequestMessage(HttpMethod.Patch, $"SQLQueries('{queryCode}')");
         httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
         httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -1487,8 +1577,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             httpRequest = new HttpRequestMessage(HttpMethod.Patch, $"SQLQueries('{queryCode}')");
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -1514,6 +1603,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
 
+            var currentSession = _sessionId;
             var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -1523,8 +1613,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
                 httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -1612,7 +1701,33 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     /// </summary>
     public async Task<List<PriceListDto>> GetPriceListsAsync(CancellationToken cancellationToken = default)
     {
+        if (_memoryCache.TryGetValue(PriceListsCacheKey, out List<PriceListDto>? cached) && cached != null)
+        {
+            return cached;
+        }
+
+        await _priceListCacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_memoryCache.TryGetValue(PriceListsCacheKey, out cached) && cached != null)
+            {
+                return cached;
+            }
+
+            var result = await GetPriceListsFromSAPAsync(cancellationToken);
+            _memoryCache.Set(PriceListsCacheKey, result, TimeSpan.FromMinutes(60));
+            return result;
+        }
+        finally
+        {
+            _priceListCacheLock.Release();
+        }
+    }
+
+    private async Task<List<PriceListDto>> GetPriceListsFromSAPAsync(CancellationToken cancellationToken)
+    {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var priceLists = new List<PriceListDto>();
         var queryCode = "SHOP_PRICE_LISTS";
@@ -1651,8 +1766,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
-                    _sessionId = null;
-                    await EnsureAuthenticatedAsync(cancellationToken);
+                    await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                     request = new HttpRequestMessage(HttpMethod.Get, url);
                     request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -1777,6 +1891,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<ItemPriceByListDto>> GetPricesByPriceListAsync(int priceListNum, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         // Use unique query code per invocation to prevent race conditions between concurrent requests
         var suffix = Random.Shared.Next(100000, 999999);
@@ -1827,6 +1942,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var url = $"Items?$select=ItemCode,ItemName,ForeignName,ItemPrices&$filter=ItemType eq 'itItems'&$top={pageSize}&$skip={skip}";
 
+            var currentSession = _sessionId;
             var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -1836,8 +1952,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
                 httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -1948,6 +2063,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
 
+            var currentSession = _sessionId;
             var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -1957,8 +2073,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
                 httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -1971,11 +2086,11 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
-                // 404 on the first page means the query was deleted (race condition) — return empty
+                // 404 on the first page means the query was deleted (race condition) â€” return empty
                 // so the caller can fall back to the Items API
                 if (skip == 0)
                 {
-                    _logger.LogWarning("SQL query '{QueryCode}' returned 404 on first execution — likely deleted by concurrent request", queryCode);
+                    _logger.LogWarning("SQL query '{QueryCode}' returned 404 on first execution â€” likely deleted by concurrent request", queryCode);
                 }
                 break;
             }
@@ -2060,6 +2175,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<ItemPriceByListDto?> GetItemPriceFromListAsync(string itemCode, int priceListNum, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var safeItemCode = itemCode.Replace("-", "_").Replace("'", "").ToUpperInvariant();
         var queryCode = $"SHOP_ITEM_PRICE_{safeItemCode}_{priceListNum}";
@@ -2083,8 +2199,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -2146,6 +2261,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = $"IncomingPayments?$orderby=DocEntry desc";
 
@@ -2157,8 +2273,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -2191,6 +2306,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             try
             {
                 await EnsureAuthenticatedAsync(cancellationToken);
+                var currentSession = _sessionId;
 
                 var skip = (page - 1) * pageSize;
                 var filter = $"$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
@@ -2204,8 +2320,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
-                    _sessionId = null;
-                    await EnsureAuthenticatedAsync(cancellationToken);
+                    await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                     request = new HttpRequestMessage(HttpMethod.Get, url);
                     request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -2227,12 +2342,13 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                throw; // Client canceled — don't retry
+                throw; // Client canceled â€” don't retry
             }
             catch (Exception ex) when (attempt < maxRetries && IsTransientError(ex))
             {
                 _logger.LogWarning(ex, "Transient error on attempt {Attempt}/{MaxRetries} retrieving incoming payments, retrying...", attempt, maxRetries);
-                _sessionId = null; // Force re-authentication on retry
+                // Session will be re-validated by EnsureAuthenticatedAsync on next attempt.
+                // If the session is truly dead, the 401 handler (HandleAuthFailureAsync) will catch it.
                 await Task.Delay(TimeSpan.FromSeconds(attempt * 2), cancellationToken);
             }
         }
@@ -2257,6 +2373,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = $"IncomingPayments({docEntry})";
 
@@ -2268,8 +2385,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -2298,6 +2414,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var filter = $"$filter=DocNum eq {docNum}";
         var url = $"IncomingPayments?{filter}";
@@ -2310,8 +2427,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -2337,9 +2453,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var safeCardCode = SanitizeODataValue(cardCode);
-        var filter = $"$filter=CardCode eq '{safeCardCode}'&$orderby=DocEntry desc";
+        var filter = $"$filter=CardCode eq '{safeCardCode}' and Cancelled eq 'tNO'&$orderby=DocEntry desc";
         var url = $"IncomingPayments?{filter}";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -2350,8 +2467,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -2378,6 +2494,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
@@ -2388,7 +2505,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         while (hasMore)
         {
-            var url = $"IncomingPayments?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+            var url = $"IncomingPayments?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}' and Cancelled eq 'tNO'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -2398,8 +2515,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -2448,6 +2564,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var queryCode = $"{StockQueryPrefix}{warehouseCode.Replace("-", "_").ToUpperInvariant()}";
 
@@ -2491,6 +2608,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var skip = (page - 1) * pageSize;
 
@@ -2540,6 +2658,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             try
             {
+                var currentSession = _sessionId;
                 var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
                 httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
                 httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -2549,8 +2668,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
-                    _sessionId = null;
-                    await EnsureAuthenticatedAsync(cancellationToken);
+                    await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                     httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
                     httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -2627,6 +2745,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<Dictionary<string, object?>>> ExecuteRawSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         // Try to delete any existing query with this code first
         try
@@ -2659,8 +2778,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
-                    _sessionId = null;
-                    await EnsureAuthenticatedAsync(cancellationToken);
+                    await HandleAuthFailureAsync(currentSession, cancellationToken);
                     request = new HttpRequestMessage(HttpMethod.Get, url);
                     request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
                     request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -2736,6 +2854,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var safeWarehouse = SanitizeODataValue(warehouseCode);
         var url = $"SQLQueries('{queryCode}')/List?WhsCode='{safeWarehouse}'&$skip={skip}&$top={pageSize}";
 
+        var currentSession = _sessionId;
         var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
         httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
         httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -2744,8 +2863,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -2785,6 +2903,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
 
+            var currentSession = _sessionId;
             var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -2794,8 +2913,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
                 httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -2847,6 +2965,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     {
         var url = $"SQLQueries('{queryCode}')/List?$skip={skip}&$top={pageSize}";
 
+        var currentSession = _sessionId;
         var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
         httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
         httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -2855,8 +2974,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -2935,6 +3053,8 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         await EnsureAuthenticatedAsync(cancellationToken);
 
+        var currentSession = _sessionId;
+
         var queryCode = $"PKG_STK_{DateTime.UtcNow.Ticks % 100000000}";
 
         // Try to delete existing query first
@@ -2986,8 +3106,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
-                    _sessionId = null;
-                    await EnsureAuthenticatedAsync(cancellationToken);
+                    await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                     httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
                     httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -3101,6 +3220,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var fromDateStr = fromDate.ToString("yyyyMMdd");
         var toDateStr = toDate.ToString("yyyyMMdd");
@@ -3153,6 +3273,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
 
+            var currentSession = _sessionId;
             var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -3162,8 +3283,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
                 httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -3247,6 +3367,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
@@ -3268,8 +3389,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -3340,6 +3460,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     private async Task<List<WarehouseDto>> GetWarehousesFromSAPAsync(CancellationToken cancellationToken)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var allWarehouses = new List<WarehouseDto>();
         var skip = 0;
@@ -3359,8 +3480,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -3466,11 +3586,38 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
     // Use $select to avoid SAP resolving FK references (e.g., Discount Groups/ODIS) via GetByKey,
     // which causes error -2028 when referenced records are deleted or invalid.
-    private const string BusinessPartnerSelectFields = "$select=CardCode,CardName,CardType,GroupCode,Phone1,Phone2,EmailAddress,Address,City,Country,Currency,CurrentAccountBalance,Frozen,PriceListNum,PayTermsGrpCode,FederalTaxID,VatIDUnCmp,CardForeignName";
+    private const string BusinessPartnerSelectFields = "$select=CardCode,CardName,CardType,GroupCode,Phone1,Phone2,EmailAddress,Address,City,Country,Currency,CurrentAccountBalance,Frozen,PriceListNum,PayTermsGrpCode,FederalTaxID,CardForeignName";
 
     public async Task<List<BusinessPartnerDto>> GetBusinessPartnersAsync(CancellationToken cancellationToken = default)
     {
+        if (_memoryCache.TryGetValue(BusinessPartnersCacheKey, out List<BusinessPartnerDto>? cached) && cached != null)
+        {
+            return cached;
+        }
+
+        await _businessPartnerCacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            // Double-check after acquiring lock
+            if (_memoryCache.TryGetValue(BusinessPartnersCacheKey, out cached) && cached != null)
+            {
+                return cached;
+            }
+
+            var result = await GetBusinessPartnersFromSAPAsync(cancellationToken);
+            _memoryCache.Set(BusinessPartnersCacheKey, result, TimeSpan.FromMinutes(30));
+            return result;
+        }
+        finally
+        {
+            _businessPartnerCacheLock.Release();
+        }
+    }
+
+    private async Task<List<BusinessPartnerDto>> GetBusinessPartnersFromSAPAsync(CancellationToken cancellationToken)
+    {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var allPartners = new List<BusinessPartnerDto>();
         var skip = 0;
@@ -3479,8 +3626,8 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         while (hasMore)
         {
-            // Filter for Customers (cCustomer) only, you can modify to include Suppliers (cSupplier) or both
-            var url = $"BusinessPartners?{BusinessPartnerSelectFields}&$filter=CardType eq 'cCustomer'&$orderby=CardCode&$skip={skip}";
+            // Fetch both Customers and Suppliers
+            var url = $"BusinessPartners?{BusinessPartnerSelectFields}&$filter=CardType eq 'cCustomer' or CardType eq 'cSupplier'&$orderby=CardCode&$skip={skip}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -3491,8 +3638,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -3548,7 +3694,34 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
     public async Task<List<BusinessPartnerDto>> GetBusinessPartnersByTypeAsync(string cardType, CancellationToken cancellationToken = default)
     {
+        var cacheKey = $"{BusinessPartnersByTypeCacheKeyPrefix}{cardType}";
+        if (_memoryCache.TryGetValue(cacheKey, out List<BusinessPartnerDto>? cached) && cached != null)
+        {
+            return cached;
+        }
+
+        await _businessPartnerCacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_memoryCache.TryGetValue(cacheKey, out cached) && cached != null)
+            {
+                return cached;
+            }
+
+            var result = await GetBusinessPartnersByTypeFromSAPAsync(cardType, cancellationToken);
+            _memoryCache.Set(cacheKey, result, TimeSpan.FromMinutes(30));
+            return result;
+        }
+        finally
+        {
+            _businessPartnerCacheLock.Release();
+        }
+    }
+
+    private async Task<List<BusinessPartnerDto>> GetBusinessPartnersByTypeFromSAPAsync(string cardType, CancellationToken cancellationToken)
+    {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var allPartners = new List<BusinessPartnerDto>();
         var skip = 0;
@@ -3568,8 +3741,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -3621,6 +3793,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<BusinessPartnerDto>> SearchBusinessPartnersAsync(string searchTerm, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         // Search by CardCode or CardName containing the search term
         var filter = $"$filter=(contains(CardCode,'{searchTerm}') or contains(CardName,'{searchTerm}')) and CardType eq 'cCustomer'&$orderby=CardCode&$top=50";
@@ -3634,8 +3807,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -3665,6 +3837,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<BusinessPartnerDto?> GetBusinessPartnerByCodeAsync(string cardCode, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = $"BusinessPartners('{cardCode}')?{BusinessPartnerSelectFields}";
 
@@ -3676,8 +3849,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -3807,6 +3979,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<PaymentTermsDto?> GetPaymentTermsByCodeAsync(int groupNumber, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = $"PaymentTermsTypes({groupNumber})?$select=GroupNumber,PaymentTermsGroupName,NumberOfAdditionalDays,NumberOfAdditionalMonths";
 
@@ -3818,8 +3991,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -4014,6 +4186,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         // Validate the request
         ValidateInventoryTransferRequest(request);
@@ -4403,8 +4576,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             httpRequest = new HttpRequestMessage(HttpMethod.Post, "StockTransfers")
             {
@@ -4487,6 +4659,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         // Validate the request
         ValidateTransferRequestDto(request);
@@ -4584,6 +4757,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = $"InventoryTransferRequests({docEntry})";
         var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
@@ -4610,6 +4784,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var filter = Uri.EscapeDataString($"ToWarehouse eq '{warehouseCode}'");
         var url = $"InventoryTransferRequests?$filter={filter}&$orderby=DocEntry desc";
@@ -4636,6 +4811,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var skip = (page - 1) * pageSize;
         var url = $"InventoryTransferRequests?$orderby=DocEntry desc&$skip={skip}&$top={pageSize}";
@@ -4699,6 +4875,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         _logger.LogInformation("Converting transfer request {DocEntry} to inventory transfer", requestDocEntry);
 
@@ -4916,7 +5093,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         }
         catch (Exception ex)
         {
-            // Log but don't fail the conversion — the transfer was already created successfully
+            // Log but don't fail the conversion â€” the transfer was already created successfully
             _logger.LogWarning(ex, "Failed to close transfer request {RequestDocEntry} after conversion. " +
                 "The transfer was created successfully but the request remains open.", requestDocEntry);
         }
@@ -4933,6 +5110,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         _logger.LogInformation("Closing inventory transfer request {DocEntry}", docEntry);
 
@@ -4945,8 +5123,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Post, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -4976,6 +5153,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         // Validate the request
         ValidateIncomingPaymentRequest(request);
@@ -5104,8 +5282,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             httpRequest = new HttpRequestMessage(HttpMethod.Post, "IncomingPayments")
             {
@@ -5229,6 +5406,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<GLAccountDto>> GetGLAccountsAsync(CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var allAccounts = new List<GLAccountDto>();
         var skip = 0;
@@ -5249,8 +5427,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -5296,6 +5473,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<GLAccountDto>> GetGLAccountsByTypeAsync(string accountType, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var allAccounts = new List<GLAccountDto>();
         var skip = 0;
@@ -5315,8 +5493,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -5359,6 +5536,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<GLAccountDto?> GetGLAccountByCodeAsync(string accountCode, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = $"ChartOfAccounts('{accountCode}')";
 
@@ -5370,8 +5548,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -5465,6 +5642,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<CostCentreDto>> GetCostCentresAsync(CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var allCostCentres = new List<CostCentreDto>();
         var skip = 0;
@@ -5485,8 +5663,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -5533,6 +5710,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<CostCentreDto>> GetCostCentresByDimensionAsync(int dimension, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var allCostCentres = new List<CostCentreDto>();
         var skip = 0;
@@ -5552,8 +5730,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -5599,6 +5776,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<CostCentreDto?> GetCostCentreByCodeAsync(string centerCode, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = $"ProfitCenters('{centerCode}')";
 
@@ -5610,8 +5788,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -5705,6 +5882,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPPurchaseOrder>> GetPurchaseOrdersFromSAPAsync(CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = "PurchaseOrders?$orderby=DocEntry desc&$top=100";
 
@@ -5716,8 +5894,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -5741,6 +5918,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPPurchaseOrder>> GetPagedPurchaseOrdersFromSAPAsync(int page, int pageSize, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var skip = (page - 1) * pageSize;
         var url = $"PurchaseOrders?$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
@@ -5755,8 +5933,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -5782,6 +5959,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<SAPPurchaseOrder?> GetPurchaseOrderByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = $"PurchaseOrders({docEntry})";
 
@@ -5793,8 +5971,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -5821,6 +5998,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPPurchaseOrder>> GetPurchaseOrdersBySupplierAsync(string cardCode, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = $"PurchaseOrders?$filter=CardCode eq '{cardCode}'&$orderby=DocEntry desc";
 
@@ -5832,8 +6010,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -5857,6 +6034,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPPurchaseOrder>> GetPurchaseOrdersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
@@ -5877,8 +6055,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -5919,6 +6096,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<int> GetPurchaseOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var filters = new List<string>();
         if (!string.IsNullOrEmpty(cardCode))
@@ -5939,8 +6117,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -5965,6 +6142,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPSalesOrder>> GetSalesOrdersAsync(CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = "Orders?$orderby=DocEntry desc&$top=100";
 
@@ -5976,8 +6154,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6001,6 +6178,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPSalesOrder>> GetPagedSalesOrdersAsync(int page, int pageSize, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var skip = (page - 1) * pageSize;
         var url = $"Orders?$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
@@ -6015,8 +6193,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6044,6 +6221,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<SAPSalesOrder?> GetSalesOrderByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = $"Orders({docEntry})";
 
@@ -6055,8 +6233,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6083,6 +6260,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPSalesOrder>> GetSalesOrdersByCustomerAsync(string cardCode, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = $"Orders?$filter=CardCode eq '{cardCode}'&$orderby=DocEntry desc";
 
@@ -6094,8 +6272,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6119,6 +6296,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPSalesOrder>> GetSalesOrdersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
@@ -6139,8 +6317,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6185,6 +6362,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPSalesOrder>> GetSalesOrderHeadersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
@@ -6205,8 +6383,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6247,6 +6424,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<int> GetSalesOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var filters = new List<string>();
         if (!string.IsNullOrEmpty(cardCode))
@@ -6268,8 +6446,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6297,6 +6474,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPCreditNote>> GetCreditNotesAsync(CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = "CreditNotes?$orderby=DocEntry desc&$top=100";
 
@@ -6308,8 +6486,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6333,6 +6510,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPCreditNote>> GetPagedCreditNotesAsync(int page, int pageSize, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var skip = (page - 1) * pageSize;
         var url = $"CreditNotes?$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
@@ -6345,8 +6523,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6370,6 +6547,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<SAPCreditNote?> GetCreditNoteByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = $"CreditNotes({docEntry})";
 
@@ -6381,8 +6559,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6409,6 +6586,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPCreditNote>> GetCreditNotesByCustomerAsync(string cardCode, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = $"CreditNotes?$filter=CardCode eq '{cardCode}'&$orderby=DocEntry desc";
 
@@ -6420,8 +6598,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6445,6 +6622,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPCreditNote>> GetCreditNotesByCustomerAsync(string cardCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var safeCardCode = SanitizeODataValue(cardCode);
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
@@ -6466,8 +6644,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6509,6 +6686,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPCreditNote>> GetCreditNotesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
@@ -6529,8 +6707,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6580,6 +6757,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<int> GetCreditNotesCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var filters = new List<string>();
         if (!string.IsNullOrEmpty(cardCode))
@@ -6601,8 +6779,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6626,6 +6803,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<SAPCreditNote> CreateCreditNoteAsync(CreateCreditNoteRequest request, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         _logger.LogInformation("Creating credit note in SAP for customer {CardCode}", request.CardCode);
 
@@ -6718,8 +6896,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             httpRequest = new HttpRequestMessage(HttpMethod.Post, "CreditNotes");
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6759,6 +6936,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPExchangeRate>> GetExchangeRatesAsync(CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         // Query exchange rates from SAP - ORTT table contains exchange rates
         var sqlText = @"SELECT T0.""Currency"", T0.""RateDate"", T0.""Rate"" 
@@ -6778,8 +6956,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Post, "SQLQueries('sql01')/List");
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6823,6 +7000,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<SAPExchangeRate?> GetExchangeRateAsync(string currency, DateTime? date = null, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var rateDate = date ?? DateTime.Today;
         var formattedDate = rateDate.ToString("yyyy-MM-dd");
@@ -6846,8 +7024,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Post, "SQLQueries('sql01')/List");
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6886,6 +7063,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPCurrency>> GetCurrenciesAsync(CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var request = new HttpRequestMessage(HttpMethod.Get, "Currencies");
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6895,8 +7073,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, "Currencies");
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6941,18 +7118,21 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     #region Connection Testing
 
     /// <summary>
-    /// Tests the connection to SAP Business One Service Layer
+    /// Tests the connection to SAP Business One Service Layer by forcing a fresh login
     /// </summary>
     public async Task<bool> TestConnectionAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            await EnsureAuthenticatedAsync(cancellationToken);
+            // Force a fresh login to actually verify credentials - don't reuse cached session
+            _sessionId = null;
+            _sessionExpiry = DateTime.MinValue;
 
-            // If we have a session ID, we're connected
+            await LoginAsync(cancellationToken);
+
             if (!string.IsNullOrEmpty(_sessionId))
             {
-                _logger.LogDebug("SAP connection test successful - session active");
+                _logger.LogDebug("SAP connection test successful - fresh login succeeded");
                 return true;
             }
 
@@ -6965,6 +7145,70 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         }
     }
 
+    /// <summary>
+    /// Tests the connection to SAP Business One Service Layer using specific credentials
+    /// (does not affect the cached session used by the rest of the application)
+    /// </summary>
+    public async Task<bool> TestConnectionWithCredentialsAsync(
+        string serviceLayerUrl, string companyDb, string userName, string password,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var loginRequest = new LoginRequest
+            {
+                CompanyDB = companyDb,
+                UserName = userName,
+                Password = password
+            };
+
+            var json = JsonSerializer.Serialize(loginRequest);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            // Build the full login URL using the provided service layer URL
+            var baseUrl = serviceLayerUrl.TrimEnd('/');
+            var loginUrl = $"{baseUrl}/Login";
+
+            using var testClient = new HttpClient(new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = (_, _, _, _) => true
+            });
+            testClient.Timeout = TimeSpan.FromSeconds(15);
+
+            var response = await testClient.PostAsync(loginUrl, content, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                // Try to logout the test session to not leave orphaned sessions
+                var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                var loginResponse = JsonSerializer.Deserialize<LoginResponse>(responseContent);
+                if (!string.IsNullOrEmpty(loginResponse?.SessionId))
+                {
+                    try
+                    {
+                        var logoutRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/Logout");
+                        logoutRequest.Headers.Add("Cookie", $"B1SESSION={loginResponse.SessionId}");
+                        await testClient.SendAsync(logoutRequest, cancellationToken);
+                    }
+                    catch { /* best-effort logout */ }
+                }
+
+                _logger.LogDebug("SAP connection test with custom credentials successful");
+                return true;
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogWarning("SAP connection test with custom credentials failed: {StatusCode} - {Error}",
+                response.StatusCode, errorContent);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "SAP connection test with custom credentials failed");
+            return false;
+        }
+    }
+
     #endregion
 
     #region Quotation Operations
@@ -6972,6 +7216,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPQuotation>> GetQuotationsFromSAPAsync(CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = "Quotations?$orderby=DocEntry desc&$top=100";
 
@@ -6983,8 +7228,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -7008,6 +7252,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPQuotation>> GetPagedQuotationsFromSAPAsync(int page, int pageSize, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var skip = (page - 1) * pageSize;
         var url = $"Quotations?$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
@@ -7022,8 +7267,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -7049,6 +7293,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<SAPQuotation?> GetQuotationByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var url = $"Quotations({docEntry})";
 
@@ -7060,8 +7305,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -7086,6 +7330,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPQuotation>> GetQuotationsByCustomerAsync(string cardCode, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var safeCardCode = SanitizeODataValue(cardCode);
         var url = $"Quotations?$filter=CardCode eq '{safeCardCode}'&$orderby=DocEntry desc";
@@ -7098,8 +7343,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -7123,6 +7367,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<List<SAPQuotation>> GetQuotationsByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
@@ -7143,8 +7388,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                _sessionId = null;
-                await EnsureAuthenticatedAsync(cancellationToken);
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -7185,6 +7429,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public async Task<int> GetQuotationsCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
 
         var filters = new List<string>();
         if (!string.IsNullOrEmpty(cardCode))
@@ -7205,8 +7450,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            _sessionId = null;
-            await EnsureAuthenticatedAsync(cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -7229,7 +7473,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     /// <summary>
     /// Detects SAP errors related to corrupted or invalid Business Partner data.
     /// Error -2028: Referenced record not found (e.g., deleted Discount Group in ODIS table).
-    /// Error -1025: Corrupted BP record — object found but cannot be loaded due to broken linked data
+    /// Error -1025: Corrupted BP record â€” object found but cannot be loaded due to broken linked data
     /// in related tables (CRD1 addresses, OCRB bank accounts, OCPR contacts, ODIS discount groups, OCTG payment terms).
     /// </summary>
     private static bool IsBusinessPartnerDataError(string errorContent)

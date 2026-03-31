@@ -988,7 +988,8 @@
                                         <li><strong>Main Accounts</strong> - Used for <strong>invoicing</strong> and
                                             <strong>incoming payments</strong>. Typically one per currency (e.g. ZiG, USD).
                                         </li>
-                                        <li><strong>Sub Accounts</strong> - Used for <strong>sales orders only</strong>. Derive from
+                                        <li><strong>Sub Accounts</strong> - Used for <strong>sales orders</strong> and
+                                            <strong>invoicing</strong>. Balances roll up to the parent main account. Derive from
                                             a main account.</li>
                                         </ul>
                                     </div>
@@ -1083,6 +1084,10 @@
                                                 {
                                                     <option value="@main.CardCode">@main.CardCode (@main.Currency)</option>
                                                 }
+                                            }
+                                            @if (selectedCustomer != null && (linkedAccounts == null || !linkedAccounts.Any(a => a.AccountType == "Main" && a.CardCode == selectedCustomer.CardCode)))
+                                            {
+                                                <option value="@selectedCustomer.CardCode">@selectedCustomer.CardCode (Portal Account)</option>
                                             }
                                         </select>
                                     </div>

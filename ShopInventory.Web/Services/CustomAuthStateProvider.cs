@@ -18,6 +18,7 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
     // In-memory cache for auth state during same session
     private string? _cachedToken;
     private UserInfo? _cachedUserInfo;
+    private DateTime? _cachedExpiresAt;
 
     public CustomAuthStateProvider(ILocalStorageService localStorage, HttpClient httpClient, ILogger<CustomAuthStateProvider> logger)
     {
@@ -36,6 +37,25 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
             // First check in-memory cache (for same session)
             if (!string.IsNullOrWhiteSpace(_cachedToken) && _cachedUserInfo != null)
             {
+                // Check if cached token is expired or about to expire (2 min buffer)
+                if (_cachedExpiresAt.HasValue && _cachedExpiresAt.Value < DateTime.UtcNow.AddMinutes(2))
+                {
+                    _logger.LogDebug("Cached token expired or expiring soon, attempting refresh");
+                    var refreshToken = await _localStorage.GetItemAsync<string>("refreshToken");
+                    if (!string.IsNullOrWhiteSpace(refreshToken))
+                    {
+                        var refreshed = await TryRefreshToken(refreshToken);
+                        if (refreshed)
+                        {
+                            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _cachedToken);
+                            return CreateAuthState(_cachedUserInfo);
+                        }
+                    }
+                    _logger.LogWarning("Token refresh failed from cache path, clearing auth data");
+                    await ClearAuthData();
+                    return _anonymous;
+                }
+
                 _logger.LogDebug("Using cached auth state for user: {Username}", _cachedUserInfo.Username);
                 _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _cachedToken);
                 return CreateAuthState(_cachedUserInfo);
@@ -65,9 +85,9 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
             var expiresAt = await _localStorage.GetItemAsync<DateTime?>("tokenExpiresAt");
             _logger.LogDebug("Token expires at: {ExpiresAt}, Current UTC: {Now}", expiresAt, DateTime.UtcNow);
 
-            if (expiresAt.HasValue && expiresAt.Value < DateTime.UtcNow)
+            if (expiresAt.HasValue && expiresAt.Value < DateTime.UtcNow.AddMinutes(2))
             {
-                _logger.LogDebug("Token expired, attempting refresh");
+                _logger.LogDebug("Token expired or expiring soon, attempting refresh");
                 // Token expired, try to refresh
                 var refreshToken = await _localStorage.GetItemAsync<string>("refreshToken");
                 if (!string.IsNullOrWhiteSpace(refreshToken))
@@ -175,7 +195,8 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
         // Update in-memory cache first
         _cachedToken = loginResponse.AccessToken;
         _cachedUserInfo = loginResponse.User;
-        _logger.LogDebug("In-memory cache updated. Token length: {TokenLength}", loginResponse.AccessToken?.Length ?? 0);
+        _cachedExpiresAt = loginResponse.ExpiresAt;
+        _logger.LogDebug("In-memory cache updated. Token length: {TokenLength}, ExpiresAt: {ExpiresAt}", loginResponse.AccessToken?.Length ?? 0, loginResponse.ExpiresAt);
 
         try
         {
@@ -202,6 +223,7 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
         // Clear in-memory cache
         _cachedToken = null;
         _cachedUserInfo = null;
+        _cachedExpiresAt = null;
 
         try
         {

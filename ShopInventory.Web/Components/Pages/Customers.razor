@@ -860,9 +860,11 @@
                     }
                 </MudButton>
                 <div class="type-toggle">
-                    <MudButton Class="@(selectedType == "C" ? "active" : "")" OnClick='() => FilterByType("C")'>
+                    <MudButton Class="@(selectedType == "cCustomer" ? "active" : "")"
+                               OnClick='() => FilterByType("cCustomer")'>
                         Customers</MudButton>
-                        <MudButton Class="@(selectedType == "S" ? "active" : "")" OnClick='() => FilterByType("S")'>
+                        <MudButton Class="@(selectedType == "cSupplier" ? "active" : "")"
+                                   OnClick='() => FilterByType("cSupplier")'>
                             Suppliers</MudButton>
                             <MudButton Class="@(selectedType == "" ? "active" : "")" OnClick='() => FilterByType("")'>All
                             </MudButton>
@@ -888,14 +890,14 @@
                         <div class="stat-card">
                             <div class="stat-icon purple"><i class="bi bi-people-fill"></i></div>
                             <div class="stat-info">
-                                <div class="stat-value">@customers.Count(c => c.CardType == "C")</div>
+                                <div class="stat-value">@customers.Count(c => c.CardType == "cCustomer" || c.CardType == "C")</div>
                                 <div class="stat-label">Customers</div>
                             </div>
                         </div>
                         <div class="stat-card">
                             <div class="stat-icon blue"><i class="bi bi-truck"></i></div>
                             <div class="stat-info">
-                                <div class="stat-value">@customers.Count(c => c.CardType == "S")</div>
+                                <div class="stat-value">@customers.Count(c => c.CardType == "cSupplier" || c.CardType == "S")</div>
                                 <div class="stat-label">Suppliers</div>
                             </div>
                         </div>
@@ -1001,7 +1003,7 @@
                                 <MudTd DataLabel="Currency">
                                     <span
                                         style="font-size:.82rem;padding:.15rem .45rem;border-radius:4px;background:#f3f4f6;color:#374151;font-weight:600;">@(context.Currency
-                                                                    ?? "USD")</span>
+                                                                                                            ?? "USD")</span>
                                     </MudTd>
                                     <MudTd DataLabel="Balance" Style="text-align:right">
                                         <span class="@(context.Balance > 0 ? "balance-positive" : "balance-zero")">
@@ -1352,25 +1354,25 @@
 
     private string GetTypeBadgeClass(string? type) => type switch
     {
-        "C" => "bg-primary",
-        "S" => "bg-success",
-        "L" => "bg-info",
+        "C" or "cCustomer" => "bg-primary",
+        "S" or "cSupplier" => "bg-success",
+        "L" or "cLead" => "bg-info",
         _ => "bg-secondary"
     };
 
     private string GetTypeClass(string? type) => type switch
     {
-        "C" => "customer",
-        "S" => "supplier",
-        "L" => "lead",
+        "C" or "cCustomer" => "customer",
+        "S" or "cSupplier" => "supplier",
+        "L" or "cLead" => "lead",
         _ => ""
     };
 
     private string GetTypeLabel(string? type) => type switch
     {
-        "C" => "Customer",
-        "S" => "Supplier",
-        "L" => "Lead",
+        "C" or "cCustomer" => "Customer",
+        "S" or "cSupplier" => "Supplier",
+        "L" or "cLead" => "Lead",
         _ => "Unknown"
     };
 

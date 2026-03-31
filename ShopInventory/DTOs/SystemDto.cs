@@ -125,6 +125,17 @@ public class UpdateSAPSettingsRequest
 }
 
 /// <summary>
+/// Request to test SAP connection with specific credentials
+/// </summary>
+public class TestSAPConnectionRequest
+{
+    public string ServiceLayerUrl { get; set; } = string.Empty;
+    public string CompanyDB { get; set; } = string.Empty;
+    public string UserName { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// SAP Settings DTO (read-only, masks sensitive data)
 /// </summary>
 public class SAPSettingsDto

@@ -76,41 +76,66 @@
     }
     else
     {
-        <!-- Tab Navigation -->
-        <div class="settings-tabs">
-            @foreach (var category in categories)
-            {
-                <MudButton Class="@($"settings-tab {(selectedCategory == category ? "active" : "")}")"
-                           OnClick="() => SelectCategory(category)">
-                    <i class="bi @GetCategoryIcon(category)"></i>
-                    <span>@category</span>
-                </MudButton>
-            }
-            <MudButton Class="@($"settings-tab {(selectedCategory == PaymentsCategory ? "active" : "")}")"
-                       OnClick="() => SelectCategory(PaymentsCategory)">
-                <i class="bi bi-cash-coin"></i>
-                <span>Payments</span>
-            </MudButton>
-            <MudButton Class="@($"settings-tab {(selectedCategory == SAPCategory ? "active" : "")}")"
-                       OnClick="() => SelectCategory(SAPCategory)">
-                <i class="bi bi-cloud-arrow-up"></i>
-                <span>SAP Connection</span>
-            </MudButton>
-            <MudButton Class="@($"settings-tab {(selectedCategory == DataManagementCategory ? "active" : "")}")"
-                       OnClick="() => SelectCategory(DataManagementCategory)">
-                <i class="bi bi-arrow-repeat"></i>
-                <span>Data Sync</span>
-            </MudButton>
-            <MudButton Class="@($"settings-tab {(selectedCategory == DangerZoneCategory ? "active" : "")}")"
-                       OnClick="() => SelectCategory(DangerZoneCategory)"
-                       style="@(selectedCategory == DangerZoneCategory ? "color: #dc3545; border-color: #dc3545;" : "")">
-                <i class="bi bi-exclamation-triangle"></i>
-                <span>Danger Zone</span>
-            </MudButton>
-        </div>
+        <div class="settings-layout">
+            <!-- Sidebar Navigation -->
+            <nav class="settings-sidebar">
+                <div class="sidebar-group">
+                    <span class="sidebar-group-label">Configuration</span>
+                    @foreach (var category in categories.Where(c => new[] { SettingCategories.General, SettingCategories.Display, SettingCategories.Printing }.Contains(c)))
+                    {
+                        <button class="@($"sidebar-item {(selectedCategory == category ? "active" : "")}")"
+                                @onclick="() => SelectCategory(category)">
+                            <i class="bi @GetCategoryIcon(category)"></i>
+                            <span>@category</span>
+                        </button>
+                    }
+                </div>
+                <div class="sidebar-group">
+                    <span class="sidebar-group-label">Integration</span>
+                    <button class="@($"sidebar-item {(selectedCategory == PaymentsCategory ? "active" : "")}")"
+                            @onclick="() => SelectCategory(PaymentsCategory)">
+                        <i class="bi bi-cash-coin"></i>
+                        <span>Payments</span>
+                    </button>
+                    <button class="@($"sidebar-item {(selectedCategory == SAPCategory ? "active" : "")}")"
+                            @onclick="() => SelectCategory(SAPCategory)">
+                        <i class="bi bi-cloud-arrow-up"></i>
+                        <span>SAP Connection</span>
+                    </button>
+                    @foreach (var category in categories.Where(c => new[] { SettingCategories.API }.Contains(c)))
+                    {
+                        <button class="@($"sidebar-item {(selectedCategory == category ? "active" : "")}")"
+                                @onclick="() => SelectCategory(category)">
+                            <i class="bi @GetCategoryIcon(category)"></i>
+                            <span>@category</span>
+                        </button>
+                    }
+                </div>
+                <div class="sidebar-group">
+                    <span class="sidebar-group-label">System</span>
+                    @foreach (var category in categories.Where(c => new[] { SettingCategories.Audit, SettingCategories.Security }.Contains(c)))
+                    {
+                        <button class="@($"sidebar-item {(selectedCategory == category ? "active" : "")}")"
+                                @onclick="() => SelectCategory(category)">
+                            <i class="bi @GetCategoryIcon(category)"></i>
+                            <span>@category</span>
+                        </button>
+                    }
+                    <button class="@($"sidebar-item {(selectedCategory == DataManagementCategory ? "active" : "")}")"
+                            @onclick="() => SelectCategory(DataManagementCategory)">
+                        <i class="bi bi-arrow-repeat"></i>
+                        <span>Data Sync</span>
+                    </button>
+                    <button class="@($"sidebar-item sidebar-item-danger {(selectedCategory == DangerZoneCategory ? "active" : "")}")"
+                            @onclick="() => SelectCategory(DangerZoneCategory)">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <span>Danger Zone</span>
+                    </button>
+                </div>
+            </nav>
 
-        <!-- Tab Content -->
-        <div class="settings-content">
+            <!-- Content -->
+            <div class="settings-content">
 
             @if (selectedCategory == PaymentsCategory)
             {
@@ -794,6 +819,33 @@
                                                                     <option value="yyyy-MM-dd">2026-01-04</option>
                                                                 </select>
                                                             }
+                                                            else if (setting.Key == SettingKeys.DefaultWarehouse)
+                                                            {
+                                                                <MudAutocomplete T="CachedWarehouse" Label="Search warehouse"
+                                                                                 Value="selectedWarehouse"
+                                                                                 ValueChanged="OnWarehouseSelected"
+                                                                                 SearchFunc="@SearchWarehousesAsync"
+                                                                                 ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
+                                                                                 ShowProgressIndicator="true" MinCharacters="0" Immediate="true"
+                                                                                 ResetValueOnEmptyText="true" CoerceText="false" CoerceValue="false"
+                                                                                 Variant="Variant.Outlined" Dense="true" Margin="Margin.Dense"
+                                                                                 Clearable="true" DebounceInterval="200" MaxItems="20"
+                                                                                 AdornmentIcon="@Icons.Material.Filled.Warehouse"
+                                                                                 AdornmentColor="Color.Primary"
+                                                                                 Style="min-width: 280px;">
+                                                                    <ItemTemplate Context="wh">
+                                                                        <MudText>
+                                                                            <b>@wh.WarehouseCode</b> — @wh.WarehouseName
+                                                                        </MudText>
+                                                                    </ItemTemplate>
+                                                                    <NoItemsTemplate>
+                                                                        <MudText Class="px-3 py-2">
+                                                                            <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Class="me-1" />
+                                                                            No warehouses found. Sync from Data Sync tab.
+                                                                        </MudText>
+                                                                    </NoItemsTemplate>
+                                                                </MudAutocomplete>
+                                                            }
                                                             else
                                                             {
                                                                 <input type="text" class="field-input field-input-sm" value="@GetValue(setting.Key)"
@@ -814,10 +866,11 @@
                                         </div>
                                     }
                                 </div>
-                            }
-                        </div>
+                            </div>
+                        }
+                    </div>
 
-                        <!-- Reset Database Confirmation Dialog -->
+                    <!-- Reset Database Confirmation Dialog -->
                         <MudOverlay Visible="@showResetConfirmation" DarkBackground="true" ZIndex="9999" OnClick="@(() => { })">
                             <MudPaper Elevation="8"
                                       Style="border-radius: 12px; padding: 2rem; max-width: 500px; width: 90vw; border: 2px solid #dc3545;">
@@ -902,6 +955,10 @@
     private string paymentBPSearchTerm = "";
     private List<CachedGLAccount> cachedGLAccounts = new();
     private List<CachedBusinessPartner> cachedBusinessPartners = new();
+
+    // Warehouse autocomplete fields
+    private List<CachedWarehouse> cachedWarehouses = new();
+    private CachedWarehouse? selectedWarehouse;
 
     // Exclude expense, revenue, and controlling accounts — only show cash/bank/other
     private static readonly HashSet<string> _excludedAccountTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -1469,7 +1526,15 @@
 
         try
         {
-            var result = await SAPSettingsService.TestConnectionAsync();
+            var request = new SAPTestConnectionRequest
+            {
+                ServiceLayerUrl = sapServiceLayerUrl?.Trim() ?? string.Empty,
+                CompanyDB = sapCompanyDB?.Trim() ?? string.Empty,
+                UserName = sapUsername?.Trim() ?? string.Empty,
+                Password = sapPassword ?? string.Empty
+            };
+
+            var result = await SAPSettingsService.TestConnectionAsync(request);
             sapConnectionTested = true;
             sapConnectionSuccess = result.Connected;
             sapConnectionMessage = result.Message;
@@ -1501,6 +1566,15 @@
             .Where(bp => bp.IsActive && (bp.CardType == "cCustomer" || bp.CardType == "C"))
             .OrderBy(bp => bp.CardCode)
             .ToListAsync();
+
+            cachedWarehouses = await db.CachedWarehouses
+            .Where(w => w.IsActive)
+            .OrderBy(w => w.WarehouseCode)
+            .ToListAsync();
+
+            // Set selected warehouse from current setting
+            var whCode = editedValues.TryGetValue(SettingKeys.DefaultWarehouse, out var whVal) ? whVal : "";
+            selectedWarehouse = cachedWarehouses.FirstOrDefault(w => w.WarehouseCode == whCode);
 
             // Load current values from settings
             var glSetting = await SettingsService.GetValueAsync(SettingKeys.IncomingPaymentGLAccount);
@@ -1593,6 +1667,27 @@ cancellationToken)
     private void OnPaymentBPSearchInput(ChangeEventArgs e)
     {
         paymentBPSearchTerm = e.Value?.ToString() ?? "";
+    }
+
+    // Warehouse autocomplete methods
+    private Task<IEnumerable<CachedWarehouse>> SearchWarehousesAsync(string searchText, CancellationToken cancellationToken)
+    {
+        var active = cachedWarehouses.Where(w => w.IsActive);
+        if (string.IsNullOrWhiteSpace(searchText))
+            return Task.FromResult(active.Take(20));
+
+        var term = searchText.ToLower();
+        return Task.FromResult(active.Where(w =>
+            (w.WarehouseCode?.ToLower().Contains(term) ?? false) ||
+            (w.WarehouseName?.ToLower().Contains(term) ?? false))
+            .Take(20));
+    }
+
+    private void OnWarehouseSelected(CachedWarehouse? warehouse)
+    {
+        selectedWarehouse = warehouse;
+        var code = warehouse?.WarehouseCode ?? "";
+        OnSettingChanged(SettingKeys.DefaultWarehouse, code);
     }
 
     // Database Reset Methods

@@ -12,7 +12,7 @@ namespace ShopInventory.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/sap-settings")]
-[Authorize(Roles = "Admin")]
+[Authorize(Policy = "AdminOnly")]
 [Produces("application/json")]
 public class SAPSettingsController : ControllerBase
 {
@@ -95,7 +95,10 @@ public class SAPSettingsController : ControllerBase
             {
                 try
                 {
-                    var connected = await _sapClient.TestConnectionAsync(cancellationToken);
+                    // Test with the newly saved credentials, not the old in-memory ones
+                    var connected = await _sapClient.TestConnectionWithCredentialsAsync(
+                        request.ServiceLayerUrl, request.CompanyDB, request.UserName, request.Password,
+                        cancellationToken);
                     return Ok(new
                     {
                         message = connected
@@ -129,19 +132,37 @@ public class SAPSettingsController : ControllerBase
     }
 
     /// <summary>
-    /// Test the current SAP connection
+    /// Test the SAP connection with provided credentials (or current saved credentials if none provided)
     /// </summary>
     [HttpPost("test-connection")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<IActionResult> TestConnection(CancellationToken cancellationToken)
+    public async Task<IActionResult> TestConnection([FromBody] TestSAPConnectionRequest? request, CancellationToken cancellationToken)
     {
         try
         {
-            var connected = await _sapClient.TestConnectionAsync(cancellationToken);
+            bool connected;
+
+            if (request != null &&
+                !string.IsNullOrWhiteSpace(request.ServiceLayerUrl) &&
+                !string.IsNullOrWhiteSpace(request.CompanyDB) &&
+                !string.IsNullOrWhiteSpace(request.UserName) &&
+                !string.IsNullOrWhiteSpace(request.Password))
+            {
+                // Test with the provided credentials (from the form)
+                connected = await _sapClient.TestConnectionWithCredentialsAsync(
+                    request.ServiceLayerUrl, request.CompanyDB, request.UserName, request.Password,
+                    cancellationToken);
+            }
+            else
+            {
+                // Test with current saved credentials
+                connected = await _sapClient.TestConnectionAsync(cancellationToken);
+            }
+
             return Ok(new
             {
                 connected,
-                message = connected ? "Connection successful" : "Connection failed"
+                message = connected ? "Connection successful" : "Connection failed. Please verify your credentials and Service Layer URL."
             });
         }
         catch (Exception ex)

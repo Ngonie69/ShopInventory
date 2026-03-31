@@ -184,7 +184,9 @@ builder.Services.AddAuthentication(options =>
 // Configure Authorization with policy supporting both JWT and API Key
 builder.Services.AddAuthorization(options =>
 {
-    options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
+    options.AddPolicy("AdminOnly", policy => policy
+        .RequireRole("Admin")
+        .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
     options.AddPolicy("ApiAccess", policy =>
         policy.RequireRole("Admin", "ApiUser", "User", "Cashier", "StockController", "DepotController", "Manager", "PodOperator")
               .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
@@ -359,6 +361,10 @@ builder.Services.AddHostedService<InventoryTransferPostingBackgroundService>();
 // Add permission-based authorization
 builder.Services.AddPermissionAuthorization();
 
+// DelegatingHandler that limits concurrent requests to SAP Service Layer.
+// Prevents Task.WhenAll in validation/reports from flooding SAP with 10+ simultaneous requests.
+builder.Services.AddTransient<SAPConcurrencyHandler>();
+
 // Configure HttpClient for SAP Service Layer
 builder.Services.AddHttpClient<ISAPServiceLayerClient, SAPServiceLayerClient>((serviceProvider, client) =>
 {
@@ -367,6 +373,7 @@ builder.Services.AddHttpClient<ISAPServiceLayerClient, SAPServiceLayerClient>((s
     client.DefaultRequestHeaders.Add("Accept", "application/json");
     client.Timeout = TimeSpan.FromMinutes(5); // Increased timeout for large data operations
 })
+.AddHttpMessageHandler<SAPConcurrencyHandler>()
 .ConfigurePrimaryHttpMessageHandler(() =>
 {
     return new SocketsHttpHandler
@@ -518,6 +525,15 @@ app.UseOutputCache();
 
 // Map controllers with default rate limiting
 app.MapControllers().RequireRateLimiting("api");
+
+// Logout SAP session on shutdown to free the server-side session slot
+var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+lifetime.ApplicationStopping.Register(() =>
+{
+    using var scope = app.Services.CreateScope();
+    var sapClient = scope.ServiceProvider.GetRequiredService<ISAPServiceLayerClient>();
+    sapClient.LogoutAsync().GetAwaiter().GetResult();
+});
 
 app.Run();
 
