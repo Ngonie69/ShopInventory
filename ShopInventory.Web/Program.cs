@@ -33,6 +33,15 @@ try
         {
             // Enable detailed errors for debugging (configured in appsettings)
             options.DetailedErrors = builder.Configuration.GetValue<bool>("DetailedErrors", false);
+
+            // Circuit retention limits to cap memory usage from disconnected browsers.
+            // Default is 100 retained circuits / 3 min retention; tune for expected user count.
+            options.DisconnectedCircuitMaxRetained = 200;
+            options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(3);
+
+            // Max render batches the server will buffer while waiting for client acknowledgement.
+            // Prevents runaway memory when a client falls behind.
+            options.MaxBufferedUnacknowledgedRenderBatches = 10;
         })
         .AddHubOptions(options =>
         {
@@ -40,6 +49,9 @@ try
             // IBrowserFile.OpenReadStream reads data through SignalR in chunks of this size,
             // so a 5MB file at 32KB = ~160 round trips vs ~5 at 1MB.
             options.MaximumReceiveMessageSize = 1024 * 1024; // 1 MB
+
+            // Limit concurrent invocations per circuit to prevent a single client from monopolising threads.
+            options.MaximumParallelInvocationsPerClient = 2;
         });
 
     // Add MudBlazor services
