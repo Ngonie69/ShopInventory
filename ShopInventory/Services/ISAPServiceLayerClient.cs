@@ -61,9 +61,11 @@ public interface ISAPServiceLayerClient
     Task<Invoice> CreateInvoiceAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default);
     Task<Invoice?> GetInvoiceByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
     Task<Invoice?> GetInvoiceByDocNumAsync(int docNum, CancellationToken cancellationToken = default);
+    Task<Invoice?> GetInvoiceByVanSaleOrderAsync(string vanSaleOrder, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByCustomerAsync(string cardCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<List<Invoice>> GetInvoiceHeadersByDateRangeAsync(DateTime fromDate, DateTime toDate, List<string>? excludeCardCodes = null, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetPagedInvoicesAsync(int page, int pageSize, CancellationToken cancellationToken = default);
 
     // Product/Item Operations

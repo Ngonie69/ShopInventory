@@ -39,105 +39,282 @@
         </div>
     </div>
 
-    @* Upload Section *@
-    <div class="pod-upload-card">
-        <div class="pod-upload-header">
-            <i class="bi bi-cloud-arrow-up"></i>
-            <span>Upload POD</span>
-        </div>
-        <div class="pod-upload-body">
-            <div class="row g-3 align-items-end mb-3">
-                <div class="col-md-4">
-                    <label class="pod-label">Invoice Number</label>
-                    <input type="number" class="form-control pod-input" @bind="uploadDocNum" placeholder="e.g. 10001" />
-                </div>
-                <div class="col-md-2 d-flex align-items-end">
-                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" OnClick="LookupInvoice"
-                               Disabled="@(uploadDocNum is null or <= 0 || isLookingUp)" Class="pod-lookup-btn">
+    @* Upload Mode Toggle *@
+    <div class="pod-mode-toggle mb-3">
+        <button class="pod-mode-btn @(uploadMode == UploadMode.Single ? "pod-mode-active" : "")" @onclick='() => SwitchUploadMode(UploadMode.Single)'>
+            <i class="bi bi-file-earmark-arrow-up me-1"></i> Single Upload
+        </button>
+        <button class="pod-mode-btn @(uploadMode == UploadMode.Bulk ? "pod-mode-active" : "")" @onclick='() => SwitchUploadMode(UploadMode.Bulk)'>
+            <i class="bi bi-files me-1"></i> Bulk Upload
+        </button>
+    </div>
+
+    @if (uploadMode == UploadMode.Single)
+    {
+        @* Single Upload Section *@
+        <div class="pod-upload-card">
+            <div class="pod-upload-header">
+                <i class="bi bi-cloud-arrow-up"></i>
+                <span>Upload POD</span>
+            </div>
+            <div class="pod-upload-body">
+                <div class="row g-3 align-items-end mb-3">
+                    <div class="col-md-4">
+                        <label class="pod-label">Invoice Number</label>
+                        <input type="number" class="form-control pod-input" @bind="uploadDocNum" placeholder="e.g. 10001" />
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" OnClick="LookupInvoice"
+                                   Disabled="@(uploadDocNum is null or <= 0 || isLookingUp)" Class="pod-lookup-btn">
+                            @if (isLookingUp)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                <text>Looking up...</text>
+                            }
+                            else
+                            {
+                                <i class="bi bi-search me-1"></i><text>Lookup</text>
+                            }
+                        </MudButton>
+                    </div>
+                    <div class="col-md-6">
                         @if (isLookingUp)
                         {
-                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                            <text>Looking up...</text>
+                            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-0">
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2"
+                                                     Style="vertical-align: middle;" />
+                                Searching for invoice...
+                            </MudAlert>
                         }
-                        else
+                        else if (lookupInvoice != null)
                         {
-                            <i class="bi bi-search me-1"></i><text>Lookup</text>
+                            <MudAlert Severity="Severity.Success" Dense="true" Class="mb-0">
+                                Invoice #@lookupInvoice.DocNum &mdash; @lookupInvoice.CardName
+                            </MudAlert>
                         }
-                    </MudButton>
-                </div>
-                <div class="col-md-6">
-                    @if (isLookingUp)
-                    {
-                        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-0">
-                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2"
-                                                 Style="vertical-align: middle;" />
-                            Searching for invoice...
-                        </MudAlert>
-                    }
-                    else if (lookupInvoice != null)
-                    {
-                        <MudAlert Severity="Severity.Success" Dense="true" Class="mb-0">
-                            Invoice #@lookupInvoice.DocNum &mdash; @lookupInvoice.CardName
-                        </MudAlert>
-                    }
-                    else if (lookupError != null)
-                    {
-                        <MudAlert Severity="Severity.Error" Dense="true" Class="mb-0">@lookupError</MudAlert>
-                    }
-                </div>
-            </div>
-            <div class="row g-3 align-items-end">
-                <div class="col-md-4">
-                    <label class="pod-label">POD File(s)</label>
-                    <InputFile @key="inputFileKey" OnChange="OnFilesSelected" class="form-control pod-input" accept=".jpg,.jpeg,.png,.webp,.pdf" multiple />
-                    <div class="form-text">JPG, PNG, WebP, PDF &mdash; max 20MB each. Select multiple files.</div>
-                </div>
-                <div class="col-md-5">
-                    <label class="pod-label">Description (optional)</label>
-                    <input type="text" class="form-control pod-input" @bind="uploadDescription"
-                           placeholder="e.g. Signed delivery note from driver" />
-                </div>
-                <div class="col-md-3">
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="UploadPod"
-                               Disabled="@(isUploading || lookupInvoice == null || !selectedFiles.Any())" FullWidth="true"
-                               StartIcon="@Icons.Material.Filled.CloudUpload" Class="pod-upload-btn">
-                        @if (isUploading)
+                        else if (lookupError != null)
                         {
-                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                            <text>Uploading @uploadProgress...</text>
-                        }
-                        else
-                        {
-                            <text>Upload @(selectedFiles.Count > 1 ? $"{selectedFiles.Count} PODs" : "POD")</text>
-                        }
-                    </MudButton>
-                </div>
-            </div>
-
-            @if (selectedFiles.Count > 0 && !isUploading)
-            {
-                <div class="pod-file-chips">
-                    <span class="text-muted small">@selectedFiles.Count file(s) selected:</span>
-                    <div class="d-flex flex-wrap gap-1 mt-1">
-                        @foreach (var f in selectedFiles)
-                        {
-                            <span class="pod-file-chip">
-                                <i class="bi bi-file-earmark me-1"></i>@f.Name
-                                <span class="pod-file-chip-size">(@FormatFileSize(f.Size))</span>
-                            </span>
+                            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-0">@lookupError</MudAlert>
                         }
                     </div>
                 </div>
-            }
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-4">
+                        <label class="pod-label">POD File(s)</label>
+                        <InputFile @key="inputFileKey" OnChange="OnFilesSelected" class="form-control pod-input" accept=".jpg,.jpeg,.png,.webp,.pdf" multiple />
+                        <div class="form-text">JPG, PNG, WebP, PDF &mdash; max 20MB each. Select multiple files.</div>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="pod-label">Description (optional)</label>
+                        <input type="text" class="form-control pod-input" @bind="uploadDescription"
+                               placeholder="e.g. Signed delivery note from driver" />
+                    </div>
+                    <div class="col-md-3">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="UploadPod"
+                                   Disabled="@(isUploading || lookupInvoice == null || !selectedFiles.Any())" FullWidth="true"
+                                   StartIcon="@Icons.Material.Filled.CloudUpload" Class="pod-upload-btn">
+                            @if (isUploading)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                <text>Uploading @uploadProgress...</text>
+                            }
+                            else
+                            {
+                                <text>Upload @(selectedFiles.Count > 1 ? $"{selectedFiles.Count} PODs" : "POD")</text>
+                            }
+                        </MudButton>
+                    </div>
+                </div>
 
-            @if (!string.IsNullOrEmpty(uploadMessage))
-            {
-                <MudAlert Severity="@(uploadSuccess? Severity.Success: Severity.Error)" Class="mt-3" Dense="true">
-                    @uploadMessage
-                </MudAlert>
-            }
+                @if (selectedFiles.Count > 0 && !isUploading)
+                {
+                    <div class="pod-file-chips">
+                        <span class="text-muted small">@selectedFiles.Count file(s) selected:</span>
+                        <div class="d-flex flex-wrap gap-1 mt-1">
+                            @foreach (var f in selectedFiles)
+                            {
+                                <span class="pod-file-chip">
+                                    <i class="bi bi-file-earmark me-1"></i>@f.Name
+                                    <span class="pod-file-chip-size">(@FormatFileSize(f.Size))</span>
+                                </span>
+                            }
+                        </div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(uploadMessage))
+                {
+                    <MudAlert Severity="@(uploadSuccess? Severity.Success: Severity.Error)" Class="mt-3" Dense="true">
+                        @uploadMessage
+                    </MudAlert>
+                }
+            </div>
         </div>
-    </div>
+    }
+    else
+    {
+        @* Bulk Upload Section *@
+        <div class="pod-upload-card">
+            <div class="pod-upload-header">
+                <i class="bi bi-files"></i>
+                <span>Bulk Upload PODs</span>
+            </div>
+            <div class="pod-upload-body">
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                    <strong>Naming convention:</strong> Name each file starting with the invoice number, e.g.
+                    <code>10001.pdf</code>, <code>10001_signed.jpg</code>, <code>10002_delivery.png</code>.
+                    The leading digits in each filename will be matched to the SAP invoice number.
+                </MudAlert>
+
+                <div class="row g-3 align-items-end mb-3">
+                    <div class="col-md-6">
+                        <label class="pod-label">Select POD Files</label>
+                        <InputFile @key="bulkInputFileKey" OnChange="OnBulkFilesSelected" class="form-control pod-input"
+                                   accept=".jpg,.jpeg,.png,.webp,.pdf" multiple />
+                        <div class="form-text">Select multiple files. Each filename must start with the invoice number.</div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="pod-label">Description (optional)</label>
+                        <input type="text" class="form-control pod-input" @bind="bulkDescription"
+                               placeholder="e.g. Weekly delivery batch" />
+                    </div>
+                    <div class="col-md-3 d-flex gap-2">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="ValidateBulkFiles"
+                                   Disabled="@(isBulkValidating || !bulkFiles.Any())" FullWidth="true" Class="pod-lookup-btn">
+                            @if (isBulkValidating)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                <text>Validating...</text>
+                            }
+                            else
+                            {
+                                <i class="bi bi-check2-circle me-1"></i><text>Validate</text>
+                            }
+                        </MudButton>
+                    </div>
+                </div>
+
+                @if (bulkFiles.Count > 0 && bulkMappings.Count > 0)
+                {
+                    <div class="table-responsive mb-3">
+                        <table class="pod-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40px;">#</th>
+                                    <th>Filename</th>
+                                    <th>Invoice #</th>
+                                    <th>Customer</th>
+                                    <th>Existing PODs</th>
+                                    <th>Size</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var (map, idx) in bulkMappings.Select((m, i) => (m, i)))
+                                {
+                                    <tr class="pod-row @(map.Status == BulkFileStatus.Error ? "table-danger" : map.Status == BulkFileStatus.Uploaded ? "table-success" : "")">
+                                        <td>@(idx + 1)</td>
+                                        <td>
+                                            <div class="pod-file-name">@map.FileName</div>
+                                        </td>
+                                        <td>
+                                            @if (map.DocNum.HasValue)
+                                            {
+                                                <span class="pod-invoice-badge">@map.DocNum</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-danger fw-semibold">No number found</span>
+                                            }
+                                        </td>
+                                        <td>@(map.CardName ?? "-")</td>
+                                        <td>
+                                            @if (map.ExistingPodCount > 0)
+                                            {
+                                                <span class="badge bg-warning text-dark" title="This invoice already has @map.ExistingPodCount POD(s) uploaded">
+                                                    <i class="bi bi-exclamation-triangle me-1"></i>@map.ExistingPodCount existing
+                                                </span>
+                                            }
+                                            else if (map.Status != BulkFileStatus.Pending && map.Status != BulkFileStatus.Error)
+                                            {
+                                                <span class="text-success small"><i class="bi bi-check-lg me-1"></i>None</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">-</span>
+                                            }
+                                        </td>
+                                        <td class="pod-size">@FormatFileSize(map.FileSize)</td>
+                                        <td>
+                                            @switch (map.Status)
+                                            {
+                                                case BulkFileStatus.Pending:
+                                                    <span class="badge bg-secondary">Pending</span>
+                                                    break;
+                                                case BulkFileStatus.Valid:
+                                                    <span class="badge bg-success"><i class="bi bi-check-lg me-1"></i>Ready</span>
+                                                    break;
+                                                case BulkFileStatus.ValidWithWarning:
+                                                    <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle me-1"></i>Ready (has POD)</span>
+                                                    break;
+                                                case BulkFileStatus.Uploading:
+                                                    <span class="badge bg-primary"><MudProgressCircular Size="Size.Small" Indeterminate="true" Style="width:14px;height:14px;" Class="me-1" />Uploading</span>
+                                                    break;
+                                                case BulkFileStatus.Uploaded:
+                                                    <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Uploaded</span>
+                                                    break;
+                                                case BulkFileStatus.Error:
+                                                    <span class="badge bg-danger" title="@map.ErrorMessage"><i class="bi bi-x-circle me-1"></i>@map.ErrorMessage</span>
+                                                    break;
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="text-muted small">
+                                @bulkMappings.Count(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning) of @bulkMappings.Count ready to upload
+                                @if (bulkMappings.Any(m => m.Status == BulkFileStatus.Error))
+                                {
+                                    <text> &mdash; <span class="text-danger">@bulkMappings.Count(m => m.Status == BulkFileStatus.Error) with errors</span></text>
+                                }
+                            </span>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ClearBulkUpload"
+                                       Disabled="@isBulkUploading">
+                                <i class="bi bi-x-circle me-1"></i> Clear
+                            </MudButton>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ExecuteBulkUpload"
+                                       Disabled="@(isBulkUploading || !bulkMappings.Any(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning))"
+                                       StartIcon="@Icons.Material.Filled.CloudUpload" Class="pod-upload-btn">
+                                @if (isBulkUploading)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                    <text>Uploading @bulkUploadProgress...</text>
+                                }
+                                else
+                                {
+                                    <text>Upload @bulkMappings.Count(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning) PODs</text>
+                                }
+                            </MudButton>
+                        </div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(bulkMessage))
+                {
+                    <MudAlert Severity="@(bulkSuccess ? Severity.Success : Severity.Error)" Class="mt-3" Dense="true">
+                        @bulkMessage
+                    </MudAlert>
+                }
+            </div>
+        </div>
+    }
 
     @* Invoice Details *@
     @if (lookupInvoice != null)
@@ -572,6 +749,39 @@
     }
     .pod-refresh-btn:hover {
         background: rgba(255,255,255,0.15) !important;
+    }
+
+    /* ── Upload Mode Toggle ─────────────────────── */
+    .pod-mode-toggle {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .pod-mode-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.5rem 1.25rem;
+        border-radius: 10px;
+        border: 1px solid #e2e8f0;
+        background: #fff;
+        font-weight: 600;
+        font-size: 0.875rem;
+        color: #64748b;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .pod-mode-btn:hover {
+        border-color: #0f766e;
+        color: #0f766e;
+        background: #f0fdfa;
+    }
+
+    .pod-mode-active {
+        background: linear-gradient(135deg, #0f766e, #14b8a6) !important;
+        color: #fff !important;
+        border-color: transparent !important;
     }
 
     /* ── Upload Card ──────────────────────────────── */
@@ -1052,7 +1262,10 @@
         activeFilterFromDate.HasValue ||
         activeFilterToDate.HasValue;
 
-    // Upload state
+    // Upload mode
+    private UploadMode uploadMode = UploadMode.Single;
+
+    // Single upload state
     private int? uploadDocNum;
     private int inputFileKey;
     private List<IBrowserFile> selectedFiles = new();
@@ -1064,6 +1277,34 @@
     private InvoiceDto? lookupInvoice;
     private string? lookupError;
     private bool isLookingUp;
+
+    // Bulk upload state
+    private int bulkInputFileKey;
+    private List<IBrowserFile> bulkFiles = new();
+    private List<BulkFileMapping> bulkMappings = new();
+    private string? bulkDescription;
+    private bool isBulkValidating;
+    private bool isBulkUploading;
+    private string? bulkUploadProgress;
+    private string? bulkMessage;
+    private bool bulkSuccess;
+
+    private enum UploadMode { Single, Bulk }
+
+    private enum BulkFileStatus { Pending, Valid, ValidWithWarning, Uploading, Uploaded, Error }
+
+    private class BulkFileMapping
+    {
+        public IBrowserFile File { get; set; } = default!;
+        public string FileName { get; set; } = string.Empty;
+        public int? DocNum { get; set; }
+        public int? DocEntry { get; set; }
+        public string? CardName { get; set; }
+        public long FileSize { get; set; }
+        public BulkFileStatus Status { get; set; } = BulkFileStatus.Pending;
+        public string? ErrorMessage { get; set; }
+        public int ExistingPodCount { get; set; }
+    }
 
     // Viewer state
     private bool showViewer;
@@ -1081,11 +1322,20 @@
     private PodAttachmentItemDto? deletePod;
     private string? currentUsername;
 
+    [SupplyParameterFromQuery(Name = "docNum")]
+    public int? InitialDocNum { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         currentUsername = authState.User.Identity?.Name;
         await LoadPods();
+
+        if (InitialDocNum.HasValue && InitialDocNum.Value > 0)
+        {
+            uploadDocNum = InitialDocNum.Value;
+            await LookupInvoice();
+        }
     }
 
     private async Task LoadPods()
@@ -1367,4 +1617,238 @@
         < 1024 * 1024 => $"{bytes / 1024.0:N1} KB",
         _ => $"{bytes / (1024.0 * 1024.0):N1} MB"
     };
+
+    // ── Upload Mode ─────────────────────────────────────────
+    private void SwitchUploadMode(UploadMode mode)
+    {
+        uploadMode = mode;
+        bulkMessage = null;
+        uploadMessage = null;
+    }
+
+    // ── Bulk Upload Methods ─────────────────────────────────
+    private void OnBulkFilesSelected(InputFileChangeEventArgs e)
+    {
+        bulkFiles = e.GetMultipleFiles(100).ToList();
+        bulkMessage = null;
+        bulkMappings = bulkFiles.Select(f => new BulkFileMapping
+        {
+            File = f,
+            FileName = f.Name,
+            DocNum = ExtractDocNumFromFileName(f.Name),
+            FileSize = f.Size,
+            Status = BulkFileStatus.Pending
+        }).ToList();
+    }
+
+    private static int? ExtractDocNumFromFileName(string fileName)
+    {
+        // Extract leading digits from filename (before any separator or extension)
+        var nameWithoutExt = System.IO.Path.GetFileNameWithoutExtension(fileName);
+        var match = System.Text.RegularExpressions.Regex.Match(nameWithoutExt, @"^(\d+)");
+        if (match.Success && int.TryParse(match.Groups[1].Value, out var docNum) && docNum > 0)
+            return docNum;
+        return null;
+    }
+
+    private async Task ValidateBulkFiles()
+    {
+        if (isBulkValidating || bulkMappings.Count == 0) return;
+        isBulkValidating = true;
+        bulkMessage = null;
+
+        try
+        {
+            // Group by DocNum to avoid duplicate lookups
+            var docNums = bulkMappings
+                .Where(m => m.DocNum.HasValue)
+                .Select(m => m.DocNum!.Value)
+                .Distinct()
+                .ToList();
+
+            var invoiceCache = new Dictionary<int, InvoiceDto?>();
+            var podCountCache = new Dictionary<int, int>(); // DocEntry -> existing POD count
+
+            foreach (var docNum in docNums)
+            {
+                try
+                {
+                    var inv = await InvoiceService.GetInvoiceByDocNumAsync(docNum);
+                    invoiceCache[docNum] = inv;
+
+                    // Check for existing PODs on this invoice
+                    if (inv != null)
+                    {
+                        try
+                        {
+                            var existingPods = await PodService.GetInvoicePodsAsync(inv.DocEntry);
+                            podCountCache[inv.DocEntry] = existingPods?.TotalCount ?? 0;
+                        }
+                        catch
+                        {
+                            podCountCache[inv.DocEntry] = 0;
+                        }
+                    }
+                }
+                catch
+                {
+                    invoiceCache[docNum] = null;
+                }
+                StateHasChanged();
+            }
+
+            foreach (var map in bulkMappings)
+            {
+                if (!map.DocNum.HasValue)
+                {
+                    map.Status = BulkFileStatus.Error;
+                    map.ErrorMessage = "No invoice number in filename";
+                    continue;
+                }
+
+                if (map.FileSize > 20 * 1024 * 1024)
+                {
+                    map.Status = BulkFileStatus.Error;
+                    map.ErrorMessage = "File exceeds 20MB limit";
+                    continue;
+                }
+
+                if (invoiceCache.TryGetValue(map.DocNum.Value, out var invoice) && invoice != null)
+                {
+                    map.DocEntry = invoice.DocEntry;
+                    map.CardName = invoice.CardName;
+                    map.ExistingPodCount = podCountCache.GetValueOrDefault(invoice.DocEntry, 0);
+                    map.Status = map.ExistingPodCount > 0 ? BulkFileStatus.ValidWithWarning : BulkFileStatus.Valid;
+                }
+                else
+                {
+                    map.Status = BulkFileStatus.Error;
+                    map.ErrorMessage = $"Invoice #{map.DocNum} not found in SAP";
+                }
+            }
+
+            var validCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Valid);
+            var warningCount = bulkMappings.Count(m => m.Status == BulkFileStatus.ValidWithWarning);
+            var readyCount = validCount + warningCount;
+            var errorCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Error);
+
+            if (readyCount > 0 && errorCount > 0)
+            {
+                var msg = $"{readyCount} files ready, {errorCount} with errors.";
+                if (warningCount > 0)
+                    msg += $" {warningCount} invoice(s) already have PODs — uploading will add additional PODs.";
+                msg += " You can still upload the valid ones.";
+                bulkMessage = msg;
+                bulkSuccess = true;
+            }
+            else if (readyCount > 0)
+            {
+                var msg = $"All {readyCount} files validated successfully.";
+                if (warningCount > 0)
+                    msg += $" Note: {warningCount} invoice(s) already have PODs — uploading will add additional PODs.";
+                bulkMessage = msg;
+                bulkSuccess = true;
+            }
+            else
+            {
+                bulkMessage = "No valid files found. Check filenames start with invoice numbers.";
+                bulkSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error validating bulk files");
+            bulkMessage = "Validation error. Please try again.";
+            bulkSuccess = false;
+        }
+        finally
+        {
+            isBulkValidating = false;
+        }
+    }
+
+    private async Task ExecuteBulkUpload()
+    {
+        var validMappings = bulkMappings.Where(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning).ToList();
+        if (validMappings.Count == 0 || isBulkUploading) return;
+
+        isBulkUploading = true;
+        bulkMessage = null;
+        var successCount = 0;
+        var failCount = 0;
+
+        try
+        {
+            for (var i = 0; i < validMappings.Count; i++)
+            {
+                var map = validMappings[i];
+                map.Status = BulkFileStatus.Uploading;
+                bulkUploadProgress = $"({i + 1}/{validMappings.Count})";
+                StateHasChanged();
+
+                try
+                {
+                    using var stream = map.File.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+                    var (success, message, _) = await PodService.UploadPodAsync(
+                        map.DocEntry!.Value, stream, map.File.Name, map.File.ContentType,
+                        bulkDescription, currentUsername);
+
+                    if (success)
+                    {
+                        map.Status = BulkFileStatus.Uploaded;
+                        successCount++;
+                    }
+                    else
+                    {
+                        map.Status = BulkFileStatus.Error;
+                        map.ErrorMessage = message;
+                        failCount++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    map.Status = BulkFileStatus.Error;
+                    map.ErrorMessage = "Upload failed";
+                    failCount++;
+                    Logger.LogError(ex, "Bulk upload failed for {FileName}", map.FileName);
+                }
+
+                StateHasChanged();
+            }
+
+            if (failCount == 0)
+            {
+                bulkSuccess = true;
+                bulkMessage = $"All {successCount} PODs uploaded successfully!";
+                currentPage = 1;
+                await LoadPods();
+            }
+            else
+            {
+                bulkSuccess = successCount > 0;
+                bulkMessage = $"{successCount} uploaded, {failCount} failed. Check the status column for details.";
+                if (successCount > 0)
+                    await LoadPods();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during bulk upload");
+            bulkMessage = "An unexpected error occurred during bulk upload.";
+            bulkSuccess = false;
+        }
+        finally
+        {
+            isBulkUploading = false;
+        }
+    }
+
+    private void ClearBulkUpload()
+    {
+        bulkFiles.Clear();
+        bulkMappings.Clear();
+        bulkDescription = null;
+        bulkMessage = null;
+        bulkInputFileKey++;
+    }
 }

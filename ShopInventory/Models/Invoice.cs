@@ -60,6 +60,9 @@ public class Invoice
     [JsonPropertyName("ContactPersonCode")]
     public int? ContactPersonCode { get; set; }
 
+    [JsonPropertyName("U_Van_saleorder")]
+    public string? U_Van_saleorder { get; set; }
+
     [JsonPropertyName("DocumentLines")]
     [Required(ErrorMessage = "At least one document line is required")]
     [MinLength(1, ErrorMessage = "At least one document line is required")]
@@ -150,6 +153,11 @@ public class CreateInvoiceRequest
     public string? DocCurrency { get; set; }
 
     public int? SalesPersonCode { get; set; }
+
+    /// <summary>
+    /// Van sale order reference (UDF). Used as unique identifier to prevent duplicate invoices in SAP.
+    /// </summary>
+    public string? U_Van_saleorder { get; set; }
 
     [Required(ErrorMessage = "At least one line item is required")]
     [MinLength(1, ErrorMessage = "At least one line item is required")]

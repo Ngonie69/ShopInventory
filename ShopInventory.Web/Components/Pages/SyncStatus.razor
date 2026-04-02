@@ -11,190 +11,162 @@
 
 <PageTitle>Sync Status - Shop Inventory</PageTitle>
 
-<div class="container-fluid fade-in">
-    <div class="page-header">
-        <h2>
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16"
-                 style="color: var(--primary-color);">
-                <path
-                d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z" />
-                <path fill-rule="evenodd"
-                      d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3zM3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9H3.1z" />
-            </svg>
-            Sync Status & Health
-        </h2>
-        <span class="text-muted">Monitor SAP connection and data synchronization</span>
-    </div>
-
-    <!-- Quick Actions -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="btn-group">
-                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="RefreshAll"
-                           Disabled="@isRefreshing">
-                    @if (isRefreshing)
-                    {
-                        <span class="spinner-border spinner-border-sm me-2"></span>
-                    }
-                    <i class="bi bi-arrow-clockwise me-2"></i>Refresh All
-                </MudButton>
-                <MudButton Variant="Variant.Outlined" Color="Color.Success" OnClick="TestConnection"
-                           Disabled="@isTesting">
-                    @if (isTesting)
-                    {
-                        <span class="spinner-border spinner-border-sm me-2"></span>
-                    }
-                    <i class="bi bi-plug me-2"></i>Test SAP Connection
-                </MudButton>
+<div class="sync-page">
+    <!-- Header -->
+    <div class="sync-header">
+        <div class="header-left">
+            <div class="header-icon">
+                <i class="bi bi-arrow-repeat"></i>
             </div>
+            <div>
+                <h1 class="header-title">Sync Status & Health</h1>
+                <p class="header-subtitle">Monitor SAP connection and data synchronization</p>
+            </div>
+        </div>
+        <div class="header-actions">
+            <button class="btn-sync btn-sync-outline" @onclick="RefreshAll" disabled="@isRefreshing">
+                @if (isRefreshing)
+                {
+                    <span class="spinner-border spinner-border-sm"></span>
+                }
+                else
+                {
+                    <i class="bi bi-arrow-clockwise"></i>
+                }
+                <span>Refresh All</span>
+            </button>
+            <button class="btn-sync btn-sync-gradient" @onclick="TestConnection" disabled="@isTesting">
+                @if (isTesting)
+                {
+                    <span class="spinner-border spinner-border-sm"></span>
+                }
+                else
+                {
+                    <i class="bi bi-plug"></i>
+                }
+                <span>Test SAP Connection</span>
+            </button>
         </div>
     </div>
 
-    <!-- Connection Status Cards -->
-    <div class="row mb-4">
-        <div class="col-md-4">
-            <div class="card h-100 @(sapStatus?.IsConnected == true ? "border-success" : "border-danger")">
-                <div class="card-body text-center">
-                    <div class="mb-3">
-                        @if (sapStatus?.IsConnected == true)
-                        {
-                            <i class="bi bi-check-circle-fill text-success" style="font-size: 3rem;"></i>
-                        }
-                        else
-                        {
-                            <i class="bi bi-x-circle-fill text-danger" style="font-size: 3rem;"></i>
-                        }
-                    </div>
-                    <h5>SAP Connection</h5>
-                    <p class="mb-1">
-                        <span class="badge @(sapStatus?.IsConnected == true ? "bg-success" : "bg-danger")">
-                            @(sapStatus?.IsConnected == true ? "Connected" : "Disconnected")
-                        </span>
-                    </p>
-                    @if (sapStatus != null)
-                    {
-                        @if (sapStatus.ResponseTimeMs.HasValue)
-                        {
-                            <small class="text-muted d-block">
-                                Response: @($"{sapStatus.ResponseTimeMs:N0}")ms
-                            </small>
-                        }
-                        @if (sapStatus.LastConnectedAt.HasValue)
-                        {
-                            <small class="text-muted d-block">
-                                Last Connected: @sapStatus.LastConnectedAt.Value.ToString("dd MMM yyyy HH:mm")
-                            </small>
-                        }
-                        @if (!sapStatus.IsConnected && !string.IsNullOrEmpty(sapStatus.LastError))
-                        {
-                            <small class="text-danger d-block mt-1" title="@sapStatus.LastError">
-                                @(sapStatus.LastError.Length > 60 ? sapStatus.LastError.Substring(0, 60) + "..." :
-                        sapStatus.LastError)
-                            </small>
-                        }
-                        @if (sapStatus.ConsecutiveFailures > 0)
-                        {
-                            <small class="text-danger d-block">
-                                @sapStatus.ConsecutiveFailures consecutive failure(s)
-                            </small>
-                        }
-                    }
-                </div>
-            </div>
-        </div>
-
-        <div class="col-md-4">
+    <!-- Stat Cards -->
+    <div class="sync-stats-grid">
+        <div class="sync-stat-card">
             <div
-                class="card h-100 @(dashboard?.OverallHealthStatus == "Healthy" ? "border-success" : dashboard?.OverallHealthStatus == "Degraded" ? "border-warning" : "border-danger")">
-                <div class="card-body text-center">
-                    <div class="mb-3">
-                        @if (dashboard?.OverallHealthStatus == "Healthy")
-                        {
-                            <i class="bi bi-heart-fill text-success" style="font-size: 3rem;"></i>
-                        }
-                        else if (dashboard?.OverallHealthStatus == "Degraded")
-                        {
-                            <i class="bi bi-heart-half text-warning" style="font-size: 3rem;"></i>
-                        }
-                        else
-                        {
-                            <i class="bi bi-heart text-danger" style="font-size: 3rem;"></i>
-                        }
-                    </div>
-                    <h5>System Health</h5>
-                    <p class="mb-1">
-                        <span class="badge @GetHealthBadgeClass(dashboard?.OverallHealthStatus)">
-                            @(dashboard?.OverallHealthStatus ?? "Unknown")
-                        </span>
-                        @if (dashboard?.HealthSummary != null)
-                        {
-                            <small class="ms-2 text-muted">Score: @dashboard.HealthSummary.HealthScore/100</small>
-                        }
-                    </p>
-                    @if (dashboard?.HealthSummary?.Issues?.Any() == true)
-                    {
-                        <div class="text-start mt-2">
-                            @foreach (var issue in dashboard.HealthSummary.Issues)
-                            {
-                                <small class="text-warning d-block"><i
-                                    class="bi bi-exclamation-triangle me-1"></i>@issue</small>
-                                }
-                            </div>
-                        }
-                    else
-                        {
-                            <small class="text-muted">
-                                Active Issues: @(dashboard?.ActiveIssuesCount ?? 0)
-                            </small>
-                        }
-                    </div>
-                </div>
+                class="sync-stat-icon @(sapStatus?.IsConnected == true ? "sync-stat-icon-green" : "sync-stat-icon-red")">
+                <i class="bi @(sapStatus?.IsConnected == true ? "bi-check-circle" : "bi-x-circle")"></i>
             </div>
+            <div class="sync-stat-content">
+                <span class="sync-stat-value">@(sapStatus?.IsConnected == true ? "Connected" : "Disconnected")</span>
+                <span class="sync-stat-label">SAP Connection</span>
+                @if (sapStatus?.ResponseTimeMs.HasValue == true)
+                {
+                    <span class="sync-stat-meta">@($"{sapStatus.ResponseTimeMs:N0}")ms response</span>
+                }
+            </div>
+        </div>
 
-            <div class="col-md-4">
-                <div class="card h-100 @(queueStatus?.PendingCount > 0 ? "border-warning" : "border-success")">
-                    <div class="card-body text-center">
-                        <div class="mb-3">
-                            @if (queueStatus?.PendingCount > 0)
-                            {
-                                <i class="bi bi-clock-history text-warning" style="font-size: 3rem;"></i>
-                            }
-                            else
-                            {
-                                <i class="bi bi-check2-all text-success" style="font-size: 3rem;"></i>
-                            }
-                        </div>
-                        <h5>Offline Queue</h5>
-                        <p class="mb-1">
-                            <span class="badge @(queueStatus?.PendingCount > 0 ? "bg-warning" : "bg-success")">
-                                @(queueStatus?.PendingCount ?? 0) Pending
-                            </span>
-                            @if ((queueStatus?.FailedCount ?? 0) > 0)
-                            {
-                                <span class="badge bg-danger ms-1">@queueStatus!.FailedCount Failed</span>
-                            }
-                        </p>
-                        <small class="text-muted">
-                            Processed: @(queueStatus?.ProcessedCount ?? 0)
-                        </small>
-                    </div>
+        <div class="sync-stat-card">
+            <div
+                class="sync-stat-icon @(dashboard?.OverallHealthStatus == "Healthy" ? "sync-stat-icon-green" : dashboard?.OverallHealthStatus == "Degraded" ? "sync-stat-icon-amber" : "sync-stat-icon-red")">
+                <i
+                class="bi @(dashboard?.OverallHealthStatus == "Healthy" ? "bi-heart-pulse" : dashboard?.OverallHealthStatus == "Degraded" ? "bi-heart-half" : "bi-heart")"></i>
+            </div>
+            <div class="sync-stat-content">
+                <span class="sync-stat-value">@(dashboard?.OverallHealthStatus ?? "Unknown")</span>
+                <span class="sync-stat-label">System Health</span>
+                @if (dashboard?.HealthSummary != null)
+                {
+                    <span class="sync-stat-meta">Score: @dashboard.HealthSummary.HealthScore/100</span>
+                }
+            </div>
+        </div>
+
+        <div class="sync-stat-card">
+            <div
+                class="sync-stat-icon @(queueStatus?.PendingCount > 0 ? "sync-stat-icon-amber" : "sync-stat-icon-green")">
+                <i class="bi @(queueStatus?.PendingCount > 0 ? "bi-clock-history" : "bi-check2-all")"></i>
+            </div>
+            <div class="sync-stat-content">
+                <span class="sync-stat-value">@(queueStatus?.PendingCount ?? 0)</span>
+                <span class="sync-stat-label">Pending Queue</span>
+                @if ((queueStatus?.FailedCount ?? 0) > 0)
+                {
+                    <span class="sync-stat-meta sync-stat-meta-danger">@queueStatus!.FailedCount failed</span>
+                }
+                else
+                {
+                    <span class="sync-stat-meta">@(queueStatus?.ProcessedCount ?? 0) processed</span>
+                }
+            </div>
+        </div>
+
+        <div class="sync-stat-card">
+            <div class="sync-stat-icon sync-stat-icon-blue">
+                <i class="bi bi-info-circle"></i>
+            </div>
+            <div class="sync-stat-content">
+                <span class="sync-stat-value">@(dashboard?.ActiveIssuesCount ?? 0)</span>
+                <span class="sync-stat-label">Active Issues</span>
+                @if (sapStatus?.ConsecutiveFailures > 0)
+                {
+                    <span class="sync-stat-meta sync-stat-meta-danger">@sapStatus.ConsecutiveFailures consecutive
+                        failures</span>
+                    }
                 </div>
             </div>
         </div>
+
+        <!-- Health Issues Banner -->
+        @if (dashboard?.HealthSummary?.Issues?.Any() == true)
+        {
+            <div class="sync-issues-banner">
+                <i class="bi bi-exclamation-triangle"></i>
+                <div class="sync-issues-list">
+                    @foreach (var issue in dashboard.HealthSummary.Issues)
+                    {
+                        <span>@issue</span>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- SAP Connection Details -->
+        @if (sapStatus != null && (!sapStatus.IsConnected || sapStatus.LastConnectedAt.HasValue))
+        {
+            <div class="sync-detail-strip">
+                @if (sapStatus.LastConnectedAt.HasValue)
+                {
+                    <span class="sync-detail-item">
+                        <i class="bi bi-clock"></i> Last connected: @sapStatus.LastConnectedAt.Value.ToString("dd MMM yyyy HH:mm")
+                    </span>
+                }
+                @if (!sapStatus.IsConnected && !string.IsNullOrEmpty(sapStatus.LastError))
+                {
+                    <span class="sync-detail-item sync-detail-item-danger" title="@sapStatus.LastError">
+                        <i class="bi bi-exclamation-circle"></i> @(sapStatus.LastError.Length > 80 ?
+                                    sapStatus.LastError.Substring(0, 80) + "..." : sapStatus.LastError)
+                    </span>
+                }
+            </div>
+        }
 
         <!-- Cache Status -->
-        <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-database me-2"></i>Cache Status</h5>
-                <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small" OnClick="RefreshCacheStatus">
+        <div class="sync-panel">
+            <div class="sync-panel-header">
+                <div class="sync-panel-title">
+                    <i class="bi bi-database"></i>
+                    <span>Cache Status</span>
+                </div>
+                <button class="btn-sync btn-sync-sm" @onclick="RefreshCacheStatus">
                     <i class="bi bi-arrow-clockwise"></i>
-                </MudButton>
+                </button>
             </div>
-            <div class="card-body">
+            <div class="sync-panel-body">
                 @if (cacheStatus != null && cacheStatus.Any())
                 {
                     <div class="table-responsive">
-                        <table class="table table-hover">
+                        <table class="sync-table">
                             <thead>
                                 <tr>
                                     <th>Entity</th>
@@ -207,7 +179,7 @@
                             <tbody>
                                 @foreach (var cache in cacheStatus)
                                 {
-                                    <tr class="@(cache.IsStale ? "table-warning" : "")">
+                                    <tr class="@(cache.IsStale ? "sync-row-warn" : "")">
                                         <td><strong>@cache.DisplayName</strong></td>
                                         <td class="text-end">@cache.ItemCount.ToString("N0")</td>
                                         <td>
@@ -222,18 +194,16 @@
                                             }
                                         </td>
                                         <td>
-                                            <span class="badge @cache.StatusBadgeClass">
-                                                @cache.Status
-                                            </span>
+                                            <span class="sync-badge @cache.StatusBadgeClass">@cache.Status</span>
                                         </td>
                                         <td>
                                             @if (cache.IsStale)
                                             {
-                                                <span class="text-warning">@cache.StaleMinutes min overdue</span>
+                                                <span class="sync-stale-text">@cache.StaleMinutes min overdue</span>
                                             }
                                             else
                                             {
-                                                <span class="text-success"><i class="bi bi-check"></i></span>
+                                                <span class="sync-fresh-text"><i class="bi bi-check"></i></span>
                                             }
                                         </td>
                                     </tr>
@@ -244,36 +214,44 @@
                 }
                 else
                 {
-                    <div class="text-center py-4 text-muted">
-                        <i class="bi bi-info-circle me-2"></i>No cache information available
+                    <div class="sync-empty">
+                        <i class="bi bi-info-circle"></i>
+                        <span>No cache information available</span>
                     </div>
                 }
             </div>
         </div>
 
         <!-- Offline Queue -->
-        <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-list-task me-2"></i>Offline Queue</h5>
-                <div class="btn-group btn-group-sm">
-                    <MudButton Variant="Variant.Outlined" Color="Color.Success" OnClick="ProcessQueue"
-                               Disabled="@(isProcessing || (queueStatus?.PendingCount ?? 0) == 0)">
+        <div class="sync-panel">
+            <div class="sync-panel-header">
+                <div class="sync-panel-title">
+                    <i class="bi bi-list-task"></i>
+                    <span>Offline Queue</span>
+                </div>
+                <div class="header-actions">
+                    <button class="btn-sync btn-sync-sm btn-sync-success" @onclick="ProcessQueue"
+                            disabled="@(isProcessing || (queueStatus?.PendingCount ?? 0) == 0)">
                         @if (isProcessing)
                         {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span class="spinner-border spinner-border-sm"></span>
                         }
-                        Process Queue
-                    </MudButton>
-                    <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="RefreshQueueItems">
+                        else
+                        {
+                            <i class="bi bi-play-circle"></i>
+                        }
+                        <span>Process Queue</span>
+                    </button>
+                    <button class="btn-sync btn-sync-sm" @onclick="RefreshQueueItems">
                         <i class="bi bi-arrow-clockwise"></i>
-                    </MudButton>
+                    </button>
                 </div>
             </div>
-            <div class="card-body">
+            <div class="sync-panel-body">
                 @if (queuedTransactions != null && queuedTransactions.Any())
                 {
                     <div class="table-responsive">
-                        <table class="table table-hover table-sm">
+                        <table class="sync-table sync-table-compact">
                             <thead>
                                 <tr>
                                     <th>ID</th>
@@ -281,7 +259,7 @@
                                     <th>Summary</th>
                                     <th>Status</th>
                                     <th>Created</th>
-                                    <th>Attempts</th>
+                                    <th class="text-center">Attempts</th>
                                     <th>Error</th>
                                     <th class="text-end">Actions</th>
                                 </tr>
@@ -303,39 +281,39 @@
                                             }
                                         </td>
                                         <td>
-                                            <span class="badge @item.StatusBadgeClass">@item.Status</span>
+                                            <span class="sync-badge @item.StatusBadgeClass">@item.Status</span>
                                         </td>
                                         <td>
                                             <span title="@item.CreatedAt.ToString("dd MMM yyyy HH:mm")">@item.TimeAgo</span>
                                         </td>
-                                        <td class="text-center">
-                                            @item.AttemptCount
-                                        </td>
+                                        <td class="text-center">@item.AttemptCount</td>
                                         <td>
                                             @if (!string.IsNullOrEmpty(item.LastError))
                                             {
-                                                <span class="text-danger" title="@item.LastError">
+                                                <span class="sync-error-text" title="@item.LastError">
                                                     <i class="bi bi-exclamation-triangle"></i>
                                                     @(item.LastError.Length > 30 ? item.LastError.Substring(0, 30) + "..." :
-                                                    item.LastError)
+                                        item.LastError)
                                                 </span>
                                             }
                                         </td>
                                         <td class="text-end">
-                                            @if (item.Status == "Failed")
-                                            {
-                                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
-                                                           Class="me-1" OnClick="() => RetryItem(item.Id)" title="Retry">
-                                                    <i class="bi bi-arrow-repeat"></i>
-                                                </MudButton>
-                                            }
-                                            @if (item.Status != "Processing")
-                                            {
-                                                <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
-                                                           OnClick="() => CancelItem(item.Id)" title="Cancel">
-                                                    <i class="bi bi-x"></i>
-                                                </MudButton>
-                                            }
+                                            <div class="sync-actions">
+                                                @if (item.Status == "Failed")
+                                                {
+                                                    <button class="btn-sync-icon btn-sync-icon-primary"
+                                                            @onclick="() => RetryItem(item.Id)" title="Retry">
+                                                        <i class="bi bi-arrow-repeat"></i>
+                                                    </button>
+                                                }
+                                                @if (item.Status != "Processing")
+                                                {
+                                                    <button class="btn-sync-icon btn-sync-icon-danger"
+                                                            @onclick="() => CancelItem(item.Id)" title="Cancel">
+                                                        <i class="bi bi-x-lg"></i>
+                                                    </button>
+                                                }
+                                            </div>
                                         </td>
                                     </tr>
                                 }
@@ -345,27 +323,31 @@
                 }
                 else
                 {
-                    <div class="text-center py-4 text-success">
-                        <i class="bi bi-check-circle me-2"></i>No pending transactions in queue
+                    <div class="sync-empty sync-empty-success">
+                        <i class="bi bi-check-circle"></i>
+                        <span>No pending transactions in queue</span>
                     </div>
                 }
             </div>
         </div>
 
-        <!-- Recent Connection Logs -->
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-journal-text me-2"></i>SAP Connection History</h5>
-                <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small" OnClick="RefreshLogs">
+        <!-- Connection History -->
+        <div class="sync-panel">
+            <div class="sync-panel-header">
+                <div class="sync-panel-title">
+                    <i class="bi bi-journal-text"></i>
+                    <span>SAP Connection History</span>
+                </div>
+                <button class="btn-sync btn-sync-sm" @onclick="RefreshLogs">
                     <i class="bi bi-arrow-clockwise"></i>
-                </MudButton>
+                </button>
             </div>
-            <div class="card-body">
+            <div class="sync-panel-body">
                 @if (connectionLogs != null && connectionLogs.Any())
                 {
-                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
-                        <table class="table table-sm table-hover">
-                            <thead class="sticky-top bg-white">
+                    <div class="sync-scroll-table">
+                        <table class="sync-table sync-table-compact">
+                            <thead>
                                 <tr>
                                     <th>Time</th>
                                     <th>Endpoint</th>
@@ -377,11 +359,11 @@
                             <tbody>
                                 @foreach (var log in connectionLogs)
                                 {
-                                    <tr class="@(!log.IsSuccess ? "table-danger" : "")">
-                                        <td><small>@log.CheckedAt.ToString("dd MMM HH:mm:ss")</small></td>
-                                        <td><small>@(log.Endpoint ?? "Unknown")</small></td>
+                                    <tr class="@(!log.IsSuccess ? "sync-row-danger" : "")">
+                                        <td>@log.CheckedAt.ToString("dd MMM HH:mm:ss")</td>
+                                        <td>@(log.Endpoint ?? "Unknown")</td>
                                         <td>
-                                            <span class="badge @(log.IsSuccess ? "bg-success" : "bg-danger")">
+                                            <span class="sync-badge @(log.IsSuccess ? "bg-success" : "bg-danger")">
                                                 @(log.IsSuccess ? "Connected" : "Failed")
                                             </span>
                                         </td>
@@ -389,14 +371,14 @@
                                         <td>
                                             @if (!string.IsNullOrEmpty(log.ErrorMessage))
                                             {
-                                                <small class="text-danger" title="@log.ErrorMessage">
+                                                <span class="sync-error-text" title="@log.ErrorMessage">
                                                     @(log.ErrorMessage.Length > 50 ? log.ErrorMessage.Substring(0, 50) + "..." :
                                         log.ErrorMessage)
-                                                </small>
+                                                </span>
                                             }
                                             else if (log.IsSuccess)
                                             {
-                                                <small class="text-success">OK</small>
+                                                <span class="sync-fresh-text">OK</span>
                                             }
                                         </td>
                                     </tr>
@@ -407,26 +389,23 @@
                 }
                 else
                 {
-                    <div class="text-center py-4 text-muted">
-                        <i class="bi bi-info-circle me-2"></i>No connection checks recorded yet. Use "Test SAP Connection" to
-                        start monitoring.
+                    <div class="sync-empty">
+                        <i class="bi bi-info-circle"></i>
+                        <span>No connection checks recorded yet. Use "Test SAP Connection" to start monitoring.</span>
                     </div>
                 }
             </div>
         </div>
     </div>
 
-    <!-- Alert Message -->
+    <!-- Alert Toast -->
     @if (!string.IsNullOrEmpty(alertMessage))
     {
-        <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1100;">
-            <div class="toast show @(alertSuccess ? "bg-success" : "bg-danger") text-white">
-                <div class="toast-body d-flex justify-content-between align-items-center">
-                    <span>@alertMessage</span>
-                    <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Inherit" Size="Size.Small"
-                                   OnClick="() => alertMessage = null" Class="ms-3" />
-                </div>
-            </div>
+        <div class="sync-toast @(alertSuccess ? "sync-toast-success" : "sync-toast-danger")">
+            <span>@alertMessage</span>
+            <button class="sync-toast-close" @onclick="() => alertMessage = null">
+                <i class="bi bi-x-lg"></i>
+            </button>
         </div>
     }
 

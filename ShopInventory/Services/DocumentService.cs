@@ -10,6 +10,13 @@ using System.Text.RegularExpressions;
 
 namespace ShopInventory.Services;
 
+public class PodStatusInfo
+{
+    public DateTime UploadedAt { get; set; }
+    public string? UploadedBy { get; set; }
+    public int Count { get; set; }
+}
+
 /// <summary>
 /// Service interface for document management operations
 /// </summary>
@@ -38,6 +45,8 @@ public interface IDocumentService
     // POD (Proof of Delivery)
     Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null);
     Task EnsureInvoiceCachedAsync(int sapDocEntry, int sapDocNum, string cardCode, string? cardName, CancellationToken cancellationToken = default);
+    Task<Dictionary<int, PodStatusInfo>> GetPodStatusByDocEntriesAsync(List<int> docEntries, CancellationToken cancellationToken = default);
+    Task<PodDashboardDto> GetPodDashboardAsync(Guid userId, CancellationToken cancellationToken = default);
 
     // Document History
     Task<DocumentHistoryListResponseDto> GetDocumentHistoryAsync(string? documentType = null, int? entityId = null, int page = 1, int pageSize = 20, CancellationToken cancellationToken = default);
@@ -1135,6 +1144,132 @@ public class DocumentService : IDocumentService
             len = len / 1024;
         }
         return $"{len:0.##} {sizes[order]}";
+    }
+
+    public async Task<Dictionary<int, PodStatusInfo>> GetPodStatusByDocEntriesAsync(List<int> docEntries, CancellationToken cancellationToken = default)
+    {
+        if (docEntries.Count == 0)
+            return new Dictionary<int, PodStatusInfo>();
+
+        var podData = await _context.Set<DocumentAttachmentEntity>()
+            .Include(a => a.UploadedByUser)
+            .Where(a => a.EntityType == "Invoice" && docEntries.Contains(a.EntityId))
+            .Where(a =>
+                a.FileName.ToLower().Contains("pod") ||
+                a.FileName.ToLower().Contains("proof of delivery") ||
+                (a.Description != null && (a.Description.ToLower().Contains("pod") || a.Description.ToLower().Contains("proof of delivery")))
+            )
+            .GroupBy(a => a.EntityId)
+            .Select(g => new
+            {
+                DocEntry = g.Key,
+                LatestUploadedAt = g.Max(a => a.UploadedAt),
+                UploadedBy = g.OrderByDescending(a => a.UploadedAt).First().UploadedByUser != null
+                    ? g.OrderByDescending(a => a.UploadedAt).First().UploadedByUser!.Username
+                    : null,
+                Count = g.Count()
+            })
+            .ToListAsync(cancellationToken);
+
+        return podData.ToDictionary(
+            p => p.DocEntry,
+            p => new PodStatusInfo
+            {
+                UploadedAt = p.LatestUploadedAt,
+                UploadedBy = p.UploadedBy,
+                Count = p.Count
+            });
+    }
+
+    public async Task<PodDashboardDto> GetPodDashboardAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+
+        var now = DateTime.UtcNow;
+        var todayStart = DateTime.SpecifyKind(now.Date, DateTimeKind.Utc);
+        var weekStart = DateTime.SpecifyKind(now.Date.AddDays(-(int)now.DayOfWeek + (int)DayOfWeek.Monday), DateTimeKind.Utc);
+        var monthStart = DateTime.SpecifyKind(new DateTime(now.Year, now.Month, 1), DateTimeKind.Utc);
+
+        // Base query: all PODs by this user
+        var baseQuery = _context.Set<DocumentAttachmentEntity>()
+            .Where(a => a.EntityType == "Invoice" && a.UploadedByUserId == userId)
+            .Where(a =>
+                a.FileName.ToLower().Contains("pod") ||
+                a.FileName.ToLower().Contains("proof of delivery") ||
+                (a.Description != null && (a.Description.ToLower().Contains("pod") || a.Description.ToLower().Contains("proof of delivery")))
+            );
+
+        // Aggregate stats in a single query
+        var stats = await baseQuery
+            .GroupBy(a => 1)
+            .Select(g => new
+            {
+                Total = g.Count(),
+                Today = g.Count(a => a.UploadedAt >= todayStart),
+                ThisWeek = g.Count(a => a.UploadedAt >= weekStart),
+                ThisMonth = g.Count(a => a.UploadedAt >= monthStart),
+                TotalFileSize = g.Sum(a => a.FileSizeBytes),
+                UniqueInvoices = g.Select(a => a.EntityId).Distinct().Count()
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // Recent uploads (last 10)
+        var recentAttachments = await baseQuery
+            .OrderByDescending(a => a.UploadedAt)
+            .Take(10)
+            .Select(a => new { a.Id, a.FileName, a.EntityId, a.FileSizeBytes, a.UploadedAt })
+            .ToListAsync(cancellationToken);
+
+        // Resolve invoice info for recent uploads
+        var entityIds = recentAttachments.Select(a => a.EntityId).Distinct().ToList();
+        var invoiceLookup = await _context.Invoices
+            .Where(i => i.SAPDocEntry != null && entityIds.Contains(i.SAPDocEntry.Value))
+            .Select(i => new { DocEntry = i.SAPDocEntry!.Value, DocNum = i.SAPDocNum ?? 0, i.CardName })
+            .ToDictionaryAsync(i => i.DocEntry, cancellationToken);
+
+        // Daily upload counts for last 30 days
+        var thirtyDaysAgo = DateTime.SpecifyKind(now.Date.AddDays(-29), DateTimeKind.Utc);
+        var dailyCounts = await baseQuery
+            .Where(a => a.UploadedAt >= thirtyDaysAgo)
+            .GroupBy(a => a.UploadedAt.Date)
+            .Select(g => new { Date = g.Key, Count = g.Count() })
+            .OrderBy(g => g.Date)
+            .ToListAsync(cancellationToken);
+
+        // Fill in missing days with 0
+        var dailyUploads = new List<PodDailyCountDto>();
+        for (var d = thirtyDaysAgo.Date; d <= now.Date; d = d.AddDays(1))
+        {
+            var count = dailyCounts.FirstOrDefault(c => c.Date == d)?.Count ?? 0;
+            dailyUploads.Add(new PodDailyCountDto { Date = d.ToString("MMM dd"), Count = count });
+        }
+
+        return new PodDashboardDto
+        {
+            Username = user?.Username ?? "Unknown",
+            UploadsToday = stats?.Today ?? 0,
+            UploadsThisWeek = stats?.ThisWeek ?? 0,
+            UploadsThisMonth = stats?.ThisMonth ?? 0,
+            TotalUploads = stats?.Total ?? 0,
+            TotalFileSizeBytes = stats?.TotalFileSize ?? 0,
+            TotalFileSizeFormatted = FormatFileSize(stats?.TotalFileSize ?? 0),
+            UniqueInvoicesCovered = stats?.UniqueInvoices ?? 0,
+            RecentUploads = recentAttachments.Select(a =>
+            {
+                invoiceLookup.TryGetValue(a.EntityId, out var inv);
+                return new PodRecentUploadDto
+                {
+                    Id = a.Id,
+                    FileName = a.FileName,
+                    InvoiceDocEntry = a.EntityId,
+                    InvoiceDocNum = inv?.DocNum ?? 0,
+                    CardName = inv?.CardName,
+                    FileSizeFormatted = FormatFileSize(a.FileSizeBytes),
+                    UploadedAt = a.UploadedAt
+                };
+            }).ToList(),
+            DailyUploads = dailyUploads
+        };
     }
 
     #endregion

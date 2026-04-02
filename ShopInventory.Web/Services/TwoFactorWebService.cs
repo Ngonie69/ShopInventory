@@ -42,6 +42,16 @@ public interface ITwoFactorWebService
     /// Get recent login activity for the current user
     /// </summary>
     Task<List<LoginActivityModel>> GetRecentLoginActivityAsync(int count = 10);
+
+    /// <summary>
+    /// Get current credentials (username/email) for the current user
+    /// </summary>
+    Task<CredentialsModel?> GetCredentialsAsync();
+
+    /// <summary>
+    /// Update login credentials (username/email) for the current user
+    /// </summary>
+    Task<(bool Success, string Message, CredentialsModel? Data)> UpdateCredentialsAsync(string? username, string? email, string currentPassword);
 }
 
 /// <summary>
@@ -238,6 +248,56 @@ public class TwoFactorWebService : ITwoFactorWebService
             return new List<LoginActivityModel>();
         }
     }
+
+    public async Task<CredentialsModel?> GetCredentialsAsync()
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync("api/password/credentials");
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<CredentialsModel>();
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching credentials");
+            return null;
+        }
+    }
+
+    public async Task<(bool Success, string Message, CredentialsModel? Data)> UpdateCredentialsAsync(string? username, string? email, string currentPassword)
+    {
+        try
+        {
+            var request = new { Username = username, Email = email, CurrentPassword = currentPassword };
+            var response = await _httpClient.PutAsJsonAsync("api/password/credentials", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var data = await response.Content.ReadFromJsonAsync<CredentialsModel>();
+                return (true, "Credentials updated successfully", data);
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            try
+            {
+                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return (false, errorResponse?.Message ?? "Failed to update credentials", null);
+            }
+            catch
+            {
+                return (false, "Failed to update credentials", null);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating credentials");
+            return (false, $"Error: {ex.Message}", null);
+        }
+    }
 }
 
 // Models for 2FA
@@ -290,4 +350,11 @@ public class UserActivityMeResponse
     public DateTime? LastActivityAt { get; set; }
     public string? LastAction { get; set; }
     public List<LoginActivityModel> RecentActivities { get; set; } = new();
+}
+
+public class CredentialsModel
+{
+    public string Username { get; set; } = string.Empty;
+    public string? Email { get; set; }
+    public string Message { get; set; } = string.Empty;
 }

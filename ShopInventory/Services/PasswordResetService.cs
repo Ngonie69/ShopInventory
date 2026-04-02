@@ -32,6 +32,16 @@ public interface IPasswordResetService
     Task<ServiceResult> ChangePasswordAsync(Guid userId, string currentPassword, string newPassword);
 
     /// <summary>
+    /// Update login credentials (username/email) for logged-in user
+    /// </summary>
+    Task<ServiceResult<UpdateCredentialsResponse>> UpdateCredentialsAsync(Guid userId, UpdateCredentialsRequest request);
+
+    /// <summary>
+    /// Get current credentials for logged-in user
+    /// </summary>
+    Task<UpdateCredentialsResponse?> GetCredentialsAsync(Guid userId);
+
+    /// <summary>
     /// Get the reset token (for sending via email)
     /// </summary>
     Task<string?> GetResetTokenForTestingAsync(string email);
@@ -253,6 +263,79 @@ public class PasswordResetService : IPasswordResetService
         _logger.LogInformation("Password changed for user {UserId}", userId);
 
         return ServiceResult.Success("Password changed successfully");
+    }
+
+    public async Task<UpdateCredentialsResponse?> GetCredentialsAsync(Guid userId)
+    {
+        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
+        if (user == null) return null;
+
+        return new UpdateCredentialsResponse
+        {
+            Username = user.Username,
+            Email = user.Email,
+            Message = "OK"
+        };
+    }
+
+    public async Task<ServiceResult<UpdateCredentialsResponse>> UpdateCredentialsAsync(Guid userId, UpdateCredentialsRequest request)
+    {
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null)
+        {
+            return ServiceResult<UpdateCredentialsResponse>.Failure("User not found");
+        }
+
+        // Verify current password
+        if (!BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
+        {
+            return ServiceResult<UpdateCredentialsResponse>.Failure("Current password is incorrect");
+        }
+
+        // Update username if provided and different
+        if (!string.IsNullOrWhiteSpace(request.Username) &&
+            !string.Equals(request.Username, user.Username, StringComparison.OrdinalIgnoreCase))
+        {
+            var usernameTaken = await _context.Users
+                .AnyAsync(u => u.Id != userId && u.Username.ToLower() == request.Username.ToLower());
+            if (usernameTaken)
+            {
+                return ServiceResult<UpdateCredentialsResponse>.Failure("Username is already taken");
+            }
+            user.Username = request.Username.Trim();
+        }
+
+        // Update email if provided and different
+        if (request.Email != null &&
+            !string.Equals(request.Email, user.Email, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(request.Email))
+            {
+                var emailTaken = await _context.Users
+                    .AnyAsync(u => u.Id != userId && u.Email != null && u.Email.ToLower() == request.Email.ToLower());
+                if (emailTaken)
+                {
+                    return ServiceResult<UpdateCredentialsResponse>.Failure("Email is already in use");
+                }
+                user.Email = request.Email.Trim();
+            }
+            else
+            {
+                user.Email = null;
+            }
+        }
+
+        user.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Credentials updated for user {UserId}", userId);
+
+        return ServiceResult<UpdateCredentialsResponse>.Success(new UpdateCredentialsResponse
+        {
+            Username = user.Username,
+            Email = user.Email,
+            Message = "Credentials updated successfully"
+        }, "Credentials updated successfully");
     }
 
     public async Task<string?> GetResetTokenForTestingAsync(string email)

@@ -21,6 +21,7 @@ public interface IReportExportService
     byte[] ExportReceivablesAgingToExcel(ReceivablesAgingReport report);
     byte[] ExportProfitOverviewToExcel(ProfitOverviewReport report);
     byte[] ExportSlowMovingProductsToExcel(SlowMovingProductsReport report);
+    byte[] ExportPodUploadStatusToExcel(PodUploadStatusReport report);
     string GeneratePrintableHtml(string title, string content, DateTime? fromDate = null, DateTime? toDate = null);
 }
 
@@ -1351,6 +1352,361 @@ public class ReportExportService : IReportExportService
   <span class='confidential'>Confidential</span> &bull; {CompanyName} &bull; {SystemName} &bull; Generated {DateTime.Now:dd MMM yyyy HH:mm}
 </div>
 </body></html>";
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // POD UPLOAD STATUS REPORT
+    // ═══════════════════════════════════════════════════════════════
+
+    // Stock-sheet-style accent colors
+    private static readonly XLColor StockGreen = XLColor.FromHtml("#006100");
+    private static readonly XLColor StockGreenLight = XLColor.FromHtml("#c6efce");
+    private static readonly XLColor TotalRed = XLColor.FromHtml("#c00000");
+    private static readonly XLColor HeaderGreen = XLColor.FromHtml("#006100");
+    private static readonly XLColor PendingAmber = XLColor.FromHtml("#9c5700");
+    private static readonly XLColor PendingAmberBg = XLColor.FromHtml("#ffeb9c");
+
+    /// <summary>Stock-sheet style green header row.</summary>
+    private static void StyleStockHeader(IXLWorksheet ws, int headerRow, int lastCol)
+    {
+        var range = ws.Range(headerRow, 1, headerRow, lastCol);
+        range.Style.Font.Bold = true;
+        range.Style.Font.FontSize = 9;
+        range.Style.Fill.BackgroundColor = HeaderGreen;
+        range.Style.Font.FontColor = XLColor.White;
+        range.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        range.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        range.Style.Alignment.WrapText = true;
+        range.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        range.Style.Border.OutsideBorderColor = HeaderGreen;
+        range.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+        range.Style.Border.InsideBorderColor = XLColor.FromHtml("#338033");
+        ws.Row(headerRow).Height = 36;
+    }
+
+    /// <summary>Applies stock-sheet data styling: thin borders, consistent font, dashes for empty.</summary>
+    private static void StyleStockData(IXLWorksheet ws, int firstRow, int lastRow, int lastCol)
+    {
+        if (lastRow < firstRow) return;
+        var range = ws.Range(firstRow, 1, lastRow, lastCol);
+        range.Style.Border.InsideBorder = XLBorderStyleValues.Hair;
+        range.Style.Border.InsideBorderColor = XLColor.FromHtml("#d9d9d9");
+        range.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        range.Style.Border.OutsideBorderColor = XLColor.FromHtml("#bfbfbf");
+        range.Style.Font.FontSize = 10;
+    }
+
+    public byte[] ExportPodUploadStatusToExcel(PodUploadStatusReport report)
+    {
+        using var workbook = new XLWorkbook();
+        DateTime.TryParse(report.FromDate, out var fromDt);
+        DateTime.TryParse(report.ToDate, out var toDt);
+        var now = DateTime.Now;
+
+        var totalAmount = report.Items.Sum(i => i.DocTotal);
+        var uploadedAmount = report.Items.Where(i => i.HasPod).Sum(i => i.DocTotal);
+        var pendingAmount = report.Items.Where(i => !i.HasPod).Sum(i => i.DocTotal);
+
+        // ════════════════════════════════════════════════════════════
+        //  POD DASHBOARD — all invoices
+        // ════════════════════════════════════════════════════════════
+        {
+            var ws = workbook.Worksheets.Add("POD Dashboard");
+            int lastCol = 8;
+
+            // Row 1: Title + date
+            ws.Cell(1, 1).Value = "POD UPLOAD STATUS";
+            ws.Cell(1, 1).Style.Font.Bold = true;
+            ws.Cell(1, 1).Style.Font.FontSize = 14;
+            ws.Range(1, 1, 1, 3).Merge();
+            ws.Cell(1, lastCol).Value = now.ToString("dd MMM yyyy");
+            ws.Cell(1, lastCol).Style.Font.FontSize = 9;
+            ws.Cell(1, lastCol).Style.Font.FontColor = XLColor.FromHtml("#808080");
+            ws.Cell(1, lastCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+
+            // Row 2: Headers
+            int hRow = 2;
+            ws.Cell(hRow, 1).Value = "Invoice #";
+            ws.Cell(hRow, 2).Value = "Customer";
+            ws.Cell(hRow, 3).Value = "Card Code";
+            ws.Cell(hRow, 4).Value = "Invoice Date";
+            ws.Cell(hRow, 5).Value = "Amount";
+            ws.Cell(hRow, 6).Value = "POD Status";
+            ws.Cell(hRow, 7).Value = "Uploaded";
+            ws.Cell(hRow, 8).Value = "TOTAL";
+            StyleStockHeader(ws, hRow, lastCol);
+            int freezeRow = hRow;
+
+            // Data rows
+            int row = 3;
+            int dataStart = row;
+            foreach (var item in report.Items)
+            {
+                ws.Cell(row, 1).Value = item.DocNum;
+                ws.Cell(row, 1).Style.Font.Bold = true;
+                ws.Cell(row, 2).Value = item.CardName ?? "-";
+                ws.Cell(row, 3).Value = item.CardCode ?? "-";
+                ws.Cell(row, 4).Value = FormatExcelDate(item.DocDate);
+                ws.Cell(row, 5).Value = item.DocTotal;
+                ws.Cell(row, 5).Style.NumberFormat.Format = "#,##0.00";
+                ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+
+                if (item.HasPod)
+                {
+                    ws.Cell(row, 6).Value = "Uploaded";
+                    ws.Cell(row, 6).Style.Font.FontColor = StockGreen;
+                    ws.Cell(row, 6).Style.Fill.BackgroundColor = StockGreenLight;
+                }
+                else
+                {
+                    ws.Cell(row, 6).Value = "Pending";
+                    ws.Cell(row, 6).Style.Font.FontColor = PendingAmber;
+                    ws.Cell(row, 6).Style.Fill.BackgroundColor = PendingAmberBg;
+                }
+                ws.Cell(row, 6).Style.Font.Bold = true;
+                ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                if (item.HasPod && item.PodUploadedAt.HasValue)
+                {
+                    var uploadStr = item.PodUploadedAt.Value.ToString("dd MMM yyyy HH:mm");
+                    if (!string.IsNullOrEmpty(item.PodUploadedBy))
+                        uploadStr += $" ({item.PodUploadedBy})";
+                    ws.Cell(row, 7).Value = uploadStr;
+                }
+                else
+                {
+                    ws.Cell(row, 7).Value = "-";
+                    ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                }
+
+                // TOTAL column (running amount in bold red)
+                ws.Cell(row, 8).Value = item.DocTotal;
+                ws.Cell(row, 8).Style.NumberFormat.Format = "#,##0.00";
+                ws.Cell(row, 8).Style.Font.Bold = true;
+                ws.Cell(row, 8).Style.Font.FontColor = TotalRed;
+                ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+
+                row++;
+            }
+            StyleStockData(ws, dataStart, row - 1, lastCol);
+
+            // Summary row
+            ws.Cell(row, 1).Value = "SUMMARY";
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 4).Value = $"{report.TotalInvoices} invoices";
+            ws.Cell(row, 4).Style.Font.Bold = true;
+            ws.Cell(row, 5).Value = totalAmount;
+            ws.Cell(row, 5).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 5).Style.Font.Bold = true;
+            ws.Cell(row, 6).Value = $"{report.UploadedCount} / {report.PendingCount}";
+            ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 6).Style.Font.Bold = true;
+            ws.Cell(row, 8).Value = totalAmount;
+            ws.Cell(row, 8).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 8).Style.Font.Bold = true;
+            ws.Cell(row, 8).Style.Font.FontColor = TotalRed;
+            ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            var summaryRange = ws.Range(row, 1, row, lastCol);
+            summaryRange.Style.Border.TopBorder = XLBorderStyleValues.Thin;
+            summaryRange.Style.Border.TopBorderColor = HeaderGreen;
+            summaryRange.Style.Border.BottomBorder = XLBorderStyleValues.Double;
+            summaryRange.Style.Border.BottomBorderColor = HeaderGreen;
+            summaryRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#f2f2f2");
+
+            FinalizeSheet(ws, lastCol, freezeRow, landscape: true);
+            ws.Column(1).Width = 12;
+            ws.Column(2).Width = 38;
+            ws.Column(3).Width = 12;
+            ws.Column(4).Width = 14;
+            ws.Column(5).Width = 14;
+            ws.Column(6).Width = 12;
+            ws.Column(7).Width = 28;
+            ws.Column(8).Width = 14;
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  PENDING PODs
+        // ════════════════════════════════════════════════════════════
+        var pending = report.Items.Where(i => !i.HasPod).OrderBy(i => i.DocDate).ToList();
+        if (pending.Any())
+        {
+            var ws = workbook.Worksheets.Add("Pending PODs");
+            int lastCol = 6;
+
+            // Row 1: Title + date
+            ws.Cell(1, 1).Value = "PENDING POD UPLOADS";
+            ws.Cell(1, 1).Style.Font.Bold = true;
+            ws.Cell(1, 1).Style.Font.FontSize = 14;
+            ws.Range(1, 1, 1, 3).Merge();
+            ws.Cell(1, lastCol).Value = now.ToString("dd MMM yyyy");
+            ws.Cell(1, lastCol).Style.Font.FontSize = 9;
+            ws.Cell(1, lastCol).Style.Font.FontColor = XLColor.FromHtml("#808080");
+            ws.Cell(1, lastCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+
+            // Row 2: Headers
+            int hRow = 2;
+            ws.Cell(hRow, 1).Value = "Invoice #";
+            ws.Cell(hRow, 2).Value = "Customer";
+            ws.Cell(hRow, 3).Value = "Card Code";
+            ws.Cell(hRow, 4).Value = "Invoice Date";
+            ws.Cell(hRow, 5).Value = "Days Aging";
+            ws.Cell(hRow, 6).Value = "TOTAL";
+            StyleStockHeader(ws, hRow, lastCol);
+            int freezeRow = hRow;
+
+            int row = 3;
+            int dataStart = row;
+            foreach (var item in pending)
+            {
+                DateTime.TryParse(item.DocDate, out var docDt);
+                int daysAging = docDt > DateTime.MinValue ? (int)(now - docDt).TotalDays : 0;
+
+                ws.Cell(row, 1).Value = item.DocNum;
+                ws.Cell(row, 1).Style.Font.Bold = true;
+                ws.Cell(row, 2).Value = item.CardName ?? "-";
+                ws.Cell(row, 3).Value = item.CardCode ?? "-";
+                ws.Cell(row, 4).Value = FormatExcelDate(item.DocDate);
+                ws.Cell(row, 5).Value = daysAging;
+                ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                if (daysAging > 14)
+                {
+                    ws.Cell(row, 5).Style.Font.FontColor = XLColor.FromHtml("#c00000");
+                    ws.Cell(row, 5).Style.Font.Bold = true;
+                }
+                else if (daysAging > 7)
+                {
+                    ws.Cell(row, 5).Style.Font.FontColor = PendingAmber;
+                    ws.Cell(row, 5).Style.Font.Bold = true;
+                }
+
+                // TOTAL column bold red
+                ws.Cell(row, 6).Value = item.DocTotal;
+                ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
+                ws.Cell(row, 6).Style.Font.Bold = true;
+                ws.Cell(row, 6).Style.Font.FontColor = TotalRed;
+                ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+
+                row++;
+            }
+            StyleStockData(ws, dataStart, row - 1, lastCol);
+
+            // Summary
+            ws.Cell(row, 1).Value = "TOTAL";
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 4).Value = $"{pending.Count} invoices";
+            ws.Cell(row, 4).Style.Font.Bold = true;
+            ws.Cell(row, 6).Value = pendingAmount;
+            ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 6).Style.Font.Bold = true;
+            ws.Cell(row, 6).Style.Font.FontColor = TotalRed;
+            ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            var summaryRange = ws.Range(row, 1, row, lastCol);
+            summaryRange.Style.Border.TopBorder = XLBorderStyleValues.Thin;
+            summaryRange.Style.Border.TopBorderColor = HeaderGreen;
+            summaryRange.Style.Border.BottomBorder = XLBorderStyleValues.Double;
+            summaryRange.Style.Border.BottomBorderColor = HeaderGreen;
+            summaryRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#f2f2f2");
+
+            FinalizeSheet(ws, lastCol, freezeRow);
+            ws.Column(1).Width = 12;
+            ws.Column(2).Width = 38;
+            ws.Column(3).Width = 12;
+            ws.Column(4).Width = 14;
+            ws.Column(5).Width = 12;
+            ws.Column(6).Width = 14;
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  UPLOADED PODs
+        // ════════════════════════════════════════════════════════════
+        var uploaded = report.Items.Where(i => i.HasPod).OrderByDescending(i => i.PodUploadedAt).ToList();
+        if (uploaded.Any())
+        {
+            var ws = workbook.Worksheets.Add("Uploaded PODs");
+            int lastCol = 7;
+
+            // Row 1: Title + date
+            ws.Cell(1, 1).Value = "INVOICES WITH POD UPLOADED";
+            ws.Cell(1, 1).Style.Font.Bold = true;
+            ws.Cell(1, 1).Style.Font.FontSize = 14;
+            ws.Range(1, 1, 1, 3).Merge();
+            ws.Cell(1, lastCol).Value = now.ToString("dd MMM yyyy");
+            ws.Cell(1, lastCol).Style.Font.FontSize = 9;
+            ws.Cell(1, lastCol).Style.Font.FontColor = XLColor.FromHtml("#808080");
+            ws.Cell(1, lastCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+
+            // Row 2: Headers
+            int hRow = 2;
+            ws.Cell(hRow, 1).Value = "Invoice #";
+            ws.Cell(hRow, 2).Value = "Customer";
+            ws.Cell(hRow, 3).Value = "Card Code";
+            ws.Cell(hRow, 4).Value = "Invoice Date";
+            ws.Cell(hRow, 5).Value = "Uploaded";
+            ws.Cell(hRow, 6).Value = "Uploaded By";
+            ws.Cell(hRow, 7).Value = "TOTAL";
+            StyleStockHeader(ws, hRow, lastCol);
+            int freezeRow = hRow;
+
+            int row = 3;
+            int dataStart = row;
+            foreach (var item in uploaded)
+            {
+                ws.Cell(row, 1).Value = item.DocNum;
+                ws.Cell(row, 1).Style.Font.Bold = true;
+                ws.Cell(row, 2).Value = item.CardName ?? "-";
+                ws.Cell(row, 3).Value = item.CardCode ?? "-";
+                ws.Cell(row, 4).Value = FormatExcelDate(item.DocDate);
+                ws.Cell(row, 5).Value = item.PodUploadedAt.HasValue
+                    ? item.PodUploadedAt.Value.ToString("dd MMM yyyy HH:mm")
+                    : "-";
+                ws.Cell(row, 6).Value = !string.IsNullOrEmpty(item.PodUploadedBy) ? item.PodUploadedBy : "-";
+                ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                // TOTAL column bold red
+                ws.Cell(row, 7).Value = item.DocTotal;
+                ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
+                ws.Cell(row, 7).Style.Font.Bold = true;
+                ws.Cell(row, 7).Style.Font.FontColor = TotalRed;
+                ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+
+                row++;
+            }
+            StyleStockData(ws, dataStart, row - 1, lastCol);
+
+            // Summary
+            ws.Cell(row, 1).Value = "TOTAL";
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 4).Value = $"{uploaded.Count} invoices";
+            ws.Cell(row, 4).Style.Font.Bold = true;
+            ws.Cell(row, 7).Value = uploadedAmount;
+            ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 7).Style.Font.Bold = true;
+            ws.Cell(row, 7).Style.Font.FontColor = TotalRed;
+            ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            var summaryRange = ws.Range(row, 1, row, lastCol);
+            summaryRange.Style.Border.TopBorder = XLBorderStyleValues.Thin;
+            summaryRange.Style.Border.TopBorderColor = HeaderGreen;
+            summaryRange.Style.Border.BottomBorder = XLBorderStyleValues.Double;
+            summaryRange.Style.Border.BottomBorderColor = HeaderGreen;
+            summaryRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#f2f2f2");
+
+            FinalizeSheet(ws, lastCol, freezeRow, landscape: true);
+            ws.Column(1).Width = 12;
+            ws.Column(2).Width = 38;
+            ws.Column(3).Width = 12;
+            ws.Column(4).Width = 14;
+            ws.Column(5).Width = 22;
+            ws.Column(6).Width = 14;
+            ws.Column(7).Width = 14;
+        }
+
+        return WorkbookToBytes(workbook);
+    }
+
+    private static string FormatExcelDate(string? dateStr)
+    {
+        if (string.IsNullOrEmpty(dateStr)) return "";
+        return DateTime.TryParse(dateStr, out var dt) ? dt.ToString("dd MMM yyyy") : dateStr;
     }
 
     private static byte[] WorkbookToBytes(XLWorkbook workbook)

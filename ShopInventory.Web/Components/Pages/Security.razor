@@ -876,6 +876,53 @@
                             </div>
                         </div>
 
+                        <!-- Update Credentials Card -->
+                        <div class="sec-card">
+                            <div class="sec-card-header">
+                                <h5><i class="bi bi-person-gear"></i> Login Credentials</h5>
+                            </div>
+                            <div class="sec-card-body">
+                                <p style="color: #6b7280; font-size: .88rem; margin: 0 0 1rem;">
+                                    Update your username or email address. Password is required for verification.
+                                </p>
+                                @if (isLoadingCredentials)
+                                {
+                                    <div style="display: flex; align-items: center; gap: .5rem; color: #6b7280;">
+                                        <span class="spinner-border spinner-border-sm"></span> Loading credentials...
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div style="display: grid; gap: .85rem; max-width: 400px;">
+                                        <div>
+                                            <label class="sec-label">Username</label>
+                                            <input type="text" class="sec-input" placeholder="Enter new username"
+                                                   @bind="credUsername" />
+                                        </div>
+                                        <div>
+                                            <label class="sec-label">Email</label>
+                                            <input type="email" class="sec-input" placeholder="Enter email address" @bind="credEmail" />
+                                        </div>
+                                        <div>
+                                            <label class="sec-label">Current Password <span style="color: #ef4444;">*</span></label>
+                                            <input type="password" class="sec-input" placeholder="Verify with current password"
+                                                   @bind="credPassword" />
+                                        </div>
+                                        <div>
+                                            <button class="btn-sec-gradient" @onclick="UpdateCredentials"
+                                                    disabled="@(!IsCredentialsValid || isUpdatingCredentials)">
+                                                @if (isUpdatingCredentials)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm"></span>
+                                                }
+                                                <i class="bi bi-check-lg"></i> Update Credentials
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
                         <!-- Change Password Card -->
                         <div class="sec-card">
                             <div class="sec-card-header">
@@ -1249,6 +1296,17 @@
     private string confirmPassword = "";
     private bool isChangingPassword = false;
 
+    // Credentials update state
+    private string credUsername = "";
+    private string credEmail = "";
+    private string credPassword = "";
+    private bool isUpdatingCredentials = false;
+    private bool isLoadingCredentials = true;
+
+    private bool IsCredentialsValid =>
+        !string.IsNullOrWhiteSpace(credPassword) &&
+        (!string.IsNullOrWhiteSpace(credUsername) || credEmail != null);
+
     // Activity state
     private List<LoginActivityModel> recentActivity = new();
     private UserActivityMeResponse? activitySummary;
@@ -1270,15 +1328,24 @@
     private async Task LoadAllData()
     {
         isLoading = true;
+        isLoadingCredentials = true;
         try
         {
             var statusTask = TwoFactorService.GetStatusAsync();
             var activityTask = TwoFactorService.GetRecentLoginActivityAsync(10);
+            var credentialsTask = TwoFactorService.GetCredentialsAsync();
 
-            await Task.WhenAll(statusTask, activityTask);
+            await Task.WhenAll(statusTask, activityTask, credentialsTask);
 
             twoFactorStatus = statusTask.Result;
             recentActivity = activityTask.Result;
+
+            var creds = credentialsTask.Result;
+            if (creds != null)
+            {
+                credUsername = creds.Username;
+                credEmail = creds.Email ?? "";
+            }
 
             // Also load summary from the data we already have
             activitySummary = BuildActivitySummaryFromRecent();
@@ -1290,6 +1357,7 @@
         finally
         {
             isLoading = false;
+            isLoadingCredentials = false;
         }
     }
 
@@ -1445,6 +1513,45 @@
         showRegenerateModal = false;
         regenerateCode = "";
         newBackupCodes = null;
+    }
+
+    // ── Credentials Update ─────────────────────────────
+
+    private async Task UpdateCredentials()
+    {
+        if (!IsCredentialsValid) return;
+        isUpdatingCredentials = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            var (success, message, data) = await TwoFactorService.UpdateCredentialsAsync(
+                credUsername, string.IsNullOrWhiteSpace(credEmail) ? null : credEmail, credPassword);
+
+            if (success)
+            {
+                successMessage = "Login credentials updated successfully!";
+                credPassword = "";
+                if (data != null)
+                {
+                    credUsername = data.Username;
+                    credEmail = data.Email ?? "";
+                }
+                await AuditService.LogAsync("UpdateCredentials", "Security", "Login credentials updated");
+            }
+            else
+            {
+                errorMessage = message;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error updating credentials: {ex.Message}";
+        }
+        finally
+        {
+            isUpdatingCredentials = false;
+        }
     }
 
     // ── Password Change ──────────────────────────────────

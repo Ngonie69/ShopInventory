@@ -18,6 +18,8 @@ public interface ISalesOrderService
     Task<bool> DeleteAsync(int id, CancellationToken cancellationToken = default);
     Task<SalesOrderDto> ApproveAsync(int id, Guid userId, CancellationToken cancellationToken = default);
     Task<InvoiceDto?> ConvertToInvoiceAsync(int id, Guid userId, CancellationToken cancellationToken = default);
+    Task<SalesOrderDto?> GetByIdFromLocalAsync(int id, CancellationToken cancellationToken = default);
+    Task<SalesOrderDto> MarkAsFulfilledAsync(int id, int? invoiceId, CancellationToken cancellationToken = default);
     Task<string> GenerateOrderNumberAsync(CancellationToken cancellationToken = default);
 }
 

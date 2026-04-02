@@ -1,0 +1,718 @@
+@page "/pod-report"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
+@attribute [Authorize(Roles = "Admin,Cashier,PodOperator")]
+@inject IPodService PodService
+@inject IReportExportService ExportService
+@inject IAppSettingsProvider AppSettings
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>POD Upload Report - Shop Inventory</PageTitle>
+
+<div class="container-fluid fade-in staff-dashboard staff-shell">
+    @* Hero Header *@
+    <div class="podr-hero">
+        <div class="podr-hero-content">
+            <div>
+                <h2 class="podr-hero-title">
+                    <span class="podr-hero-icon">
+                        <i class="bi bi-clipboard-data"></i>
+                    </span>
+                    POD Upload Report
+                </h2>
+                <p class="podr-hero-subtitle">Track which invoices have proof of delivery uploaded</p>
+            </div>
+            @if (report != null)
+            {
+                <div class="d-flex gap-2 align-items-center">
+                    <span class="podr-stat-pill podr-pill-total">
+                        <i class="bi bi-receipt me-1"></i>
+                        @report.TotalInvoices invoices
+                    </span>
+                    <span class="podr-stat-pill podr-pill-uploaded">
+                        <i class="bi bi-check-circle me-1"></i>
+                        @report.UploadedCount uploaded
+                    </span>
+                    <span class="podr-stat-pill podr-pill-pending">
+                        <i class="bi bi-clock me-1"></i>
+                        @report.PendingCount pending
+                    </span>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ExportToExcel"
+                               Disabled="@isExporting" Class="podr-export-btn">
+                        @if (isExporting)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                            <text>Exporting...</text>
+                        }
+                        else
+                        {
+                            <i class="bi bi-file-earmark-excel me-1"></i>
+                            <text>Excel</text>
+                        }
+                    </MudButton>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* Date Filter *@
+    <div class="podr-filter-card">
+        <div class="podr-filter-header">
+            <i class="bi bi-funnel"></i>
+            <span>Date Range</span>
+        </div>
+        <div class="podr-filter-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label small fw-semibold text-uppercase text-muted">From Date</label>
+                    <MudDatePicker @bind-Date="fromDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   DateFormat="@AppSettings.DateFormat" Editable="true" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-semibold text-uppercase text-muted">To Date</label>
+                    <MudDatePicker @bind-Date="toDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   DateFormat="@AppSettings.DateFormat" Editable="true" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-semibold text-uppercase text-muted">Quick Select</label>
+                    <select class="form-select" @onchange="OnQuickSelectChanged" style="border-radius: 8px;">
+                        <option value="7">Last 7 Days</option>
+                        <option value="30" selected>Last 30 Days</option>
+                        <option value="90">Last 90 Days</option>
+                        <option value="180">Last 6 Months</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadReport"
+                               Disabled="@isLoading" FullWidth="true" Class="podr-load-btn">
+                        @if (isLoading)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                            <text>Loading...</text>
+                        }
+                        else
+                        {
+                            <i class="bi bi-lightning-charge me-1"></i>
+                            <text>Load Report</text>
+                        }
+                    </MudButton>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-3">@errorMessage</MudAlert>
+    }
+
+    @* Summary Stats *@
+    @if (report != null)
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="podr-stat-card podr-stat-total">
+                    <div class="podr-stat-icon">
+                        <i class="bi bi-receipt"></i>
+                    </div>
+                    <div>
+                        <div class="podr-stat-label">Total Invoices</div>
+                        <div class="podr-stat-value">@report.TotalInvoices</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="podr-stat-card podr-stat-uploaded">
+                    <div class="podr-stat-icon">
+                        <i class="bi bi-check-circle-fill"></i>
+                    </div>
+                    <div>
+                        <div class="podr-stat-label">POD Uploaded</div>
+                        <div class="podr-stat-value">@report.UploadedCount</div>
+                    </div>
+                    @if (report.TotalInvoices > 0)
+                    {
+                        <div class="podr-stat-pct">@((report.UploadedCount * 100.0 / report.TotalInvoices).ToString("N1"))%</div>
+                    }
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="podr-stat-card podr-stat-pending">
+                    <div class="podr-stat-icon">
+                        <i class="bi bi-clock-fill"></i>
+                    </div>
+                    <div>
+                        <div class="podr-stat-label">Pending Upload</div>
+                        <div class="podr-stat-value">@report.PendingCount</div>
+                    </div>
+                    @if (report.TotalInvoices > 0)
+                    {
+                        <div class="podr-stat-pct">@((report.PendingCount * 100.0 / report.TotalInvoices).ToString("N1"))%</div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @* Progress Bar *@
+        @if (report.TotalInvoices > 0)
+        {
+            var pct = report.UploadedCount * 100.0 / report.TotalInvoices;
+            <div class="podr-progress-card mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="fw-semibold small">Upload Progress</span>
+                    <span class="small text-muted">@report.UploadedCount / @report.TotalInvoices</span>
+                </div>
+                <div class="progress" style="height: 10px; border-radius: 8px;">
+                    <div class="progress-bar @(pct >= 100 ? "bg-success" : pct >= 50 ? "bg-primary" : "bg-warning")"
+                         role="progressbar" style="width: @(pct.ToString("N1"))%; border-radius: 8px;"
+                         aria-valuenow="@pct" aria-valuemin="0" aria-valuemax="100">
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* Filter Tabs *@
+        <div class="podr-tab-bar mb-3">
+            <button class="podr-tab @(filterMode == "all" ? "podr-tab-active" : "")" @onclick='() => SetFilter("all")'>
+                All (@report.TotalInvoices)
+            </button>
+            <button class="podr-tab @(filterMode == "uploaded" ? "podr-tab-active" : "")" @onclick='() => SetFilter("uploaded")'>
+                <i class="bi bi-check-circle me-1"></i>Uploaded (@report.UploadedCount)
+            </button>
+            <button class="podr-tab @(filterMode == "pending" ? "podr-tab-active" : "")" @onclick='() => SetFilter("pending")'>
+                <i class="bi bi-clock me-1"></i>Pending (@report.PendingCount)
+            </button>
+            <div class="ms-auto d-flex align-items-center gap-2">
+                <input type="text" class="form-control form-control-sm podr-search" placeholder="Search invoice or customer..."
+                       @bind="searchTerm" @bind:event="oninput" style="max-width: 260px;" />
+            </div>
+        </div>
+
+        @* Data Table *@
+        <div class="podr-table-card">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0 align-middle podr-table">
+                    <thead>
+                        <tr>
+                            <th>Invoice #</th>
+                            <th>Customer</th>
+                            <th>Date</th>
+                            <th class="text-end">Amount</th>
+                            <th class="text-center">POD Status</th>
+                            <th>Uploaded</th>
+                            <th class="text-center">Files</th>
+                            <th class="text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (FilteredItems.Any())
+                        {
+                            @foreach (var item in PagedItems)
+                            {
+                                <tr class="@(!item.HasPod ? "podr-row-pending" : "")">
+                                    <td>
+                                        <span class="podr-docnum">@item.DocNum</span>
+                                    </td>
+                                    <td>
+                                        <div class="podr-customer">@item.CardName</div>
+                                        <div class="podr-cardcode">@item.CardCode</div>
+                                    </td>
+                                    <td>@FormatDate(item.DocDate)</td>
+                                    <td class="text-end fw-semibold">
+                                        @item.DocCurrency @item.DocTotal.ToString("N2")
+                                    </td>
+                                    <td class="text-center">
+                                        @if (item.HasPod)
+                                        {
+                                            <span class="podr-badge podr-badge-uploaded">
+                                                <i class="bi bi-check-circle-fill me-1"></i>Uploaded
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="podr-badge podr-badge-pending">
+                                                <i class="bi bi-clock me-1"></i>Pending
+                                            </span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (item.HasPod && item.PodUploadedAt.HasValue)
+                                        {
+                                            <div class="small">@item.PodUploadedAt.Value.ToString("dd MMM yyyy HH:mm")</div>
+                                            <div class="text-muted small">by @item.PodUploadedBy</div>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">&mdash;</span>
+                                        }
+                                    </td>
+                                    <td class="text-center">
+                                        @if (item.PodCount > 0)
+                                        {
+                                            <span class="badge bg-primary rounded-pill">@item.PodCount</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">0</span>
+                                        }
+                                    </td>
+                                    <td class="text-center">
+                                        @if (!item.HasPod)
+                                        {
+                                            <button class="btn btn-sm podr-upload-btn" @onclick="() => GoToUpload(item.DocNum)">
+                                                <i class="bi bi-cloud-arrow-up me-1"></i>Upload
+                                            </button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            <tr>
+                                <td colspan="8" class="text-center py-4 text-muted">
+                                    <i class="bi bi-inbox me-2"></i>No invoices match the current filter
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (TotalFilteredPages > 1)
+            {
+                <div class="podr-pagination">
+                    <span class="text-muted small">Showing @(((currentPage - 1) * pageSize) + 1)&ndash;@Math.Min(currentPage * pageSize, FilteredItems.Count()) of @FilteredItems.Count()</span>
+                    <div class="d-flex gap-1">
+                        <button class="btn btn-sm btn-outline-secondary" disabled="@(currentPage <= 1)" @onclick="() => GoToPage(1)">
+                            <i class="bi bi-chevron-double-left"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" disabled="@(currentPage <= 1)" @onclick="() => GoToPage(currentPage - 1)">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                        @for (int i = PageStart; i <= PageEnd; i++)
+                        {
+                            var pg = i;
+                            <button class="btn btn-sm @(pg == currentPage ? "btn-primary" : "btn-outline-secondary")" @onclick="() => GoToPage(pg)">
+                                @pg
+                            </button>
+                        }
+                        <button class="btn btn-sm btn-outline-secondary" disabled="@(currentPage >= TotalFilteredPages)" @onclick="() => GoToPage(currentPage + 1)">
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" disabled="@(currentPage >= TotalFilteredPages)" @onclick="() => GoToPage(TotalFilteredPages)">
+                            <i class="bi bi-chevron-double-right"></i>
+                        </button>
+                    </div>
+                    <span class="text-muted small">Page @currentPage of @TotalFilteredPages</span>
+                </div>
+            }
+        </div>
+    }
+    else if (!isLoading && report == null)
+    {
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-bar-chart-line" style="font-size: 3rem;"></i>
+            <p class="mt-3">Select a date range and click <strong>Load Report</strong> to generate the POD upload status report.</p>
+        </div>
+    }
+</div>
+
+<style>
+    .podr-hero {
+        background: linear-gradient(135deg, #1a237e 0%, #283593 50%, #3949ab 100%);
+        border-radius: 16px;
+        padding: 1.5rem 1.75rem;
+        margin-bottom: 1.25rem;
+        color: #fff;
+    }
+    .podr-hero-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+    .podr-hero-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .podr-hero-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        background: rgba(255,255,255,0.15);
+        border-radius: 12px;
+        font-size: 1.25rem;
+    }
+    .podr-hero-subtitle {
+        margin: 0.25rem 0 0;
+        opacity: 0.8;
+        font-size: 0.9rem;
+    }
+    .podr-stat-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.35rem 0.85rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+    .podr-pill-total { background: rgba(255,255,255,0.2); color: #fff; }
+    .podr-pill-uploaded { background: rgba(76,175,80,0.25); color: #a5d6a7; }
+    .podr-pill-pending { background: rgba(255,152,0,0.25); color: #ffcc80; }
+    .podr-export-btn {
+        border-color: rgba(255,255,255,0.3) !important;
+        color: #fff !important;
+        font-size: 0.8rem;
+    }
+    .podr-export-btn:hover {
+        background: rgba(255,255,255,0.15) !important;
+    }
+
+    .podr-filter-card {
+        background: var(--card-bg, #fff);
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 12px;
+        margin-bottom: 1.25rem;
+        box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
+    }
+    .podr-filter-header {
+        padding: 0.75rem 1.25rem;
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: var(--card-header-bg, #f8f9fa);
+        border-radius: 12px 12px 0 0;
+    }
+    .podr-filter-body {
+        padding: 1.25rem;
+    }
+    .podr-load-btn {
+        height: 40px;
+    }
+
+    .podr-stat-card {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1.25rem;
+        border-radius: 12px;
+        color: #fff;
+        min-height: 90px;
+    }
+    .podr-stat-total { background: linear-gradient(135deg, #1a237e, #3949ab); }
+    .podr-stat-uploaded { background: linear-gradient(135deg, #1b5e20, #388e3c); }
+    .podr-stat-pending { background: linear-gradient(135deg, #e65100, #f57c00); }
+    .podr-stat-icon {
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255,255,255,0.2);
+        border-radius: 12px;
+        font-size: 1.35rem;
+    }
+    .podr-stat-label {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        opacity: 0.85;
+    }
+    .podr-stat-value {
+        font-size: 1.75rem;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+        line-height: 1.2;
+    }
+    .podr-stat-pct {
+        margin-left: auto;
+        font-size: 1.25rem;
+        font-weight: 600;
+        opacity: 0.9;
+    }
+
+    .podr-progress-card {
+        background: var(--card-bg, #fff);
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
+    }
+
+    .podr-tab-bar {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .podr-tab {
+        padding: 0.45rem 1rem;
+        border: 1px solid var(--border-color, #dee2e6);
+        border-radius: 8px;
+        background: var(--card-bg, #fff);
+        font-size: 0.85rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        color: var(--text-secondary, #4a4a4a);
+    }
+    .podr-tab:hover { border-color: #3949ab; color: #3949ab; }
+    .podr-tab-active {
+        background: #3949ab;
+        color: #fff !important;
+        border-color: #3949ab;
+    }
+    .podr-search {
+        border-radius: 8px;
+    }
+
+    .podr-table-card {
+        background: var(--card-bg, #fff);
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 12px;
+        box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
+        overflow: hidden;
+    }
+    .podr-table thead th {
+        background: var(--card-header-bg, #f8f9fa);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-muted, #6c757d);
+        font-weight: 600;
+        padding: 0.75rem 1rem;
+        border-bottom: 2px solid var(--border-color, #e2e8f0);
+    }
+    .podr-table tbody td {
+        padding: 0.7rem 1rem;
+        font-size: 0.88rem;
+        border-bottom: 1px solid var(--border-color, #f1f5f9);
+    }
+    .podr-row-pending {
+        background: rgba(255,152,0,0.03);
+    }
+    .podr-upload-btn {
+        background: linear-gradient(135deg, #1a237e, #3949ab);
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0.3rem 0.7rem;
+        transition: all 0.15s ease;
+    }
+    .podr-upload-btn:hover {
+        background: linear-gradient(135deg, #283593, #5c6bc0);
+        color: #fff;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 6px rgba(26,35,126,0.3);
+    }
+    .podr-docnum {
+        font-weight: 600;
+        color: #1a237e;
+        font-family: 'Space Grotesk', monospace;
+    }
+    .podr-customer {
+        font-weight: 500;
+        font-size: 0.88rem;
+    }
+    .podr-cardcode {
+        font-size: 0.75rem;
+        color: var(--text-muted, #8a8a8a);
+    }
+    .podr-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.25rem 0.65rem;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .podr-badge-uploaded {
+        background: #e8f5e9;
+        color: #2e7d32;
+    }
+    .podr-badge-pending {
+        background: #fff3e0;
+        color: #e65100;
+    }
+
+    .podr-pagination {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        border-top: 1px solid var(--border-color, #e2e8f0);
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    /* Dark theme overrides */
+    .dark-theme .podr-filter-card,
+    .dark-theme .podr-progress-card,
+    .dark-theme .podr-table-card {
+        background: var(--card-bg, #1e293b);
+        border-color: var(--border-color, #334155);
+    }
+    .dark-theme .podr-filter-header,
+    .dark-theme .podr-table thead th {
+        background: var(--card-header-bg, #1e293b);
+    }
+    .dark-theme .podr-tab {
+        background: var(--card-bg, #1e293b);
+        border-color: var(--border-color, #334155);
+        color: var(--text-secondary, #94a3b8);
+    }
+    .dark-theme .podr-tab:hover { border-color: #7986cb; color: #7986cb; }
+    .dark-theme .podr-tab-active { background: #3949ab; color: #fff !important; border-color: #3949ab; }
+    .dark-theme .podr-docnum { color: #7986cb; }
+    .dark-theme .podr-badge-uploaded { background: rgba(46,125,50,0.2); color: #81c784; }
+    .dark-theme .podr-badge-pending { background: rgba(230,81,0,0.2); color: #ffb74d; }
+    .dark-theme .podr-row-pending { background: rgba(255,152,0,0.05); }
+</style>
+
+@code {
+    private PodUploadStatusReport? report;
+    private bool isLoading;
+    private bool isExporting;
+    private string? errorMessage;
+    private DateTime? fromDate = DateTime.Today.AddDays(-30);
+    private DateTime? toDate = DateTime.Today;
+    private string filterMode = "all";
+    private string? searchTerm;
+    private int currentPage = 1;
+    private const int pageSize = 25;
+
+    private IEnumerable<PodUploadStatusItem> FilteredItems
+    {
+        get
+        {
+            if (report?.Items == null) return Enumerable.Empty<PodUploadStatusItem>();
+            var items = report.Items.AsEnumerable();
+
+            if (filterMode == "uploaded")
+                items = items.Where(i => i.HasPod);
+            else if (filterMode == "pending")
+                items = items.Where(i => !i.HasPod);
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                var term = searchTerm.Trim();
+                items = items.Where(i =>
+                    (i.CardName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (i.CardCode?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    i.DocNum.ToString().Contains(term));
+            }
+
+            return items;
+        }
+    }
+
+    private IEnumerable<PodUploadStatusItem> PagedItems =>
+        FilteredItems.Skip((currentPage - 1) * pageSize).Take(pageSize);
+
+    private int TotalFilteredPages => FilteredItems.Any()
+        ? (int)Math.Ceiling((double)FilteredItems.Count() / pageSize) : 1;
+
+    private int PageStart => Math.Max(1, currentPage - 2);
+    private int PageEnd => Math.Min(TotalFilteredPages, PageStart + 4);
+
+    private async Task LoadReport()
+    {
+        if (!fromDate.HasValue || !toDate.HasValue)
+        {
+            errorMessage = "Please select both From and To dates.";
+            return;
+        }
+
+        isLoading = true;
+        errorMessage = null;
+        report = null;
+        currentPage = 1;
+        filterMode = "all";
+        searchTerm = null;
+
+        try
+        {
+            report = await PodService.GetPodUploadStatusAsync(fromDate.Value, toDate.Value);
+            if (report == null)
+                errorMessage = "Failed to load report. Please try again.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading report: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void SetFilter(string mode)
+    {
+        filterMode = mode;
+        currentPage = 1;
+    }
+
+    private void GoToPage(int page)
+    {
+        if (page >= 1 && page <= TotalFilteredPages)
+            currentPage = page;
+    }
+
+    private void GoToUpload(int docNum)
+    {
+        Navigation.NavigateTo($"/pods?docNum={docNum}");
+    }
+
+    private void OnQuickSelectChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var days))
+        {
+            fromDate = DateTime.Today.AddDays(-days);
+            toDate = DateTime.Today;
+        }
+    }
+
+    private string FormatDate(string? dateStr)
+    {
+        if (string.IsNullOrEmpty(dateStr)) return "-";
+        if (DateTime.TryParse(dateStr, out var dt))
+            return dt.ToString("dd MMM yyyy");
+        return dateStr;
+    }
+
+    private async Task ExportToExcel()
+    {
+        if (report == null) return;
+        isExporting = true;
+        StateHasChanged();
+        try
+        {
+            var bytes = ExportService.ExportPodUploadStatusToExcel(report);
+            var base64 = Convert.ToBase64String(bytes);
+            await JS.InvokeVoidAsync("downloadFile", $"POD_Upload_Report_{DateTime.Now:yyyyMMdd_HHmm}.xlsx", base64);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Export failed: {ex.Message}";
+        }
+        finally
+        {
+            isExporting = false;
+            StateHasChanged();
+        }
+    }
+}

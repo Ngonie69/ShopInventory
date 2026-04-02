@@ -422,6 +422,39 @@ public class SalesOrderService : ISalesOrderService
         };
     }
 
+    public async Task<SalesOrderDto?> GetByIdFromLocalAsync(int id, CancellationToken cancellationToken = default)
+    {
+        var order = await _context.SalesOrders
+            .Include(o => o.Lines)
+            .Include(o => o.CreatedByUser)
+            .Include(o => o.ApprovedByUser)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
+
+        return order == null ? null : MapToDto(order);
+    }
+
+    public async Task<SalesOrderDto> MarkAsFulfilledAsync(int id, int? invoiceId, CancellationToken cancellationToken = default)
+    {
+        var order = await _context.SalesOrders
+            .Include(o => o.Lines)
+            .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
+
+        if (order == null)
+            throw new InvalidOperationException($"Sales order with ID {id} not found");
+
+        order.Status = SalesOrderStatus.Fulfilled;
+        order.InvoiceId = invoiceId;
+        order.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Marked sales order {Id} ({OrderNumber}) as Fulfilled, linked to invoice queue",
+            order.Id, order.OrderNumber);
+
+        return MapToDto(order);
+    }
+
     public async Task<string> GenerateOrderNumberAsync(CancellationToken cancellationToken = default)
     {
         var today = DateTime.UtcNow.ToString("yyyyMMdd");

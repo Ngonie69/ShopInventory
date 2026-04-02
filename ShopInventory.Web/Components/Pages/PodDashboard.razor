@@ -1,0 +1,604 @@
+@page "/pod-dashboard"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
+@attribute [Authorize(Roles = "Admin,Cashier,PodOperator")]
+@inject IPodService PodService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>My POD Dashboard - Shop Inventory</PageTitle>
+
+<div class="container-fluid fade-in staff-dashboard staff-shell">
+    @* Hero Header *@
+    <div class="podd-hero">
+        <div class="podd-hero-content">
+            <div>
+                <h2 class="podd-hero-title">
+                    <span class="podd-hero-icon">
+                        <i class="bi bi-speedometer2"></i>
+                    </span>
+                    My POD Dashboard
+                </h2>
+                <p class="podd-hero-subtitle">
+                    @if (dashboard != null)
+                    {
+                        <text>Welcome back, <strong>@dashboard.Username</strong> — here's your upload activity</text>
+                    }
+                    else
+                    {
+                        <text>Personal proof of delivery upload stats</text>
+                    }
+                </p>
+            </div>
+            @if (dashboard != null)
+            {
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                    <span class="podd-stat-pill podd-pill-today">
+                        <i class="bi bi-calendar-day me-1"></i>
+                        @dashboard.UploadsToday today
+                    </span>
+                    <span class="podd-stat-pill podd-pill-total">
+                        <i class="bi bi-cloud-arrow-up me-1"></i>
+                        @dashboard.TotalUploads total
+                    </span>
+                    <button class="podd-refresh-btn" @onclick="LoadDashboard" disabled="@isLoading">
+                        <i class="bi bi-arrow-clockwise @(isLoading ? "spin" : "")"></i>
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border" style="width: 2.5rem; height: 2.5rem; color: #667eea;" role="status"></div>
+            <p class="mt-3 text-muted">Loading your dashboard...</p>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger d-flex align-items-center gap-2" role="alert">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            @errorMessage
+        </div>
+    }
+    else if (dashboard != null)
+    {
+        @* Stat Cards *@
+        <div class="row g-3 mb-4">
+            <div class="col-6 col-lg-3">
+                <div class="podd-stat-card podd-stat-today">
+                    <div class="podd-stat-icon-box">
+                        <i class="bi bi-calendar-check"></i>
+                    </div>
+                    <div>
+                        <div class="podd-stat-label">Today</div>
+                        <div class="podd-stat-value">@dashboard.UploadsToday</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="podd-stat-card podd-stat-week">
+                    <div class="podd-stat-icon-box">
+                        <i class="bi bi-calendar-week"></i>
+                    </div>
+                    <div>
+                        <div class="podd-stat-label">This Week</div>
+                        <div class="podd-stat-value">@dashboard.UploadsThisWeek</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="podd-stat-card podd-stat-month">
+                    <div class="podd-stat-icon-box">
+                        <i class="bi bi-calendar-range"></i>
+                    </div>
+                    <div>
+                        <div class="podd-stat-label">This Month</div>
+                        <div class="podd-stat-value">@dashboard.UploadsThisMonth</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="podd-stat-card podd-stat-total">
+                    <div class="podd-stat-icon-box">
+                        <i class="bi bi-cloud-arrow-up-fill"></i>
+                    </div>
+                    <div>
+                        <div class="podd-stat-label">All Time</div>
+                        <div class="podd-stat-value">@dashboard.TotalUploads</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* Secondary Stats Row *@
+        <div class="row g-3 mb-4">
+            <div class="col-md-6">
+                <div class="podd-info-card">
+                    <div class="podd-info-row">
+                        <div class="podd-info-item">
+                            <i class="bi bi-receipt text-primary"></i>
+                            <div>
+                                <div class="podd-info-label">Unique Invoices</div>
+                                <div class="podd-info-value">@dashboard.UniqueInvoicesCovered</div>
+                            </div>
+                        </div>
+                        <div class="podd-info-item">
+                            <i class="bi bi-hdd text-info"></i>
+                            <div>
+                                <div class="podd-info-label">Total File Size</div>
+                                <div class="podd-info-value">@dashboard.TotalFileSizeFormatted</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="podd-info-card">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="fw-semibold small">Daily Avg (30d)</span>
+                        <span class="podd-info-value">@DailyAverage.ToString("N1")</span>
+                    </div>
+                    @if (dashboard.TotalUploads > 0)
+                    {
+                        <div class="progress" style="height: 8px; border-radius: 6px;">
+                            <div class="progress-bar" role="progressbar"
+                                 style="width: @Math.Min(100, DailyAverage * 10).ToString("N0")%; background: linear-gradient(90deg, #667eea, #764ba2); border-radius: 6px;">
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @* Activity Chart (simple bar chart via CSS) *@
+        @if (dashboard.DailyUploads.Any())
+        {
+            <div class="podd-chart-card mb-4">
+                <div class="podd-chart-header">
+                    <h6 class="mb-0"><i class="bi bi-bar-chart-line me-2"></i>Upload Activity (Last 30 Days)</h6>
+                    <span class="text-muted small">@dashboard.DailyUploads.Sum(d => d.Count) uploads</span>
+                </div>
+                <div class="podd-chart-body">
+                    <div class="podd-chart">
+                        @{
+                            var maxCount = dashboard.DailyUploads.Max(d => d.Count);
+                            var maxHeight = maxCount > 0 ? maxCount : 1;
+                        }
+                        @foreach (var day in dashboard.DailyUploads)
+                        {
+                            var heightPct = maxHeight > 0 ? (day.Count * 100.0 / maxHeight) : 0;
+                            <div class="podd-chart-bar-wrap" title="@day.Date: @day.Count uploads">
+                                <div class="podd-chart-bar" style="height: @Math.Max(2, heightPct)%;">
+                                    @if (day.Count > 0)
+                                    {
+                                        <span class="podd-chart-bar-label">@day.Count</span>
+                                    }
+                                </div>
+                                <span class="podd-chart-day">@day.Date[..3]</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* Recent Uploads *@
+        <div class="podd-table-card">
+            <div class="podd-table-header">
+                <h6 class="mb-0"><i class="bi bi-clock-history me-2"></i>Recent Uploads</h6>
+                <button class="btn btn-sm btn-outline-primary" @onclick="GoToPods">
+                    View All <i class="bi bi-arrow-right ms-1"></i>
+                </button>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0 align-middle podd-table">
+                    <thead>
+                        <tr>
+                            <th>File</th>
+                            <th>Invoice</th>
+                            <th>Customer</th>
+                            <th>Size</th>
+                            <th>Uploaded</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (dashboard.RecentUploads.Any())
+                        {
+                            @foreach (var upload in dashboard.RecentUploads)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="podd-file-icon @GetFileIconClass(upload.FileName)">
+                                                <i class="bi @GetFileIcon(upload.FileName)"></i>
+                                            </span>
+                                            <span class="small fw-medium text-truncate" style="max-width: 200px;">@upload.FileName</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="podd-docnum">@(upload.InvoiceDocNum > 0 ? upload.InvoiceDocNum.ToString() : $"#{upload.InvoiceDocEntry}")</span>
+                                    </td>
+                                    <td>
+                                        <span class="text-truncate d-inline-block" style="max-width: 180px;">@(upload.CardName ?? "—")</span>
+                                    </td>
+                                    <td class="text-muted small">@upload.FileSizeFormatted</td>
+                                    <td class="text-muted small">@FormatTimeAgo(upload.UploadedAt)</td>
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-muted">
+                                    <i class="bi bi-inbox me-2"></i>No uploads yet — go upload some PODs!
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    /* ── Hero ── */
+    .podd-hero {
+        background: linear-gradient(135deg, #1a237e 0%, #283593 50%, #3949ab 100%);
+        border-radius: 16px;
+        padding: 1.5rem 1.75rem;
+        margin-bottom: 1.25rem;
+        color: #fff;
+    }
+    .podd-hero-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+    .podd-hero-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .podd-hero-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        background: rgba(255,255,255,0.15);
+        border-radius: 12px;
+        font-size: 1.25rem;
+    }
+    .podd-hero-subtitle {
+        margin: 0.25rem 0 0;
+        opacity: 0.85;
+        font-size: 0.9rem;
+    }
+    .podd-stat-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.35rem 0.85rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+    .podd-pill-today { background: rgba(76,175,80,0.25); color: #a5d6a7; }
+    .podd-pill-total { background: rgba(255,255,255,0.2); color: #fff; }
+    .podd-refresh-btn {
+        background: rgba(255,255,255,0.15);
+        border: 1px solid rgba(255,255,255,0.25);
+        color: #fff;
+        border-radius: 8px;
+        width: 36px;
+        height: 36px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+    .podd-refresh-btn:hover { background: rgba(255,255,255,0.25); }
+    .podd-refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    @@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .spin { animation: spin 0.8s linear infinite; }
+
+    /* ── Stat Cards ── */
+    .podd-stat-card {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1.25rem;
+        border-radius: 14px;
+        color: #fff;
+        min-height: 90px;
+        transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .podd-stat-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    }
+    .podd-stat-today { background: linear-gradient(135deg, #1b5e20, #388e3c); }
+    .podd-stat-week { background: linear-gradient(135deg, #0d47a1, #1976d2); }
+    .podd-stat-month { background: linear-gradient(135deg, #4a148c, #7b1fa2); }
+    .podd-stat-total { background: linear-gradient(135deg, #1a237e, #3949ab); }
+    .podd-stat-icon-box {
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255,255,255,0.2);
+        border-radius: 12px;
+        font-size: 1.3rem;
+        flex-shrink: 0;
+    }
+    .podd-stat-label {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        opacity: 0.85;
+    }
+    .podd-stat-value {
+        font-size: 1.75rem;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+        line-height: 1.2;
+    }
+
+    /* ── Info Cards ── */
+    .podd-info-card {
+        background: var(--card-bg, #fff);
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 14px;
+        padding: 1.25rem;
+        box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
+        height: 100%;
+    }
+    .podd-info-row {
+        display: flex;
+        gap: 2rem;
+    }
+    .podd-info-item {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    .podd-info-item > i {
+        font-size: 1.5rem;
+    }
+    .podd-info-label {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-muted, #6c757d);
+    }
+    .podd-info-value {
+        font-size: 1.15rem;
+        font-weight: 700;
+        font-family: 'Space Grotesk', sans-serif;
+        color: var(--text-primary, #000);
+    }
+
+    /* ── Chart ── */
+    .podd-chart-card {
+        background: var(--card-bg, #fff);
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 14px;
+        box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
+        overflow: hidden;
+    }
+    .podd-chart-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        background: var(--card-header-bg, #f8f9fa);
+    }
+    .podd-chart-body {
+        padding: 1.25rem;
+        overflow-x: auto;
+    }
+    .podd-chart {
+        display: flex;
+        align-items: flex-end;
+        gap: 3px;
+        height: 160px;
+        min-width: 600px;
+    }
+    .podd-chart-bar-wrap {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        height: 100%;
+        justify-content: flex-end;
+    }
+    .podd-chart-bar {
+        width: 100%;
+        max-width: 22px;
+        background: linear-gradient(180deg, #667eea, #764ba2);
+        border-radius: 4px 4px 0 0;
+        position: relative;
+        transition: height 0.3s ease;
+        min-height: 2px;
+    }
+    .podd-chart-bar-label {
+        position: absolute;
+        top: -18px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 0.65rem;
+        font-weight: 600;
+        color: var(--text-secondary, #4a4a4a);
+        white-space: nowrap;
+    }
+    .podd-chart-day {
+        font-size: 0.6rem;
+        color: var(--text-muted, #8a8a8a);
+        margin-top: 4px;
+        writing-mode: vertical-lr;
+        text-orientation: mixed;
+        transform: rotate(180deg);
+        height: 24px;
+    }
+
+    /* ── Recent Uploads Table ── */
+    .podd-table-card {
+        background: var(--card-bg, #fff);
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 14px;
+        box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
+        overflow: hidden;
+    }
+    .podd-table-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        background: var(--card-header-bg, #f8f9fa);
+    }
+    .podd-table thead th {
+        background: var(--card-header-bg, #f8f9fa);
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-muted, #6c757d);
+        font-weight: 600;
+        padding: 0.6rem 1rem;
+        border-bottom: 2px solid var(--border-color, #e2e8f0);
+    }
+    .podd-table tbody td {
+        padding: 0.65rem 1rem;
+        font-size: 0.88rem;
+        vertical-align: middle;
+    }
+    .podd-docnum {
+        font-weight: 600;
+        font-family: 'Space Grotesk', monospace;
+        color: #3949ab;
+    }
+    .podd-file-icon {
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        flex-shrink: 0;
+    }
+    .podd-file-icon.pdf { background: #fce4ec; color: #c62828; }
+    .podd-file-icon.image { background: #e3f2fd; color: #1565c0; }
+    .podd-file-icon.other { background: #f3e5f5; color: #6a1b9a; }
+
+    /* ── Dark Theme ── */
+    .dark-theme .podd-info-card,
+    .dark-theme .podd-chart-card,
+    .dark-theme .podd-table-card {
+        background: var(--card-bg);
+        border-color: var(--border-color);
+    }
+    .dark-theme .podd-chart-header,
+    .dark-theme .podd-table-header,
+    .dark-theme .podd-table thead th {
+        background: var(--card-header-bg);
+    }
+    .dark-theme .podd-docnum {
+        color: #90caf9;
+    }
+
+    /* ── Responsive ── */
+    @@media (max-width: 768px) {
+        .podd-hero { padding: 1.25rem; }
+        .podd-hero-title { font-size: 1.2rem; }
+        .podd-stat-value { font-size: 1.4rem; }
+        .podd-info-row { flex-direction: column; gap: 1rem; }
+        .podd-chart { min-width: 500px; height: 120px; }
+    }
+</style>
+
+@code {
+    private PodDashboardModel? dashboard;
+    private bool isLoading = true;
+    private string? errorMessage;
+
+    private double DailyAverage => dashboard?.DailyUploads.Any() == true
+        ? dashboard.DailyUploads.Average(d => d.Count)
+        : 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDashboard();
+    }
+
+    private async Task LoadDashboard()
+    {
+        isLoading = true;
+        errorMessage = null;
+        try
+        {
+            dashboard = await PodService.GetPodDashboardAsync();
+            if (dashboard == null)
+                errorMessage = "Failed to load dashboard. Please try again.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading dashboard: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void GoToPods()
+    {
+        Navigation.NavigateTo("/pods");
+    }
+
+    private static string FormatTimeAgo(DateTime uploadedAt)
+    {
+        var diff = DateTime.UtcNow - uploadedAt;
+        if (diff.TotalMinutes < 1) return "Just now";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
+        if (diff.TotalDays < 7) return $"{(int)diff.TotalDays}d ago";
+        return uploadedAt.ToString("dd MMM yyyy");
+    }
+
+    private static string GetFileIcon(string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        return ext switch
+        {
+            ".pdf" => "bi-file-earmark-pdf",
+            ".jpg" or ".jpeg" or ".png" or ".webp" => "bi-file-earmark-image",
+            _ => "bi-file-earmark"
+        };
+    }
+
+    private static string GetFileIconClass(string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        return ext switch
+        {
+            ".pdf" => "pdf",
+            ".jpg" or ".jpeg" or ".png" or ".webp" => "image",
+            _ => "other"
+        };
+    }
+}

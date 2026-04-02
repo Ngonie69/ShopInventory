@@ -168,6 +168,41 @@ public class ChangePasswordRequest
     public string ConfirmPassword { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// Request to update own login credentials (username/email)
+/// </summary>
+public class UpdateCredentialsRequest
+{
+    /// <summary>
+    /// New username (optional, leave null to keep current)
+    /// </summary>
+    [StringLength(50, MinimumLength = 3)]
+    public string? Username { get; set; }
+
+    /// <summary>
+    /// New email (optional, leave null to keep current)
+    /// </summary>
+    [EmailAddress]
+    [MaxLength(255)]
+    public string? Email { get; set; }
+
+    /// <summary>
+    /// Current password for verification
+    /// </summary>
+    [Required]
+    public string CurrentPassword { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Response after updating credentials
+/// </summary>
+public class UpdateCredentialsResponse
+{
+    public string Username { get; set; } = string.Empty;
+    public string? Email { get; set; }
+    public string Message { get; set; } = string.Empty;
+}
+
 #endregion
 
 #region Enhanced User Management DTOs

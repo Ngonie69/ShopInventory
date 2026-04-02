@@ -112,6 +112,46 @@ public class PasswordController : ControllerBase
         return Ok(new { message = result.Message });
     }
 
+    /// <summary>
+    /// Get current credentials for logged-in user
+    /// </summary>
+    [HttpGet("credentials")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetCredentials()
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+
+        var result = await _passwordResetService.GetCredentialsAsync(userId.Value);
+        if (result == null) return NotFound(new { message = "User not found" });
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Update login credentials (username/email) for logged-in user
+    /// </summary>
+    [HttpPut("credentials")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> UpdateCredentials([FromBody] UpdateCredentialsRequest request)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+
+        var result = await _passwordResetService.UpdateCredentialsAsync(userId.Value, request);
+        if (!result.IsSuccess)
+        {
+            return BadRequest(new { message = result.Message, errors = result.Errors });
+        }
+
+        return Ok(result.Data);
+    }
+
     private Guid? GetCurrentUserId()
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;

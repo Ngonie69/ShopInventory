@@ -12,6 +12,8 @@ public interface IPodService
     Task<(bool Success, string Message, DocumentAttachmentDto? Attachment)> UploadPodAsync(int docEntry, Stream fileStream, string fileName, string contentType, string? description = null, string? uploadedByUsername = null);
     Task<byte[]?> DownloadPodAsync(int docEntry, int attachmentId);
     Task<bool> DeletePodAsync(int attachmentId);
+    Task<PodUploadStatusReport?> GetPodUploadStatusAsync(DateTime fromDate, DateTime toDate);
+    Task<PodDashboardModel?> GetPodDashboardAsync();
 }
 
 public class PodService : IPodService
@@ -157,6 +159,35 @@ public class PodService : IPodService
         {
             _logger.LogError(ex, "Error deleting POD {AttachmentId}", attachmentId);
             return false;
+        }
+    }
+
+    public async Task<PodUploadStatusReport?> GetPodUploadStatusAsync(DateTime fromDate, DateTime toDate)
+    {
+        try
+        {
+            var from = fromDate.ToString("yyyy-MM-dd");
+            var to = toDate.ToString("yyyy-MM-dd");
+            return await _httpClient.GetFromJsonAsync<PodUploadStatusReport>(
+                $"api/invoice/pod-upload-status?fromDate={from}&toDate={to}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching POD upload status report");
+            return null;
+        }
+    }
+
+    public async Task<PodDashboardModel?> GetPodDashboardAsync()
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<PodDashboardModel>("api/invoice/pod-dashboard");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching POD dashboard");
+            return null;
         }
     }
 

@@ -509,6 +509,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             Comments = request.Comments,
             DocCurrency = docCurrency,
             SalesPersonCode = request.SalesPersonCode,
+            U_Van_saleorder = request.U_Van_saleorder,
             DocumentLines = request.Lines?.Select((line, index) => new
             {
                 LineNum = index,
@@ -899,6 +900,83 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         return allInvoices;
     }
 
+    public async Task<List<Invoice>> GetInvoiceHeadersByDateRangeAsync(
+        DateTime fromDate,
+        DateTime toDate,
+        List<string>? excludeCardCodes = null,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var fromDateStr = fromDate.ToString("yyyy-MM-dd");
+        var toDateStr = toDate.ToString("yyyy-MM-dd");
+        var allInvoices = new List<Invoice>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
+
+        // Build filter with date range and optional CardCode exclusions
+        var filter = $"DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'";
+        if (excludeCardCodes?.Count > 0)
+        {
+            var exclusions = string.Join(" and ", excludeCardCodes.Select(c => $"CardCode ne '{c}'"));
+            filter += $" and {exclusions}";
+        }
+
+        // Only select header fields - no DocumentLines
+        var select = "$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency";
+
+        while (hasMore)
+        {
+            var url = $"Invoices?$filter={filter}&{select}&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get invoice headers by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get invoices: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<Invoice>>(valueArray.GetRawText()) ?? new List<Invoice>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allInvoices.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
+        }
+
+        _logger.LogInformation("Retrieved {Count} invoice headers from SAP for date range {From} to {To}", allInvoices.Count, fromDateStr, toDateStr);
+        return allInvoices;
+    }
+
     public async Task<List<Invoice>> GetPagedInvoicesAsync(
         int page,
         int pageSize,
@@ -938,6 +1016,45 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var result = JsonSerializer.Deserialize<SAPResponse<Invoice>>(content);
 
         return result?.Value ?? new List<Invoice>();
+    }
+
+    public async Task<Invoice?> GetInvoiceByVanSaleOrderAsync(
+        string vanSaleOrder,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var safeValue = vanSaleOrder.Replace("'", "''");
+        var url = $"Invoices?$filter=U_Van_saleorder eq '{safeValue}'&$top=1&$select=DocEntry,DocNum,CardCode,CardName,DocDate,DocTotal,U_Van_saleorder";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to check invoice by U_Van_saleorder '{VanSaleOrder}': {StatusCode} - {Error}", vanSaleOrder, response.StatusCode, errorContent);
+            throw new Exception($"Failed to check invoice by U_Van_saleorder: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var result = JsonSerializer.Deserialize<SAPResponse<Invoice>>(content);
+
+        return result?.Value?.FirstOrDefault();
     }
 
     #endregion

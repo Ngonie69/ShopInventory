@@ -397,12 +397,35 @@
                             <div class="nav-section-label">Insights</div>
                         </Authorized>
                     </AuthorizeView>
+                    <NavLink class="snav-link" href="/pod-dashboard" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Speed" />
+                        </span>
+                        <span class="snav-text">POD Dashboard</span>
+                    </NavLink>
                     <NavLink class="snav-link" href="/pods" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
                         </span>
                         <span class="snav-text">Proof of Delivery</span>
                     </NavLink>
+                    <NavLink class="snav-link" href="/pod-report" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Assessment" />
+                        </span>
+                        <span class="snav-text">POD Report</span>
+                    </NavLink>
+                    <AuthorizeView Roles="PodOperator" Context="podSecCtx">
+                        <Authorized>
+                            <div class="nav-section-label">Account</div>
+                            <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
+                                <span class="snav-icon">
+                                    <MudIcon Icon="@Icons.Material.Filled.Security" />
+                                </span>
+                                <span class="snav-text">Security</span>
+                            </NavLink>
+                        </Authorized>
+                    </AuthorizeView>
                 </Authorized>
             </AuthorizeView>
             <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="insightsExtraCtx">

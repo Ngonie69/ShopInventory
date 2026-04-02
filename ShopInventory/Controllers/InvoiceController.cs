@@ -95,6 +95,23 @@ public class InvoiceController : ControllerBase
                 });
             }
 
+            // Step 1b: Check for duplicate invoice by U_Van_saleorder
+            if (!string.IsNullOrWhiteSpace(request.U_Van_saleorder))
+            {
+                var existingInvoice = await _sapClient.GetInvoiceByVanSaleOrderAsync(request.U_Van_saleorder, cancellationToken);
+                if (existingInvoice != null)
+                {
+                    _logger.LogWarning(
+                        "Duplicate invoice detected. U_Van_saleorder '{VanSaleOrder}' already exists as DocEntry {DocEntry}, DocNum {DocNum}",
+                        request.U_Van_saleorder, existingInvoice.DocEntry, existingInvoice.DocNum);
+
+                    return Conflict(new ErrorResponseDto
+                    {
+                        Message = $"Invoice with U_Van_saleorder '{request.U_Van_saleorder}' already exists in SAP (DocNum: {existingInvoice.DocNum})"
+                    });
+                }
+            }
+
             // Step 2: Validate basic quantities (positive, non-zero)
             var quantityErrors = ValidateQuantities(request);
             if (quantityErrors.Count > 0)
@@ -879,6 +896,105 @@ public class InvoiceController : ControllerBase
 
         var result = await _documentService.GetAllPodAttachmentsAsync(page, pageSize, cardCode, cancellationToken, fromDate, toDate, search);
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Gets a report of invoices from SAP with their POD upload status.
+    /// Excludes internal/intercompany card codes.
+    /// </summary>
+    [HttpGet("pod-upload-status")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator")]
+    [ProducesResponseType(typeof(PodUploadStatusReportDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetPodUploadStatus(
+        [FromQuery] DateTime fromDate,
+        [FromQuery] DateTime toDate,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (!_settings.Enabled)
+                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+            if (fromDate > toDate)
+                return BadRequest(new ErrorResponseDto { Message = "From date cannot be later than to date" });
+
+            // Excluded internal/intercompany card codes
+            var excludedCardCodes = new List<string>
+            {
+                "CIS006", "MAC009", "MAC006", "COR007", "COR006", "COR008",
+                "VAN008", "VAN009", "VAN010", "VAN011", "VAN012", "VAN013",
+                "VAN014", "VAN015", "VAN016", "VAN017", "VAN018", "VAN019", "VAN020"
+            };
+
+            // Lightweight query: only header fields, CardCode exclusion applied at SAP level
+            var invoices = await _sapClient.GetInvoiceHeadersByDateRangeAsync(fromDate, toDate, excludedCardCodes, cancellationToken);
+
+            // Get all POD attachments for these invoices from local DB
+            var docEntries = invoices.Select(i => i.DocEntry).ToList();
+            var podLookup = await _documentService.GetPodStatusByDocEntriesAsync(docEntries, cancellationToken);
+
+            var items = invoices.Select(i =>
+            {
+                podLookup.TryGetValue(i.DocEntry, out var podInfo);
+                return new PodUploadStatusItemDto
+                {
+                    DocEntry = i.DocEntry,
+                    DocNum = i.DocNum,
+                    DocDate = i.DocDate,
+                    CardCode = i.CardCode,
+                    CardName = i.CardName,
+                    DocTotal = i.DocTotal,
+                    DocCurrency = i.DocCurrency,
+                    HasPod = podInfo != null,
+                    PodUploadedAt = podInfo?.UploadedAt,
+                    PodUploadedBy = podInfo?.UploadedBy,
+                    PodCount = podInfo?.Count ?? 0
+                };
+            }).OrderByDescending(i => i.DocNum).ToList();
+
+            var report = new PodUploadStatusReportDto
+            {
+                FromDate = fromDate.ToString("yyyy-MM-dd"),
+                ToDate = toDate.ToString("yyyy-MM-dd"),
+                TotalInvoices = items.Count,
+                UploadedCount = items.Count(i => i.HasPod),
+                PendingCount = items.Count(i => !i.HasPod),
+                Items = items
+            };
+
+            return Ok(report);
+        }
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        {
+            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out." });
+        }
+        catch (HttpRequestException ex)
+        {
+            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer.", Errors = new List<string> { ex.Message } });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating POD upload status report");
+            return StatusCode(500, new ErrorResponseDto { Message = "Error generating report", Errors = new List<string> { ex.Message } });
+        }
+    }
+
+    /// <summary>
+    /// Get personal POD dashboard stats for the current user
+    /// </summary>
+    [HttpGet("pod-dashboard")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator")]
+    [ProducesResponseType(typeof(PodDashboardDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetPodDashboard(CancellationToken cancellationToken = default)
+    {
+        var userId = GetUserId();
+        if (userId == null)
+            return Unauthorized();
+
+        var dashboard = await _documentService.GetPodDashboardAsync(userId.Value, cancellationToken);
+        return Ok(dashboard);
     }
 
     /// <summary>

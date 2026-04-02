@@ -318,3 +318,82 @@ public class PlaceholderDto
 }
 
 #endregion
+
+#region POD Upload Status Report DTOs
+
+/// <summary>
+/// Single invoice with its POD upload status
+/// </summary>
+public class PodUploadStatusItemDto
+{
+    public int DocEntry { get; set; }
+    public int DocNum { get; set; }
+    public string? DocDate { get; set; }
+    public string? CardCode { get; set; }
+    public string? CardName { get; set; }
+    public decimal DocTotal { get; set; }
+    public string? DocCurrency { get; set; }
+    public bool HasPod { get; set; }
+    public DateTime? PodUploadedAt { get; set; }
+    public string? PodUploadedBy { get; set; }
+    public int PodCount { get; set; }
+}
+
+/// <summary>
+/// POD upload status report response
+/// </summary>
+public class PodUploadStatusReportDto
+{
+    public string FromDate { get; set; } = string.Empty;
+    public string ToDate { get; set; } = string.Empty;
+    public int TotalInvoices { get; set; }
+    public int UploadedCount { get; set; }
+    public int PendingCount { get; set; }
+    public List<PodUploadStatusItemDto> Items { get; set; } = new();
+}
+
+#endregion
+
+#region POD Dashboard DTOs
+
+/// <summary>
+/// Personal POD dashboard stats for the current user
+/// </summary>
+public class PodDashboardDto
+{
+    public string Username { get; set; } = string.Empty;
+    public int UploadsToday { get; set; }
+    public int UploadsThisWeek { get; set; }
+    public int UploadsThisMonth { get; set; }
+    public int TotalUploads { get; set; }
+    public long TotalFileSizeBytes { get; set; }
+    public string TotalFileSizeFormatted { get; set; } = string.Empty;
+    public int UniqueInvoicesCovered { get; set; }
+    public List<PodRecentUploadDto> RecentUploads { get; set; } = new();
+    public List<PodDailyCountDto> DailyUploads { get; set; } = new();
+}
+
+/// <summary>
+/// Recent POD upload for dashboard
+/// </summary>
+public class PodRecentUploadDto
+{
+    public int Id { get; set; }
+    public string FileName { get; set; } = string.Empty;
+    public int InvoiceDocEntry { get; set; }
+    public int InvoiceDocNum { get; set; }
+    public string? CardName { get; set; }
+    public string FileSizeFormatted { get; set; } = string.Empty;
+    public DateTime UploadedAt { get; set; }
+}
+
+/// <summary>
+/// Daily upload count for chart
+/// </summary>
+public class PodDailyCountDto
+{
+    public string Date { get; set; } = string.Empty;
+    public int Count { get; set; }
+}
+
+#endregion

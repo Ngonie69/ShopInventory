@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
+using ShopInventory.Configuration;
 using ShopInventory.DTOs;
+using ShopInventory.Mappings;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 using System.Security.Claims;
@@ -22,6 +25,10 @@ public class DesktopIntegrationController : ControllerBase
     private readonly IInventoryTransferQueueService _transferQueueService;
     private readonly ISAPServiceLayerClient _sapClient;
     private readonly IBatchInventoryValidationService _batchValidation;
+    private readonly IStockValidationService _stockValidation;
+    private readonly IInvoicePdfService _invoicePdfService;
+    private readonly ISalesOrderService _salesOrderService;
+    private readonly SAPSettings _sapSettings;
     private readonly ILogger<DesktopIntegrationController> _logger;
 
     public DesktopIntegrationController(
@@ -30,6 +37,10 @@ public class DesktopIntegrationController : ControllerBase
         IInventoryTransferQueueService transferQueueService,
         ISAPServiceLayerClient sapClient,
         IBatchInventoryValidationService batchValidation,
+        IStockValidationService stockValidation,
+        IInvoicePdfService invoicePdfService,
+        ISalesOrderService salesOrderService,
+        IOptions<SAPSettings> sapSettings,
         ILogger<DesktopIntegrationController> logger)
     {
         _reservationService = reservationService;
@@ -37,6 +48,10 @@ public class DesktopIntegrationController : ControllerBase
         _transferQueueService = transferQueueService;
         _sapClient = sapClient;
         _batchValidation = batchValidation;
+        _stockValidation = stockValidation;
+        _invoicePdfService = invoicePdfService;
+        _salesOrderService = salesOrderService;
+        _sapSettings = sapSettings.Value;
         _logger = logger;
     }
 
@@ -871,6 +886,924 @@ public class DesktopIntegrationController : ControllerBase
 
     #endregion
 
+    #region Invoice Retrieval
+
+    /// <summary>
+    /// Gets an invoice from SAP by its DocEntry.
+    /// </summary>
+    /// <param name="docEntry">The SAP DocEntry</param>
+    [HttpGet("invoices/{docEntry:int}")]
+    [ProducesResponseType(typeof(InvoiceDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetInvoice(int docEntry, CancellationToken cancellationToken)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        var invoice = await _sapClient.GetInvoiceByDocEntryAsync(docEntry, cancellationToken);
+        if (invoice == null)
+            return NotFound(new ErrorResponseDto { Message = $"Invoice with DocEntry {docEntry} not found" });
+
+        return Ok(invoice.ToDto());
+    }
+
+    /// <summary>
+    /// Gets an invoice from SAP by its DocNum.
+    /// </summary>
+    /// <param name="docNum">The SAP document number</param>
+    [HttpGet("invoices/by-docnum/{docNum:int}")]
+    [ProducesResponseType(typeof(InvoiceDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetInvoiceByDocNum(int docNum, CancellationToken cancellationToken)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        var invoice = await _sapClient.GetInvoiceByDocNumAsync(docNum, cancellationToken);
+        if (invoice == null)
+            return NotFound(new ErrorResponseDto { Message = $"Invoice with DocNum {docNum} not found" });
+
+        return Ok(invoice.ToDto());
+    }
+
+    /// <summary>
+    /// Gets invoices for a specific customer, optionally filtered by date range.
+    /// </summary>
+    /// <param name="cardCode">The SAP business partner code</param>
+    /// <param name="fromDate">Optional start date (yyyy-MM-dd)</param>
+    /// <param name="toDate">Optional end date (yyyy-MM-dd)</param>
+    [HttpGet("invoices/customer/{cardCode}")]
+    [ProducesResponseType(typeof(List<InvoiceDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetInvoicesByCustomer(
+        string cardCode,
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        List<Models.Invoice> invoices;
+        if (fromDate.HasValue && toDate.HasValue)
+        {
+            invoices = await _sapClient.GetInvoicesByCustomerAsync(
+                cardCode, fromDate.Value, toDate.Value, cancellationToken);
+        }
+        else
+        {
+            invoices = await _sapClient.GetInvoicesByCustomerAsync(cardCode, cancellationToken);
+        }
+
+        return Ok(invoices.ToDto());
+    }
+
+    /// <summary>
+    /// Gets invoices within a date range.
+    /// </summary>
+    /// <param name="fromDate">Start date (yyyy-MM-dd)</param>
+    /// <param name="toDate">End date (yyyy-MM-dd)</param>
+    [HttpGet("invoices/date-range")]
+    [ProducesResponseType(typeof(List<InvoiceDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetInvoicesByDateRange(
+        [FromQuery] DateTime fromDate,
+        [FromQuery] DateTime toDate,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        if (fromDate > toDate)
+            return BadRequest(new ErrorResponseDto { Message = "fromDate must be before or equal to toDate" });
+
+        var invoices = await _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
+        return Ok(invoices.ToDto());
+    }
+
+    /// <summary>
+    /// Gets invoices with pagination.
+    /// </summary>
+    /// <param name="page">Page number (1-based, default 1)</param>
+    /// <param name="pageSize">Page size (max 100, default 20)</param>
+    [HttpGet("invoices/paged")]
+    [ProducesResponseType(typeof(List<InvoiceDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetPagedInvoices(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        var invoices = await _sapClient.GetPagedInvoicesAsync(page, pageSize, cancellationToken);
+        return Ok(invoices.ToDto());
+    }
+
+    /// <summary>
+    /// Downloads an invoice as a PDF document.
+    /// Includes business partner details (VAT, TIN, phone, email).
+    /// </summary>
+    /// <param name="docEntry">The SAP DocEntry</param>
+    [HttpGet("invoices/{docEntry:int}/pdf")]
+    [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> DownloadInvoicePdf(int docEntry, CancellationToken cancellationToken)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        var invoice = await _sapClient.GetInvoiceByDocEntryAsync(docEntry, cancellationToken);
+        if (invoice == null)
+            return NotFound(new ErrorResponseDto { Message = $"Invoice with DocEntry {docEntry} not found" });
+
+        var invoiceDto = invoice.ToDto();
+
+        // Enrich with business partner details
+        if (!string.IsNullOrEmpty(invoice.CardCode))
+        {
+            try
+            {
+                var bp = await _sapClient.GetBusinessPartnerByCodeAsync(invoice.CardCode, cancellationToken);
+                if (bp != null)
+                {
+                    invoiceDto.CustomerVatNo = bp.VatRegNo;
+                    invoiceDto.CustomerTinNumber = bp.TinNumber;
+                    invoiceDto.CustomerPhone = bp.Phone1;
+                    invoiceDto.CustomerEmail = bp.Email;
+                }
+            }
+            catch (Exception bpEx)
+            {
+                _logger.LogWarning(bpEx, "Could not fetch business partner {CardCode} for PDF enrichment", invoice.CardCode);
+            }
+        }
+
+        var pdfBytes = await _invoicePdfService.GenerateInvoicePdfAsync(invoiceDto);
+        var fileName = $"Invoice_{invoiceDto.DocNum}_{DateTime.Now:yyyyMMdd}.pdf";
+        return File(pdfBytes, "application/pdf", fileName);
+    }
+
+    /// <summary>
+    /// Validates invoice lines for stock availability and batch allocation without creating.
+    /// Use this for real-time validation before submitting an invoice.
+    /// </summary>
+    /// <param name="request">The invoice to validate</param>
+    /// <param name="autoAllocateBatches">Whether to auto-allocate batches (default: true)</param>
+    /// <param name="allocationStrategy">Batch allocation strategy: FEFO or FIFO (default: FEFO)</param>
+    [HttpPost("invoices/validate")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(BatchStockValidationResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> ValidateInvoice(
+        [FromBody] CreateDesktopInvoiceRequest request,
+        [FromQuery] bool autoAllocateBatches = true,
+        [FromQuery] BatchAllocationStrategy allocationStrategy = BatchAllocationStrategy.FEFO,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(new ErrorResponseDto
+            {
+                Message = "Validation failed",
+                Errors = ModelState.Values
+                    .SelectMany(v => v.Errors)
+                    .Select(e => e.ErrorMessage)
+                    .ToList()
+            });
+        }
+
+        // Convert to CreateInvoiceRequest for batch validation
+        var invoiceRequest = new Models.CreateInvoiceRequest
+        {
+            CardCode = request.CardCode,
+            DocDate = request.DocDate,
+            DocDueDate = request.DocDueDate,
+            NumAtCard = request.NumAtCard,
+            Comments = request.Comments,
+            DocCurrency = request.DocCurrency,
+            SalesPersonCode = request.SalesPersonCode,
+            Lines = request.Lines.Select(l => new Models.CreateInvoiceLineRequest
+            {
+                ItemCode = l.ItemCode,
+                Quantity = l.Quantity,
+                UnitPrice = l.UnitPrice ?? 0,
+                WarehouseCode = l.WarehouseCode,
+                TaxCode = l.TaxCode,
+                DiscountPercent = l.DiscountPercent ?? 0,
+                UoMCode = l.UoMCode,
+                BatchNumbers = l.BatchNumbers?.Select(b => new Models.BatchNumberRequest
+                {
+                    BatchNumber = b.BatchNumber,
+                    Quantity = b.Quantity
+                }).ToList()
+            }).ToList()
+        };
+
+        var result = await _batchValidation.ValidateAndAllocateBatchesAsync(
+            invoiceRequest, autoAllocateBatches, allocationStrategy, cancellationToken);
+
+        if (result.IsValid)
+        {
+            return Ok(new
+            {
+                isValid = true,
+                message = "Invoice validation successful",
+                strategy = allocationStrategy.ToString(),
+                linesValidated = result.TotalLinesValidated,
+                batchesAllocated = result.AllocatedLines.Sum(l => l.Batches.Count),
+                allocatedLines = result.AllocatedLines,
+                warnings = result.Warnings
+            });
+        }
+
+        return BadRequest(new BatchStockValidationResponseDto
+        {
+            Message = "Invoice validation failed",
+            IsValid = false,
+            Errors = result.ValidationErrors,
+            Warnings = result.Warnings,
+            Suggestions = result.Suggestions
+        });
+    }
+
+    #endregion
+
+    #region Sales Order to Invoice Conversion
+
+    /// <summary>
+    /// Converts a sales order to a queued invoice, with optional modifications to lines.
+    /// This allows the desktop app to adjust quantities, prices, remove lines, or add new lines
+    /// during conversion — catering for changes between order and actual delivery.
+    /// </summary>
+    /// <param name="request">The conversion request with optional line overrides</param>
+    /// <remarks>
+    /// This endpoint:
+    /// 1. Fetches the approved sales order from the local database
+    /// 2. Uses the provided lines (or original order lines if none provided)
+    /// 3. Reserves stock for the invoice lines
+    /// 4. Queues the invoice for batch posting to SAP
+    /// 5. Updates the sales order status to Fulfilled
+    /// 
+    /// If no lines are provided in the request, the original sales order lines are used as-is.
+    /// If lines are provided, they REPLACE the original lines entirely — this supports:
+    /// - Partial deliveries (reduce quantities)
+    /// - Price adjustments
+    /// - Removing items no longer available
+    /// - Adding new items not on the original order
+    /// 
+    /// The desktop app should poll GET /queue/{externalReference} to check SAP posting status.
+    /// 
+    /// Sample request (with changes):
+    /// ```json
+    /// {
+    ///   "salesOrderId": 42,
+    ///   "numAtCard": "PO-2026-001",
+    ///   "comments": "Partial delivery - Item B out of stock",
+    ///   "lines": [
+    ///     { "lineNum": 0, "itemCode": "ITEM-A", "quantity": 5, "unitPrice": 10.00, "warehouseCode": "WH01" },
+    ///     { "lineNum": 1, "itemCode": "ITEM-C", "quantity": 2, "unitPrice": 25.00, "warehouseCode": "WH01" }
+    ///   ]
+    /// }
+    /// ```
+    /// </remarks>
+    [HttpPost("sales-orders/convert-to-invoice")]
+    [ProducesResponseType(typeof(ConvertSalesOrderToInvoiceResponseDto), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(ConvertSalesOrderToInvoiceResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ConvertSalesOrderToInvoiceResponseDto), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ConvertSalesOrderToInvoice(
+        [FromBody] ConvertSalesOrderToInvoiceRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(new ConvertSalesOrderToInvoiceResponseDto
+            {
+                Success = false,
+                Message = "Validation failed",
+                Errors = ModelState.Values
+                    .SelectMany(v => v.Errors)
+                    .Select(e => e.ErrorMessage)
+                    .ToList()
+            });
+        }
+
+        // Step 1: Fetch the sales order
+        var order = await _salesOrderService.GetByIdFromLocalAsync(request.SalesOrderId, cancellationToken);
+
+        if (order == null)
+        {
+            return NotFound(new ConvertSalesOrderToInvoiceResponseDto
+            {
+                Success = false,
+                SalesOrderId = request.SalesOrderId,
+                Message = $"Sales order with ID {request.SalesOrderId} not found"
+            });
+        }
+
+        if (order.Status != Models.Entities.SalesOrderStatus.Approved)
+        {
+            return BadRequest(new ConvertSalesOrderToInvoiceResponseDto
+            {
+                Success = false,
+                SalesOrderId = order.Id,
+                SalesOrderNumber = order.OrderNumber,
+                Message = $"Only approved orders can be converted to invoices. Current status: {order.StatusName}"
+            });
+        }
+
+        if (!order.Lines.Any())
+        {
+            return BadRequest(new ConvertSalesOrderToInvoiceResponseDto
+            {
+                Success = false,
+                SalesOrderId = order.Id,
+                SalesOrderNumber = order.OrderNumber,
+                Message = "Sales order has no line items"
+            });
+        }
+
+        var createdBy = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("client_id")?.Value;
+        var externalRef = request.ExternalReferenceId ??
+            $"SO-CONV-{order.OrderNumber}-{Guid.NewGuid().ToString()[..8]}";
+
+        _logger.LogInformation(
+            "Converting sales order {OrderNumber} (ID: {OrderId}) to invoice: {ExternalRef}",
+            order.OrderNumber, order.Id, externalRef);
+
+        // Step 2: Build invoice lines - use provided lines or map from order
+        List<CreateDesktopInvoiceLineRequest> invoiceLines;
+
+        if (request.Lines != null && request.Lines.Any())
+        {
+            // Caller provided modified lines — use as-is
+            invoiceLines = request.Lines;
+            _logger.LogInformation(
+                "Using {Count} custom lines for conversion (original order had {OriginalCount} lines)",
+                invoiceLines.Count, order.Lines.Count);
+        }
+        else
+        {
+            // Map directly from order lines
+            invoiceLines = order.Lines.Select((line, idx) => new CreateDesktopInvoiceLineRequest
+            {
+                LineNum = idx,
+                ItemCode = line.ItemCode,
+                ItemDescription = line.ItemDescription,
+                Quantity = line.Quantity,
+                UnitPrice = line.UnitPrice,
+                WarehouseCode = line.WarehouseCode ?? order.WarehouseCode ?? "",
+                UoMCode = line.UoMCode,
+                DiscountPercent = line.DiscountPercent,
+                AutoAllocateBatches = true
+            }).ToList();
+        }
+
+        if (!invoiceLines.Any())
+        {
+            return BadRequest(new ConvertSalesOrderToInvoiceResponseDto
+            {
+                Success = false,
+                SalesOrderId = order.Id,
+                SalesOrderNumber = order.OrderNumber,
+                Message = "No invoice lines to process"
+            });
+        }
+
+        // Step 3: Create stock reservation
+        var reservationRequest = new CreateStockReservationRequest
+        {
+            ExternalReference = externalRef,
+            ExternalReferenceId = externalRef,
+            SourceSystem = request.SourceSystem ?? "DESKTOP_APP",
+            DocumentType = ReservationDocumentType.Invoice,
+            CardCode = order.CardCode,
+            CardName = order.CardName,
+            Currency = request.DocCurrency ?? order.Currency,
+            ReservationDurationMinutes = 60,
+            RequiresFiscalization = request.Fiscalize,
+            Notes = request.Comments ?? $"Converted from Sales Order {order.OrderNumber}",
+            Lines = invoiceLines.Select(l => new CreateStockReservationLineRequest
+            {
+                LineNum = l.LineNum,
+                ItemCode = l.ItemCode,
+                ItemDescription = l.ItemDescription,
+                Quantity = l.Quantity,
+                UoMCode = l.UoMCode,
+                WarehouseCode = l.WarehouseCode,
+                UnitPrice = l.UnitPrice ?? 0,
+                TaxCode = l.TaxCode,
+                DiscountPercent = l.DiscountPercent ?? 0,
+                BatchNumbers = l.BatchNumbers?.Select(b => new ReservationBatchRequest
+                {
+                    BatchNumber = b.BatchNumber,
+                    Quantity = b.Quantity
+                }).ToList(),
+                AutoAllocateBatches = l.AutoAllocateBatches
+            }).ToList()
+        };
+
+        var reservationResult = await _reservationService.CreateReservationAsync(
+            reservationRequest, createdBy, cancellationToken);
+
+        if (!reservationResult.Success)
+        {
+            _logger.LogWarning(
+                "Stock reservation failed for sales order {OrderNumber} conversion: {Errors}",
+                order.OrderNumber,
+                string.Join("; ", reservationResult.Errors?.Select(e => e.Message) ?? Array.Empty<string>()));
+
+            return BadRequest(new ConvertSalesOrderToInvoiceResponseDto
+            {
+                Success = false,
+                SalesOrderId = order.Id,
+                SalesOrderNumber = order.OrderNumber,
+                ExternalReference = externalRef,
+                Message = "Stock reservation failed — insufficient stock or batch allocation error",
+                Errors = reservationResult.Errors?.Select(e => e.Message).ToList() ?? new()
+            });
+        }
+
+        // Step 4: Queue the invoice for batch posting to SAP
+        var queueResult = await _queueService.EnqueueInvoiceAsync(
+            reservationRequest,
+            reservationResult.Reservation!.ReservationId,
+            createdBy,
+            cancellationToken);
+
+        if (!queueResult.Success)
+        {
+            // Cancel the reservation if queuing fails
+            await _reservationService.CancelReservationAsync(new CancelReservationRequest
+            {
+                ReservationId = reservationResult.Reservation.ReservationId,
+                Reason = $"Failed to queue invoice from SO conversion: {queueResult.ErrorMessage}"
+            }, cancellationToken);
+
+            return BadRequest(new ConvertSalesOrderToInvoiceResponseDto
+            {
+                Success = false,
+                SalesOrderId = order.Id,
+                SalesOrderNumber = order.OrderNumber,
+                ExternalReference = externalRef,
+                Message = queueResult.ErrorMessage ?? "Failed to queue invoice for SAP posting"
+            });
+        }
+
+        // Step 5: Mark the sales order as fulfilled
+        try
+        {
+            await _salesOrderService.MarkAsFulfilledAsync(order.Id, null, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to mark sales order {OrderId} as fulfilled after queuing invoice. " +
+                "Invoice is still queued and will be processed.",
+                order.Id);
+        }
+
+        _logger.LogInformation(
+            "Sales order {OrderNumber} converted to queued invoice: ExternalRef={ExternalRef}, " +
+            "ReservationId={ReservationId}, QueueId={QueueId}",
+            order.OrderNumber, externalRef,
+            reservationResult.Reservation.ReservationId, queueResult.QueueId);
+
+        return Accepted(new ConvertSalesOrderToInvoiceResponseDto
+        {
+            Success = true,
+            Message = "Sales order converted to invoice and queued for SAP posting. Poll the status endpoint to check completion.",
+            SalesOrderId = order.Id,
+            SalesOrderNumber = order.OrderNumber,
+            ExternalReference = externalRef,
+            ReservationId = reservationResult.Reservation.ReservationId,
+            QueueId = queueResult.QueueId,
+            Status = "Pending",
+            EstimatedProcessingSeconds = 15,
+            StatusUrl = Url.Action(nameof(GetQueueStatus), new { externalReference = externalRef })
+        });
+    }
+
+    #endregion
+
+    #region Direct Stock Transfers
+
+    /// <summary>
+    /// Creates an inventory transfer directly in SAP (not queued).
+    /// Use this for immediate transfers where queuing is not needed.
+    /// For batch processing, prefer the queued endpoint (POST /transfers/queued).
+    /// </summary>
+    /// <param name="request">The transfer request</param>
+    /// <remarks>
+    /// This endpoint:
+    /// 1. Validates stock availability in the source warehouse
+    /// 2. Posts the transfer directly to SAP
+    /// 3. Returns the created transfer details
+    /// 
+    /// If SAP posting fails, no transfer is created.
+    /// </remarks>
+    [HttpPost("transfers")]
+    [ProducesResponseType(typeof(InventoryTransferCreatedResponseDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> CreateTransferDirect(
+        [FromBody] CreateDesktopTransferRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(new ErrorResponseDto
+            {
+                Message = "Validation failed",
+                Errors = ModelState.Values
+                    .SelectMany(v => v.Errors)
+                    .Select(e => e.ErrorMessage)
+                    .ToList()
+            });
+        }
+
+        _logger.LogInformation("Desktop app creating direct transfer: From={From}, To={To}, Lines={Lines}",
+            request.FromWarehouse, request.ToWarehouse, request.Lines.Count);
+
+        // Convert to SAP request
+        var sapRequest = new CreateInventoryTransferRequest
+        {
+            FromWarehouse = request.FromWarehouse,
+            ToWarehouse = request.ToWarehouse,
+            DocDate = request.DocDate,
+            DueDate = request.DueDate,
+            Comments = request.Comments,
+            Lines = request.Lines.Select(l => new CreateInventoryTransferLineRequest
+            {
+                ItemCode = l.ItemCode,
+                Quantity = l.Quantity,
+                FromWarehouseCode = l.FromWarehouseCode ?? request.FromWarehouse,
+                ToWarehouseCode = l.WarehouseCode ?? request.ToWarehouse,
+                BatchNumbers = l.BatchNumbers,
+            }).ToList()
+        };
+
+        // Validate stock availability
+        var validationResult = await _stockValidation.ValidateInventoryTransferStockAsync(
+            sapRequest, cancellationToken);
+
+        if (!validationResult.IsValid)
+        {
+            return BadRequest(new ErrorResponseDto
+            {
+                Message = "Stock validation failed",
+                Errors = validationResult.Errors.Select(e => e.Message).ToList()
+            });
+        }
+
+        var transfer = await _sapClient.CreateInventoryTransferAsync(sapRequest, cancellationToken);
+
+        return CreatedAtAction(nameof(GetTransfer), new { docEntry = transfer.DocEntry },
+            new InventoryTransferCreatedResponseDto { Transfer = transfer.ToDto() });
+    }
+
+    /// <summary>
+    /// Validates stock availability for a potential transfer without creating it.
+    /// Use this for real-time validation as items are added to a transfer.
+    /// </summary>
+    /// <param name="request">The transfer lines to validate</param>
+    [HttpPost("transfers/validate")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> ValidateTransfer(
+        [FromBody] CreateDesktopTransferRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(new ErrorResponseDto
+            {
+                Message = "Validation failed",
+                Errors = ModelState.Values
+                    .SelectMany(v => v.Errors)
+                    .Select(e => e.ErrorMessage)
+                    .ToList()
+            });
+        }
+
+        var sapRequest = new CreateInventoryTransferRequest
+        {
+            FromWarehouse = request.FromWarehouse,
+            ToWarehouse = request.ToWarehouse,
+            Lines = request.Lines.Select(l => new CreateInventoryTransferLineRequest
+            {
+                ItemCode = l.ItemCode,
+                Quantity = l.Quantity,
+                FromWarehouseCode = l.FromWarehouseCode ?? request.FromWarehouse,
+                ToWarehouseCode = l.WarehouseCode ?? request.ToWarehouse,
+            }).ToList()
+        };
+
+        var result = await _stockValidation.ValidateInventoryTransferStockAsync(sapRequest, cancellationToken);
+
+        return Ok(new
+        {
+            isValid = result.IsValid,
+            message = result.IsValid ? "Transfer validation successful" : "Transfer validation failed",
+            errors = result.Errors.Select(e => new { e.ItemCode, e.WarehouseCode, e.Message }),
+            linesValidated = request.Lines.Count
+        });
+    }
+
+    #endregion
+
+    #region Transfer Retrieval
+
+    /// <summary>
+    /// Gets an inventory transfer from SAP by its DocEntry.
+    /// </summary>
+    /// <param name="docEntry">The SAP DocEntry</param>
+    [HttpGet("transfers/{docEntry:int}")]
+    [ProducesResponseType(typeof(InventoryTransferDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetTransfer(int docEntry, CancellationToken cancellationToken)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        var transfer = await _sapClient.GetInventoryTransferByDocEntryAsync(docEntry, cancellationToken);
+        if (transfer == null)
+            return NotFound(new ErrorResponseDto { Message = $"Transfer with DocEntry {docEntry} not found" });
+
+        return Ok(transfer.ToDto());
+    }
+
+    /// <summary>
+    /// Gets inventory transfers for a specific warehouse.
+    /// </summary>
+    /// <param name="warehouseCode">The destination warehouse code</param>
+    [HttpGet("transfers/warehouse/{warehouseCode}")]
+    [ProducesResponseType(typeof(List<InventoryTransferDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetTransfersByWarehouse(
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        var transfers = await _sapClient.GetInventoryTransfersToWarehouseAsync(warehouseCode, cancellationToken);
+        return Ok(transfers.ToDto());
+    }
+
+    /// <summary>
+    /// Gets inventory transfers for a warehouse within a date range.
+    /// </summary>
+    /// <param name="warehouseCode">The destination warehouse code</param>
+    /// <param name="fromDate">Start date (yyyy-MM-dd)</param>
+    /// <param name="toDate">End date (yyyy-MM-dd)</param>
+    [HttpGet("transfers/warehouse/{warehouseCode}/date-range")]
+    [ProducesResponseType(typeof(List<InventoryTransferDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetTransfersByDateRange(
+        string warehouseCode,
+        [FromQuery] DateTime fromDate,
+        [FromQuery] DateTime toDate,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        if (fromDate > toDate)
+            return BadRequest(new ErrorResponseDto { Message = "fromDate must be before or equal to toDate" });
+
+        var transfers = await _sapClient.GetInventoryTransfersByDateRangeAsync(
+            warehouseCode, fromDate, toDate, cancellationToken);
+        return Ok(transfers.ToDto());
+    }
+
+    /// <summary>
+    /// Gets inventory transfers for a warehouse with pagination.
+    /// </summary>
+    /// <param name="warehouseCode">The destination warehouse code</param>
+    /// <param name="page">Page number (1-based, default 1)</param>
+    /// <param name="pageSize">Page size (max 100, default 20)</param>
+    [HttpGet("transfers/warehouse/{warehouseCode}/paged")]
+    [ProducesResponseType(typeof(List<InventoryTransferDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetPagedTransfers(
+        string warehouseCode,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        var transfers = await _sapClient.GetPagedInventoryTransfersToWarehouseAsync(
+            warehouseCode, page, pageSize, cancellationToken);
+        return Ok(transfers.ToDto());
+    }
+
+    #endregion
+
+    #region Transfer Requests (Approval Workflow)
+
+    /// <summary>
+    /// Creates an inventory transfer request that requires approval before execution.
+    /// Use this when transfers need managerial approval before stock is moved.
+    /// </summary>
+    /// <param name="request">The transfer request details</param>
+    [HttpPost("transfer-requests")]
+    [ProducesResponseType(typeof(InventoryTransferRequestDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> CreateTransferRequest(
+        [FromBody] CreateDesktopTransferRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(new ErrorResponseDto
+            {
+                Message = "Validation failed",
+                Errors = ModelState.Values
+                    .SelectMany(v => v.Errors)
+                    .Select(e => e.ErrorMessage)
+                    .ToList()
+            });
+        }
+
+        var createdBy = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("client_id")?.Value;
+
+        _logger.LogInformation("Desktop app creating transfer request: From={From}, To={To}, CreatedBy={CreatedBy}",
+            request.FromWarehouse, request.ToWarehouse, createdBy);
+
+        var sapRequest = new CreateTransferRequestDto
+        {
+            FromWarehouse = request.FromWarehouse,
+            ToWarehouse = request.ToWarehouse,
+            DocDate = request.DocDate,
+            DueDate = request.DueDate,
+            Comments = request.Comments,
+            RequesterEmail = request.RequesterEmail,
+            RequesterName = request.RequesterName ?? createdBy,
+            RequesterBranch = request.RequesterBranch,
+            RequesterDepartment = request.RequesterDepartment,
+            Lines = request.Lines.Select(l => new CreateTransferRequestLineDto
+            {
+                ItemCode = l.ItemCode,
+                Quantity = l.Quantity,
+                FromWarehouseCode = l.FromWarehouseCode ?? request.FromWarehouse,
+                ToWarehouseCode = l.ToWarehouseCode ?? request.ToWarehouse
+            }).ToList()
+        };
+
+        var transferRequest = await _sapClient.CreateInventoryTransferRequestAsync(sapRequest, cancellationToken);
+
+        return CreatedAtAction(nameof(GetTransferRequest), new { docEntry = transferRequest.DocEntry },
+            transferRequest.ToDto());
+    }
+
+    /// <summary>
+    /// Gets an inventory transfer request by its DocEntry.
+    /// </summary>
+    /// <param name="docEntry">The SAP DocEntry</param>
+    [HttpGet("transfer-requests/{docEntry:int}")]
+    [ProducesResponseType(typeof(InventoryTransferRequestDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetTransferRequest(int docEntry, CancellationToken cancellationToken)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        var transferRequest = await _sapClient.GetInventoryTransferRequestByDocEntryAsync(docEntry, cancellationToken);
+        if (transferRequest == null)
+            return NotFound(new ErrorResponseDto { Message = $"Transfer request with DocEntry {docEntry} not found" });
+
+        return Ok(transferRequest.ToDto());
+    }
+
+    /// <summary>
+    /// Gets inventory transfer requests for a specific warehouse.
+    /// </summary>
+    /// <param name="warehouseCode">The warehouse code</param>
+    [HttpGet("transfer-requests/warehouse/{warehouseCode}")]
+    [ProducesResponseType(typeof(List<InventoryTransferRequestDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetTransferRequestsByWarehouse(
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        var requests = await _sapClient.GetInventoryTransferRequestsByWarehouseAsync(warehouseCode, cancellationToken);
+        return Ok(requests.Select(r => r.ToDto()).ToList());
+    }
+
+    /// <summary>
+    /// Gets inventory transfer requests with pagination.
+    /// </summary>
+    /// <param name="page">Page number (1-based, default 1)</param>
+    /// <param name="pageSize">Page size (max 100, default 20)</param>
+    [HttpGet("transfer-requests/paged")]
+    [ProducesResponseType(typeof(List<InventoryTransferRequestDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetPagedTransferRequests(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        var requests = await _sapClient.GetPagedInventoryTransferRequestsAsync(page, pageSize, cancellationToken);
+        return Ok(requests.Select(r => r.ToDto()).ToList());
+    }
+
+    /// <summary>
+    /// Converts an approved inventory transfer request into an actual inventory transfer.
+    /// This posts the transfer to SAP and moves the stock.
+    /// </summary>
+    /// <param name="docEntry">The transfer request DocEntry to convert</param>
+    [HttpPost("transfer-requests/{docEntry:int}/convert")]
+    [ProducesResponseType(typeof(InventoryTransferCreatedResponseDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> ConvertTransferRequest(int docEntry, CancellationToken cancellationToken)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        // Verify the request exists first
+        var transferRequest = await _sapClient.GetInventoryTransferRequestByDocEntryAsync(docEntry, cancellationToken);
+        if (transferRequest == null)
+            return NotFound(new ErrorResponseDto { Message = $"Transfer request with DocEntry {docEntry} not found" });
+
+        _logger.LogInformation("Desktop app converting transfer request {DocEntry} to transfer", docEntry);
+
+        var transfer = await _sapClient.ConvertTransferRequestToTransferAsync(docEntry, cancellationToken);
+
+        return CreatedAtAction(nameof(GetTransfer), new { docEntry = transfer.DocEntry },
+            new InventoryTransferCreatedResponseDto
+            {
+                Message = $"Transfer request {docEntry} converted to transfer successfully",
+                Transfer = transfer.ToDto()
+            });
+    }
+
+    /// <summary>
+    /// Closes an inventory transfer request so it can no longer be converted.
+    /// Use this to reject or cancel a pending transfer request.
+    /// </summary>
+    /// <param name="docEntry">The transfer request DocEntry to close</param>
+    [HttpPost("transfer-requests/{docEntry:int}/close")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> CloseTransferRequest(int docEntry, CancellationToken cancellationToken)
+    {
+        if (!_sapSettings.Enabled)
+            return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
+
+        var transferRequest = await _sapClient.GetInventoryTransferRequestByDocEntryAsync(docEntry, cancellationToken);
+        if (transferRequest == null)
+            return NotFound(new ErrorResponseDto { Message = $"Transfer request with DocEntry {docEntry} not found" });
+
+        _logger.LogInformation("Desktop app closing transfer request {DocEntry}", docEntry);
+
+        await _sapClient.CloseInventoryTransferRequestAsync(docEntry, cancellationToken);
+        return NoContent();
+    }
+
+    #endregion
+
     #region Queued Inventory Transfers
 
     /// <summary>
@@ -1202,6 +2135,125 @@ public class DesktopBatchRequest
 
     [System.ComponentModel.DataAnnotations.Range(0.000001, double.MaxValue)]
     public decimal Quantity { get; set; }
+}
+
+/// <summary>
+/// Request to convert a sales order to an invoice with optional modifications.
+/// Allows changing quantities, prices, removing lines, or adding new lines.
+/// </summary>
+public class ConvertSalesOrderToInvoiceRequest
+{
+    /// <summary>
+    /// The local sales order ID to convert
+    /// </summary>
+    [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Sales order ID is required")]
+    public int SalesOrderId { get; set; }
+
+    /// <summary>
+    /// Optional external reference for tracking (auto-generated if not provided)
+    /// </summary>
+    public string? ExternalReferenceId { get; set; }
+
+    public string? SourceSystem { get; set; }
+
+    /// <summary>
+    /// Override document date (defaults to today)
+    /// </summary>
+    public string? DocDate { get; set; }
+
+    /// <summary>
+    /// Override due date (defaults to order delivery date)
+    /// </summary>
+    public string? DocDueDate { get; set; }
+
+    /// <summary>
+    /// Customer reference number (e.g. PO number)
+    /// </summary>
+    public string? NumAtCard { get; set; }
+
+    /// <summary>
+    /// Additional comments for the invoice
+    /// </summary>
+    public string? Comments { get; set; }
+
+    /// <summary>
+    /// Override currency (defaults to order currency)
+    /// </summary>
+    public string? DocCurrency { get; set; }
+
+    /// <summary>
+    /// Override sales person code (defaults to order sales person)
+    /// </summary>
+    public int? SalesPersonCode { get; set; }
+
+    /// <summary>
+    /// Whether to fiscalize the invoice via REVMax
+    /// </summary>
+    public bool Fiscalize { get; set; } = true;
+
+    /// <summary>
+    /// The invoice lines. If null/empty, uses the original sales order lines as-is.
+    /// If provided, these lines REPLACE the original order lines entirely — 
+    /// allowing quantity changes, price adjustments, line removals, or new line additions.
+    /// </summary>
+    public List<CreateDesktopInvoiceLineRequest>? Lines { get; set; }
+}
+
+/// <summary>
+/// Response for sales order to invoice conversion
+/// </summary>
+public class ConvertSalesOrderToInvoiceResponseDto
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public int SalesOrderId { get; set; }
+    public string? SalesOrderNumber { get; set; }
+    public string ExternalReference { get; set; } = string.Empty;
+    public string? ReservationId { get; set; }
+    public int? QueueId { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public int EstimatedProcessingSeconds { get; set; }
+    public string? StatusUrl { get; set; }
+    public List<string> Errors { get; set; } = new();
+}
+
+/// <summary>
+/// Request to create an inventory transfer request (requires approval) from desktop app
+/// </summary>
+public class CreateDesktopTransferRequestDto
+{
+    [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Source warehouse is required")]
+    public string FromWarehouse { get; set; } = string.Empty;
+
+    [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Destination warehouse is required")]
+    public string ToWarehouse { get; set; } = string.Empty;
+
+    public string? DocDate { get; set; }
+    public string? DueDate { get; set; }
+    public string? Comments { get; set; }
+    public string? RequesterEmail { get; set; }
+    public string? RequesterName { get; set; }
+    public int? RequesterBranch { get; set; }
+    public int? RequesterDepartment { get; set; }
+
+    [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "At least one line item is required")]
+    [System.ComponentModel.DataAnnotations.MinLength(1)]
+    public List<CreateDesktopTransferRequestLineDto> Lines { get; set; } = new();
+}
+
+/// <summary>
+/// Line item for desktop transfer request
+/// </summary>
+public class CreateDesktopTransferRequestLineDto
+{
+    [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Item code is required")]
+    public string ItemCode { get; set; } = string.Empty;
+
+    [System.ComponentModel.DataAnnotations.Range(0.000001, double.MaxValue, ErrorMessage = "Quantity must be greater than zero")]
+    public decimal Quantity { get; set; }
+
+    public string? FromWarehouseCode { get; set; }
+    public string? ToWarehouseCode { get; set; }
 }
 
 #endregion
