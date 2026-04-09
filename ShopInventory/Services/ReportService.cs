@@ -1,5 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
+using System.Collections;
+using System.Diagnostics;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -35,11 +38,22 @@ public interface IReportService
 public class ReportService : IReportService
 {
     private readonly ISAPServiceLayerClient _sapClient;
+    private readonly IMemoryCache _memoryCache;
     private readonly ILogger<ReportService> _logger;
+    private static readonly TimeSpan ReportDataCacheDuration = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan ReportResultCacheDuration = TimeSpan.FromMinutes(2);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CacheTelemetryCounters> CacheTelemetry = new(StringComparer.Ordinal);
 
-    public ReportService(ISAPServiceLayerClient sapClient, ILogger<ReportService> logger)
+    private sealed class CacheTelemetryCounters
+    {
+        public long Hits;
+        public long Misses;
+    }
+
+    public ReportService(ISAPServiceLayerClient sapClient, IMemoryCache memoryCache, ILogger<ReportService> logger)
     {
         _sapClient = sapClient;
+        _memoryCache = memoryCache;
         _logger = logger;
     }
 
@@ -53,6 +67,219 @@ public class ReportService : IReportService
         return DateTime.MinValue;
     }
 
+    private static bool IsUsdCurrency(string? currency) =>
+        currency is "USD" or "$" || string.IsNullOrEmpty(currency);
+
+    private static bool IsZigCurrency(string? currency) =>
+        currency is "ZIG" or "ZiG";
+
+    private static string BuildReportCacheKey(string prefix, params object?[] parts)
+    {
+        var normalizedParts = parts.Select(part => part switch
+        {
+            DateTime dateTime => (dateTime.Kind == DateTimeKind.Unspecified
+                    ? DateTime.SpecifyKind(dateTime, DateTimeKind.Utc)
+                    : dateTime.ToUniversalTime())
+                .ToString("O"),
+            null => "<null>",
+            _ => part.ToString() ?? string.Empty
+        });
+
+        return $"{prefix}:{string.Join("|", normalizedParts)}";
+    }
+
+    private static CacheTelemetryCounters GetTelemetryCounters(string cacheName)
+    {
+        return CacheTelemetry.GetOrAdd(cacheName, static _ => new CacheTelemetryCounters());
+    }
+
+    private static int? GetCachedItemCount(object? value)
+    {
+        return value is ICollection collection ? collection.Count : null;
+    }
+
+    private void LogCacheHit(string cacheName, string cacheKey)
+    {
+        var counters = GetTelemetryCounters(cacheName);
+        var hits = Interlocked.Increment(ref counters.Hits);
+        var misses = Volatile.Read(ref counters.Misses);
+        var totalRequests = hits + misses;
+        var hitRate = totalRequests > 0 ? (double)hits / totalRequests : 1d;
+
+        _logger.LogInformation(
+            "Report cache hit for {CacheName}. CacheKey={CacheKey}, HitRate={HitRate:P1}, SapCallsAvoidedTotal={SapCallsAvoidedTotal}, SapCallsMadeTotal={SapCallsMadeTotal}",
+            cacheName,
+            cacheKey,
+            hitRate,
+            hits,
+            misses);
+    }
+
+    private void LogCacheMiss(string cacheName, string cacheKey, TimeSpan loadDuration, object? value)
+    {
+        var counters = GetTelemetryCounters(cacheName);
+        var misses = Interlocked.Increment(ref counters.Misses);
+        var hits = Volatile.Read(ref counters.Hits);
+        var totalRequests = hits + misses;
+        var hitRate = totalRequests > 0 ? (double)hits / totalRequests : 0d;
+        var itemCount = GetCachedItemCount(value);
+
+        if (itemCount.HasValue)
+        {
+            _logger.LogInformation(
+                "Report cache miss for {CacheName}. CacheKey={CacheKey}, LoadDurationMs={LoadDurationMs}, ItemCount={ItemCount}, HitRate={HitRate:P1}, SapCallsAvoidedTotal={SapCallsAvoidedTotal}, SapCallsMadeTotal={SapCallsMadeTotal}",
+                cacheName,
+                cacheKey,
+                loadDuration.TotalMilliseconds,
+                itemCount.Value,
+                hitRate,
+                hits,
+                misses);
+
+            return;
+        }
+
+        _logger.LogInformation(
+            "Report cache miss for {CacheName}. CacheKey={CacheKey}, LoadDurationMs={LoadDurationMs}, HitRate={HitRate:P1}, SapCallsAvoidedTotal={SapCallsAvoidedTotal}, SapCallsMadeTotal={SapCallsMadeTotal}",
+            cacheName,
+            cacheKey,
+            loadDuration.TotalMilliseconds,
+            hitRate,
+            hits,
+            misses);
+    }
+
+    private bool TryGetCachedValue<T>(string cacheName, string cacheKey, out T? cachedValue)
+        where T : class
+    {
+        if (_memoryCache.TryGetValue(cacheKey, out cachedValue) && cachedValue is not null)
+        {
+            LogCacheHit(cacheName, cacheKey);
+            return true;
+        }
+
+        cachedValue = null;
+        return false;
+    }
+
+    private void CacheValue<T>(string cacheName, string cacheKey, T value, TimeSpan duration, TimeSpan loadDuration)
+        where T : class
+    {
+        _memoryCache.Set(cacheKey, value, duration);
+        LogCacheMiss(cacheName, cacheKey, loadDuration, value);
+    }
+
+    private Task<T> GetOrCreateCachedAsync<T>(string cacheName, string cacheKey, TimeSpan duration, Func<CancellationToken, Task<T>> factory, CancellationToken cancellationToken)
+        where T : class
+    {
+        if (TryGetCachedValue(cacheName, cacheKey, out T? cachedValue))
+        {
+            return Task.FromResult(cachedValue!);
+        }
+
+        return CreateAndCacheAsync(cacheName, cacheKey, duration, factory, cancellationToken);
+    }
+
+    private async Task<T> CreateAndCacheAsync<T>(string cacheName, string cacheKey, TimeSpan duration, Func<CancellationToken, Task<T>> factory, CancellationToken cancellationToken)
+        where T : class
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var value = await factory(cancellationToken);
+        stopwatch.Stop();
+        CacheValue(cacheName, cacheKey, value, duration, stopwatch.Elapsed);
+        return value;
+    }
+
+    private Task<List<Invoice>> GetCachedInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+    {
+        return GetOrCreateCachedAsync(
+            "report-data:invoices",
+            BuildReportCacheKey("report-data:invoices", fromDate, toDate),
+            ReportDataCacheDuration,
+            token => _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, token),
+            cancellationToken);
+    }
+
+    private Task<List<Invoice>> GetCachedInvoicesByWarehouseAndDateRangeAsync(string warehouseCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+    {
+        return GetOrCreateCachedAsync(
+            "report-data:warehouse-invoices",
+            BuildReportCacheKey("report-data:warehouse-invoices", warehouseCode, fromDate, toDate),
+            ReportDataCacheDuration,
+            token => _sapClient.GetInvoicesByWarehouseAndDateRangeAsync(warehouseCode, fromDate, toDate, token),
+            cancellationToken);
+    }
+
+    private Task<List<Item>> GetCachedAllItemsAsync(CancellationToken cancellationToken)
+    {
+        return GetOrCreateCachedAsync(
+            "report-data:items:all",
+            "report-data:items:all",
+            ReportDataCacheDuration,
+            token => _sapClient.GetAllItemsAsync(token),
+            cancellationToken);
+    }
+
+    private Task<List<WarehouseDto>> GetCachedWarehousesAsync(CancellationToken cancellationToken)
+    {
+        return GetOrCreateCachedAsync(
+            "report-data:warehouses",
+            "report-data:warehouses",
+            ReportDataCacheDuration,
+            token => _sapClient.GetWarehousesAsync(token),
+            cancellationToken);
+    }
+
+    private Task<List<StockQuantityDto>> GetCachedStockQuantitiesInWarehouseAsync(string warehouseCode, CancellationToken cancellationToken)
+    {
+        return GetOrCreateCachedAsync(
+            "report-data:stock",
+            BuildReportCacheKey("report-data:stock", warehouseCode),
+            ReportDataCacheDuration,
+            token => _sapClient.GetStockQuantitiesInWarehouseAsync(warehouseCode, token),
+            cancellationToken);
+    }
+
+    private Task<List<InventoryTransfer>> GetCachedInventoryTransfersByDateRangeAsync(string warehouseCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+    {
+        return GetOrCreateCachedAsync(
+            "report-data:transfers",
+            BuildReportCacheKey("report-data:transfers", warehouseCode, fromDate, toDate),
+            ReportDataCacheDuration,
+            token => _sapClient.GetInventoryTransfersByDateRangeAsync(warehouseCode, fromDate, toDate, token),
+            cancellationToken);
+    }
+
+    private Task<List<IncomingPayment>> GetCachedIncomingPaymentsByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+    {
+        return GetOrCreateCachedAsync(
+            "report-data:payments",
+            BuildReportCacheKey("report-data:payments", fromDate, toDate),
+            ReportDataCacheDuration,
+            token => _sapClient.GetIncomingPaymentsByDateRangeAsync(fromDate, toDate, token),
+            cancellationToken);
+    }
+
+    private Task<List<SAPCreditNote>> GetCachedCreditNotesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+    {
+        return GetOrCreateCachedAsync(
+            "report-data:credit-notes",
+            BuildReportCacheKey("report-data:credit-notes", fromDate, toDate),
+            ReportDataCacheDuration,
+            token => _sapClient.GetCreditNotesByDateRangeAsync(fromDate, toDate, token),
+            cancellationToken);
+    }
+
+    private Task<List<SAPPurchaseOrder>> GetCachedPurchaseOrdersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+    {
+        return GetOrCreateCachedAsync(
+            "report-data:purchase-orders",
+            BuildReportCacheKey("report-data:purchase-orders", fromDate, toDate),
+            ReportDataCacheDuration,
+            token => _sapClient.GetPurchaseOrdersByDateRangeAsync(fromDate, toDate, token),
+            cancellationToken);
+    }
+
     /// <summary>
     /// Get sales summary report from SAP invoices
     /// </summary>
@@ -60,40 +287,64 @@ public class ReportService : IReportService
     {
         _logger.LogInformation("Generating sales summary from SAP: {FromDate} to {ToDate}", fromDate, toDate);
 
-        var invoices = await _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
+        var invoices = await GetCachedInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
 
-        var usdInvoices = invoices.Where(i => i.DocCurrency == "USD" || i.DocCurrency == "$" || string.IsNullOrEmpty(i.DocCurrency)).ToList();
-        var zigInvoices = invoices.Where(i => i.DocCurrency == "ZIG" || i.DocCurrency == "ZiG").ToList();
+        // Single-pass aggregation: avoids iterating 10K+ invoices multiple times
+        decimal totalUSD = 0, totalZIG = 0, vatUSD = 0, vatZIG = 0;
+        int countUSD = 0, countZIG = 0;
+        var dailyBuckets = new Dictionary<DateTime, (int Count, decimal SalesUSD, decimal SalesZIG)>();
+        var uniqueCustomers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var dailySales = invoices
-            .GroupBy(i => ParseSapDate(i.DocDate).Date)
-            .Where(g => g.Key != DateTime.MinValue.Date)
-            .Select(g => new DailySalesDto
+        foreach (var invoice in invoices)
+        {
+            var isUsd = IsUsdCurrency(invoice.DocCurrency);
+            var isZig = IsZigCurrency(invoice.DocCurrency);
+
+            if (isUsd)
             {
-                Date = g.Key,
-                InvoiceCount = g.Count(),
-                TotalSalesUSD = g.Where(i => i.DocCurrency == "USD" || i.DocCurrency == "$" || string.IsNullOrEmpty(i.DocCurrency)).Sum(i => i.DocTotal),
-                TotalSalesZIG = g.Where(i => i.DocCurrency == "ZIG" || i.DocCurrency == "ZiG").Sum(i => i.DocTotal)
+                totalUSD += invoice.DocTotal;
+                vatUSD += invoice.VatSum;
+                countUSD++;
+            }
+            else if (isZig)
+            {
+                totalZIG += invoice.DocTotal;
+                vatZIG += invoice.VatSum;
+                countZIG++;
+            }
+
+            var date = ParseSapDate(invoice.DocDate).Date;
+            if (date != DateTime.MinValue.Date)
+            {
+                if (!dailyBuckets.TryGetValue(date, out var bucket))
+                    bucket = default;
+
+                dailyBuckets[date] = (
+                    bucket.Count + 1,
+                    bucket.SalesUSD + (isUsd ? invoice.DocTotal : 0),
+                    bucket.SalesZIG + (isZig ? invoice.DocTotal : 0)
+                );
+            }
+
+            if (!string.IsNullOrEmpty(invoice.CardCode))
+                uniqueCustomers.Add(invoice.CardCode);
+        }
+
+        var dailySales = dailyBuckets
+            .Select(kvp => new DailySalesDto
+            {
+                Date = kvp.Key,
+                InvoiceCount = kvp.Value.Count,
+                TotalSalesUSD = kvp.Value.SalesUSD,
+                TotalSalesZIG = kvp.Value.SalesZIG
             })
             .OrderBy(d => d.Date)
             .ToList();
 
         var salesByCurrency = new List<SalesByCurrencyDto>
         {
-            new()
-            {
-                Currency = "USD",
-                InvoiceCount = usdInvoices.Count,
-                TotalSales = usdInvoices.Sum(i => i.DocTotal),
-                TotalVat = usdInvoices.Sum(i => i.VatSum)
-            },
-            new()
-            {
-                Currency = "ZIG",
-                InvoiceCount = zigInvoices.Count,
-                TotalSales = zigInvoices.Sum(i => i.DocTotal),
-                TotalVat = zigInvoices.Sum(i => i.VatSum)
-            }
+            new() { Currency = "USD", InvoiceCount = countUSD, TotalSales = totalUSD, TotalVat = vatUSD },
+            new() { Currency = "ZIG", InvoiceCount = countZIG, TotalSales = totalZIG, TotalVat = vatZIG }
         };
 
         return new SalesSummaryReportDto
@@ -101,13 +352,13 @@ public class ReportService : IReportService
             FromDate = fromDate,
             ToDate = toDate,
             TotalInvoices = invoices.Count,
-            TotalSalesUSD = usdInvoices.Sum(i => i.DocTotal),
-            TotalSalesZIG = zigInvoices.Sum(i => i.DocTotal),
-            TotalVatUSD = usdInvoices.Sum(i => i.VatSum),
-            TotalVatZIG = zigInvoices.Sum(i => i.VatSum),
-            AverageInvoiceValueUSD = usdInvoices.Count > 0 ? usdInvoices.Average(i => i.DocTotal) : 0,
-            AverageInvoiceValueZIG = zigInvoices.Count > 0 ? zigInvoices.Average(i => i.DocTotal) : 0,
-            UniqueCustomers = invoices.Select(i => i.CardCode).Distinct().Count(),
+            TotalSalesUSD = totalUSD,
+            TotalSalesZIG = totalZIG,
+            TotalVatUSD = vatUSD,
+            TotalVatZIG = vatZIG,
+            AverageInvoiceValueUSD = countUSD > 0 ? totalUSD / countUSD : 0,
+            AverageInvoiceValueZIG = countZIG > 0 ? totalZIG / countZIG : 0,
+            UniqueCustomers = uniqueCustomers.Count,
             DailySales = dailySales,
             SalesByCurrency = salesByCurrency
         };
@@ -123,11 +374,11 @@ public class ReportService : IReportService
         List<Invoice> invoices;
         if (!string.IsNullOrEmpty(warehouseCode))
         {
-            invoices = await _sapClient.GetInvoicesByWarehouseAndDateRangeAsync(warehouseCode, fromDate, toDate, cancellationToken);
+            invoices = await GetCachedInvoicesByWarehouseAndDateRangeAsync(warehouseCode, fromDate, toDate, cancellationToken);
         }
         else
         {
-            invoices = await _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
+            invoices = await GetCachedInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
         }
 
         // Flatten all invoice lines and filter in single enumeration
@@ -180,11 +431,11 @@ public class ReportService : IReportService
         _logger.LogInformation("Generating slow moving products from SAP, threshold {Days} days", daysThreshold);
 
         // Get all items with stock from SAP
-        var items = await _sapClient.GetAllItemsAsync(cancellationToken);
+        var items = await GetCachedAllItemsAsync(cancellationToken);
         var activeItems = items.Where(i => i.QuantityOnStock > 0).ToList();
 
         // Get invoices for the period to find last sale dates
-        var invoices = await _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
+        var invoices = await GetCachedInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
 
         var lastSaleLookup = invoices
             .Where(inv => inv.DocumentLines is not null)
@@ -232,7 +483,7 @@ public class ReportService : IReportService
     {
         _logger.LogInformation("Generating stock summary from SAP for warehouse {Warehouse}", warehouseCode ?? "all");
 
-        var warehouses = await _sapClient.GetWarehousesAsync(cancellationToken);
+        var warehouses = await GetCachedWarehousesAsync(cancellationToken);
         var activeWarehouses = warehouses.Where(w => w.IsActive).ToList();
 
         if (!string.IsNullOrEmpty(warehouseCode))
@@ -248,7 +499,7 @@ public class ReportService : IReportService
             await semaphore.WaitAsync(cancellationToken);
             try
             {
-                var stockItems = await _sapClient.GetStockQuantitiesInWarehouseAsync(
+                var stockItems = await GetCachedStockQuantitiesInWarehouseAsync(
                     wh.WarehouseCode!, cancellationToken);
 
                 results.Add((new StockByWarehouseDto
@@ -301,13 +552,13 @@ public class ReportService : IReportService
         List<InventoryTransfer> transfers;
         if (!string.IsNullOrEmpty(warehouseCode))
         {
-            transfers = await _sapClient.GetInventoryTransfersByDateRangeAsync(warehouseCode, fromDate, toDate, cancellationToken);
+            transfers = await GetCachedInventoryTransfersByDateRangeAsync(warehouseCode, fromDate, toDate, cancellationToken);
         }
         else
         {
             // Get transfers for all active warehouses (use first warehouse approach or get all)
             // The SAP client requires a warehouse code, so we'll get all and filter client-side
-            var warehouses = await _sapClient.GetWarehousesAsync(cancellationToken);
+            var warehouses = await GetCachedWarehousesAsync(cancellationToken);
             var activeWhs = warehouses.Where(w => w.IsActive).Select(w => w.WarehouseCode!).ToList();
 
             transfers = new List<InventoryTransfer>();
@@ -316,7 +567,7 @@ public class ReportService : IReportService
             {
                 try
                 {
-                    var whTransfers = await _sapClient.GetInventoryTransfersByDateRangeAsync(wh, fromDate, toDate, cancellationToken);
+                    var whTransfers = await GetCachedInventoryTransfersByDateRangeAsync(wh, fromDate, toDate, cancellationToken);
                     foreach (var t in whTransfers)
                     {
                         if (seen.Add(t.DocEntry))
@@ -386,7 +637,7 @@ public class ReportService : IReportService
         var threshold = reorderThreshold ?? 10m;
         var allItems = new System.Collections.Concurrent.ConcurrentBag<LowStockItemDto>();
 
-        var warehouses = await _sapClient.GetWarehousesAsync(cancellationToken);
+        var warehouses = await GetCachedWarehousesAsync(cancellationToken);
         var targetWarehouses = warehouses.Where(w => w.IsActive).ToList();
 
         if (!string.IsNullOrEmpty(warehouseCode))
@@ -400,7 +651,7 @@ public class ReportService : IReportService
             await semaphore.WaitAsync(cancellationToken);
             try
             {
-                var stockItems = await _sapClient.GetStockQuantitiesInWarehouseAsync(
+                var stockItems = await GetCachedStockQuantitiesInWarehouseAsync(
                     wh.WarehouseCode!, cancellationToken);
 
                 foreach (var s in stockItems.Where(s => s.InStock < threshold && s.InStock >= 0))
@@ -449,7 +700,7 @@ public class ReportService : IReportService
     {
         _logger.LogInformation("Generating payment summary from SAP: {FromDate} to {ToDate}", fromDate, toDate);
 
-        var payments = await _sapClient.GetIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
+        var payments = await GetCachedIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
 
         // Helper: compute effective payment amount from method sums (more reliable than DocTotal in SAP)
         static decimal GetPaymentTotal(IncomingPayment p) =>
@@ -553,8 +804,8 @@ public class ReportService : IReportService
     {
         _logger.LogInformation("Generating top customers from SAP: {FromDate} to {ToDate}, top {Count}", fromDate, toDate, topCount);
 
-        var invoices = await _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
-        var payments = await _sapClient.GetIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
+        var invoices = await GetCachedInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
+        var payments = await GetCachedIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
 
         var customerInvoices = invoices
             .GroupBy(i => new { i.CardCode, i.CardName })
@@ -614,6 +865,14 @@ public class ReportService : IReportService
     /// </summary>
     public async Task<OrderFulfillmentReportDto> GetOrderFulfillmentAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
     {
+        var cacheKey = BuildReportCacheKey("report-result:order-fulfillment", fromDate, toDate);
+        if (TryGetCachedValue("report-result:order-fulfillment", cacheKey, out OrderFulfillmentReportDto? cachedReport))
+        {
+            return cachedReport!;
+        }
+
+        var generationStopwatch = Stopwatch.StartNew();
+
         _logger.LogInformation("Generating order fulfillment report via SQL from SAP: {FromDate} to {ToDate}", fromDate, toDate);
 
         var fromStr = fromDate.ToString("yyyyMMdd");
@@ -742,7 +1001,7 @@ public class ReportService : IReportService
         // No individual order list — aggregated data only for performance
         var orderItems = new List<OrderFulfillmentItemDto>();
 
-        return new OrderFulfillmentReportDto
+        var report = new OrderFulfillmentReportDto
         {
             FromDate = fromDate,
             ToDate = toDate,
@@ -766,6 +1025,11 @@ public class ReportService : IReportService
             FulfillmentByCustomer = byCustomer,
             DailyFulfillment = daily
         };
+
+        generationStopwatch.Stop();
+        CacheValue("report-result:order-fulfillment", cacheKey, report, ReportResultCacheDuration, generationStopwatch.Elapsed);
+
+        return report;
     }
 
     /// <summary>
@@ -775,7 +1039,7 @@ public class ReportService : IReportService
     {
         _logger.LogInformation("Generating credit note summary from SAP: {FromDate} to {ToDate}", fromDate, toDate);
 
-        var creditNotes = await _sapClient.GetCreditNotesByDateRangeAsync(fromDate, toDate, cancellationToken);
+        var creditNotes = await GetCachedCreditNotesByDateRangeAsync(fromDate, toDate, cancellationToken);
         // Exclude cancelled credit notes
         creditNotes = creditNotes.Where(cn => cn.Cancelled != "tYES").ToList();
 
@@ -832,7 +1096,7 @@ public class ReportService : IReportService
         decimal creditToSalesRatio = 0;
         try
         {
-            var invoices = await _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
+            var invoices = await GetCachedInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
             var totalSalesUSD = invoices.Where(i => i.DocCurrency == "USD" || i.DocCurrency == "$" || string.IsNullOrEmpty(i.DocCurrency)).Sum(i => i.DocTotal);
             if (totalSalesUSD > 0)
                 creditToSalesRatio = Math.Round(usdCNs.Sum(cn => cn.DocTotal) / totalSalesUSD * 100, 2);
@@ -867,7 +1131,7 @@ public class ReportService : IReportService
     {
         _logger.LogInformation("Generating purchase order summary from SAP: {FromDate} to {ToDate}", fromDate, toDate);
 
-        var purchaseOrders = await _sapClient.GetPurchaseOrdersByDateRangeAsync(fromDate, toDate, cancellationToken);
+        var purchaseOrders = await GetCachedPurchaseOrdersByDateRangeAsync(fromDate, toDate, cancellationToken);
 
         var openPOs = purchaseOrders.Where(po => po.DocumentStatus == "bost_Open" && po.Cancelled != "tYES").ToList();
         var closedPOs = purchaseOrders.Where(po => po.DocumentStatus == "bost_Close" && po.Cancelled != "tYES").ToList();
@@ -959,7 +1223,7 @@ public class ReportService : IReportService
         // Get all open invoices (last 365 days to catch aged items)
         var fromDate = DateTime.UtcNow.AddDays(-365);
         var toDate = DateTime.UtcNow;
-        var invoices = await _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
+        var invoices = await GetCachedInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
 
         // Filter to only unpaid/partially paid invoices
         var openInvoices = invoices.Where(i => i.DocTotal - i.PaidToDate > 0.01m).ToList();
@@ -1048,21 +1312,17 @@ public class ReportService : IReportService
     {
         _logger.LogInformation("Generating profit overview from SAP: {FromDate} to {ToDate}", fromDate, toDate);
 
-        // Fetch data in parallel batches (SAP session is sequential, but we can interleave)
-        var invoicesTask = _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
-        var invoices = await invoicesTask;
+        var invoices = await GetCachedInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
 
-        var paymentsTask = _sapClient.GetIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
-        var payments = await paymentsTask;
+        var payments = await GetCachedIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
 
-        var creditNotesTask = _sapClient.GetCreditNotesByDateRangeAsync(fromDate, toDate, cancellationToken);
-        var creditNotes = await creditNotesTask;
+        var creditNotes = await GetCachedCreditNotesByDateRangeAsync(fromDate, toDate, cancellationToken);
         creditNotes = creditNotes.Where(cn => cn.Cancelled != "tYES").ToList();
 
         List<SAPPurchaseOrder> purchaseOrders;
         try
         {
-            purchaseOrders = await _sapClient.GetPurchaseOrdersByDateRangeAsync(fromDate, toDate, cancellationToken);
+            purchaseOrders = await GetCachedPurchaseOrdersByDateRangeAsync(fromDate, toDate, cancellationToken);
             purchaseOrders = purchaseOrders.Where(po => po.Cancelled != "tYES").ToList();
         }
         catch (Exception ex)

@@ -104,6 +104,9 @@ public class ApplicationDbContext : DbContext
   // Inventory Transfer Queue for batch posting
   public DbSet<InventoryTransferQueueEntity> InventoryTransferQueue { get; set; }
 
+  // Merchandiser Product assignments
+  public DbSet<MerchandiserProductEntity> MerchandiserProducts { get; set; }
+
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
     base.OnModelCreating(modelBuilder);
@@ -871,6 +874,24 @@ public class ApplicationDbContext : DbContext
 
       // CHECK constraint to prevent negative batch quantities
       entity.ToTable(t => t.HasCheckConstraint("CK_StockReservationBatches_ReservedQuantity_Positive", "\"ReservedQuantity\" > 0"));
+    });
+
+    // Merchandiser Product configuration
+    modelBuilder.Entity<MerchandiserProductEntity>(entity =>
+    {
+      entity.ToTable("MerchandiserProducts");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => new { e.MerchandiserUserId, e.ItemCode })
+            .IsUnique();
+
+      entity.HasIndex(e => e.MerchandiserUserId);
+      entity.HasIndex(e => e.ItemCode);
+
+      entity.HasOne(e => e.MerchandiserUser)
+            .WithMany()
+            .HasForeignKey(e => e.MerchandiserUserId)
+            .OnDelete(DeleteBehavior.Cascade);
     });
   }
 }

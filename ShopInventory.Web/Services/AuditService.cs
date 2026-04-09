@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Web.Data;
 using static ShopInventory.Web.Components.Pages.UserActivity;
@@ -33,6 +34,9 @@ public interface IAuditService
 
     // Simplified version for easy logging
     Task LogAsync(string action, string? entityType = null, string? entityId = null);
+
+    // Simplified version with success/failure info (auto-resolves current user)
+    Task LogAsync(string action, string? entityType, string? entityId, string? details, bool isSuccess, string? errorMessage = null);
 
     Task<List<AuditLog>> GetLogsAsync(DateTime? fromDate = null, DateTime? toDate = null,
         string? username = null, string? action = null, int page = 1, int pageSize = 50);
@@ -73,11 +77,13 @@ public class AuditService : IAuditService
 {
     private readonly IDbContextFactory<WebAppDbContext> _dbContextFactory;
     private readonly ILogger<AuditService> _logger;
+    private readonly AuthenticationStateProvider _authStateProvider;
 
-    public AuditService(IDbContextFactory<WebAppDbContext> dbContextFactory, ILogger<AuditService> logger)
+    public AuditService(IDbContextFactory<WebAppDbContext> dbContextFactory, ILogger<AuditService> logger, AuthenticationStateProvider authStateProvider)
     {
         _dbContextFactory = dbContextFactory;
         _logger = logger;
+        _authStateProvider = authStateProvider;
     }
 
     public async Task LogAsync(string action, string username, string userRole, string? entityType = null,
@@ -216,8 +222,37 @@ public class AuditService : IAuditService
 
     public async Task LogAsync(string action, string? entityType = null, string? entityId = null)
     {
-        // Simplified logging with default values
-        await LogAsync(action, "System", "System", entityType, entityId);
+        // Auto-resolve current user from auth state
+        var username = "System";
+        var role = "System";
+        try
+        {
+            var authState = await _authStateProvider.GetAuthenticationStateAsync();
+            if (authState.User?.Identity?.IsAuthenticated == true)
+            {
+                username = authState.User.Identity.Name ?? "Unknown";
+                role = authState.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "User";
+            }
+        }
+        catch { /* fallback to System */ }
+        await LogAsync(action, username, role, entityType, entityId);
+    }
+
+    public async Task LogAsync(string action, string? entityType, string? entityId, string? details, bool isSuccess, string? errorMessage = null)
+    {
+        var username = "System";
+        var role = "System";
+        try
+        {
+            var authState = await _authStateProvider.GetAuthenticationStateAsync();
+            if (authState.User?.Identity?.IsAuthenticated == true)
+            {
+                username = authState.User.Identity.Name ?? "Unknown";
+                role = authState.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "User";
+            }
+        }
+        catch { /* fallback to System */ }
+        await LogAsync(action, username, role, entityType, entityId, details, null, isSuccess, errorMessage);
     }
 
     public async Task<ActivityStats> GetActivityStatsAsync(DateTime startDate, DateTime endDate)

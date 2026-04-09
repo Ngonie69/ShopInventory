@@ -14,13 +14,16 @@ public class CustomerPortalController : ControllerBase
 {
     private readonly ILogger<CustomerPortalController> _logger;
     private readonly HttpClient _httpClient;
+    private readonly IWebHostEnvironment _environment;
 
     public CustomerPortalController(
         ILogger<CustomerPortalController> logger,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        IWebHostEnvironment environment)
     {
         _logger = logger;
         _httpClient = httpClientFactory.CreateClient();
+        _environment = environment;
     }
 
     /// <summary>
@@ -52,9 +55,7 @@ public class CustomerPortalController : ControllerBase
                 Success = true,
                 CardCode = request.CardCode,
                 Email = request.Email,
-                PasswordHash = passwordHash,
-                Message = "Customer registered successfully. Use the SQL below to insert into database.",
-                SqlInsert = GenerateSqlInsert(request.CardCode, request.CardName, request.Email, passwordHash)
+                Message = "Customer registered successfully."
             };
 
             _logger.LogInformation("Generated registration for customer {CardCode}", request.CardCode);
@@ -69,12 +70,17 @@ public class CustomerPortalController : ControllerBase
     }
 
     /// <summary>
-    /// Generate password hash for a customer
+    /// Generate password hash for a customer (development only)
     /// </summary>
     [HttpPost("generate-hash")]
     [ProducesResponseType(typeof(PasswordHashResponse), StatusCodes.Status200OK)]
     public IActionResult GeneratePasswordHash([FromBody] GenerateHashRequest request)
     {
+        if (!_environment.IsDevelopment())
+        {
+            return NotFound();
+        }
+
         if (string.IsNullOrEmpty(request.Password))
         {
             return BadRequest(new { Message = "Password is required" });
@@ -101,25 +107,28 @@ public class CustomerPortalController : ControllerBase
     [ProducesResponseType(typeof(BulkRegistrationResponse), StatusCodes.Status200OK)]
     public IActionResult BulkRegisterCustomers([FromBody] BulkRegistrationRequest request)
     {
-        var results = new List<CustomerRegistrationResponse>();
-        var defaultPassword = request.DefaultPassword ?? "Welcome@123";
+        if (string.IsNullOrEmpty(request.DefaultPassword))
+        {
+            return BadRequest(new { Message = "DefaultPassword is required. No fallback default is used." });
+        }
 
-        if (!IsPasswordStrong(defaultPassword))
+        if (!IsPasswordStrong(request.DefaultPassword))
         {
             return BadRequest(new { Message = "Default password must be at least 8 characters and contain uppercase, lowercase, number, and special character" });
         }
 
+        var results = new List<CustomerRegistrationResponse>();
+
         foreach (var customer in request.Customers)
         {
-            var passwordHash = BCrypt.Net.BCrypt.HashPassword(defaultPassword, 12);
+            var passwordHash = BCrypt.Net.BCrypt.HashPassword(request.DefaultPassword, 12);
 
             results.Add(new CustomerRegistrationResponse
             {
                 Success = true,
                 CardCode = customer.CardCode,
                 Email = customer.Email,
-                PasswordHash = passwordHash,
-                SqlInsert = GenerateSqlInsert(customer.CardCode, customer.CardName, customer.Email, passwordHash)
+                Message = "Registration generated successfully"
             });
         }
 
@@ -127,10 +136,8 @@ public class CustomerPortalController : ControllerBase
         {
             Success = true,
             Count = results.Count,
-            DefaultPassword = defaultPassword,
             Message = $"Generated {results.Count} customer registrations",
-            Customers = results,
-            CombinedSql = string.Join("\n", results.Select(r => r.SqlInsert))
+            Customers = results
         });
     }
 
@@ -145,19 +152,6 @@ public class CustomerPortalController : ControllerBase
         bool hasSpecial = password.Any(c => !char.IsLetterOrDigit(c));
 
         return hasUpper && hasLower && hasDigit && hasSpecial;
-    }
-
-    private static string GenerateSqlInsert(string cardCode, string cardName, string email, string passwordHash)
-    {
-        return $@"INSERT INTO ""CustomerPortalUsers"" 
-    (""CardCode"", ""CardName"", ""Email"", ""PasswordHash"", ""IsActive"", ""TwoFactorEnabled"", ""EmailVerified"", ""ReceiveStatements"", ""CreatedAt"", ""UpdatedAt"")
-VALUES 
-    ('{EscapeSql(cardCode)}', '{EscapeSql(cardName)}', '{EscapeSql(email)}', '{passwordHash}', true, false, true, true, NOW(), NOW());";
-    }
-
-    private static string EscapeSql(string value)
-    {
-        return value?.Replace("'", "''") ?? "";
     }
 }
 
@@ -187,9 +181,7 @@ public class CustomerRegistrationResponse
     public bool Success { get; set; }
     public string CardCode { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
-    public string PasswordHash { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
-    public string SqlInsert { get; set; } = string.Empty;
 }
 
 public class GenerateHashRequest
@@ -221,10 +213,8 @@ public class BulkRegistrationResponse
 {
     public bool Success { get; set; }
     public int Count { get; set; }
-    public string DefaultPassword { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
     public List<CustomerRegistrationResponse> Customers { get; set; } = new();
-    public string CombinedSql { get; set; } = string.Empty;
 }
 
 #endregion

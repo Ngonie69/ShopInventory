@@ -41,7 +41,6 @@ public class PriceService : IPriceService
         try
         {
             _logger.LogDebug("Fetching all prices from API: {BaseAddress}api/price", _httpClient.BaseAddress);
-            _logger.LogDebug("Auth header: {Auth}", _httpClient.DefaultRequestHeaders.Authorization?.ToString() ?? "NOT SET");
 
             var response = await _httpClient.GetAsync("api/price");
             _logger.LogDebug("GetAllPricesAsync response: {StatusCode}", response.StatusCode);
@@ -72,11 +71,10 @@ public class PriceService : IPriceService
     {
         try
         {
-            _logger.LogInformation("Fetching grouped prices from API: {BaseAddress}api/price/grouped", _httpClient.BaseAddress);
-            _logger.LogInformation("Auth header: {Auth}", _httpClient.DefaultRequestHeaders.Authorization?.ToString() ?? "NOT SET");
+            _logger.LogDebug("Fetching grouped prices from API: {BaseAddress}api/price/grouped", _httpClient.BaseAddress);
 
             var response = await _httpClient.GetAsync("api/price/grouped");
-            _logger.LogInformation("GetGroupedPricesAsync response: {StatusCode}", response.StatusCode);
+            _logger.LogDebug("GetGroupedPricesAsync response: {StatusCode}", response.StatusCode);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -114,7 +112,6 @@ public class PriceService : IPriceService
         try
         {
             _logger.LogDebug("Fetching price for item {ItemCode} from API", itemCode);
-            _logger.LogDebug("Auth header: {Auth}", _httpClient.DefaultRequestHeaders.Authorization?.ToString() ?? "NOT SET");
 
             // API endpoint is /api/price/{itemCode}
             var response = await _httpClient.GetAsync($"api/price/{Uri.EscapeDataString(itemCode)}");

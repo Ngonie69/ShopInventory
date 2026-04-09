@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -78,11 +79,15 @@ public interface IUserManagementService
 public class UserManagementService : IUserManagementService
 {
     private readonly ApplicationDbContext _context;
+    private readonly IMemoryCache _memoryCache;
     private readonly ILogger<UserManagementService> _logger;
+    private static readonly TimeSpan EffectivePermissionsCacheDuration = TimeSpan.FromMinutes(5);
+    private const string EffectivePermissionsCacheKeyPrefix = "user-permissions:";
 
-    public UserManagementService(ApplicationDbContext context, ILogger<UserManagementService> logger)
+    public UserManagementService(ApplicationDbContext context, IMemoryCache memoryCache, ILogger<UserManagementService> logger)
     {
         _context = context;
+        _memoryCache = memoryCache;
         _logger = logger;
     }
 
@@ -149,7 +154,7 @@ public class UserManagementService : IUserManagementService
         }
 
         // Validate role
-        var validRoles = new[] { "Admin", "Manager", "User", "ReadOnly", "Cashier", "StockController", "DepotController", "PodOperator" };
+        var validRoles = new[] { "Admin", "Manager", "User", "ReadOnly", "Cashier", "StockController", "DepotController", "PodOperator", "Driver", "Merchandiser", "SalesRep" };
         if (!validRoles.Contains(request.Role))
         {
             return ServiceResult<UserDetailDto>.Failure($"Invalid role. Valid roles: {string.Join(", ", validRoles)}");
@@ -159,6 +164,18 @@ public class UserManagementService : IUserManagementService
         if ((request.Role == "StockController" || request.Role == "DepotController") && (request.AssignedWarehouseCodes == null || request.AssignedWarehouseCodes.Count == 0))
         {
             return ServiceResult<UserDetailDto>.Failure($"At least one assigned warehouse code is required for {request.Role} role");
+        }
+
+        // Validate customer assignment for Merchandiser role
+        if (request.Role == "Merchandiser" && (request.AssignedCustomerCodes == null || request.AssignedCustomerCodes.Count == 0))
+        {
+            return ServiceResult<UserDetailDto>.Failure("At least one assigned customer code is required for Merchandiser role");
+        }
+
+        // Validate section assignment for Driver role
+        if (request.Role == "Driver" && string.IsNullOrWhiteSpace(request.AssignedSection))
+        {
+            return ServiceResult<UserDetailDto>.Failure("An assigned section is required for Driver role");
         }
 
         // Determine permissions
@@ -199,11 +216,18 @@ public class UserManagementService : IUserManagementService
         if (request.Role == "StockController" || request.Role == "DepotController")
             user.SetWarehouseCodes(request.AssignedWarehouseCodes);
 
+        if (request.Role == "Merchandiser")
+            user.SetCustomerCodes(request.AssignedCustomerCodes);
+
+        if (request.Role == "Driver")
+            user.AssignedSection = request.AssignedSection;
+
         if (request.AllowedPaymentMethods != null && request.AllowedPaymentMethods.Count > 0)
             user.SetAllowedPaymentMethods(request.AllowedPaymentMethods);
 
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
+        InvalidateEffectivePermissionsCache(user.Id);
 
         _logger.LogInformation("User {Username} created by admin", user.Username);
 
@@ -238,7 +262,7 @@ public class UserManagementService : IUserManagementService
         // Update role if provided
         if (!string.IsNullOrWhiteSpace(request.Role))
         {
-            var validRoles = new[] { "Admin", "Manager", "User", "ReadOnly", "Cashier", "StockController", "DepotController", "PodOperator" };
+            var validRoles = new[] { "Admin", "Manager", "User", "ReadOnly", "Cashier", "StockController", "DepotController", "PodOperator", "Driver", "Merchandiser", "SalesRep" };
             if (!validRoles.Contains(request.Role))
             {
                 return ServiceResult.Failure($"Invalid role. Valid roles: {string.Join(", ", validRoles)}");
@@ -255,6 +279,21 @@ public class UserManagementService : IUserManagementService
                 user.SetWarehouseCodes(null);
         }
 
+        // Update assigned customers
+        if (request.AssignedCustomerCodes != null)
+        {
+            if (user.Role == "Merchandiser")
+                user.SetCustomerCodes(request.AssignedCustomerCodes);
+            else
+                user.SetCustomerCodes(null);
+        }
+
+        // Update assigned section
+        if (user.Role == "Driver")
+            user.AssignedSection = request.AssignedSection;
+        else
+            user.AssignedSection = null;
+
         // Update allowed payment methods
         if (request.AllowedPaymentMethods != null)
         {
@@ -264,6 +303,18 @@ public class UserManagementService : IUserManagementService
         if ((user.Role == "StockController" || user.Role == "DepotController") && user.GetWarehouseCodes().Count == 0)
         {
             return ServiceResult.Failure($"At least one assigned warehouse code is required for {user.Role} role");
+        }
+
+        // Validate customers are set for Merchandiser
+        if (user.Role == "Merchandiser" && user.GetCustomerCodes().Count == 0)
+        {
+            return ServiceResult.Failure("At least one assigned customer code is required for Merchandiser role");
+        }
+
+        // Validate section is set for Driver
+        if (user.Role == "Driver" && string.IsNullOrWhiteSpace(user.AssignedSection))
+        {
+            return ServiceResult.Failure("An assigned section is required for Driver role");
         }
 
         // Update permissions if provided
@@ -289,6 +340,7 @@ public class UserManagementService : IUserManagementService
 
         user.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
+        InvalidateEffectivePermissionsCache(userId);
 
         _logger.LogInformation("User {UserId} updated", userId);
 
@@ -308,6 +360,7 @@ public class UserManagementService : IUserManagementService
         user.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
+        InvalidateEffectivePermissionsCache(userId);
 
         _logger.LogInformation("User {UserId} deactivated", userId);
 
@@ -384,6 +437,7 @@ public class UserManagementService : IUserManagementService
         user.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
+        InvalidateEffectivePermissionsCache(userId);
 
         _logger.LogInformation("Permissions updated for user {UserId}", userId);
 
@@ -418,8 +472,27 @@ public class UserManagementService : IUserManagementService
 
     public async Task<List<string>> GetEffectivePermissionsAsync(Guid userId)
     {
-        var user = await _context.Users.FindAsync(userId);
-        if (user == null) return new List<string>();
+        var cacheKey = GetEffectivePermissionsCacheKey(userId);
+        if (_memoryCache.TryGetValue(cacheKey, out List<string>? cachedPermissions) && cachedPermissions != null)
+        {
+            return cachedPermissions;
+        }
+
+        var user = await _context.Users
+            .AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new
+            {
+                u.Role,
+                u.Permissions,
+                u.IsActive
+            })
+            .FirstOrDefaultAsync();
+
+        if (user == null || !user.IsActive)
+        {
+            return new List<string>();
+        }
 
         var permissions = new HashSet<string>();
 
@@ -450,7 +523,10 @@ public class UserManagementService : IUserManagementService
             }
         }
 
-        return permissions.ToList();
+        var effectivePermissions = permissions.ToList();
+        _memoryCache.Set(cacheKey, effectivePermissions, EffectivePermissionsCacheDuration);
+
+        return effectivePermissions;
     }
 
     public async Task<ServiceResult> UnlockUserAsync(Guid userId)
@@ -466,6 +542,7 @@ public class UserManagementService : IUserManagementService
         user.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
+        InvalidateEffectivePermissionsCache(userId);
 
         _logger.LogInformation("User {UserId} unlocked", userId);
 
@@ -486,6 +563,7 @@ public class UserManagementService : IUserManagementService
         user.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
+        InvalidateEffectivePermissionsCache(userId);
 
         _logger.LogInformation("2FA reset for user {UserId}", userId);
 
@@ -493,6 +571,16 @@ public class UserManagementService : IUserManagementService
     }
 
     #region Private Methods
+
+    private static string GetEffectivePermissionsCacheKey(Guid userId)
+    {
+        return $"{EffectivePermissionsCacheKeyPrefix}{userId}";
+    }
+
+    private void InvalidateEffectivePermissionsCache(Guid userId)
+    {
+        _memoryCache.Remove(GetEffectivePermissionsCacheKey(userId));
+    }
 
     private static UserDetailDto MapToUserDetailDto(User user)
     {
@@ -522,6 +610,8 @@ public class UserManagementService : IUserManagementService
             Permissions = permissions,
             AssignedWarehouseCodes = user.GetWarehouseCodes(),
             AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
+            AssignedSection = user.AssignedSection,
+            AssignedCustomerCodes = user.GetCustomerCodes(),
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt,
             LastLoginAt = user.LastLoginAt

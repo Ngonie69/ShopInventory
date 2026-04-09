@@ -269,6 +269,22 @@
                         </span>
                         <span class="snav-text">Create Sale Order</span>
                     </NavLink>
+                </Authorized>
+            </AuthorizeView>
+
+            <AuthorizeView Roles="Admin,Cashier,Merchandiser,SalesRep" Context="mobileDraftsCtx">
+                <Authorized>
+                    <NavLink class="snav-link" href="/mobile-drafts" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.PhoneAndroid" />
+                        </span>
+                        <span class="snav-text">Mobile Drafts</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
+
+            <AuthorizeView Roles="Admin,Cashier" Context="quotationCtx">
+                <Authorized>
                     <NavLink class="snav-link" href="/quotations" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.RequestQuote" />
@@ -390,9 +406,9 @@
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
-            <AuthorizeView Roles="Admin,Cashier,PodOperator" Context="podCtx">
+            <AuthorizeView Roles="Admin,Cashier,PodOperator,Driver,SalesRep" Context="podCtx">
                 <Authorized>
-                    <AuthorizeView Roles="PodOperator" Context="podLabelCtx">
+                    <AuthorizeView Roles="PodOperator,Driver" Context="podLabelCtx">
                         <Authorized>
                             <div class="nav-section-label">Insights</div>
                         </Authorized>
@@ -415,7 +431,7 @@
                         </span>
                         <span class="snav-text">POD Report</span>
                     </NavLink>
-                    <AuthorizeView Roles="PodOperator" Context="podSecCtx">
+                    <AuthorizeView Roles="PodOperator,Driver" Context="podSecCtx">
                         <Authorized>
                             <div class="nav-section-label">Account</div>
                             <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
@@ -508,6 +524,12 @@
                             <MudIcon Icon="@Icons.Material.Filled.ManageAccounts" />
                         </span>
                         <span class="snav-text">User Management</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/merchandiser-products" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.PersonSearch" />
+                        </span>
+                        <span class="snav-text">Merch Products</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/customer-portal-management" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">

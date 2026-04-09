@@ -43,7 +43,7 @@ public interface IDocumentService
     Task<bool> DeleteAttachmentAsync(int id, CancellationToken cancellationToken = default);
 
     // POD (Proof of Delivery)
-    Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null);
+    Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null);
     Task EnsureInvoiceCachedAsync(int sapDocEntry, int sapDocNum, string cardCode, string? cardName, CancellationToken cancellationToken = default);
     Task<Dictionary<int, PodStatusInfo>> GetPodStatusByDocEntriesAsync(List<int> docEntries, CancellationToken cancellationToken = default);
     Task<PodDashboardDto> GetPodDashboardAsync(Guid userId, CancellationToken cancellationToken = default);
@@ -569,17 +569,39 @@ public class DocumentService : IDocumentService
         return true;
     }
 
-    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null)
+    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null)
     {
+        // Business partners excluded from POD requirements
+        var excludedBPs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "CIS006", "MAC009", "MAC006", "COR007", "COR006", "COR008",
+            "VAN008", "VAN009", "VAN010", "VAN011", "VAN012", "VAN013",
+            "VAN014", "VAN015", "VAN016", "VAN017", "VAN018", "VAN019", "VAN020",
+            "STA040", "PRO033", "CAS004", "DON004", "PRO035",
+            "TEA006", "PRO031", "PRO032", "PRO034", "PRO036", "TEA007"
+        };
+
+        // Get DocEntries for excluded BPs so we can filter them out
+        var excludedDocEntries = _context.Invoices
+            .Where(i => i.SAPDocEntry != null && excludedBPs.Contains(i.CardCode))
+            .Select(i => i.SAPDocEntry!.Value);
+
         var query = _context.Set<DocumentAttachmentEntity>()
             .Include(a => a.UploadedByUser)
             .Where(a => a.EntityType == "Invoice")
+            .Where(a => !excludedDocEntries.Contains(a.EntityId))
             .Where(a =>
                 a.FileName.ToLower().Contains("pod") ||
                 a.FileName.ToLower().Contains("proof of delivery") ||
                 (a.Description != null && (a.Description.ToLower().Contains("pod") || a.Description.ToLower().Contains("proof of delivery")))
             )
             .AsQueryable();
+
+        // Filter by uploading user (used for Driver role - they only see their own PODs)
+        if (uploadedByUserId.HasValue)
+        {
+            query = query.Where(a => a.UploadedByUserId == uploadedByUserId.Value);
+        }
 
         if (fromDate.HasValue)
         {

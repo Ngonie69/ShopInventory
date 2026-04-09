@@ -4,6 +4,7 @@
 @page "/customer-portal/statements"
 @using ShopInventory.Web.Models
 @inject ICustomerStatementService StatementService
+@inject ICustomerLinkedAccountService LinkedAccountService
 @inject IJSRuntime JSRuntime
 @inject ILogger<CustomerStatements> Logger
 @attribute [AllowAnonymous]
@@ -55,11 +56,21 @@
                         Account Statement
                     </h2>
                     <span class="text-muted">Statement for @customerInfo.CardName</span>
-                    @if (customerInfo.AccountStructure == "Multi")
+                    @if (isMultiAccount)
                     {
-                        <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
-                            Multi-Account &mdash; showing transactions across all main accounts
-                        </span>
+                        @if (string.IsNullOrEmpty(selectedAccountFilter))
+                        {
+                            <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
+                                Multi-Account &mdash; showing transactions across all main accounts
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
+                                Filtered &mdash; @(linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName
+                                                                                    ?? selectedAccountFilter)
+                            </span>
+                        }
                     }
                 </div>
                 <div class="dashboard-meta">
@@ -123,24 +134,62 @@
                     <div class="col-md-3">
                         <FlexibleDatePicker Label="To" @bind-Date="toDate" />
                     </div>
-                    <div class="col-md-3 d-flex align-items-center" style="padding-top: 0.5rem;">
-                        <MudCheckBox T="bool" @bind-Value="includeClosedInvoices" Label="Include Closed Invoices"
-                                     Color="Color.Dark" Dense="true" />
-                    </div>
-                    <div class="col-md-3">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="GenerateStatement"
-                                   Disabled="@isLoading">
-                            @if (isLoading)
-                            {
-                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                                <span>Loading...</span>
-                            }
-                            else
-                            {
-                                <span>Generate Statement</span>
-                            }
-                        </MudButton>
-                    </div>
+                    @if (isMultiAccount && linkedAccounts.Any())
+                    {
+                        <div class="col-md-2">
+                            <MudSelect T="string" Label="Account" Value="@selectedAccountFilter"
+                                       ValueChanged="OnAccountFilterChanged" Variant="Variant.Outlined" Dense="true"
+                                       AnchorOrigin="Origin.BottomCenter">
+                                <MudSelectItem T="string" Value="@("")">All Accounts</MudSelectItem>
+                                @foreach (var account in linkedAccounts)
+                                {
+                                    <MudSelectItem T="string" Value="@account.CardCode">
+                                        @account.CardName @(!string.IsNullOrEmpty(account.Currency) ? $"({account.Currency})" : "")
+                                        — @account.CardCode
+                                    </MudSelectItem>
+                                }
+                            </MudSelect>
+                        </div>
+                        <div class="col-md-2 d-flex align-items-center" style="padding-top: 0.5rem;">
+                            <MudCheckBox T="bool" @bind-Value="includeClosedInvoices" Label="Include Closed" Color="Color.Dark"
+                                         Dense="true" />
+                        </div>
+                        <div class="col-md-2">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="GenerateStatement"
+                                       Disabled="@isLoading">
+                                @if (isLoading)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                    <span>Loading...</span>
+                                }
+                                else
+                                {
+                                    <span>Generate Statement</span>
+                                }
+                            </MudButton>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="col-md-3 d-flex align-items-center" style="padding-top: 0.5rem;">
+                            <MudCheckBox T="bool" @bind-Value="includeClosedInvoices" Label="Include Closed Invoices"
+                                         Color="Color.Dark" Dense="true" />
+                        </div>
+                        <div class="col-md-3">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="GenerateStatement"
+                                       Disabled="@isLoading">
+                                @if (isLoading)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                    <span>Loading...</span>
+                                }
+                                else
+                                {
+                                    <span>Generate Statement</span>
+                                }
+                            </MudButton>
+                        </div>
+                    }
                 </div>
             </div>
         </div>
@@ -420,6 +469,9 @@
     private bool includeClosedInvoices = false;
     private bool isLoading = true;
     private bool isDownloading = false;
+    private bool isMultiAccount;
+    private string selectedAccountFilter = "";
+    private List<LinkedAccountInfo> linkedAccounts = new();
 
     private CustomerStatementRequest BuildRequest() => new()
     {
@@ -428,10 +480,14 @@
         IncludeClosedInvoices = includeClosedInvoices
     };
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        await LoadCustomerInfo();
-        isLoading = false;
+        if (firstRender)
+        {
+            await LoadCustomerInfo();
+            isLoading = false;
+            StateHasChanged();
+        }
     }
 
     private async Task LoadCustomerInfo()
@@ -443,6 +499,14 @@
             if (!string.IsNullOrEmpty(customerInfoJson))
             {
                 customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
+                if (customerInfo != null)
+                {
+                    isMultiAccount = customerInfo.AccountStructure == "Multi";
+                    if (isMultiAccount)
+                    {
+                        linkedAccounts = await LinkedAccountService.GetLinkedAccountsAsync(customerInfo.CardCode);
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -458,6 +522,11 @@
         }
     }
 
+    private void OnAccountFilterChanged(string value)
+    {
+        selectedAccountFilter = value;
+    }
+
     private async Task GenerateStatement()
     {
         if (customerInfo == null) return;
@@ -467,7 +536,8 @@
         try
         {
             var request = BuildRequest();
-            statement = await StatementService.GetStatementAsync(customerInfo.CardCode, request);
+            var cardCode = string.IsNullOrEmpty(selectedAccountFilter) ? customerInfo.CardCode : selectedAccountFilter;
+            statement = await StatementService.GetStatementAsync(cardCode, request);
         }
         catch (Exception ex)
         {

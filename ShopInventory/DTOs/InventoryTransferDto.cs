@@ -38,6 +38,8 @@ public class InventoryTransferListResponseDto
     public int Page { get; set; }
     public int PageSize { get; set; }
     public int Count { get; set; }
+    public int TotalCount { get; set; }
+    public int TotalPages { get; set; }
     public bool HasMore { get; set; }
     public List<InventoryTransferDto>? Transfers { get; set; }
 }
@@ -51,7 +53,12 @@ public class InventoryTransferDateResponseDto
     public string? Date { get; set; }
     public string? FromDate { get; set; }
     public string? ToDate { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
     public int Count { get; set; }
+    public int TotalCount { get; set; }
+    public int TotalPages { get; set; }
+    public bool HasMore { get; set; }
     public List<InventoryTransferDto>? Transfers { get; set; }
 }
 

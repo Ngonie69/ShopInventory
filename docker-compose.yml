@@ -42,8 +42,23 @@ services:
       - SAP__CompanyDB=${SAP_COMPANY_DB}
       - SAP__Username=${SAP_USERNAME}
       - SAP__Password=${SAP_PASSWORD}
+      - SAP__AllowedServerCertificateThumbprints__0=${SAP_CERT_THUMBPRINT:-}
+      - Webhooks__WebhookSecret=${SAP_WEBHOOK_SECRET:-}
       - Security__ApiKeys__0__Key=${API_KEY_MAIN}
       - Security__AllowedOrigins__0=${WEB_APP_URL}
+      - PaymentGateways__PayNow__IntegrationId=${PAYNOW_INTEGRATION_ID:-}
+      - PaymentGateways__PayNow__IntegrationKey=${PAYNOW_INTEGRATION_KEY:-}
+      - PaymentGateways__PayNow__ResultUrl=${WEB_APP_URL}/api/payment/callback/paynow
+      - PaymentGateways__PayNow__ReturnUrl=${WEB_APP_URL}/payment/complete
+      - PaymentGateways__Innbucks__ApiKey=${INNBUCKS_API_KEY:-}
+      - PaymentGateways__Innbucks__ApiSecret=${INNBUCKS_API_SECRET:-}
+      - PaymentGateways__Innbucks__MerchantId=${INNBUCKS_MERCHANT_ID:-}
+      - PaymentGateways__Innbucks__CallbackUrl=${WEB_APP_URL}/api/payment/callback/innbucks
+      - PaymentGateways__Ecocash__ApiKey=${ECOCASH_API_KEY:-}
+      - PaymentGateways__Ecocash__ApiSecret=${ECOCASH_API_SECRET:-}
+      - PaymentGateways__Ecocash__MerchantCode=${ECOCASH_MERCHANT_CODE:-}
+      - PaymentGateways__Ecocash__MerchantPin=${ECOCASH_MERCHANT_PIN:-}
+      - PaymentGateways__Ecocash__CallbackUrl=${WEB_APP_URL}/api/payment/callback/ecocash
       - Email__SmtpHost=${SMTP_HOST}
       - Email__SmtpUsername=${SMTP_USERNAME}
       - Email__SmtpPassword=${SMTP_PASSWORD}
@@ -79,6 +94,7 @@ services:
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB_WEB:-shopinventoryweb};Username=${POSTGRES_USER:-shopinventory};Password=${POSTGRES_PASSWORD}
       - ApiSettings__BaseUrl=http://shopinventory-api:5106/
       - ApiSettings__ApiKey=${API_KEY_MAIN}
+      - CustomerPortal__JwtSecret=${CUSTOMER_PORTAL_JWT_SECRET}
       - Email__SmtpHost=${SMTP_HOST}
       - Email__SmtpUsername=${SMTP_USERNAME}
       - Email__SmtpPassword=${SMTP_PASSWORD}

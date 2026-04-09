@@ -8,6 +8,7 @@
 @inject IInventoryTransferService TransferService
 @inject NavigationManager Navigation
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Dashboard - Shop Inventory</PageTitle>
@@ -365,6 +366,7 @@
         }
 
         await LoadDashboardData();
+        await AuditService.LogAsync(AuditActions.ViewDashboard, "Dashboard", null);
     }
 
     private async Task LoadDashboardData()

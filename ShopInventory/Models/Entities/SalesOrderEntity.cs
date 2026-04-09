@@ -18,6 +18,15 @@ public enum SalesOrderStatus
 }
 
 /// <summary>
+/// Indicates where a sales order originated
+/// </summary>
+public enum SalesOrderSource
+{
+    Web = 0,
+    Mobile = 1
+}
+
+/// <summary>
 /// Entity for Sales Orders - pre-invoice orders that can be tracked and converted to invoices
 /// </summary>
 public class SalesOrderEntity
@@ -193,6 +202,29 @@ public class SalesOrderEntity
     /// </summary>
     [MaxLength(500)]
     public string? SyncError { get; set; }
+
+    /// <summary>
+    /// Where the order originated (Web or Mobile)
+    /// </summary>
+    public SalesOrderSource Source { get; set; } = SalesOrderSource.Web;
+
+    /// <summary>
+    /// Notes from the merchandiser (mobile app field notes)
+    /// </summary>
+    [MaxLength(2000)]
+    public string? MerchandiserNotes { get; set; }
+
+    /// <summary>
+    /// Mobile device identifier for audit trail
+    /// </summary>
+    [MaxLength(200)]
+    public string? DeviceInfo { get; set; }
+
+    /// <summary>
+    /// Optimistic concurrency token
+    /// </summary>
+    [Timestamp]
+    public byte[] RowVersion { get; set; } = null!;
 
     // Navigation properties
     public virtual ICollection<SalesOrderLineEntity> Lines { get; set; } = new List<SalesOrderLineEntity>();

@@ -2,6 +2,7 @@
 @using ShopInventory.Web.Models
 @inject ICustomerStatementService StatementService
 @inject IInvoiceService InvoiceService
+@inject ICustomerLinkedAccountService LinkedAccountService
 @inject HttpClient Http
 @inject IJSRuntime JSRuntime
 @inject ILogger<CustomerInvoices> Logger
@@ -54,9 +55,19 @@
                     <span class="text-muted">Open invoices for @customerInfo.CardName</span>
                     @if (customerInfo.AccountStructure == "Multi")
                     {
-                        <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
-                            Multi-Account &mdash; showing invoices across all main accounts
-                        </span>
+                        @if (string.IsNullOrEmpty(selectedAccountFilter))
+                        {
+                            <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
+                                Multi-Account &mdash; showing invoices across all main accounts
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
+                                Filtered &mdash; @(linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName
+                                                    ?? selectedAccountFilter)
+                            </span>
+                        }
                     }
                 </div>
                 <div class="dashboard-meta">
@@ -67,7 +78,7 @@
                     <span class="meta-subtitle">
                         @if (hasLoaded)
                         {
-                            @($"{FormatCurrency(totalOutstanding)} across {invoices.Count} invoices")
+                            @($"{FormatCurrency(filteredOutstanding)} across {filteredInvoices.Count} invoices")
                         }
                         else
                         {
@@ -96,26 +107,60 @@
             </div>
             <div class="card-body">
                 <div class="row g-3 align-items-end">
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <FlexibleDatePicker Label="From" @bind-Date="fromDate" />
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <FlexibleDatePicker Label="To" @bind-Date="toDate" />
                     </div>
-                    <div class="col-md-4">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="LoadInvoices"
-                                   Disabled="@isLoading">
-                            @if (isLoading)
-                            {
-                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                                <span>Loading...</span>
-                            }
-                            else
-                            {
-                                <span>Load Invoices</span>
-                            }
-                        </MudButton>
-                    </div>
+                    @if (isMultiAccount && linkedAccounts.Any())
+                    {
+                        <div class="col-md-3">
+                            <MudSelect T="string" Label="Account" Value="@selectedAccountFilter"
+                                       ValueChanged="OnAccountFilterChanged" Variant="Variant.Outlined" Dense="true"
+                                       AnchorOrigin="Origin.BottomCenter">
+                                <MudSelectItem T="string" Value="@("")">All Accounts</MudSelectItem>
+                                @foreach (var account in linkedAccounts)
+                                {
+                                    <MudSelectItem T="string" Value="@account.CardCode">
+                                        @account.CardName @(!string.IsNullOrEmpty(account.Currency) ? $"({account.Currency})" : "")
+                                        — @account.CardCode
+                                    </MudSelectItem>
+                                }
+                            </MudSelect>
+                        </div>
+                        <div class="col-md-3">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="LoadInvoices"
+                                       Disabled="@isLoading">
+                                @if (isLoading)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                    <span>Loading...</span>
+                                }
+                                else
+                                {
+                                    <span>Load Invoices</span>
+                                }
+                            </MudButton>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="col-md-6">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="LoadInvoices"
+                                       Disabled="@isLoading">
+                                @if (isLoading)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                    <span>Loading...</span>
+                                }
+                                else
+                                {
+                                    <span>Load Invoices</span>
+                                }
+                            </MudButton>
+                        </div>
+                    }
                 </div>
             </div>
         </div>
@@ -132,7 +177,7 @@
                         </svg>
                         Open Invoices
                         <span class="badge bg-primary bg-opacity-10 text-primary ms-2"
-                              style="font-size: 0.75rem;">@invoices.Count total</span>
+                              style="font-size: 0.75rem;">@filteredInvoices.Count total</span>
                     </h5>
                     <span class="text-muted small">Last updated @(lastUpdated?.ToString("MMM dd, yyyy 'at' HH:mm") ?? "just now") UTC</span>
                 </div>
@@ -200,7 +245,7 @@
                             <div class="invoices-pagination">
                                 <div class="pagination-info">
                                     Showing @(((currentPage - 1) * pageSize) + 1)&ndash;@(Math.Min(currentPage * pageSize,
-                                                                                            invoices.Count)) of @invoices.Count invoices
+                                                                                                                                filteredInvoices.Count)) of @filteredInvoices.Count invoices
                                 </div>
                                 <nav>
                                     <ul class="pagination pagination-sm mb-0">
@@ -290,7 +335,7 @@
                         </div>
                         <div>
                             <h5 class="modal-title mb-0">Invoice #@(selectedInvoice?.DocNum ??
-                                                                                            selectedInvoiceSummary?.DocNum)</h5>
+                                                                                                                            selectedInvoiceSummary?.DocNum)</h5>
                             </div>
                         </div>
                         <button type="button" class="invoice-modal-close" @onclick="CloseInvoiceModal">
@@ -333,12 +378,12 @@
                                 <div class="invoice-detail-card">
                                     <div class="detail-label">Amount</div>
                                     <div class="detail-value detail-value-lg">@FormatCurrencyWithCode(selectedInvoice.DocTotal,
-                                                                                                            selectedInvoice.DocCurrency)</div>
+                                                                                                                                                    selectedInvoice.DocCurrency)</div>
                                     </div>
                                     <div class="invoice-detail-card">
                                         <div class="detail-label">VAT</div>
                                         <div class="detail-value">@FormatCurrencyWithCode(selectedInvoice.VatSum,
-                                                                                                                    selectedInvoice.DocCurrency)</div>
+                                                                                                                                                                selectedInvoice.DocCurrency)</div>
                                         </div>
                                         <div class="invoice-detail-card">
                                             <div class="detail-label">Reference</div>
@@ -386,9 +431,9 @@
                                                             <td class="text-end">@line.Quantity.ToString("N2")</td>
                                                             <td>@(line.UoMCode ?? "-")</td>
                                                             <td class="text-end">@FormatCurrencyWithCode(line.GrossPrice,
-                                                                                                                                                                    selectedInvoice.DocCurrency)</td>
+                                                                                                                                                                                                                                    selectedInvoice.DocCurrency)</td>
                                                                 <td class="text-end fw-semibold">@FormatCurrencyWithCode(line.LineTotal,
-                                                                                                                                                                            selectedInvoice.DocCurrency)</td>
+                                                                                                                                                                                                                                                selectedInvoice.DocCurrency)</td>
                                                                 </tr>
                                                             }
                                                         </tbody>
@@ -483,13 +528,14 @@
     private bool hasLoaded = false;
     private int currentPage = 1;
     private int pageSize = 15;
-    private int totalPages => (int)Math.Ceiling((double)invoices.Count / pageSize);
-    private List<CustomerInvoiceSummary> pagedInvoices => invoices
+    private int totalPages => (int)Math.Ceiling((double)filteredInvoices.Count / pageSize);
+    private List<CustomerInvoiceSummary> pagedInvoices => filteredInvoices
         .Skip((currentPage - 1) * pageSize)
         .Take(pageSize)
         .ToList();
     private DateTime? lastUpdated;
     private decimal totalOutstanding;
+    private decimal filteredOutstanding => filteredInvoices.Sum(i => i.Balance);
     private bool isMultiAccount;
     private DateTime? fromDate = DateTime.Today.AddMonths(-3);
     private DateTime? toDate = DateTime.Today;
@@ -500,11 +546,20 @@
     private bool isDetailLoading;
     private string? detailError;
     private bool isPdfLoading;
+    private string selectedAccountFilter = "";
+    private List<LinkedAccountInfo> linkedAccounts = new();
+    private List<CustomerInvoiceSummary> filteredInvoices => string.IsNullOrEmpty(selectedAccountFilter)
+        ? invoices
+        : invoices.Where(i => i.CardCode == selectedAccountFilter).ToList();
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        await LoadCustomerInfo();
-        isLoading = false;
+        if (firstRender)
+        {
+            await LoadCustomerInfo();
+            isLoading = false;
+            StateHasChanged();
+        }
     }
 
     private async Task LoadCustomerInfo()
@@ -519,6 +574,10 @@
                 if (customerInfo != null)
                 {
                     isMultiAccount = customerInfo.AccountStructure == "Multi";
+                    if (isMultiAccount)
+                    {
+                        linkedAccounts = await LinkedAccountService.GetLinkedAccountsAsync(customerInfo.CardCode);
+                    }
                 }
             }
         }
@@ -550,6 +609,12 @@
         {
             isLoading = false;
         }
+    }
+
+    private void OnAccountFilterChanged(string value)
+    {
+        selectedAccountFilter = value;
+        currentPage = 1;
     }
 
     private async Task ViewInvoiceDetails(CustomerInvoiceSummary invoice)

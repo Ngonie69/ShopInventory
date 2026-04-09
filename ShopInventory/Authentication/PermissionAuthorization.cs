@@ -11,7 +11,7 @@ namespace ShopInventory.Authentication;
 /// Authorization attribute that requires specific permissions
 /// </summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true)]
-public class RequirePermissionAttribute : AuthorizeAttribute, IAuthorizationFilter
+public class RequirePermissionAttribute : AuthorizeAttribute, IAsyncAuthorizationFilter
 {
     private readonly string[] _permissions;
     private readonly bool _requireAll;
@@ -37,7 +37,7 @@ public class RequirePermissionAttribute : AuthorizeAttribute, IAuthorizationFilt
         _requireAll = requireAll;
     }
 
-    public void OnAuthorization(AuthorizationFilterContext context)
+    public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
         var user = context.HttpContext.User;
 
@@ -72,10 +72,8 @@ public class RequirePermissionAttribute : AuthorizeAttribute, IAuthorizationFilt
             return;
         }
 
-        // Get user's effective permissions
-        var permissionsTask = userManagementService.GetEffectivePermissionsAsync(userId);
-        permissionsTask.Wait();
-        var userPermissions = permissionsTask.Result;
+        // Get user's effective permissions without blocking the request thread.
+        var userPermissions = await userManagementService.GetEffectivePermissionsAsync(userId);
 
         // Check for system admin - they have all permissions
         if (userPermissions.Contains(Permission.SystemAdmin))

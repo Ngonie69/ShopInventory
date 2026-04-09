@@ -1,0 +1,83 @@
+namespace ShopInventory.DTOs;
+
+/// <summary>
+/// Merchandiser product assignment DTO
+/// </summary>
+public class MerchandiserProductDto
+{
+    public int Id { get; set; }
+    public Guid MerchandiserUserId { get; set; }
+    public string ItemCode { get; set; } = string.Empty;
+    public string? ItemName { get; set; }
+    public bool IsActive { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public string? UpdatedBy { get; set; }
+}
+
+/// <summary>
+/// Response for merchandiser product list
+/// </summary>
+public class MerchandiserProductListResponseDto
+{
+    public Guid MerchandiserUserId { get; set; }
+    public string? MerchandiserName { get; set; }
+    public int TotalCount { get; set; }
+    public int ActiveCount { get; set; }
+    public List<MerchandiserProductDto> Products { get; set; } = new();
+}
+
+/// <summary>
+/// Request to assign products to a merchandiser
+/// </summary>
+public class AssignMerchandiserProductsRequest
+{
+    /// <summary>
+    /// List of item codes to assign
+    /// </summary>
+    public List<string> ItemCodes { get; set; } = new();
+}
+
+/// <summary>
+/// Request to update product active status for a merchandiser
+/// </summary>
+public class UpdateMerchandiserProductStatusRequest
+{
+    /// <summary>
+    /// Item codes to update
+    /// </summary>
+    public List<string> ItemCodes { get; set; } = new();
+
+    /// <summary>
+    /// Set active or inactive
+    /// </summary>
+    public bool IsActive { get; set; }
+}
+
+/// <summary>
+/// Merchandiser summary for listing
+/// </summary>
+public class MerchandiserSummaryDto
+{
+    public Guid UserId { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string? FirstName { get; set; }
+    public string? LastName { get; set; }
+    public string FullName => $"{FirstName} {LastName}".Trim();
+    public int TotalProducts { get; set; }
+    public int ActiveProducts { get; set; }
+    public int AssignedCustomers { get; set; }
+}
+
+/// <summary>
+/// Active product for mobile app consumption
+/// </summary>
+public class MerchandiserActiveProductDto
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public string? ItemName { get; set; }
+    public string? BarCode { get; set; }
+    public decimal Price { get; set; }
+    public string? UoM { get; set; }
+    public decimal QuantityOnStock { get; set; }
+}

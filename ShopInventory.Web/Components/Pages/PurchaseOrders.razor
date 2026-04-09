@@ -4,6 +4,7 @@
 @inject IPurchaseOrderService PurchaseOrderService
 @inject NavigationManager NavigationManager
 @inject IAppSettingsProvider AppSettings
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Purchase Orders - Shop Inventory</PageTitle>
@@ -910,7 +911,7 @@
                     <div class="stat-icon approved"><i class="bi bi-check-circle"></i></div>
                     <div class="stat-info">
                         <div class="stat-value">@orders.Count(o => o.Status == PurchaseOrderStatus.Approved || o.Status ==
-                                                    PurchaseOrderStatus.PartiallyReceived)</div>
+                                                                                                            PurchaseOrderStatus.PartiallyReceived)</div>
                             <div class="stat-label">Approved</div>
                         </div>
                     </div>
@@ -989,7 +990,7 @@
                             style="font-size:.75rem;font-weight:500;color:#6b7280;margin-left:.5rem;">(@(dataSource == "sap" ? "SAP" : "Local"))</span></h6>
                             <span class="po-count-badge">@totalCount total</span>
                         </div>
-                        <MudTable @ref="@_table" Items="@orders" RowsPerPage="10" Hover="true" Striped="true" Dense="true"
+                        <MudTable @ref="@_table" Items="@orders" RowsPerPage="@_pageSize" Hover="true" Striped="true" Dense="true"
                                   Breakpoint="Breakpoint.Sm" Loading="@isLoading" LoadingProgressColor="Color.Primary"
                                   T="PurchaseOrderDto" Elevation="0" Style="background:transparent;">
                             <HeaderContent>
@@ -1015,7 +1016,7 @@
                                 </MudTd>
                                 <MudTd DataLabel="Delivery Date">
                                     <span style="font-size:.85rem;color:#374151;">@(context.DeliveryDate?.ToString("dd MMM yyyy") ??
-                                                                    "—")</span>
+                                                                                                                                                    "—")</span>
                                     </MudTd>
                                     <MudTd DataLabel="Status">
                                         <span class="status-badge @GetStatusCssClass(context.Status)">@context.StatusName</span>
@@ -1049,7 +1050,7 @@
                                                 </MudButton>
                                             }
                                             @if (context.Status == PurchaseOrderStatus.Approved || context.Status ==
-                                                                        PurchaseOrderStatus.PartiallyReceived)
+                                                                                                                                                                PurchaseOrderStatus.PartiallyReceived)
                                             {
                                                 <MudButton Class="action-btn receive" OnClick="() => ShowReceiveModal(context)"
                                                            title="Receive Goods">
@@ -1057,7 +1058,7 @@
                                                 </MudButton>
                                             }
                                             @if (context.Status == PurchaseOrderStatus.Draft || context.Status ==
-                                                                        PurchaseOrderStatus.Cancelled)
+                                                                                                                                                                PurchaseOrderStatus.Cancelled)
                                             {
                                                 <MudButton Class="action-btn delete" OnClick="() => DeleteOrder(context.Id)" title="Delete">
                                                     <i class="bi bi-trash3"></i>
@@ -1067,9 +1068,21 @@
                                     </MudTd>
                                 </RowTemplate>
                                 <PagerContent>
-                                    <MudPagination SelectedChanged="PageChanged"
-                                                   Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
-                                                   Class="pa-4" />
+                                    <div class="pager-row">
+                                        <div class="page-size-wrap">
+                                            <span>Show</span>
+                                            <select @bind="_pageSize">
+                                                <option value="10">10</option>
+                                                <option value="25">25</option>
+                                                <option value="50">50</option>
+                                                <option value="100">100</option>
+                                            </select>
+                                            <span>per page</span>
+                                        </div>
+                                        <MudPagination SelectedChanged="PageChanged"
+                                                       Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
+                                                       Class="pa-4" />
+                                    </div>
                                 </PagerContent>
                             </MudTable>
                         </div>
@@ -1314,6 +1327,7 @@
 
 @code {
     private MudTable<PurchaseOrderDto>? _table;
+    private int _pageSize = 10;
     private List<PurchaseOrderDto>? orders;
     private PurchaseOrderDto? selectedOrder;
     private bool isLoading = true;
@@ -1352,6 +1366,7 @@
     {
         pageSize = AppSettings.PageSize;
         await LoadOrders();
+        await AuditService.LogAsync(AuditActions.ViewPurchaseOrders, "PurchaseOrder", null);
     }
 
     private async Task SwitchDataSource(string source)
@@ -1476,6 +1491,7 @@
             if (result != null)
             {
                 successMessage = "Purchase order approved successfully.";
+                await AuditService.LogAsync(AuditActions.ApprovePurchaseOrder, "PurchaseOrder", id.ToString());
                 await LoadOrders();
             }
         }
@@ -1541,6 +1557,7 @@
                 showReceiveModal = false;
                 receiveOrder = null;
                 successMessage = "Goods received successfully!";
+                await AuditService.LogAsync(AuditActions.ReceiveGoods, "PurchaseOrder", receiveOrder?.Id.ToString(), $"Received {linesToReceive.Count} line(s)", true);
                 await LoadOrders();
             }
             else
@@ -1566,6 +1583,7 @@
             if (success)
             {
                 successMessage = "Purchase order deleted.";
+                await AuditService.LogAsync(AuditActions.DeletePurchaseOrder, "PurchaseOrder", id.ToString());
                 await LoadOrders();
             }
             else

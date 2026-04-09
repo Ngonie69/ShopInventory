@@ -164,13 +164,6 @@ public class PasswordController : ControllerBase
 
     private string GetClientIpAddress()
     {
-        // Check for forwarded IP (behind proxy/load balancer)
-        var forwardedFor = HttpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(forwardedFor))
-        {
-            return forwardedFor.Split(',').First().Trim();
-        }
-
         return HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
     }
 }

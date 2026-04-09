@@ -9,7 +9,7 @@ public interface IInventoryTransferService
     Task<InventoryTransferListResponse?> GetPagedTransfersAsync(string warehouseCode, int page = 1, int pageSize = 20);
     Task<InventoryTransferDto?> GetTransferByDocEntryAsync(int docEntry);
     Task<InventoryTransferDateResponse?> GetTransfersByDateAsync(string warehouseCode, DateTime date);
-    Task<InventoryTransferDateResponse?> GetTransfersByDateRangeAsync(string warehouseCode, DateTime fromDate, DateTime toDate);
+    Task<InventoryTransferDateResponse?> GetTransfersByDateRangeAsync(string warehouseCode, DateTime fromDate, DateTime toDate, int? page = null, int? pageSize = null);
 
     // Inventory Transfer operations
     Task<(bool Success, string Message, InventoryTransferDto? Transfer)> CreateInventoryTransferAsync(CreateInventoryTransferDto request);
@@ -144,10 +144,19 @@ public class InventoryTransferService : IInventoryTransferService
         }
     }
 
-    public async Task<InventoryTransferDateResponse?> GetTransfersByDateRangeAsync(string warehouseCode, DateTime fromDate, DateTime toDate)
+    public async Task<InventoryTransferDateResponse?> GetTransfersByDateRangeAsync(string warehouseCode, DateTime fromDate, DateTime toDate, int? page = null, int? pageSize = null)
     {
         try
         {
+            if (page.HasValue || pageSize.HasValue)
+            {
+                var currentPage = Math.Max(page ?? 1, 1);
+                var currentPageSize = Math.Clamp(pageSize ?? 20, 1, 100);
+                var from = fromDate.ToString("yyyy-MM-dd");
+                var to = toDate.ToString("yyyy-MM-dd");
+                return await _httpClient.GetFromJsonAsync<InventoryTransferDateResponse>($"api/inventorytransfer/{warehouseCode}/daterange?fromDate={from}&toDate={to}&page={currentPage}&pageSize={currentPageSize}");
+            }
+
             // Use cache for date range query
             return await _cacheService.GetCachedTransfersByDateRangeAsync(warehouseCode, fromDate, toDate);
         }

@@ -8,6 +8,7 @@
 @inject HttpClient Http
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IAppSettingsProvider AppSettings
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Stock Monitoring - Shop Inventory</PageTitle>
@@ -1151,6 +1152,7 @@
             isWarehouseLocked = true;
             await LoadStock();
         }
+        await AuditService.LogAsync(AuditActions.ViewStock, "Stock", null);
     }
 
     private async Task LoadWarehouses()

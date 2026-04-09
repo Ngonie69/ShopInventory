@@ -232,6 +232,8 @@ public class UserDetailDto
     /// Empty means system default. Admin users always get all methods.
     /// </summary>
     public List<string> AllowedPaymentMethods { get; set; } = new();
+    public List<string> AssignedCustomerCodes { get; set; } = new();
+    public string? AssignedSection { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
@@ -279,6 +281,16 @@ public class CreateUserDetailRequest
     public List<string>? AllowedPaymentMethods { get; set; }
 
     /// <summary>
+    /// Assigned section for Driver role (e.g. Cheeseman, Factory, Graniteside, Machipisa, Bulawayo)
+    /// </summary>
+    public string? AssignedSection { get; set; }
+
+    /// <summary>
+    /// Assigned customer/business partner codes for Merchandiser role
+    /// </summary>
+    public List<string>? AssignedCustomerCodes { get; set; }
+
+    /// <summary>
     /// Whether to send welcome email
     /// </summary>
     public bool SendWelcomeEmail { get; set; } = true;
@@ -316,6 +328,16 @@ public class UpdateUserDetailRequest
     /// Allowed payment methods (e.g. ["cash","transfer","check","credit"])
     /// </summary>
     public List<string>? AllowedPaymentMethods { get; set; }
+
+    /// <summary>
+    /// Assigned section for Driver role (e.g. Cheeseman, Factory, Graniteside, Machipisa, Bulawayo)
+    /// </summary>
+    public string? AssignedSection { get; set; }
+
+    /// <summary>
+    /// Assigned customer/business partner codes for Merchandiser role
+    /// </summary>
+    public List<string>? AssignedCustomerCodes { get; set; }
 }
 
 /// <summary>

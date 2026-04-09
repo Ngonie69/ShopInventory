@@ -156,9 +156,38 @@ public class User
     }
 
     /// <summary>
+    /// JSON array of assigned customer codes (e.g. ["C001","C002"]) for merchandisers
+    /// </summary>
+    public string? AssignedCustomerCodes { get; set; }
+
+    /// <summary>
+    /// Deserialize customer codes from JSON.
+    /// </summary>
+    public List<string> GetCustomerCodes()
+    {
+        if (string.IsNullOrEmpty(AssignedCustomerCodes)) return new();
+        try { return JsonSerializer.Deserialize<List<string>>(AssignedCustomerCodes) ?? new(); }
+        catch { return new(); }
+    }
+
+    /// <summary>
+    /// Serialize customer codes to JSON.
+    /// </summary>
+    public void SetCustomerCodes(List<string>? codes)
+    {
+        AssignedCustomerCodes = codes == null || codes.Count == 0 ? null : JsonSerializer.Serialize(codes);
+    }
+
+    /// <summary>
     /// JSON serialized list of granular permissions
     /// </summary>
     public string? Permissions { get; set; }
+
+    /// <summary>
+    /// Assigned section for Driver role (e.g. Cheeseman, Factory, Graniteside, Machipisa, Bulawayo)
+    /// </summary>
+    [MaxLength(50)]
+    public string? AssignedSection { get; set; }
 
     /// <summary>
     /// JSON array of allowed payment methods (e.g. ["cash","transfer","check","credit"]).

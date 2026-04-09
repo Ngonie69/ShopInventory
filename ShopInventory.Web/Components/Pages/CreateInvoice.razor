@@ -16,6 +16,7 @@
 @inject NavigationManager NavigationManager
 @inject ILogger<CreateInvoice> Logger
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Create Invoice - Shop Inventory</PageTitle>
@@ -2588,6 +2589,9 @@
                 // Auto-print invoice PDF if enabled in settings
                 await TryAutoPrintInvoiceAsync(createdInvoice);
 
+                // Audit log: invoice created
+                await AuditService.LogAsync(AuditActions.CreateInvoice, "Invoice", createdInvoice?.DocNum.ToString());
+
                 ClearForm();
             }
             else
@@ -2595,6 +2599,8 @@
                 Logger.LogError("Failed to create invoice for customer {CardCode}. Error: {Error}",
                 invoice.CardCode, message);
                 errorMessage = message;
+                // Audit log: invoice creation failed
+                await AuditService.LogAsync(AuditActions.CreateInvoice, "Invoice", invoice.CardCode, null, false, message);
             }
         }
         catch (HttpRequestException httpEx)

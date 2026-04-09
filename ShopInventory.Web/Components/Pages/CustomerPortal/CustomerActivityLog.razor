@@ -177,32 +177,36 @@
     private const int PageSize = 20;
     private bool hasMorePages = true;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        try
+        if (firstRender)
         {
-            var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
-
-            if (string.IsNullOrEmpty(customerInfoJson))
+            try
             {
-                customerInfo = null;
-                return;
+                var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
+
+                if (string.IsNullOrEmpty(customerInfoJson))
+                {
+                    customerInfo = null;
+                    return;
+                }
+
+                customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
+
+                if (customerInfo != null)
+                {
+                    await LoadLogs();
+                }
             }
-
-            customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
-
-            if (customerInfo != null)
+            catch (Exception ex)
             {
-                await LoadLogs();
+                Logger.LogError(ex, "Error loading activity log");
             }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error loading activity log");
-        }
-        finally
-        {
-            isLoading = false;
+            finally
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
         }
     }
 

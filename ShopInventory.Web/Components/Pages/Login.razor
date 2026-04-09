@@ -1,10 +1,13 @@
 @page "/login"
 @using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Services
 @inject IAuthService AuthService
 @inject NavigationManager NavigationManager
 @inject CustomAuthStateProvider AuthStateProvider
 @inject IJSRuntime JSRuntime
 @inject ILogger<Login> Logger
+@inject IAuditService AuditService
 @attribute [AllowAnonymous]
 @rendermode InteractiveServer
 @layout EmptyLayout
@@ -564,6 +567,70 @@
             font-size: 1.6rem;
         }
     }
+
+    :global(.dark-theme) .auth-shell {
+        background: #1e293b;
+    }
+
+    :global(.dark-theme) .login-header h1 {
+        color: #f1f5f9;
+    }
+
+    :global(.dark-theme) .subtitle {
+        color: #94a3b8;
+    }
+
+    :global(.dark-theme) .form-group label {
+        color: #e2e8f0;
+    }
+
+    :global(.dark-theme) .form-input {
+        background: #0f172a;
+        border-color: #334155;
+        color: #f1f5f9;
+    }
+
+    :global(.dark-theme) .form-input:focus {
+        background: #1e293b;
+        border-color: #818cf8;
+        color: #f1f5f9;
+        box-shadow: 0 0 0 4px rgba(129, 140, 248, 0.2);
+    }
+
+    :global(.dark-theme) .form-input::placeholder {
+        color: #64748b;
+    }
+
+    :global(.dark-theme) .input-wrapper svg {
+        color: #64748b;
+    }
+
+    :global(.dark-theme) .input-wrapper:focus-within svg {
+        color: #e2e8f0;
+    }
+
+    :global(.dark-theme) .password-toggle {
+        color: #64748b;
+    }
+
+    :global(.dark-theme) .password-toggle:hover {
+        color: #e2e8f0;
+    }
+
+    :global(.dark-theme) .error-message {
+        background: #0f172a;
+        border-color: #334155;
+        color: #f1f5f9;
+    }
+
+    :global(.dark-theme) .footer-text {
+        color: #64748b;
+    }
+
+    :global(.dark-theme) .eyebrow {
+        background: #f1f5f9;
+        color: #0f172a;
+    }
 </style>
 
 @code {
@@ -625,6 +692,10 @@
                 response.User?.Username ?? loginModel.Username,
                 response.User?.Role ?? "User");
 
+                // Audit log: successful login
+                await AuditService.LogAsync(AuditActions.Login, response.User?.Username ?? loginModel.Username, response.User?.Role ??
+"User", "Auth", null, null, "/login");
+
                 Logger.LogDebug("Waiting 100ms for state to propagate");
                 await Task.Delay(100);
 
@@ -642,6 +713,9 @@
             {
                 Logger.LogWarning("Login failed: {Message}", message);
                 errorMessage = message;
+                // Audit log: failed login
+                await AuditService.LogAsync(AuditActions.LoginFailed, loginModel.Username, "Unknown", "Auth", null, message, "/login",
+false, message);
             }
         }
         catch (Exception ex)

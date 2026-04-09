@@ -36,20 +36,30 @@ public static class UserRoles
     public const string PodOperator = "PodOperator";
 
     /// <summary>
+    /// Merchandiser with access to mobile sales orders and assigned customers
+    /// </summary>
+    public const string Merchandiser = "Merchandiser";
+
+    /// <summary>
+    /// Sales Rep with access to mobile draft sales orders
+    /// </summary>
+    public const string SalesRep = "SalesRep";
+
+    /// <summary>
     /// Comma-separated role strings for use in [Authorize(Roles = "...")] attributes
     /// </summary>
     public const string InvoicingRoles = "Admin,Cashier";
     public const string PaymentRoles = "Admin,Cashier,DepotController";
     public const string InventoryTransferRoles = "Admin,StockController,DepotController";
-    public const string SalesOrderRoles = "Admin,Cashier";
+    public const string SalesOrderRoles = "Admin,Cashier,Merchandiser,SalesRep";
     public const string PurchasingRoles = "Admin,Manager";
 
-    public const string PodRoles = "Admin,Cashier,PodOperator";
+    public const string PodRoles = "Admin,Cashier,PodOperator,SalesRep";
 
     /// <summary>
     /// Get all available roles
     /// </summary>
-    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager, PodOperator };
+    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager, PodOperator, Merchandiser, SalesRep };
 
     /// <summary>
     /// Check if a role has admin privileges
@@ -85,7 +95,9 @@ public static class UserRoles
     /// </summary>
     public static bool CanViewSalesOrders(string role) =>
         IsAdmin(role) ||
-        string.Equals(role, Cashier, StringComparison.OrdinalIgnoreCase);
+        string.Equals(role, Cashier, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(role, Merchandiser, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(role, SalesRep, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Check if a role can view settings

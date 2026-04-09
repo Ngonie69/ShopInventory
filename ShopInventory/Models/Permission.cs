@@ -79,6 +79,14 @@ public static class Permissions
     public const string ViewWebhooks = "webhooks.view";
     public const string ManageWebhooks = "webhooks.manage";
 
+    // Sales Orders
+    public const string ViewSalesOrders = "salesorders.view";
+    public const string CreateSalesOrders = "salesorders.create";
+    public const string EditSalesOrders = "salesorders.edit";
+    public const string DeleteSalesOrders = "salesorders.delete";
+    public const string ApproveSalesOrders = "salesorders.approve";
+    public const string PostSalesOrdersToSAP = "salesorders.post_to_sap";
+
     // Sync & System
     public const string ViewSyncStatus = "sync.view";
     public const string ManageSync = "sync.manage";
@@ -181,6 +189,15 @@ public static class Permissions
                 new(ViewWebhooks, "View Webhooks", "View webhook configurations"),
                 new(ManageWebhooks, "Manage Webhooks", "Create/edit/delete webhooks")
             },
+            ["Sales Orders"] = new()
+            {
+                new(ViewSalesOrders, "View Sales Orders", "View sales order listings and details"),
+                new(CreateSalesOrders, "Create Sales Orders", "Create new sales orders"),
+                new(EditSalesOrders, "Edit Sales Orders", "Edit draft sales orders"),
+                new(DeleteSalesOrders, "Delete Sales Orders", "Delete draft sales orders"),
+                new(ApproveSalesOrders, "Approve Sales Orders", "Approve pending sales orders"),
+                new(PostSalesOrdersToSAP, "Post to SAP", "Post approved sales orders to SAP")
+            },
             ["System"] = new()
             {
                 new(ViewSyncStatus, "View Sync Status", "View SAP sync status"),
@@ -214,6 +231,7 @@ public static class Permissions
                 ViewPayments, CreatePayments, RefundPayments, ProcessRefunds,
                 ViewStock, ViewInventory, TransferStock, TransferInventory, AdjustStock, AdjustInventory,
                 ViewPurchaseOrders, CreatePurchaseOrders, EditPurchaseOrders, ApprovePurchaseOrders, ReceivePurchaseOrders,
+                ViewSalesOrders, CreateSalesOrders, EditSalesOrders, DeleteSalesOrders, ApproveSalesOrders, PostSalesOrdersToSAP,
                 ViewReports, ExportReports,
                 ViewCustomers, CreateCustomers, EditCustomers,
                 ViewUsers,
@@ -236,6 +254,7 @@ public static class Permissions
                 ViewPayments, CreatePayments,
                 ViewStock, ViewInventory,
                 ViewCustomers, CreateCustomers, EditCustomers,
+                ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders,
                 ViewReports
             },
             "StockController" => new List<string>
@@ -259,6 +278,15 @@ public static class Permissions
             "PodOperator" => new List<string>
             {
                 ViewDashboard, ViewInvoices
+            },
+            "Driver" => new List<string>
+            {
+                ViewDashboard, ViewInvoices
+            },
+            "Merchandiser" => new List<string>
+            {
+                ViewDashboard, ViewProducts, ViewCustomers,
+                ViewSalesOrders, CreateSalesOrders
             },
             _ => new List<string> { ViewDashboard }
         };
@@ -349,6 +377,14 @@ public static class Permission
     public const string ManageSync = Permissions.ManageSync;
     public const string SystemAdmin = Permissions.SystemAdmin;
     public const string ManageBackups = Permissions.ManageBackups;
+
+    // Sales Orders
+    public const string ViewSalesOrders = Permissions.ViewSalesOrders;
+    public const string CreateSalesOrders = Permissions.CreateSalesOrders;
+    public const string EditSalesOrders = Permissions.EditSalesOrders;
+    public const string DeleteSalesOrders = Permissions.DeleteSalesOrders;
+    public const string ApproveSalesOrders = Permissions.ApproveSalesOrders;
+    public const string PostSalesOrdersToSAP = Permissions.PostSalesOrdersToSAP;
 
     // Backups
     public const string ViewBackups = Permissions.ViewBackups;

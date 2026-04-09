@@ -1,6 +1,8 @@
 @page "/customer-portal/item-summary"
 @using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
 @inject ICustomerStatementService StatementService
+@inject ICustomerLinkedAccountService LinkedAccountService
 @inject IJSRuntime JSRuntime
 @inject ILogger<CustomerItemSummary> Logger
 @attribute [AllowAnonymous]
@@ -49,6 +51,21 @@
                 </h2>
                 <span class="text-muted">Invoiced items adjusted for credit notes &mdash; @customerInfo.CardName
                     (@customerInfo.CardCode)</span>
+                    @if (isMultiAccount)
+                    {
+                        @if (string.IsNullOrEmpty(selectedAccountFilter))
+                        {
+                            <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
+                                Multi-Account &mdash; showing items across all accounts
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
+                                Filtered &mdash; @(linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName ?? selectedAccountFilter)
+                            </span>
+                        }
+                    }
                 </div>
                 <div class="dashboard-meta">
                     <div class="d-flex flex-wrap gap-2 align-items-end">
@@ -56,6 +73,20 @@
                                        DateFormat="yyyy-MM-dd" Style="min-width: 160px;" Editable="true" />
                         <MudDatePicker @bind-Date="toDate" Label="To Date" Variant="Variant.Outlined" Margin="Margin.Dense"
                                        DateFormat="yyyy-MM-dd" Style="min-width: 160px;" Editable="true" />
+                        @if (isMultiAccount && linkedAccounts.Any())
+                        {
+                            <MudSelect T="string" Label="Account" Value="@selectedAccountFilter"
+                                       ValueChanged="OnAccountFilterChanged" Variant="Variant.Outlined"
+                                       Margin="Margin.Dense" Style="min-width: 200px;">
+                                <MudSelectItem T="string" Value="@("")">All Accounts</MudSelectItem>
+                                @foreach (var account in linkedAccounts)
+                                {
+                                    <MudSelectItem T="string" Value="@account.CardCode">
+                                        @account.CardName @(!string.IsNullOrEmpty(account.Currency) ? $"({account.Currency})" : "") — @account.CardCode
+                                    </MudSelectItem>
+                                }
+                            </MudSelect>
+                        }
                         <MudSelect T="string" @bind-Value="selectedCategory" Label="Product Category" Variant="Variant.Outlined"
                                    Margin="Margin.Dense" Style="min-width: 180px;" Clearable="true">
                             <MudSelectItem T="string" Value="@((string)null!)">All Categories</MudSelectItem>
@@ -237,13 +268,20 @@
     private DateTime? toDate;
     private string? selectedCategory;
     private List<string> availableCategories = new();
+    private bool isMultiAccount;
+    private string selectedAccountFilter = "";
+    private List<LinkedAccountInfo> linkedAccounts = new();
 
     private IEnumerable<ItemCodeSummary> filteredItems =>
         ApplySort(ApplyFilter(items ?? Enumerable.Empty<ItemCodeSummary>()));
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        await LoadCustomerInfo();
+        if (firstRender)
+        {
+            await LoadCustomerInfo();
+            StateHasChanged();
+        }
     }
 
     private async Task LoadCustomerInfo()
@@ -255,6 +293,14 @@
             if (!string.IsNullOrEmpty(customerInfoJson))
             {
                 customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
+                if (customerInfo != null)
+                {
+                    isMultiAccount = customerInfo.AccountStructure == "Multi";
+                    if (isMultiAccount)
+                    {
+                        linkedAccounts = await LinkedAccountService.GetLinkedAccountsAsync(customerInfo.CardCode);
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -275,7 +321,8 @@
         {
             if (customerInfo != null)
             {
-                items = await StatementService.GetItemCodeSummaryAsync(customerInfo.CardCode, fromDate, toDate);
+                var cardCode = string.IsNullOrEmpty(selectedAccountFilter) ? customerInfo.CardCode : selectedAccountFilter;
+                items = await StatementService.GetItemCodeSummaryAsync(cardCode, fromDate, toDate);
                 availableCategories = items
                     .Select(i => i.ItemGroup)
                     .Where(g => !string.IsNullOrEmpty(g))
@@ -305,6 +352,15 @@
     {
         if (!fromDate.HasValue || !toDate.HasValue) return;
         await LoadData();
+    }
+
+    private async Task OnAccountFilterChanged(string value)
+    {
+        selectedAccountFilter = value;
+        if (hasLoadedData)
+        {
+            await LoadData();
+        }
     }
 
     private IEnumerable<ItemCodeSummary> ApplyFilter(IEnumerable<ItemCodeSummary> source)

@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
 using Microsoft.Extensions.Caching.Memory;
@@ -181,7 +183,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     /// Explicitly logs out the current SAP session to free the server-side session slot.
     /// Called on application shutdown to prevent session accumulation.
     /// </summary>
-    public async Task LogoutAsync()
+    public async Task LogoutAsync(CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(_sessionId))
             return;
@@ -190,7 +192,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var request = new HttpRequestMessage(HttpMethod.Post, "Logout");
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            await _httpClient.SendAsync(request);
+            await _httpClient.SendAsync(request, cancellationToken);
             _logger.LogInformation("SAP session logged out successfully");
         }
         catch (Exception ex)
@@ -272,13 +274,40 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         int pageSize,
         CancellationToken cancellationToken = default)
     {
+        var skip = (page - 1) * pageSize;
+        return await GetPagedInventoryTransfersByOffsetAsync(warehouseCode, skip, pageSize, cancellationToken: cancellationToken);
+    }
+
+    private static string BuildInventoryTransferFilter(string warehouseCode, DateTime? fromDate = null, DateTime? toDate = null)
+    {
+        var safeWarehouse = SanitizeODataValue(warehouseCode);
+        var filters = new List<string>
+        {
+            $"(ToWarehouse eq '{safeWarehouse}' or FromWarehouse eq '{safeWarehouse}')"
+        };
+
+        if (fromDate.HasValue)
+            filters.Add($"DocDate ge '{fromDate.Value:yyyy-MM-dd}'");
+
+        if (toDate.HasValue)
+            filters.Add($"DocDate le '{toDate.Value:yyyy-MM-dd}'");
+
+        return string.Join(" and ", filters);
+    }
+
+    public async Task<List<InventoryTransfer>> GetPagedInventoryTransfersByOffsetAsync(
+        string warehouseCode,
+        int skip,
+        int pageSize,
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        CancellationToken cancellationToken = default)
+    {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var skip = (page - 1) * pageSize;
-        var safeWarehouse = SanitizeODataValue(warehouseCode);
-        var filter = $"$filter=(ToWarehouse eq '{safeWarehouse}' or FromWarehouse eq '{safeWarehouse}')&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
-        var url = $"StockTransfers?{filter}";
+        var filter = BuildInventoryTransferFilter(warehouseCode, fromDate, toDate);
+        var url = $"StockTransfers?$filter={filter}&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -437,6 +466,44 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         }
 
         return allTransfers;
+    }
+
+    public async Task<int> GetInventoryTransfersCountAsync(
+        string warehouseCode,
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var filter = BuildInventoryTransferFilter(warehouseCode, fromDate, toDate);
+        var url = $"StockTransfers/$count?$filter={filter}";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Failed to get inventory transfers count for warehouse {WarehouseCode}, returning 0", warehouseCode);
+            return 0;
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        return int.TryParse(content.Trim(), out var count) ? count : 0;
     }
 
     public async Task<InventoryTransfer?> GetInventoryTransferByDocEntryAsync(
@@ -1016,6 +1083,137 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var result = JsonSerializer.Deserialize<SAPResponse<Invoice>>(content);
 
         return result?.Value ?? new List<Invoice>();
+    }
+
+    public async Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, CancellationToken cancellationToken = default)
+    {
+        return await GetPagedInvoicesByOffsetAsync(skip, pageSize, null, null, null, null, cancellationToken);
+    }
+
+    public async Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var filters = new List<string>();
+        if (docNum.HasValue)
+            filters.Add($"DocNum eq {docNum.Value}");
+        if (!string.IsNullOrEmpty(cardCode))
+            filters.Add($"CardCode eq '{SanitizeODataValue(cardCode)}'");
+        if (fromDate.HasValue)
+            filters.Add($"DocDate ge '{fromDate.Value:yyyy-MM-dd}'");
+        if (toDate.HasValue)
+            filters.Add($"DocDate le '{toDate.Value:yyyy-MM-dd}'");
+
+        var filterClause = filters.Count > 0 ? $"$filter={string.Join(" and ", filters)}&" : "";
+        var selectClause = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled";
+
+        // SAP B1 Service Layer returns max 20 records per response by default.
+        // We must loop using odata.nextLink to get all requested records.
+        const int sapDefaultPageSize = 20;
+        var allInvoices = new List<Invoice>();
+        var currentSkip = skip;
+        var remaining = pageSize;
+
+        while (remaining > 0)
+        {
+            var url = $"Invoices?{filterClause}{selectClause}&$orderby=DocEntry desc&$top={remaining}&$skip={currentSkip}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", "odata.maxpagesize=500");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", "odata.maxpagesize=500");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get paged invoices by offset: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get invoices: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<Invoice>>(valueArray.GetRawText()) ?? new List<Invoice>();
+
+            if (pageItems.Count == 0)
+                break;
+
+            allInvoices.AddRange(pageItems);
+            currentSkip += pageItems.Count;
+            remaining -= pageItems.Count;
+
+            // Check if SAP indicates more data via odata.nextLink
+            var hasNextLink = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                              doc.RootElement.TryGetProperty("@odata.nextLink", out _);
+
+            // Stop if no more data: no nextLink AND returned fewer than SAP's page size
+            if (!hasNextLink && pageItems.Count < sapDefaultPageSize)
+                break;
+        }
+
+        return allInvoices;
+    }
+
+    public async Task<int> GetInvoicesCountAsync(int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var filters = new List<string>();
+        if (docNum.HasValue)
+            filters.Add($"DocNum eq {docNum.Value}");
+        if (!string.IsNullOrEmpty(cardCode))
+            filters.Add($"CardCode eq '{SanitizeODataValue(cardCode)}'");
+        if (fromDate.HasValue)
+            filters.Add($"DocDate ge '{fromDate.Value:yyyy-MM-dd}'");
+        if (toDate.HasValue)
+            filters.Add($"DocDate le '{toDate.Value:yyyy-MM-dd}'");
+
+        var url = "Invoices/$count";
+        if (filters.Count > 0)
+            url += "?$filter=" + string.Join(" and ", filters);
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Failed to get invoices count, returning 0");
+            return 0;
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (int.TryParse(content.Trim(), out var count))
+            return count;
+
+        return 0;
     }
 
     public async Task<Invoice?> GetInvoiceByVanSaleOrderAsync(
@@ -6261,7 +6459,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var url = "Orders?$orderby=DocEntry desc&$top=100";
+        var url = "Orders?$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,SalesPersonCode,DocCurrency,DocTotal,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled&$orderby=DocEntry desc&$top=100";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6294,11 +6492,16 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
     public async Task<List<SAPSalesOrder>> GetPagedSalesOrdersAsync(int page, int pageSize, CancellationToken cancellationToken = default)
     {
+        var skip = (page - 1) * pageSize;
+        return await GetPagedSalesOrdersByOffsetAsync(skip, pageSize, cancellationToken);
+    }
+
+    public async Task<List<SAPSalesOrder>> GetPagedSalesOrdersByOffsetAsync(int skip, int pageSize, CancellationToken cancellationToken = default)
+    {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var skip = (page - 1) * pageSize;
-        var url = $"Orders?$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+        var url = $"Orders?$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,SalesPersonCode,DocCurrency,DocTotal,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
         _logger.LogInformation("Fetching sales orders from SAP: {Url}", url);
 
@@ -6379,7 +6582,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var url = $"Orders?$filter=CardCode eq '{cardCode}'&$orderby=DocEntry desc";
+        var url = $"Orders?$filter=CardCode eq '{cardCode}'&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,SalesPersonCode,DocCurrency,DocTotal,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled&$orderby=DocEntry desc";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6424,7 +6627,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         while (hasMore)
         {
-            var url = $"Orders?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+            var url = $"Orders?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,SalesPersonCode,DocCurrency,DocTotal,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6472,15 +6675,89 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         return allOrders;
     }
 
+    private static string? BuildSalesOrderFilter(string? cardCode, DateTime? fromDate, DateTime? toDate, string? documentStatus, string? cancelled)
+    {
+        var filters = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(cardCode))
+            filters.Add($"CardCode eq '{SanitizeODataValue(cardCode)}'");
+
+        if (fromDate.HasValue)
+            filters.Add($"DocDate ge '{fromDate.Value:yyyy-MM-dd}'");
+
+        if (toDate.HasValue)
+            filters.Add($"DocDate le '{toDate.Value:yyyy-MM-dd}'");
+
+        if (!string.IsNullOrWhiteSpace(documentStatus))
+            filters.Add($"DocumentStatus eq '{documentStatus}'");
+
+        if (!string.IsNullOrWhiteSpace(cancelled))
+            filters.Add($"Cancelled eq '{cancelled}'");
+
+        return filters.Count == 0 ? null : string.Join(" and ", filters);
+    }
+
+    public async Task<List<SAPSalesOrder>> GetSalesOrderHeadersAsync(
+        string? cardCode = null,
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        int skip = 0,
+        int pageSize = 20,
+        string? documentStatus = null,
+        string? cancelled = null,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var filter = BuildSalesOrderFilter(cardCode, fromDate, toDate, documentStatus, cancelled);
+        var urlBuilder = new StringBuilder("Orders?");
+
+        if (!string.IsNullOrWhiteSpace(filter))
+        {
+            urlBuilder.Append("$filter=").Append(filter).Append('&');
+        }
+
+        urlBuilder.Append("$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,SalesPersonCode,DocCurrency,DocTotal,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled");
+        urlBuilder.Append("&$orderby=DocEntry desc");
+        urlBuilder.Append($"&$top={pageSize}&$skip={skip}");
+
+        var url = urlBuilder.ToString();
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get sales order headers: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            throw new Exception($"Failed to get sales order headers: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var result = JsonSerializer.Deserialize<SAPResponse<SAPSalesOrder>>(content);
+
+        return result?.Value ?? new List<SAPSalesOrder>();
+    }
+
     /// <summary>
     /// Get sales order headers only (no DocumentLines) for faster fulfillment reports.
     /// Uses $select to exclude DocumentLines, dramatically reducing response size.
     /// </summary>
     public async Task<List<SAPSalesOrder>> GetSalesOrderHeadersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
     {
-        await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
-
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
         var allOrders = new List<SAPSalesOrder>();
@@ -6490,35 +6767,12 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         while (hasMore)
         {
-            var url = $"Orders?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,DocTotal,DocCurrency,DocumentStatus,Cancelled&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
-
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-            var response = await _httpClient.SendAsync(request, cancellationToken);
-
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
-            {
-                await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-                request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                response = await _httpClient.SendAsync(request, cancellationToken);
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("Failed to get sales order headers: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get sales order headers: {response.StatusCode} - {errorContent}");
-            }
-
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            using var doc = JsonDocument.Parse(content);
-            var valueArray = doc.RootElement.GetProperty("value");
-            var pageItems = JsonSerializer.Deserialize<List<SAPSalesOrder>>(valueArray.GetRawText()) ?? new List<SAPSalesOrder>();
+            var pageItems = await GetSalesOrderHeadersAsync(
+                fromDate: fromDate,
+                toDate: toDate,
+                skip: skip,
+                pageSize: pageSize,
+                cancellationToken: cancellationToken);
 
             if (pageItems.Count == 0)
             {
@@ -6528,9 +6782,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 allOrders.AddRange(pageItems);
                 skip += pageItems.Count;
-                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
-                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
-                          pageItems.Count == pageSize;
+                hasMore = pageItems.Count == pageSize;
             }
         }
 
@@ -6538,22 +6790,16 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         return allOrders;
     }
 
-    public async Task<int> GetSalesOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
+    public async Task<int> GetSalesOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? documentStatus = null, string? cancelled = null, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var filters = new List<string>();
-        if (!string.IsNullOrEmpty(cardCode))
-            filters.Add($"CardCode eq '{cardCode}'");
-        if (fromDate.HasValue)
-            filters.Add($"DocDate ge '{fromDate.Value:yyyy-MM-dd}'");
-        if (toDate.HasValue)
-            filters.Add($"DocDate le '{toDate.Value:yyyy-MM-dd}'");
+        var filter = BuildSalesOrderFilter(cardCode, fromDate, toDate, documentStatus, cancelled);
 
         var url = "Orders/$count";
-        if (filters.Count > 0)
-            url += "?$filter=" + string.Join(" and ", filters);
+        if (!string.IsNullOrWhiteSpace(filter))
+            url += "?$filter=" + filter;
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -6582,6 +6828,81 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             return count;
 
         return 0;
+    }
+
+    public async Task<SAPSalesOrder> CreateSalesOrderAsync(ShopInventory.Models.Entities.SalesOrderEntity order, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var docCurrency = !string.IsNullOrWhiteSpace(order.Currency) && order.Currency != "USD"
+            ? order.Currency
+            : (string?)null;
+
+        var payload = new
+        {
+            CardCode = order.CardCode,
+            DocDate = order.OrderDate.ToString("yyyy-MM-dd"),
+            DocDueDate = order.DeliveryDate?.ToString("yyyy-MM-dd") ?? order.OrderDate.AddDays(30).ToString("yyyy-MM-dd"),
+            NumAtCard = order.CustomerRefNo,
+            Comments = order.Comments,
+            DocCurrency = docCurrency,
+            SalesPersonCode = order.SalesPersonCode,
+            DiscountPercent = order.DiscountPercent,
+            Address = order.ShipToAddress,
+            Address2 = order.BillToAddress,
+            DocumentLines = order.Lines.OrderBy(l => l.LineNum).Select((line, index) => new
+            {
+                LineNum = index,
+                ItemCode = line.ItemCode,
+                Quantity = line.Quantity,
+                UnitPrice = line.UnitPrice,
+                WarehouseCode = line.WarehouseCode,
+                DiscountPercent = line.DiscountPercent,
+                UoMCode = line.UoMCode
+            }).ToList()
+        };
+
+        var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
+        {
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        });
+
+        var httpContent = new StringContent(json, Encoding.UTF8, "application/json");
+
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, "Orders");
+        httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        httpRequest.Content = httpContent;
+
+        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            httpRequest = new HttpRequestMessage(HttpMethod.Post, "Orders");
+            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            httpRequest.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to create sales order in SAP: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            var sapError = ExtractSAPErrorMessage(errorContent);
+            throw new Exception(sapError ?? $"Failed to create sales order: {response.StatusCode} - {errorContent}");
+        }
+
+        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+        var sapOrder = JsonSerializer.Deserialize<SAPSalesOrder>(responseContent);
+
+        _logger.LogInformation("Sales order created in SAP with DocEntry: {DocEntry}, DocNum: {DocNum}",
+            sapOrder?.DocEntry, sapOrder?.DocNum);
+
+        return sapOrder ?? throw new Exception("Failed to deserialize created sales order from SAP");
     }
 
     #endregion
@@ -7286,9 +7607,24 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             var baseUrl = serviceLayerUrl.TrimEnd('/');
             var loginUrl = $"{baseUrl}/Login";
 
+            // Use the same certificate validation policy as the main SAP client
+            var allowedThumbprints = _settings.AllowedServerCertificateThumbprints
+                .Where(v => !string.IsNullOrWhiteSpace(v) && !v.StartsWith("${", StringComparison.Ordinal))
+                .Select(v => v.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
             using var testClient = new HttpClient(new HttpClientHandler
             {
-                ServerCertificateCustomValidationCallback = (_, _, _, _) => true
+                ServerCertificateCustomValidationCallback = (_, certificate, _, errors) =>
+                {
+                    if (errors == System.Net.Security.SslPolicyErrors.None)
+                        return true;
+
+                    var cert2 = certificate as System.Security.Cryptography.X509Certificates.X509Certificate2
+                        ?? (certificate != null ? new System.Security.Cryptography.X509Certificates.X509Certificate2(certificate) : null);
+                    var thumbprint = cert2?.Thumbprint?.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant();
+                    return !string.IsNullOrWhiteSpace(thumbprint) && allowedThumbprints.Contains(thumbprint);
+                }
             });
             testClient.Timeout = TimeSpan.FromSeconds(15);
 
@@ -7324,6 +7660,455 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             _logger.LogWarning(ex, "SAP connection test with custom credentials failed");
             return false;
         }
+    }
+
+    #endregion
+
+    #region SAP Attachment Operations
+
+    private const int ResourceTypeDisk = 0x00000001;
+    private const int ConnectTemporary = 0x00000004;
+    private const int NoError = 0;
+    private const int ErrorAlreadyAssigned = 85;
+    private const int ErrorAccessDenied = 5;
+    private const int ErrorSessionCredentialConflict = 1219;
+    private const int ErrorLogonFailure = 1326;
+    private const int ErrorNotConnected = 2250;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct NetResource
+    {
+        public int Scope;
+        public int Type;
+        public int DisplayType;
+        public int Usage;
+        public string? LocalName;
+        public string? RemoteName;
+        public string? Comment;
+        public string? Provider;
+    }
+
+    [DllImport("mpr.dll", CharSet = CharSet.Unicode)]
+    private static extern int WNetAddConnection2(ref NetResource netResource, string? password, string? username, int flags);
+
+    [DllImport("mpr.dll", CharSet = CharSet.Unicode)]
+    private static extern int WNetCancelConnection2(string name, int flags, bool force);
+
+    private sealed class SapShareConnection : IDisposable
+    {
+        private readonly string? _shareRoot;
+        private readonly ILogger _logger;
+        private readonly bool _disconnectOnDispose;
+
+        public SapShareConnection(string? shareRoot, ILogger logger, bool disconnectOnDispose)
+        {
+            _shareRoot = shareRoot;
+            _logger = logger;
+            _disconnectOnDispose = disconnectOnDispose;
+        }
+
+        public void Dispose()
+        {
+            if (!_disconnectOnDispose || string.IsNullOrWhiteSpace(_shareRoot) || !OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            var result = WNetCancelConnection2(_shareRoot, 0, true);
+            if (result != NoError && result != ErrorNotConnected)
+            {
+                _logger.LogDebug("WNetCancelConnection2({ShareRoot}) returned {ErrorCode}", _shareRoot, result);
+            }
+        }
+    }
+
+    private sealed class SapAttachmentFileInfo
+    {
+        public required string AttachmentsPath { get; init; }
+        public required string FileName { get; init; }
+        public required string FileExtension { get; init; }
+        public required string DestinationPath { get; init; }
+    }
+
+    private static string GetShareRoot(string uncPath)
+    {
+        if (!uncPath.StartsWith(@"\\", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"SAP attachments path '{uncPath}' is not a UNC path.");
+        }
+
+        var parts = uncPath.TrimStart('\\').Split('\\', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            throw new InvalidOperationException($"SAP attachments path '{uncPath}' is not a valid UNC share path.");
+        }
+
+        return $@"\\{parts[0]}\{parts[1]}";
+    }
+
+    private string? GetSapAttachmentsShareUsername()
+    {
+        if (string.IsNullOrWhiteSpace(_settings.AttachmentsUsername))
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_settings.AttachmentsDomain) &&
+            !_settings.AttachmentsUsername.Contains('\\') &&
+            !_settings.AttachmentsUsername.Contains('@'))
+        {
+            return $@"{_settings.AttachmentsDomain}\{_settings.AttachmentsUsername}";
+        }
+
+        return _settings.AttachmentsUsername;
+    }
+
+    private SapShareConnection ConnectToSapShareIfNeeded(string attachmentsPath)
+    {
+        var shareUsername = GetSapAttachmentsShareUsername();
+        if (string.IsNullOrWhiteSpace(shareUsername))
+        {
+            return new SapShareConnection(null, _logger, disconnectOnDispose: false);
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException(
+                "SAP attachment share credentials are only supported on Windows hosts.");
+        }
+
+        var shareRoot = GetShareRoot(attachmentsPath);
+        var resource = new NetResource
+        {
+            Type = ResourceTypeDisk,
+            RemoteName = shareRoot
+        };
+
+        var result = WNetAddConnection2(
+            ref resource,
+            string.IsNullOrWhiteSpace(_settings.AttachmentsPassword) ? null : _settings.AttachmentsPassword,
+            shareUsername,
+            ConnectTemporary);
+
+        if (result == NoError || result == ErrorAlreadyAssigned)
+        {
+            return new SapShareConnection(shareRoot, _logger, disconnectOnDispose: result == NoError);
+        }
+
+        var errorMessage = result switch
+        {
+            ErrorAccessDenied => "Access denied while authenticating to the SAP attachments share.",
+            ErrorLogonFailure => "The SAP attachments share username or password is invalid.",
+            ErrorSessionCredentialConflict =>
+                "Windows already has a connection to this share under different credentials for the current IIS worker session.",
+            _ => $"Failed to authenticate to SAP attachments share '{shareRoot}' (Win32 error {result})."
+        };
+
+        throw new InvalidOperationException(
+            errorMessage + " Configure SAP:AttachmentsUsername, SAP:AttachmentsPassword, and optionally SAP:AttachmentsDomain, or run the IIS app pool under an identity that has share access.");
+    }
+
+    private async Task<SapAttachmentFileInfo> CopyAttachmentToSapShareAsync(
+        Stream fileStream,
+        string fileName,
+        CancellationToken cancellationToken)
+    {
+        var attachmentsPath = _settings.AttachmentsPath;
+        if (string.IsNullOrWhiteSpace(attachmentsPath))
+        {
+            throw new InvalidOperationException(
+                "SAP AttachmentsPath is not configured. Set 'SAP:AttachmentsPath' in appsettings to the path " +
+                "accessible by both this API server and the SAP Service Layer (e.g. a shared network folder).");
+        }
+
+        var fileNameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
+        var fileExtension = Path.GetExtension(fileName).TrimStart('.');
+
+        if (string.IsNullOrWhiteSpace(fileNameWithoutExt))
+        {
+            fileNameWithoutExt = "attachment";
+        }
+
+        if (string.IsNullOrWhiteSpace(fileExtension))
+        {
+            throw new InvalidOperationException($"File '{fileName}' does not have a valid extension for SAP attachment upload.");
+        }
+
+        foreach (var invalidChar in Path.GetInvalidFileNameChars())
+        {
+            fileNameWithoutExt = fileNameWithoutExt.Replace(invalidChar, '_');
+        }
+
+        var uniqueFileName = $"{fileNameWithoutExt}_{DateTime.UtcNow:yyyyMMddHHmmss}";
+        var destinationPath = Path.Combine(attachmentsPath, $"{uniqueFileName}.{fileExtension}");
+
+        _logger.LogInformation("Copying attachment to SAP path: {DestPath}", destinationPath);
+
+        try
+        {
+            using var shareConnection = ConnectToSapShareIfNeeded(attachmentsPath);
+            Directory.CreateDirectory(attachmentsPath);
+
+            if (fileStream.CanSeek)
+            {
+                fileStream.Position = 0;
+            }
+
+            using var destinationStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
+            await fileStream.CopyToAsync(destinationStream, cancellationToken);
+
+            _logger.LogInformation("File copied successfully ({Size} bytes)", new FileInfo(destinationPath).Length);
+        }
+        catch (IOException ex)
+        {
+            _logger.LogError(ex, "Cannot write to SAP attachments path '{Path}'. " +
+                "Ensure the path is accessible from this server and the IIS app pool identity has write permissions.", attachmentsPath);
+
+            var additionalGuidance = ex.Message.Contains("guest access", StringComparison.OrdinalIgnoreCase)
+                ? " Guest access is blocked on this server. Configure SAP:AttachmentsUsername/SAP:AttachmentsPassword (and SAP:AttachmentsDomain if needed), or run the IIS app pool under a Windows identity that has access to the share."
+                : string.Empty;
+
+            throw new InvalidOperationException(
+                $"Cannot write to SAP attachments path '{attachmentsPath}'. " +
+                "Check that the network share exists and the app pool identity has write access." + additionalGuidance, ex);
+        }
+
+        return new SapAttachmentFileInfo
+        {
+            AttachmentsPath = attachmentsPath,
+            FileName = uniqueFileName,
+            FileExtension = fileExtension,
+            DestinationPath = destinationPath
+        };
+    }
+
+    private HttpRequestMessage CreateSapJsonRequest(HttpMethod method, string relativeUrl, string? jsonBody = null)
+    {
+        var request = new HttpRequestMessage(method, relativeUrl);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        if (jsonBody != null)
+        {
+            request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+        }
+
+        return request;
+    }
+
+    private static JsonObject CreateAttachmentLinePayload(SapAttachmentFileInfo fileInfo)
+    {
+        return new JsonObject
+        {
+            ["FileExtension"] = fileInfo.FileExtension,
+            ["FileName"] = fileInfo.FileName,
+            ["SourcePath"] = fileInfo.AttachmentsPath,
+            ["Override"] = "tYES"
+        };
+    }
+
+    private static JsonObject MapExistingAttachmentLine(JsonElement line)
+    {
+        string? GetString(string propertyName)
+        {
+            return line.TryGetProperty(propertyName, out var property) && property.ValueKind != JsonValueKind.Null
+                ? property.GetString()
+                : null;
+        }
+
+        var fileName = GetString("FileName");
+        var fileExtension = GetString("FileExtension");
+        var sourcePath = GetString("SourcePath");
+
+        if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(fileExtension) || string.IsNullOrWhiteSpace(sourcePath))
+        {
+            throw new InvalidOperationException("Existing SAP attachment line is missing required metadata.");
+        }
+
+        return new JsonObject
+        {
+            ["FileName"] = fileName,
+            ["FileExtension"] = fileExtension,
+            ["SourcePath"] = sourcePath,
+            ["Override"] = GetString("Override") ?? "tYES"
+        };
+    }
+
+    /// <summary>
+    /// Copies a file to the SAP attachments network share and creates an Attachments2 metadata
+    /// Uploads a file to SAP as an attachment via the Attachments2 JSON API.
+    /// 1. Copies the file to the configured SAP attachments path (shared folder)
+    /// 2. POSTs JSON metadata to Attachments2 with SourcePath so the SL picks it up
+    /// Returns the AbsoluteEntry of the created Attachments2 record.
+    /// </summary>
+    public async Task<int> UploadAttachmentToSAPAsync(Stream fileStream, string fileName, CancellationToken cancellationToken = default)
+    {
+        var fileInfo = await CopyAttachmentToSapShareAsync(fileStream, fileName, cancellationToken);
+
+        // 2. Create the Attachments2 record via Service Layer JSON POST
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var payload = new JsonObject
+        {
+            ["Attachments2_Lines"] = new JsonArray(CreateAttachmentLinePayload(fileInfo))
+        };
+
+        var json = payload.ToJsonString();
+
+        _logger.LogDebug("SAP Attachments2 POST payload: {Payload}", json);
+
+        var httpRequest = CreateSapJsonRequest(HttpMethod.Post, "Attachments2", json);
+
+        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            httpRequest = CreateSapJsonRequest(HttpMethod.Post, "Attachments2", json);
+            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to create SAP Attachments2 record: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            throw new Exception($"Failed to create SAP Attachments2 record: {response.StatusCode} - {errorContent}");
+        }
+
+        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+        _logger.LogDebug("SAP Attachments2 response: {Response}", responseContent);
+        using var doc = JsonDocument.Parse(responseContent);
+        var absoluteEntry = doc.RootElement.GetProperty("AbsoluteEntry").GetInt32();
+
+        _logger.LogInformation("SAP attachment created with AbsoluteEntry: {AbsoluteEntry} (file: {FileName}.{Ext})",
+            absoluteEntry, fileInfo.FileName, fileInfo.FileExtension);
+        return absoluteEntry;
+    }
+
+    /// <summary>
+    /// Appends a file to an existing Attachments2 record by extending its Attachments2_Lines collection.
+    /// </summary>
+    public async Task<int> AppendAttachmentToSAPAsync(int attachmentEntry, Stream fileStream, string fileName, CancellationToken cancellationToken = default)
+    {
+        var fileInfo = await CopyAttachmentToSapShareAsync(fileStream, fileName, cancellationToken);
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var getRequest = CreateSapJsonRequest(HttpMethod.Get, $"Attachments2({attachmentEntry})");
+        var getResponse = await _httpClient.SendAsync(getRequest, cancellationToken);
+
+        if (getResponse.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            getRequest = CreateSapJsonRequest(HttpMethod.Get, $"Attachments2({attachmentEntry})");
+            getResponse = await _httpClient.SendAsync(getRequest, cancellationToken);
+        }
+
+        if (!getResponse.IsSuccessStatusCode)
+        {
+            var errorContent = await getResponse.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError(
+                "Failed to load existing SAP attachment {AttachmentEntry}: {StatusCode} - {Error}",
+                attachmentEntry,
+                getResponse.StatusCode,
+                errorContent);
+            throw new Exception($"Failed to load existing SAP attachment {attachmentEntry}: {getResponse.StatusCode} - {errorContent}");
+        }
+
+        var existingAttachmentContent = await getResponse.Content.ReadAsStringAsync(cancellationToken);
+        using var existingAttachmentDocument = JsonDocument.Parse(existingAttachmentContent);
+
+        var attachmentLines = new JsonArray();
+
+        if (existingAttachmentDocument.RootElement.TryGetProperty("Attachments2_Lines", out var existingLines) &&
+            existingLines.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var line in existingLines.EnumerateArray())
+            {
+                attachmentLines.Add(MapExistingAttachmentLine(line));
+            }
+        }
+
+        attachmentLines.Add(CreateAttachmentLinePayload(fileInfo));
+
+        var patchPayload = new JsonObject
+        {
+            ["Attachments2_Lines"] = attachmentLines
+        }.ToJsonString();
+
+        _logger.LogDebug(
+            "SAP Attachments2 PATCH payload for {AttachmentEntry}: {Payload}",
+            attachmentEntry,
+            patchPayload);
+
+        var patchRequest = CreateSapJsonRequest(HttpMethod.Patch, $"Attachments2({attachmentEntry})", patchPayload);
+        var patchResponse = await _httpClient.SendAsync(patchRequest, cancellationToken);
+
+        if (patchResponse.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            patchRequest = CreateSapJsonRequest(HttpMethod.Patch, $"Attachments2({attachmentEntry})", patchPayload);
+            patchResponse = await _httpClient.SendAsync(patchRequest, cancellationToken);
+        }
+
+        if (!patchResponse.IsSuccessStatusCode)
+        {
+            var errorContent = await patchResponse.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError(
+                "Failed to append file to SAP attachment {AttachmentEntry}: {StatusCode} - {Error}",
+                attachmentEntry,
+                patchResponse.StatusCode,
+                errorContent);
+            throw new Exception($"Failed to append file to SAP attachment {attachmentEntry}: {patchResponse.StatusCode} - {errorContent}");
+        }
+
+        _logger.LogInformation(
+            "Appended file {FileName}.{FileExtension} to SAP attachment {AttachmentEntry}",
+            fileInfo.FileName,
+            fileInfo.FileExtension,
+            attachmentEntry);
+
+        return attachmentEntry;
+    }
+
+    /// <summary>
+    /// Links an SAP attachment to an invoice by PATCHing the AttachmentEntry field.
+    /// Use this only when the invoice does not already point to an Attachments2 record.
+    /// </summary>
+    public async Task LinkAttachmentToInvoiceAsync(int invoiceDocEntry, int attachmentEntry, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var patchPayload = JsonSerializer.Serialize(new { AttachmentEntry = attachmentEntry });
+
+        var httpRequest = CreateSapJsonRequest(HttpMethod.Patch, $"Invoices({invoiceDocEntry})", patchPayload);
+
+        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            httpRequest = CreateSapJsonRequest(HttpMethod.Patch, $"Invoices({invoiceDocEntry})", patchPayload);
+            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to link attachment {AttachmentEntry} to invoice {DocEntry}: {StatusCode} - {Error}",
+                attachmentEntry, invoiceDocEntry, response.StatusCode, errorContent);
+            throw new Exception($"Failed to link attachment to invoice: {response.StatusCode} - {errorContent}");
+        }
+
+        _logger.LogInformation("Linked SAP attachment {AttachmentEntry} to invoice {DocEntry} (HTTP {StatusCode})",
+            attachmentEntry, invoiceDocEntry, (int)response.StatusCode);
     }
 
     #endregion

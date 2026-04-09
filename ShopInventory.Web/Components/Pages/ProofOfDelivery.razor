@@ -2,12 +2,14 @@
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
-@attribute [Authorize(Roles = "Admin,Cashier,PodOperator")]
+@attribute [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
 @inject IPodService PodService
 @inject IInvoiceService InvoiceService
 @inject IJSRuntime JS
+@using ShopInventory.Web.Data
 @inject ILogger<ProofOfDelivery> Logger
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Proof of Delivery - Shop Inventory</PageTitle>
@@ -184,7 +186,7 @@
                             @if (isBulkValidating)
                             {
                                 <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                                <text>Validating...</text>
+                                <text>Validating @bulkValidationProgress</text>
                             }
                             else
                             {
@@ -1265,6 +1267,13 @@
     // Upload mode
     private UploadMode uploadMode = UploadMode.Single;
 
+    // Business partners excluded from POD uploads
+    private static readonly HashSet<string> ExcludedCardCodes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "STA040", "PRO033", "CAS004", "DON004", "PRO035",
+        "TEA006", "PRO031", "PRO032", "PRO034", "PRO036", "TEA007"
+    };
+
     // Single upload state
     private int? uploadDocNum;
     private int inputFileKey;
@@ -1284,6 +1293,7 @@
     private List<BulkFileMapping> bulkMappings = new();
     private string? bulkDescription;
     private bool isBulkValidating;
+    private string? bulkValidationProgress;
     private bool isBulkUploading;
     private string? bulkUploadProgress;
     private string? bulkMessage;
@@ -1435,6 +1445,11 @@
             {
                 lookupError = "Invoice not found";
             }
+            else if (ExcludedCardCodes.Contains(lookupInvoice.CardCode ?? ""))
+            {
+                lookupError = $"POD uploads are not required for {lookupInvoice.CardName} ({lookupInvoice.CardCode})";
+                lookupInvoice = null;
+            }
         }
         catch
         {
@@ -1493,6 +1508,8 @@
                 uploadMessage = total == 1
                     ? "POD uploaded successfully."
                     : $"All {successCount} PODs uploaded successfully.";
+                // Audit log: POD uploaded
+                await AuditService.LogAsync(AuditActions.UploadPod, "POD", lookupInvoice?.DocNum.ToString(), $"{successCount} file(s) for invoice #{lookupInvoice?.DocNum}", true);
                 selectedFiles.Clear();
                 inputFileKey++;
                 uploadDocNum = null;
@@ -1629,7 +1646,7 @@
     // ── Bulk Upload Methods ─────────────────────────────────
     private void OnBulkFilesSelected(InputFileChangeEventArgs e)
     {
-        bulkFiles = e.GetMultipleFiles(100).ToList();
+        bulkFiles = e.GetMultipleFiles(500).ToList();
         bulkMessage = null;
         bulkMappings = bulkFiles.Select(f => new BulkFileMapping
         {
@@ -1666,36 +1683,43 @@
                 .Distinct()
                 .ToList();
 
-            var invoiceCache = new Dictionary<int, InvoiceDto?>();
-            var podCountCache = new Dictionary<int, int>(); // DocEntry -> existing POD count
+            var invoiceCache = new System.Collections.Concurrent.ConcurrentDictionary<int, InvoiceDto?>();
 
-            foreach (var docNum in docNums)
+            // Validate in parallel (20 concurrent SAP lookups — these are lightweight GETs)
+            var validationSemaphore = new SemaphoreSlim(20, 20);
+            var validated = 0;
+            var totalToValidate = docNums.Count;
+            bulkValidationProgress = $"(0/{totalToValidate})";
+
+            var validationTasks = docNums.Select(async docNum =>
             {
+                await validationSemaphore.WaitAsync();
                 try
                 {
-                    var inv = await InvoiceService.GetInvoiceByDocNumAsync(docNum);
-                    invoiceCache[docNum] = inv;
-
-                    // Check for existing PODs on this invoice
-                    if (inv != null)
+                    try
                     {
-                        try
-                        {
-                            var existingPods = await PodService.GetInvoicePodsAsync(inv.DocEntry);
-                            podCountCache[inv.DocEntry] = existingPods?.TotalCount ?? 0;
-                        }
-                        catch
-                        {
-                            podCountCache[inv.DocEntry] = 0;
-                        }
+                        var inv = await InvoiceService.GetInvoiceByDocNumAsync(docNum);
+                        invoiceCache[docNum] = inv;
+                    }
+                    catch
+                    {
+                        invoiceCache[docNum] = null;
+                    }
+
+                    var done = Interlocked.Increment(ref validated);
+                    if (done % 10 == 0 || done == totalToValidate)
+                    {
+                        bulkValidationProgress = $"({done}/{totalToValidate})";
+                        await InvokeAsync(StateHasChanged);
                     }
                 }
-                catch
+                finally
                 {
-                    invoiceCache[docNum] = null;
+                    validationSemaphore.Release();
                 }
-                StateHasChanged();
-            }
+            }).ToArray();
+
+            await Task.WhenAll(validationTasks);
 
             foreach (var map in bulkMappings)
             {
@@ -1715,10 +1739,19 @@
 
                 if (invoiceCache.TryGetValue(map.DocNum.Value, out var invoice) && invoice != null)
                 {
-                    map.DocEntry = invoice.DocEntry;
-                    map.CardName = invoice.CardName;
-                    map.ExistingPodCount = podCountCache.GetValueOrDefault(invoice.DocEntry, 0);
-                    map.Status = map.ExistingPodCount > 0 ? BulkFileStatus.ValidWithWarning : BulkFileStatus.Valid;
+                    if (ExcludedCardCodes.Contains(invoice.CardCode ?? ""))
+                    {
+                        map.DocEntry = invoice.DocEntry;
+                        map.CardName = invoice.CardName;
+                        map.Status = BulkFileStatus.Error;
+                        map.ErrorMessage = $"Excluded BP ({invoice.CardCode})";
+                    }
+                    else
+                    {
+                        map.DocEntry = invoice.DocEntry;
+                        map.CardName = invoice.CardName;
+                        map.Status = BulkFileStatus.Valid;
+                    }
                 }
                 else
                 {
@@ -1727,26 +1760,17 @@
                 }
             }
 
-            var validCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Valid);
-            var warningCount = bulkMappings.Count(m => m.Status == BulkFileStatus.ValidWithWarning);
-            var readyCount = validCount + warningCount;
+            var readyCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Valid);
             var errorCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Error);
 
             if (readyCount > 0 && errorCount > 0)
             {
-                var msg = $"{readyCount} files ready, {errorCount} with errors.";
-                if (warningCount > 0)
-                    msg += $" {warningCount} invoice(s) already have PODs — uploading will add additional PODs.";
-                msg += " You can still upload the valid ones.";
-                bulkMessage = msg;
+                bulkMessage = $"{readyCount} files ready, {errorCount} with errors. You can still upload the valid ones.";
                 bulkSuccess = true;
             }
             else if (readyCount > 0)
             {
-                var msg = $"All {readyCount} files validated successfully.";
-                if (warningCount > 0)
-                    msg += $" Note: {warningCount} invoice(s) already have PODs — uploading will add additional PODs.";
-                bulkMessage = msg;
+                bulkMessage = $"All {readyCount} files validated successfully.";
                 bulkSuccess = true;
             }
             else
@@ -1779,47 +1803,63 @@
 
         try
         {
-            for (var i = 0; i < validMappings.Count; i++)
-            {
-                var map = validMappings[i];
-                map.Status = BulkFileStatus.Uploading;
-                bulkUploadProgress = $"({i + 1}/{validMappings.Count})";
-                StateHasChanged();
+            // Upload in parallel batches (5 concurrent uploads)
+            var uploadSemaphore = new SemaphoreSlim(5, 5);
+            var completed = 0;
 
+            var uploadTasks = validMappings.Select(async (map, i) =>
+            {
+                await uploadSemaphore.WaitAsync();
                 try
                 {
-                    using var stream = map.File.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
-                    var (success, message, _) = await PodService.UploadPodAsync(
-                        map.DocEntry!.Value, stream, map.File.Name, map.File.ContentType,
-                        bulkDescription, currentUsername);
+                    map.Status = BulkFileStatus.Uploading;
+                    await InvokeAsync(StateHasChanged);
 
-                    if (success)
+                    try
                     {
-                        map.Status = BulkFileStatus.Uploaded;
-                        successCount++;
+                        using var stream = map.File.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+                        var (success, message, _) = await PodService.UploadPodAsync(
+                            map.DocEntry!.Value, stream, map.File.Name, map.File.ContentType,
+                            bulkDescription, currentUsername);
+
+                        if (success)
+                        {
+                            map.Status = BulkFileStatus.Uploaded;
+                            Interlocked.Increment(ref successCount);
+                        }
+                        else
+                        {
+                            map.Status = BulkFileStatus.Error;
+                            map.ErrorMessage = message;
+                            Interlocked.Increment(ref failCount);
+                        }
                     }
-                    else
+                    catch (Exception ex)
                     {
                         map.Status = BulkFileStatus.Error;
-                        map.ErrorMessage = message;
-                        failCount++;
+                        map.ErrorMessage = "Upload failed";
+                        Interlocked.Increment(ref failCount);
+                        Logger.LogError(ex, "Bulk upload failed for {FileName}", map.FileName);
                     }
-                }
-                catch (Exception ex)
-                {
-                    map.Status = BulkFileStatus.Error;
-                    map.ErrorMessage = "Upload failed";
-                    failCount++;
-                    Logger.LogError(ex, "Bulk upload failed for {FileName}", map.FileName);
-                }
 
-                StateHasChanged();
-            }
+                    var done = Interlocked.Increment(ref completed);
+                    bulkUploadProgress = $"({done}/{validMappings.Count})";
+                    await InvokeAsync(StateHasChanged);
+                }
+                finally
+                {
+                    uploadSemaphore.Release();
+                }
+            }).ToArray();
+
+            await Task.WhenAll(uploadTasks);
 
             if (failCount == 0)
             {
                 bulkSuccess = true;
                 bulkMessage = $"All {successCount} PODs uploaded successfully!";
+                // Audit log: bulk POD upload
+                await AuditService.LogAsync(AuditActions.BulkUploadPod, "POD", null, $"{successCount} files uploaded", true);
                 currentPage = 1;
                 await LoadPods();
             }

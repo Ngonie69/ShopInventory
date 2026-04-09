@@ -9,6 +9,7 @@
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 @inject IAppSettingsProvider AppSettings
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Invoices - Shop Inventory</PageTitle>
@@ -1087,7 +1088,7 @@
         else if (invoices?.Any() == true)
         {
             <div class="inv-table-wrap">
-                <MudTable @ref="@_table" Items="@invoices" RowsPerPage="15" Hover="true" Dense="true"
+                <MudTable @ref="@_table" Items="@invoices" RowsPerPage="@_pageSize" Hover="true" Dense="true"
                           Breakpoint="Breakpoint.Sm" LoadingProgressColor="Color.Primary"
                           Filter="new Func<InvoiceDto, bool>(_quickFilter)" OnRowClick="@OnInvoiceRowClicked" T="InvoiceDto"
                           Elevation="0">
@@ -1133,9 +1134,21 @@
                                 </MudTd>
                             </RowTemplate>
                             <PagerContent>
-                                <MudPagination SelectedChanged="PageChanged"
-                                               Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
-                                               Class="pa-4" />
+                                <div class="pager-row">
+                                    <div class="page-size-wrap">
+                                        <span>Show</span>
+                                        <select @bind="_pageSize">
+                                            <option value="10">10</option>
+                                            <option value="25">25</option>
+                                            <option value="50">50</option>
+                                            <option value="100">100</option>
+                                        </select>
+                                        <span>per page</span>
+                                    </div>
+                                    <MudPagination SelectedChanged="PageChanged"
+                                                   Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
+                                                   Class="pa-4" />
+                                </div>
                             </PagerContent>
                         </MudTable>
                     </div>
@@ -1269,7 +1282,8 @@
                     </div>
                 </div>
                 <div class="drawer-footer">
-                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="DownloadInvoicePdf" Disabled="@isPdfLoading">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="DownloadInvoicePdf"
+                               Disabled="@isPdfLoading">
                         <i class="bi bi-download me-1"></i> Download PDF
                     </MudButton>
                     <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="PrintInvoicePdf" Disabled="@isPdfLoading">
@@ -1486,6 +1500,7 @@
 
 @code {
     private MudTable<InvoiceDto>? _table;
+    private int _pageSize = 10;
     private List<InvoiceDto>? invoices;
     private List<InvoiceDto>? allInvoices;
     private InvoiceDto? selectedInvoice;
@@ -1555,6 +1570,7 @@
     {
         pageSize = AppSettings.PageSize;
         await LoadInvoices();
+        await AuditService.LogAsync(AuditActions.ViewInvoices, "Invoice", null);
     }
 
     private string FormatDate(string? dateStr)
@@ -1572,17 +1588,20 @@
 
         try
         {
-            var response = await InvoiceService.GetInvoicesAsync(currentPage, pageSize);
+            var hasFilters = docNumSearch.HasValue || !string.IsNullOrWhiteSpace(customerCode) || fromDate.HasValue ||
+toDate.HasValue;
+            var effectivePageSize = hasFilters ? 5000 : 100;
+
+            var response = await InvoiceService.GetInvoicesAsync(currentPage, effectivePageSize, docNumSearch, customerCode,
+fromDate,
+toDate);
             if (response != null)
             {
                 invoices = response.Invoices;
                 allInvoices = response.Invoices;
                 hasMore = response.HasMore;
-                totalCount = response.Count;
-                if (hasMore)
-                    totalPages = Math.Max(totalPages, currentPage + 1);
-                else
-                    totalPages = currentPage;
+                totalCount = response.TotalCount > 0 ? response.TotalCount : response.Count;
+                totalPages = response.TotalPages > 0 ? response.TotalPages : (hasMore ? currentPage + 1 : currentPage);
             }
             else
             {
@@ -1596,20 +1615,6 @@
         finally
         {
             isLoading = false;
-        }
-    }
-
-    private async Task LoadAllInvoicesIfNeeded()
-    {
-        if (allInvoices == null || allInvoices.Count < 100)
-        {
-            try
-            {
-                var response = await InvoiceService.GetInvoicesAsync(1, 1000);
-                if (response?.Invoices != null)
-                    allInvoices = response.Invoices;
-            }
-            catch { /* Keep existing data */ }
         }
     }
 
@@ -1642,27 +1647,15 @@
         if (!docNumSearch.HasValue || docNumSearch.Value == 0)
         {
             if (string.IsNullOrWhiteSpace(customerCode))
+            {
+                docNumSearch = null;
                 await LoadInvoices();
+            }
             return;
         }
 
-        isLoading = true;
-        StateHasChanged();
-        try
-        {
-            await LoadAllInvoicesIfNeeded();
-            if (allInvoices != null)
-            {
-                var searchNum = docNumSearch.Value.ToString();
-                invoices = allInvoices.Where(i => i.DocNum.ToString().Contains(searchNum)).ToList();
-                hasMore = false;
-            }
-        }
-        finally
-        {
-            isLoading = false;
-            StateHasChanged();
-        }
+        currentPage = 1;
+        await LoadInvoices();
     }
 
     private async Task FilterByCustomerCode()
@@ -1670,76 +1663,21 @@
         if (string.IsNullOrWhiteSpace(customerCode))
         {
             if (!docNumSearch.HasValue)
+            {
+                customerCode = null;
                 await LoadInvoices();
+            }
             return;
         }
 
-        isLoading = true;
-        StateHasChanged();
-        try
-        {
-            await LoadAllInvoicesIfNeeded();
-            if (allInvoices != null)
-            {
-                var searchCode = customerCode.ToUpper();
-                invoices = allInvoices
-                .Where(i => (i.CardCode?.ToUpper().Contains(searchCode) ?? false) ||
-                (i.CardName?.ToUpper().Contains(searchCode) ?? false))
-                .ToList();
-                hasMore = false;
-            }
-        }
-        finally
-        {
-            isLoading = false;
-            StateHasChanged();
-        }
+        currentPage = 1;
+        await LoadInvoices();
     }
 
     private async Task ApplyFilter()
     {
-        isLoading = true;
-        errorMessage = null;
-
-        try
-        {
-            if (docNumSearch.HasValue)
-            {
-                var response = await InvoiceService.GetInvoicesAsync(1, 1000);
-                if (response?.Invoices != null)
-                {
-                    invoices = response.Invoices.Where(i => i.DocNum == docNumSearch.Value).ToList();
-                    hasMore = false;
-                }
-            }
-            else if (!string.IsNullOrWhiteSpace(customerCode))
-            {
-                var response = await InvoiceService.GetInvoicesByCustomerAsync(customerCode);
-                invoices = response?.Invoices;
-            }
-            else if (fromDate.HasValue && toDate.HasValue)
-            {
-                var response = await InvoiceService.GetInvoicesByDateRangeAsync(fromDate.Value, toDate.Value);
-                invoices = response?.Invoices;
-            }
-            else if (fromDate.HasValue)
-            {
-                var response = await InvoiceService.GetInvoicesByDateAsync(fromDate.Value);
-                invoices = response?.Invoices;
-            }
-            else
-            {
-                await LoadInvoices();
-            }
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"Error: {ex.Message}";
-        }
-        finally
-        {
-            isLoading = false;
-        }
+        currentPage = 1;
+        await LoadInvoices();
     }
 
     private async Task ClearFilter()
@@ -1758,7 +1696,10 @@
     {
         selectedInvoice = await InvoiceService.GetInvoiceByDocEntryAsync(docEntry);
         if (selectedInvoice != null)
+        {
             existingCreditNotes = await CreditNoteService.GetCreditNotesForInvoiceAsync(docEntry);
+            await AuditService.LogAsync(AuditActions.ViewInvoice, "Invoice", docEntry.ToString());
+        }
     }
 
     private void CloseModal()
@@ -1786,6 +1727,7 @@
             var base64 = Convert.ToBase64String(pdfBytes);
             var fileName = $"Invoice_{selectedInvoice.DocNum}.pdf";
             await JS.InvokeVoidAsync("downloadPdfFromBase64", base64, fileName);
+            await AuditService.LogAsync(AuditActions.DownloadInvoicePdf, "Invoice", selectedInvoice.DocNum.ToString());
         }
         catch (Exception ex)
         {
@@ -1811,6 +1753,7 @@
             }
             var base64 = Convert.ToBase64String(pdfBytes);
             await JS.InvokeVoidAsync("printPdfFromBase64", base64, 1);
+            await AuditService.LogAsync(AuditActions.PrintInvoicePdf, "Invoice", selectedInvoice.DocNum.ToString());
         }
         catch (Exception ex)
         {

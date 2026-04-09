@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Hosting;
 using ShopInventory.Models;
 
 namespace ShopInventory.Data;
@@ -11,7 +12,7 @@ public static class DbInitializer
     /// <summary>
     /// Initialize the database with seed data
     /// </summary>
-    public static async Task InitializeAsync(ApplicationDbContext context, ILogger logger)
+    public static async Task InitializeAsync(ApplicationDbContext context, ILogger logger, IWebHostEnvironment environment)
     {
         // Ensure database is created and migrations are applied
         // Skip migration if there are pending model changes (dev mode)
@@ -30,6 +31,12 @@ public static class DbInitializer
         if (await context.Users.AnyAsync())
         {
             logger.LogInformation("Database already seeded with users");
+            return;
+        }
+
+        if (!environment.IsDevelopment())
+        {
+            logger.LogWarning("Database contains no users. Default credentials are seeded only in Development.");
             return;
         }
 

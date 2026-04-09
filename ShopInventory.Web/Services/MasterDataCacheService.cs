@@ -530,7 +530,6 @@ public class MasterDataCacheService : IMasterDataCacheService
 
         // Ensure auth header is set before API call
         await EnsureAuthenticationAsync();
-        _logger.LogDebug("HttpClient Auth Header: {Auth}", _httpClient.DefaultRequestHeaders.Authorization?.ToString() ?? "NOT SET");
 
         // Use cached endpoint - prices are synced from SAP every 5 minutes by the API
         var httpResponse = await _httpClient.GetAsync("api/price/cached");

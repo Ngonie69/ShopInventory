@@ -31,7 +31,7 @@ public class SalesOrderController : ControllerBase
     /// Get all sales orders with pagination and filtering
     /// </summary>
     [HttpGet]
-    [RequirePermission(Permission.ViewInvoices)]
+    [RequirePermission(Permission.ViewSalesOrders)]
     [ProducesResponseType(typeof(SalesOrderListResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAll(
         [FromQuery] int page = 1,
@@ -40,9 +40,10 @@ public class SalesOrderController : ControllerBase
         [FromQuery] string? cardCode = null,
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null,
+        [FromQuery] SalesOrderSource? source = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await _salesOrderService.GetAllAsync(page, pageSize, status, cardCode, fromDate, toDate, cancellationToken);
+        var result = await _salesOrderService.GetAllAsync(page, pageSize, status, cardCode, fromDate, toDate, source, cancellationToken);
         return Ok(result);
     }
 
@@ -50,7 +51,7 @@ public class SalesOrderController : ControllerBase
     /// Get sales order by ID
     /// </summary>
     [HttpGet("{id}")]
-    [RequirePermission(Permission.ViewInvoices)]
+    [RequirePermission(Permission.ViewSalesOrders)]
     [ProducesResponseType(typeof(SalesOrderDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
@@ -66,7 +67,7 @@ public class SalesOrderController : ControllerBase
     /// Get sales order by order number
     /// </summary>
     [HttpGet("number/{orderNumber}")]
-    [RequirePermission(Permission.ViewInvoices)]
+    [RequirePermission(Permission.ViewSalesOrders)]
     [ProducesResponseType(typeof(SalesOrderDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetByOrderNumber(string orderNumber, CancellationToken cancellationToken)
@@ -82,7 +83,7 @@ public class SalesOrderController : ControllerBase
     /// Create a new sales order
     /// </summary>
     [HttpPost]
-    [RequirePermission(Permission.CreateInvoices)]
+    [RequirePermission(Permission.CreateSalesOrders)]
     [ProducesResponseType(typeof(SalesOrderDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Create([FromBody] CreateSalesOrderRequest request, CancellationToken cancellationToken)
@@ -108,13 +109,14 @@ public class SalesOrderController : ControllerBase
     }
 
     /// <summary>
-    /// Update a sales order
+    /// Update a sales order (Draft only)
     /// </summary>
     [HttpPut("{id}")]
-    [RequirePermission(Permission.EditInvoices)]
+    [RequirePermission(Permission.EditSalesOrders)]
     [ProducesResponseType(typeof(SalesOrderDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Update(int id, [FromBody] CreateSalesOrderRequest request, CancellationToken cancellationToken)
     {
         if (!ModelState.IsValid)
@@ -124,6 +126,10 @@ public class SalesOrderController : ControllerBase
         {
             var order = await _salesOrderService.UpdateAsync(id, request, cancellationToken);
             return Ok(order);
+        }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
+        {
+            return Conflict(new ErrorResponseDto { Message = "This order was modified by another user. Please reload and try again." });
         }
         catch (InvalidOperationException ex)
         {
@@ -135,7 +141,7 @@ public class SalesOrderController : ControllerBase
     /// Update sales order status
     /// </summary>
     [HttpPatch("{id}/status")]
-    [RequirePermission(Permission.EditInvoices)]
+    [RequirePermission(Permission.EditSalesOrders)]
     [ProducesResponseType(typeof(SalesOrderDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateSalesOrderStatusRequest request, CancellationToken cancellationToken)
@@ -159,7 +165,7 @@ public class SalesOrderController : ControllerBase
     /// Approve a sales order
     /// </summary>
     [HttpPost("{id}/approve")]
-    [RequirePermission(Permission.EditInvoices)]
+    [RequirePermission(Permission.ApproveSalesOrders)]
     [ProducesResponseType(typeof(SalesOrderDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Approve(int id, CancellationToken cancellationToken)
@@ -204,10 +210,41 @@ public class SalesOrderController : ControllerBase
     }
 
     /// <summary>
+    /// Post an approved sales order to SAP Business One
+    /// </summary>
+    [HttpPost("{id}/post-to-sap")]
+    [RequirePermission(Permission.PostSalesOrdersToSAP)]
+    [ProducesResponseType(typeof(SalesOrderDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status502BadGateway)]
+    public async Task<IActionResult> PostToSAP(int id, CancellationToken cancellationToken)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null)
+            return Unauthorized();
+
+        try
+        {
+            var order = await _salesOrderService.PostToSAPAsync(id, userId.Value, cancellationToken);
+            return Ok(order);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new ErrorResponseDto { Message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error posting sales order {Id} to SAP", id);
+            return StatusCode(502, new ErrorResponseDto { Message = $"Failed to post to SAP: {ex.Message}" });
+        }
+    }
+
+    /// <summary>
     /// Delete a sales order
     /// </summary>
     [HttpDelete("{id}")]
-    [RequirePermission(Permission.DeleteInvoices)]
+    [RequirePermission(Permission.DeleteSalesOrders)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

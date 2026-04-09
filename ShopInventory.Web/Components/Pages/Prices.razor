@@ -5,6 +5,7 @@
 @inject IMasterDataCacheService CacheService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject ILogger<Prices> Logger
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Price List - Shop Inventory</PageTitle>
@@ -285,6 +286,7 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadPriceLists();
+        await AuditService.LogAsync(AuditActions.ViewPrices, "PriceList", null);
     }
 
     private async Task EnsureAuthenticatedAsync()

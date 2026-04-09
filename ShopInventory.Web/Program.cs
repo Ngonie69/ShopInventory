@@ -9,6 +9,7 @@ using ShopInventory.Web.Components;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Middleware;
 using ShopInventory.Web.Services;
+using System.Net;
 using System.IO.Compression;
 
 // Configure Serilog
@@ -23,6 +24,15 @@ try
     Log.Information("Starting ShopInventory Web Application");
 
     var builder = WebApplication.CreateBuilder(args);
+
+    var customerPortalJwtSecret = builder.Configuration["CustomerPortal:JwtSecret"] ?? builder.Configuration["Jwt:SecretKey"];
+    if (string.IsNullOrWhiteSpace(customerPortalJwtSecret) ||
+        customerPortalJwtSecret.StartsWith("${", StringComparison.Ordinal) ||
+        customerPortalJwtSecret.Length < 32)
+    {
+        throw new InvalidOperationException(
+            "Customer portal JWT secret is missing or invalid. Configure CustomerPortal:JwtSecret with a secret of at least 32 characters.");
+    }
 
     // Use Serilog
     builder.Host.UseSerilog();
@@ -50,8 +60,8 @@ try
             // so a 5MB file at 32KB = ~160 round trips vs ~5 at 1MB.
             options.MaximumReceiveMessageSize = 1024 * 1024; // 1 MB
 
-            // Limit concurrent invocations per circuit to prevent a single client from monopolising threads.
-            options.MaximumParallelInvocationsPerClient = 2;
+            // Allow enough parallel invocations for bulk POD uploads (5 concurrent file reads + UI updates).
+            options.MaximumParallelInvocationsPerClient = 10;
         });
 
     // Add MudBlazor services
@@ -147,6 +157,9 @@ try
     builder.Services.AddScoped<ICreditNoteService, CreditNoteService>();
     builder.Services.AddScoped<IQuotationService, QuotationService>();
 
+    // Add Merchandiser service
+    builder.Services.AddScoped<IMerchandiserService, MerchandiserService>();
+
     // Add System services (Exchange Rates, Backups, Webhooks)
     builder.Services.AddScoped<IExchangeRateService, ExchangeRateService>();
     builder.Services.AddScoped<IBackupService, BackupService>();
@@ -188,12 +201,20 @@ try
     // Configure forwarded headers for IIS behind reverse proxy
     // This ensures the app correctly detects HTTPS scheme and client IP
     // when behind a load balancer or reverse proxy that terminates SSL
+    var knownReverseProxies = builder.Configuration.GetSection("ReverseProxy:KnownProxies").Get<string[]>() ?? [];
     builder.Services.Configure<ForwardedHeadersOptions>(options =>
     {
         options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
-        // Trust the reverse proxy - clear default restrictions
-        options.KnownNetworks.Clear();
-        options.KnownProxies.Clear();
+        options.ForwardLimit = 1;
+        options.RequireHeaderSymmetry = true;
+
+        foreach (var proxy in knownReverseProxies)
+        {
+            if (IPAddress.TryParse(proxy, out var address))
+            {
+                options.KnownProxies.Add(address);
+            }
+        }
     });
 
     var app = builder.Build();

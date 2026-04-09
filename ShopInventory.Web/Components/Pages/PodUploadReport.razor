@@ -2,7 +2,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
-@attribute [Authorize(Roles = "Admin,Cashier,PodOperator")]
+@attribute [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
 @inject IPodService PodService
 @inject IReportExportService ExportService
 @inject IAppSettingsProvider AppSettings

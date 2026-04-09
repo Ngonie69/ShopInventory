@@ -108,24 +108,24 @@ public class CreditNoteService : ICreditNoteService
             {
                 sapCreditNotes = await _sapClient.GetCreditNotesByCustomerAsync(cardCode, fromDate.Value, toDate.Value, cancellationToken);
                 totalCount = sapCreditNotes.Count;
-                sapCreditNotes = sapCreditNotes.Skip((page - 1) * pageSize).Take(pageSize).ToList();
             }
             else if (!string.IsNullOrEmpty(cardCode))
             {
                 sapCreditNotes = await _sapClient.GetCreditNotesByCustomerAsync(cardCode, cancellationToken);
                 totalCount = sapCreditNotes.Count;
-                sapCreditNotes = sapCreditNotes.Skip((page - 1) * pageSize).Take(pageSize).ToList();
             }
             else if (fromDate.HasValue && toDate.HasValue)
             {
                 sapCreditNotes = await _sapClient.GetCreditNotesByDateRangeAsync(fromDate.Value, toDate.Value, cancellationToken);
                 totalCount = sapCreditNotes.Count;
-                sapCreditNotes = sapCreditNotes.Skip((page - 1) * pageSize).Take(pageSize).ToList();
             }
             else
             {
-                sapCreditNotes = await _sapClient.GetPagedCreditNotesAsync(page, pageSize, cancellationToken);
-                totalCount = await _sapClient.GetCreditNotesCountAsync(cardCode, fromDate, toDate, cancellationToken);
+                // No filters at all - use date range default to avoid fetching entire SAP dataset
+                var defaultFrom = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+                var defaultTo = DateTime.Today;
+                sapCreditNotes = await _sapClient.GetCreditNotesByDateRangeAsync(defaultFrom, defaultTo, cancellationToken);
+                totalCount = sapCreditNotes.Count;
             }
 
             return new CreditNoteListResponseDto
@@ -148,8 +148,6 @@ public class CreditNoteService : ICreditNoteService
         string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
     {
         var query = _context.CreditNotes
-            .Include(c => c.Lines)
-            .Include(c => c.CreatedByUser)
             .AsNoTracking()
             .AsQueryable();
 
@@ -170,6 +168,55 @@ public class CreditNoteService : ICreditNoteService
             .OrderByDescending(c => c.CreditNoteDate)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
+            .Select(c => new CreditNoteDto
+            {
+                Id = c.Id,
+                SAPDocEntry = c.SAPDocEntry,
+                SAPDocNum = c.SAPDocNum,
+                CreditNoteNumber = c.CreditNoteNumber,
+                CreditNoteDate = c.CreditNoteDate,
+                CardCode = c.CardCode,
+                CardName = c.CardName,
+                Type = c.Type,
+                Status = c.Status,
+                OriginalInvoiceId = c.OriginalInvoiceId,
+                OriginalInvoiceDocEntry = c.OriginalInvoiceDocEntry,
+                Reason = c.Reason,
+                Comments = c.Comments,
+                Currency = c.Currency,
+                ExchangeRate = c.ExchangeRate,
+                SubTotal = c.SubTotal,
+                TaxAmount = c.TaxAmount,
+                DocTotal = c.DocTotal,
+                AppliedAmount = c.AppliedAmount,
+                Balance = c.Balance,
+                RestockItems = c.RestockItems,
+                RestockWarehouseCode = c.RestockWarehouseCode,
+                CreatedByUserId = c.CreatedByUserId,
+                CreatedByUserName = c.CreatedByUser != null ? c.CreatedByUser.Username : null,
+                ApprovedByUserId = c.ApprovedByUserId,
+                ApprovedByUserName = c.ApprovedByUser != null ? c.ApprovedByUser.Username : null,
+                ApprovedDate = c.ApprovedDate,
+                CreatedAt = c.CreatedAt,
+                UpdatedAt = c.UpdatedAt,
+                IsSynced = c.IsSynced,
+                Lines = c.Lines.Select(l => new CreditNoteLineDto
+                {
+                    Id = l.Id,
+                    LineNum = l.LineNum,
+                    ItemCode = l.ItemCode,
+                    ItemDescription = l.ItemDescription,
+                    Quantity = l.Quantity,
+                    UnitPrice = l.UnitPrice,
+                    DiscountPercent = l.DiscountPercent,
+                    TaxPercent = l.TaxPercent,
+                    LineTotal = l.LineTotal,
+                    WarehouseCode = l.WarehouseCode,
+                    ReturnReason = l.ReturnReason,
+                    BatchNumber = l.BatchNumber,
+                    IsRestocked = l.IsRestocked
+                }).ToList()
+            })
             .ToListAsync(cancellationToken);
 
         return new CreditNoteListResponseDto
@@ -178,7 +225,7 @@ public class CreditNoteService : ICreditNoteService
             PageSize = pageSize,
             TotalCount = totalCount,
             TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
-            CreditNotes = creditNotes.Select(MapToDto).ToList()
+            CreditNotes = creditNotes
         };
     }
 

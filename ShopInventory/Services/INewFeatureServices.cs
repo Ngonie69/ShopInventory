@@ -11,7 +11,8 @@ public interface ISalesOrderService
     Task<SalesOrderDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
     Task<SalesOrderDto?> GetByOrderNumberAsync(string orderNumber, CancellationToken cancellationToken = default);
     Task<SalesOrderListResponseDto> GetAllAsync(int page, int pageSize, SalesOrderStatus? status = null,
-        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
+        SalesOrderSource? source = null, CancellationToken cancellationToken = default);
     Task<SalesOrderDto> CreateAsync(CreateSalesOrderRequest request, Guid userId, CancellationToken cancellationToken = default);
     Task<SalesOrderDto> UpdateAsync(int id, CreateSalesOrderRequest request, CancellationToken cancellationToken = default);
     Task<SalesOrderDto> UpdateStatusAsync(int id, SalesOrderStatus status, Guid userId, string? comments = null, CancellationToken cancellationToken = default);
@@ -21,6 +22,7 @@ public interface ISalesOrderService
     Task<SalesOrderDto?> GetByIdFromLocalAsync(int id, CancellationToken cancellationToken = default);
     Task<SalesOrderDto> MarkAsFulfilledAsync(int id, int? invoiceId, CancellationToken cancellationToken = default);
     Task<string> GenerateOrderNumberAsync(CancellationToken cancellationToken = default);
+    Task<SalesOrderDto> PostToSAPAsync(int id, Guid userId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

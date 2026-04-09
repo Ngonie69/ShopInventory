@@ -25,6 +25,18 @@ public class InvoiceController : ControllerBase
     private readonly SAPSettings _settings;
     private readonly ILogger<InvoiceController> _logger;
 
+    /// <summary>
+    /// Business partners excluded from POD uploads (internal/intercompany accounts).
+    /// </summary>
+    private static readonly HashSet<string> ExcludedPodCardCodes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CIS006", "MAC009", "MAC006", "COR007", "COR006", "COR008",
+        "VAN008", "VAN009", "VAN010", "VAN011", "VAN012", "VAN013",
+        "VAN014", "VAN015", "VAN016", "VAN017", "VAN018", "VAN019", "VAN020",
+        "STA040", "PRO033", "CAS004", "DON004", "PRO035",
+        "TEA006", "PRO031", "PRO032", "PRO034", "PRO036", "TEA007"
+    };
+
     public InvoiceController(
         ISAPServiceLayerClient sapClient,
         IStockValidationService stockValidation,
@@ -684,6 +696,11 @@ public class InvoiceController : ControllerBase
     /// Gets all invoices for a specific customer
     /// </summary>
     /// <param name="cardCode">The customer code</param>
+    /// <param name="fromDate">Optional start date filter</param>
+    /// <param name="toDate">Optional end date filter</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <param name="page">Optional page number for paged results</param>
+    /// <param name="pageSize">Optional page size for paged results</param>
     /// <returns>List of invoices</returns>
     [HttpGet("customer/{cardCode}")]
     [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
@@ -694,7 +711,9 @@ public class InvoiceController : ControllerBase
         string cardCode,
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null)
     {
         try
         {
@@ -708,24 +727,75 @@ public class InvoiceController : ControllerBase
                 return BadRequest(new ErrorResponseDto { Message = "Customer code is required" });
             }
 
+            var filterFromDate = fromDate.HasValue && toDate.HasValue ? fromDate : null;
+            var filterToDate = fromDate.HasValue && toDate.HasValue ? toDate : null;
+            var usePagination = page.HasValue || pageSize.HasValue;
+
             List<Invoice> invoices;
-            if (fromDate.HasValue && toDate.HasValue)
+            int currentPage;
+            int currentPageSize;
+            int totalCount;
+            int totalPages;
+            bool hasMore;
+
+            if (usePagination)
             {
-                invoices = await _sapClient.GetInvoicesByCustomerAsync(cardCode, fromDate.Value, toDate.Value, cancellationToken);
+                currentPage = Math.Max(page ?? 1, 1);
+                currentPageSize = Math.Clamp(pageSize ?? 20, 1, 100);
+                var skip = (currentPage - 1) * currentPageSize;
+
+                invoices = await _sapClient.GetPagedInvoicesByOffsetAsync(
+                    skip,
+                    currentPageSize,
+                    null,
+                    cardCode,
+                    filterFromDate,
+                    filterToDate,
+                    cancellationToken);
+
+                totalCount = await _sapClient.GetInvoicesCountAsync(
+                    null,
+                    cardCode,
+                    filterFromDate,
+                    filterToDate,
+                    cancellationToken);
+                totalPages = currentPageSize > 0 ? (int)Math.Ceiling(totalCount / (double)currentPageSize) : 1;
+                hasMore = (currentPage * currentPageSize) < totalCount;
+            }
+            else if (filterFromDate.HasValue && filterToDate.HasValue)
+            {
+                invoices = await _sapClient.GetInvoicesByCustomerAsync(cardCode, filterFromDate.Value, filterToDate.Value, cancellationToken);
+                currentPage = 1;
+                currentPageSize = invoices.Count;
+                totalCount = invoices.Count;
+                totalPages = invoices.Count > 0 ? 1 : 0;
+                hasMore = false;
             }
             else
             {
                 invoices = await _sapClient.GetInvoicesByCustomerAsync(cardCode, cancellationToken);
+                currentPage = 1;
+                currentPageSize = invoices.Count;
+                totalCount = invoices.Count;
+                totalPages = invoices.Count > 0 ? 1 : 0;
+                hasMore = false;
             }
 
             _logger.LogInformation("Retrieved {Count} invoices for customer {CardCode}",
                 invoices.Count, cardCode);
 
-            return Ok(new
+            return Ok(new InvoiceDateResponseDto
             {
-                customer = cardCode,
-                count = invoices.Count,
-                invoices = invoices.ToDto()
+                Customer = cardCode,
+                FromDate = filterFromDate?.ToString("yyyy-MM-dd"),
+                ToDate = filterToDate?.ToString("yyyy-MM-dd"),
+                Page = currentPage,
+                PageSize = currentPageSize,
+                Count = invoices.Count,
+                TotalCount = totalCount,
+                TotalPages = totalPages,
+                HasMore = hasMore,
+                Invoices = invoices.ToDto()
             });
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
@@ -798,7 +868,7 @@ public class InvoiceController : ControllerBase
     /// <param name="file">The POD file (image or PDF)</param>
     /// <param name="description">Optional description</param>
     [HttpPost("{docEntry:int}/pod")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver")]
     [ProducesResponseType(typeof(DocumentAttachmentDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
@@ -825,6 +895,25 @@ public class InvoiceController : ControllerBase
             });
         }
 
+        // Validate that this invoice's BP is not excluded from PODs
+        Invoice? invoiceInfo = null;
+        try
+        {
+            invoiceInfo = await _sapClient.GetInvoiceByDocEntryAsync(docEntry, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not fetch invoice info for DocEntry {DocEntry} during POD upload", docEntry);
+        }
+
+        if (invoiceInfo != null && ExcludedPodCardCodes.Contains(invoiceInfo.CardCode ?? ""))
+        {
+            return BadRequest(new ErrorResponseDto
+            {
+                Message = $"POD uploads are not required for {invoiceInfo.CardName} ({invoiceInfo.CardCode})"
+            });
+        }
+
         var request = new UploadAttachmentRequest
         {
             EntityType = "Invoice",
@@ -836,18 +925,17 @@ public class InvoiceController : ControllerBase
         };
 
         // Cache invoice info from SAP so POD listings can display DocNum and Customer
-        try
+        if (invoiceInfo != null)
         {
-            var invoice = await _sapClient.GetInvoiceByDocEntryAsync(docEntry, cancellationToken);
-            if (invoice != null)
+            try
             {
                 await _documentService.EnsureInvoiceCachedAsync(
-                    docEntry, invoice.DocNum, invoice.CardCode, invoice.CardName, cancellationToken);
+                    docEntry, invoiceInfo.DocNum, invoiceInfo.CardCode, invoiceInfo.CardName, cancellationToken);
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not cache invoice info for DocEntry {DocEntry} during POD upload", docEntry);
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not cache invoice info for DocEntry {DocEntry} during POD upload", docEntry);
+            }
         }
 
         // Resolve user ID: prefer JWT claim, fall back to username lookup (API key auth)
@@ -870,6 +958,47 @@ public class InvoiceController : ControllerBase
 
         _logger.LogInformation("POD uploaded for invoice {DocEntry} by user {UserId}", docEntry, userId);
 
+        // Best-effort: also push the POD to SAP as an attachment on the invoice
+        try
+        {
+            var (fileStream, _, _) = await _documentService.DownloadAttachmentAsync(attachment.Id, cancellationToken);
+            if (fileStream != null)
+            {
+                using (fileStream)
+                {
+                    if (invoiceInfo?.AttachmentEntry is int existingAttachmentEntry && existingAttachmentEntry > 0)
+                    {
+                        _logger.LogInformation(
+                            "Appending POD to existing SAP attachment {AttachmentEntry} for invoice {DocEntry}...",
+                            existingAttachmentEntry,
+                            docEntry);
+                        await _sapClient.AppendAttachmentToSAPAsync(existingAttachmentEntry, fileStream, fileName, cancellationToken);
+                        _logger.LogInformation(
+                            "POD successfully appended to SAP attachment {AttachmentEntry} for invoice {DocEntry}",
+                            existingAttachmentEntry,
+                            docEntry);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Uploading POD to SAP Attachments2 for invoice {DocEntry}...", docEntry);
+                        var absEntry = await _sapClient.UploadAttachmentToSAPAsync(fileStream, fileName, cancellationToken);
+                        _logger.LogInformation("SAP attachment created (AbsoluteEntry={AbsEntry}), linking to invoice {DocEntry}...", absEntry, docEntry);
+                        await _sapClient.LinkAttachmentToInvoiceAsync(docEntry, absEntry, cancellationToken);
+                        _logger.LogInformation("POD successfully synced to SAP for invoice {DocEntry} (AbsoluteEntry={AbsEntry})", docEntry, absEntry);
+                    }
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Could not read local POD file for SAP sync (attachment {Id})", attachment.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Non-blocking: SAP sync failure should never affect the local POD save
+            _logger.LogWarning(ex, "Failed to sync POD to SAP for invoice {DocEntry} (non-blocking)", docEntry);
+        }
+
         return CreatedAtAction(nameof(DownloadInvoiceAttachment),
             new { docEntry, attachmentId = attachment.Id }, attachment);
     }
@@ -879,7 +1008,7 @@ public class InvoiceController : ControllerBase
     /// Optionally filter by customer code and date range.
     /// </summary>
     [HttpGet("pods")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver")]
     [ProducesResponseType(typeof(PodAttachmentListResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAllPods(
         [FromQuery] int page = 1,
@@ -894,7 +1023,14 @@ public class InvoiceController : ControllerBase
         if (pageSize < 1) pageSize = 20;
         if (pageSize > 100) pageSize = 100;
 
-        var result = await _documentService.GetAllPodAttachmentsAsync(page, pageSize, cardCode, cancellationToken, fromDate, toDate, search);
+        // Drivers can only see PODs they uploaded
+        Guid? uploadedByUserId = null;
+        if (User.IsInRole("Driver"))
+        {
+            uploadedByUserId = GetUserId();
+        }
+
+        var result = await _documentService.GetAllPodAttachmentsAsync(page, pageSize, cardCode, cancellationToken, fromDate, toDate, search, uploadedByUserId);
         return Ok(result);
     }
 
@@ -903,7 +1039,7 @@ public class InvoiceController : ControllerBase
     /// Excludes internal/intercompany card codes.
     /// </summary>
     [HttpGet("pod-upload-status")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver")]
     [ProducesResponseType(typeof(PodUploadStatusReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetPodUploadStatus(
@@ -919,16 +1055,8 @@ public class InvoiceController : ControllerBase
             if (fromDate > toDate)
                 return BadRequest(new ErrorResponseDto { Message = "From date cannot be later than to date" });
 
-            // Excluded internal/intercompany card codes
-            var excludedCardCodes = new List<string>
-            {
-                "CIS006", "MAC009", "MAC006", "COR007", "COR006", "COR008",
-                "VAN008", "VAN009", "VAN010", "VAN011", "VAN012", "VAN013",
-                "VAN014", "VAN015", "VAN016", "VAN017", "VAN018", "VAN019", "VAN020"
-            };
-
             // Lightweight query: only header fields, CardCode exclusion applied at SAP level
-            var invoices = await _sapClient.GetInvoiceHeadersByDateRangeAsync(fromDate, toDate, excludedCardCodes, cancellationToken);
+            var invoices = await _sapClient.GetInvoiceHeadersByDateRangeAsync(fromDate, toDate, ExcludedPodCardCodes.ToList(), cancellationToken);
 
             // Get all POD attachments for these invoices from local DB
             var docEntries = invoices.Select(i => i.DocEntry).ToList();
@@ -984,7 +1112,7 @@ public class InvoiceController : ControllerBase
     /// Get personal POD dashboard stats for the current user
     /// </summary>
     [HttpGet("pod-dashboard")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver")]
     [ProducesResponseType(typeof(PodDashboardDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetPodDashboard(CancellationToken cancellationToken = default)
@@ -1002,6 +1130,9 @@ public class InvoiceController : ControllerBase
     /// </summary>
     /// <param name="fromDate">Start date (yyyy-MM-dd)</param>
     /// <param name="toDate">End date (yyyy-MM-dd)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <param name="page">Optional page number for paged results</param>
+    /// <param name="pageSize">Optional page size for paged results</param>
     /// <returns>List of invoices</returns>
     [HttpGet("date-range")]
     [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
@@ -1011,7 +1142,9 @@ public class InvoiceController : ControllerBase
     public async Task<IActionResult> GetInvoicesByDateRange(
         [FromQuery] DateTime fromDate,
         [FromQuery] DateTime toDate,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null)
     {
         try
         {
@@ -1025,7 +1158,34 @@ public class InvoiceController : ControllerBase
                 return BadRequest(new ErrorResponseDto { Message = "From date cannot be later than to date" });
             }
 
-            var invoices = await _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
+            var usePagination = page.HasValue || pageSize.HasValue;
+            List<Invoice> invoices;
+            int currentPage;
+            int currentPageSize;
+            int totalCount;
+            int totalPages;
+            bool hasMore;
+
+            if (usePagination)
+            {
+                currentPage = Math.Max(page ?? 1, 1);
+                currentPageSize = Math.Clamp(pageSize ?? 20, 1, 100);
+                var skip = (currentPage - 1) * currentPageSize;
+
+                invoices = await _sapClient.GetPagedInvoicesByOffsetAsync(skip, currentPageSize, null, null, fromDate, toDate, cancellationToken);
+                totalCount = await _sapClient.GetInvoicesCountAsync(null, null, fromDate, toDate, cancellationToken);
+                totalPages = currentPageSize > 0 ? (int)Math.Ceiling(totalCount / (double)currentPageSize) : 1;
+                hasMore = (currentPage * currentPageSize) < totalCount;
+            }
+            else
+            {
+                invoices = await _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
+                currentPage = 1;
+                currentPageSize = invoices.Count;
+                totalCount = invoices.Count;
+                totalPages = invoices.Count > 0 ? 1 : 0;
+                hasMore = false;
+            }
 
             _logger.LogInformation("Retrieved {Count} invoices between {FromDate} and {ToDate}",
                 invoices.Count, fromDate.ToString("yyyy-MM-dd"), toDate.ToString("yyyy-MM-dd"));
@@ -1034,7 +1194,12 @@ public class InvoiceController : ControllerBase
             {
                 FromDate = fromDate.ToString("yyyy-MM-dd"),
                 ToDate = toDate.ToString("yyyy-MM-dd"),
+                Page = currentPage,
+                PageSize = currentPageSize,
                 Count = invoices.Count,
+                TotalCount = totalCount,
+                TotalPages = totalPages,
+                HasMore = hasMore,
                 Invoices = invoices.ToDto()
             });
         }
@@ -1056,10 +1221,14 @@ public class InvoiceController : ControllerBase
     }
 
     /// <summary>
-    /// Gets invoices with pagination
+    /// Gets invoices with pagination and optional filters
     /// </summary>
     /// <param name="page">Page number (default: 1)</param>
     /// <param name="pageSize">Number of records per page (default: 20, max: 100)</param>
+    /// <param name="docNum">Optional document number filter</param>
+    /// <param name="cardCode">Optional customer code filter</param>
+    /// <param name="fromDate">Optional start date filter (yyyy-MM-dd)</param>
+    /// <param name="toDate">Optional end date filter (yyyy-MM-dd)</param>
     /// <returns>List of invoices with pagination info</returns>
     [HttpGet("paged")]
     [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
@@ -1069,6 +1238,10 @@ public class InvoiceController : ControllerBase
     public async Task<IActionResult> GetPagedInvoices(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
+        [FromQuery] int? docNum = null,
+        [FromQuery] string? cardCode = null,
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -1083,21 +1256,28 @@ public class InvoiceController : ControllerBase
                 return BadRequest(new ErrorResponseDto { Message = "Page number must be at least 1" });
             }
 
-            if (pageSize < 1 || pageSize > 100)
+            var hasFilters = docNum.HasValue || !string.IsNullOrEmpty(cardCode) || fromDate.HasValue || toDate.HasValue;
+            var maxPageSize = hasFilters ? 5000 : 100;
+
+            if (pageSize < 1 || pageSize > maxPageSize)
             {
-                return BadRequest(new ErrorResponseDto { Message = "Page size must be between 1 and 100" });
+                return BadRequest(new ErrorResponseDto { Message = $"Page size must be between 1 and {maxPageSize}" });
             }
 
-            var invoices = await _sapClient.GetPagedInvoicesAsync(page, pageSize, cancellationToken);
+            var skip = (page - 1) * pageSize;
+            var invoices = await _sapClient.GetPagedInvoicesByOffsetAsync(skip, pageSize, docNum, cardCode, fromDate, toDate, cancellationToken);
+            var totalCount = await _sapClient.GetInvoicesCountAsync(docNum, cardCode, fromDate, toDate, cancellationToken);
 
-            _logger.LogInformation("Retrieved page {Page} of invoices ({Count} records, page size: {PageSize})",
-                page, invoices.Count, pageSize);
+            _logger.LogInformation("Retrieved page {Page} of invoices ({Count} records, total: {Total})",
+                page, invoices.Count, totalCount);
 
             return Ok(new InvoiceListResponseDto
             {
                 Page = page,
                 PageSize = pageSize,
                 Count = invoices.Count,
+                TotalCount = totalCount,
+                TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
                 HasMore = invoices.Count == pageSize,
                 Invoices = invoices.ToDto()
             });

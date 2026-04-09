@@ -332,6 +332,16 @@ public class AuthService : IAuthService
             .FirstOrDefaultAsync(u => u.Username.ToLower() == username.ToLower());
     }
 
+    /// <summary>
+    /// Maximum lifetime for API keys that have no explicit expiration set.
+    /// </summary>
+    private static readonly TimeSpan MaxApiKeyLifetime = TimeSpan.FromDays(90);
+
+    /// <summary>
+    /// Warn in logs when a key is within this many days of expiring.
+    /// </summary>
+    private const int ExpiryWarningDays = 14;
+
     public ApiKeyConfig? ValidateApiKey(string apiKey)
     {
         if (!_apiKeyLookup.TryGetValue(apiKey, out var keyConfig))
@@ -343,6 +353,25 @@ public class AuthService : IAuthService
         {
             _logger.LogWarning("Expired API key used: {KeyName}", keyConfig.Name);
             return null;
+        }
+
+        // Reject keys without an explicit expiration — require rotation
+        if (!keyConfig.ExpiresAt.HasValue)
+        {
+            _logger.LogWarning(
+                "API key {KeyName} has no expiration date configured. " +
+                "Set an ExpiresAt value (max {MaxDays} days) to enforce key rotation",
+                keyConfig.Name, MaxApiKeyLifetime.TotalDays);
+            return null;
+        }
+
+        // Warn when a key is approaching expiry so operators can rotate proactively
+        var daysUntilExpiry = (keyConfig.ExpiresAt.Value - DateTime.UtcNow).TotalDays;
+        if (daysUntilExpiry <= ExpiryWarningDays)
+        {
+            _logger.LogWarning(
+                "API key {KeyName} expires in {Days:F0} day(s). Rotate the key soon",
+                keyConfig.Name, daysUntilExpiry);
         }
 
         return keyConfig;

@@ -396,6 +396,8 @@ namespace ShopInventory.Migrations
 
                     b.HasIndex("Status");
 
+                    b.HasIndex("CardCode", "Status", "CreditNoteDate");
+
                     b.ToTable("CreditNotes", (string)null);
                 });
 
@@ -1023,6 +1025,8 @@ namespace ShopInventory.Migrations
 
                     b.HasIndex("Status");
 
+                    b.HasIndex("CardCode", "Status", "DocDate");
+
                     b.ToTable("IncomingPayments", t =>
                         {
                             t.HasCheckConstraint("CK_IncomingPayments_CashSum_NonNegative", "\"CashSum\" >= 0");
@@ -1438,6 +1442,8 @@ namespace ShopInventory.Migrations
 
                     b.HasIndex("Status");
 
+                    b.HasIndex("CardCode", "Status", "DocDate");
+
                     b.ToTable("Invoices", t =>
                         {
                             t.HasCheckConstraint("CK_Invoices_DocTotal_NonNegative", "\"DocTotal\" >= 0");
@@ -1765,6 +1771,51 @@ namespace ShopInventory.Migrations
                         {
                             t.HasCheckConstraint("CK_ItemPrices_Price_NonNegative", "\"Price\" >= 0");
                         });
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.MerchandiserProductEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ItemCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ItemName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("MerchandiserUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ItemCode");
+
+                    b.HasIndex("MerchandiserUserId");
+
+                    b.HasIndex("MerchandiserUserId", "ItemCode")
+                        .IsUnique();
+
+                    b.ToTable("MerchandiserProducts", (string)null);
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.PriceListEntity", b =>
@@ -2115,6 +2166,8 @@ namespace ShopInventory.Migrations
                     b.HasIndex("SAPDocEntry");
 
                     b.HasIndex("Status");
+
+                    b.HasIndex("CardCode", "Status", "OrderDate");
 
                     b.ToTable("PurchaseOrders", (string)null);
                 });
@@ -2500,6 +2553,10 @@ namespace ShopInventory.Migrations
                     b.Property<DateTime?>("DeliveryDate")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DeviceInfo")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<decimal>("DiscountAmount")
                         .HasColumnType("decimal(18,2)");
 
@@ -2518,6 +2575,10 @@ namespace ShopInventory.Migrations
                     b.Property<bool>("IsSynced")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("MerchandiserNotes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
                     b.Property<DateTime>("OrderDate")
                         .HasColumnType("timestamp with time zone");
 
@@ -2525,6 +2586,12 @@ namespace ShopInventory.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("bytea");
 
                     b.Property<int?>("SAPDocEntry")
                         .HasColumnType("integer");
@@ -2542,6 +2609,9 @@ namespace ShopInventory.Migrations
                     b.Property<string>("ShipToAddress")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("integer");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
@@ -2581,6 +2651,8 @@ namespace ShopInventory.Migrations
                     b.HasIndex("SAPDocEntry");
 
                     b.HasIndex("Status");
+
+                    b.HasIndex("CardCode", "Status", "OrderDate");
 
                     b.ToTable("SalesOrders", (string)null);
                 });
@@ -3410,6 +3482,13 @@ namespace ShopInventory.Migrations
                     b.Property<string>("AllowedPaymentMethods")
                         .HasColumnType("text");
 
+                    b.Property<string>("AssignedCustomerCodes")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AssignedSection")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<string>("AssignedWarehouseCodes")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -3843,6 +3922,17 @@ namespace ShopInventory.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.MerchandiserProductEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.User", "MerchandiserUser")
+                        .WithMany()
+                        .HasForeignKey("MerchandiserUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("MerchandiserUser");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.ProductBatchEntity", b =>

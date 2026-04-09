@@ -67,6 +67,12 @@ public class InventoryTransferListResponse
     [JsonPropertyName("count")]
     public int Count { get; set; }
 
+    [JsonPropertyName("totalCount")]
+    public int TotalCount { get; set; }
+
+    [JsonPropertyName("totalPages")]
+    public int TotalPages { get; set; }
+
     [JsonPropertyName("hasMore")]
     public bool HasMore { get; set; }
 
@@ -88,8 +94,23 @@ public class InventoryTransferDateResponse
     [JsonPropertyName("toDate")]
     public string? ToDate { get; set; }
 
+    [JsonPropertyName("page")]
+    public int Page { get; set; }
+
+    [JsonPropertyName("pageSize")]
+    public int PageSize { get; set; }
+
     [JsonPropertyName("count")]
     public int Count { get; set; }
+
+    [JsonPropertyName("totalCount")]
+    public int TotalCount { get; set; }
+
+    [JsonPropertyName("totalPages")]
+    public int TotalPages { get; set; }
+
+    [JsonPropertyName("hasMore")]
+    public bool HasMore { get; set; }
 
     [JsonPropertyName("transfers")]
     public List<InventoryTransferDto>? Transfers { get; set; }

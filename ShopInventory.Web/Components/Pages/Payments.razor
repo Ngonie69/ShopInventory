@@ -5,6 +5,7 @@
 @inject IPaymentService PaymentService
 @inject ILogger<Payments> Logger
 @inject IAppSettingsProvider AppSettings
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Incoming Payments - Shop Inventory</PageTitle>
@@ -700,7 +701,7 @@
         else if (payments?.Any() == true)
         {
             <div class="pay-table-wrap">
-                <MudTable @ref="_paymentsTable" Items="@payments" RowsPerPage="10" Hover="true" Dense="true"
+                <MudTable @ref="_paymentsTable" Items="@payments" RowsPerPage="@_pageSize" Hover="true" Dense="true"
                           Breakpoint="Breakpoint.Sm" LoadingProgressColor="Color.Success"
                           Filter="new Func<IncomingPaymentDto, bool>(PaymentQuickFilter)" Elevation="0">
                     <ToolBarContent>
@@ -742,12 +743,12 @@
                                     }
                                     @if (context.CheckSum > 0)
                                     {
-                                        <span class="method-badge check"><i                       class="bi bi-journal-check"></i>
+                                        <span class="method-badge check"><i class="bi bi-journal-check"></i>
                                             @context.CheckSum.ToString("N0")</span>
                                         }
                                         @if (context.CreditSum > 0)
                                         {
-                                            <span class="method-badge credit"><i                     class="bi bi-credit-card"></i>
+                                            <span class="method-badge credit"><i class="bi bi-credit-card"></i>
                                                 @context.CreditSum.ToString("N0")</span>
                                             }
                                         </MudTd>
@@ -760,9 +761,21 @@
                                         </MudTd>
                                     </RowTemplate>
                                     <PagerContent>
-                                        <MudPagination SelectedChanged="PageChanged"
-                                                       Count="@((_paymentsTable.GetFilteredItemsCount() + _paymentsTable.RowsPerPage - 1) / _paymentsTable.RowsPerPage)"
-                                                       Class="pa-4" />
+                                        <div class="pager-row">
+                                            <div class="page-size-wrap">
+                                                <span>Show</span>
+                                                <select @bind="_pageSize">
+                                                    <option value="10">10</option>
+                                                    <option value="25">25</option>
+                                                    <option value="50">50</option>
+                                                    <option value="100">100</option>
+                                                </select>
+                                                <span>per page</span>
+                                            </div>
+                                            <MudPagination SelectedChanged="PageChanged"
+                                                           Count="@((_paymentsTable.GetFilteredItemsCount() + _paymentsTable.RowsPerPage - 1) / _paymentsTable.RowsPerPage)"
+                                                           Class="pa-4" />
+                                        </div>
                                     </PagerContent>
                                 </MudTable>
                             </div>
@@ -922,6 +935,7 @@
 
 @code {
     private List<IncomingPaymentDto>? payments;
+    private int _pageSize = 10;
     private IncomingPaymentDto? selectedPayment;
     private bool isLoading = true;
     private string? errorMessage;
@@ -959,6 +973,7 @@
         pageSize = AppSettings.PageSize;
         Logger.LogInformation("Payments page: OnInitializedAsync started");
         await LoadPayments();
+        await AuditService.LogAsync(AuditActions.ViewPayments, "Payment", null);
     }
 
     private async Task LoadPayments()

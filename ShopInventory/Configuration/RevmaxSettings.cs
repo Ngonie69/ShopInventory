@@ -20,7 +20,7 @@ public class RevmaxSettings
     /// <summary>
     /// HTTP request timeout in seconds.
     /// </summary>
-    public int TimeoutSeconds { get; set; } = 30;
+    public int TimeoutSeconds { get; set; } = 90;
 
     /// <summary>
     /// Default currency code (e.g., ZWG).

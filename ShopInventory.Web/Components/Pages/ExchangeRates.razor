@@ -3,6 +3,7 @@
 @attribute [Authorize]
 @inject IExchangeRateService ExchangeRateService
 @inject IAppSettingsProvider AppSettings
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Exchange Rates - Shop Inventory</PageTitle>
@@ -356,6 +357,7 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadRates();
+        await AuditService.LogAsync(AuditActions.ViewExchangeRates, "ExchangeRate", null);
     }
 
     private async Task LoadRates()
@@ -394,6 +396,7 @@
             var result = await ExchangeRateService.UpsertRateAsync(newRate);
             if (result != null)
             {
+                await AuditService.LogAsync(AuditActions.UpdateExchangeRate, "ExchangeRate", null, $"{newRate.FromCurrency} -> {newRate.ToCurrency}: {newRate.Rate}", true);
                 CloseAddModal();
                 await LoadRates();
             }
@@ -458,6 +461,7 @@
             var success = await ExchangeRateService.FetchExternalRatesAsync();
             if (success)
             {
+                await AuditService.LogAsync(AuditActions.FetchExternalRates, "ExchangeRate", null);
                 await LoadRates();
             }
         }

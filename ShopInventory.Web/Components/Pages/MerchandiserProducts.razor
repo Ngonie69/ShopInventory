@@ -1,0 +1,678 @@
+@page "/merchandiser-products"
+@attribute [Authorize(Roles = "Admin")]
+@inject IMerchandiserService MerchandiserService
+@inject IMasterDataCacheService MasterDataCache
+@inject IAuditService AuditService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Merchandiser Products</PageTitle>
+
+<style>
+    .mp-container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
+    .mp-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; }
+    .mp-header h1 { font-size: 1.5rem; font-weight: 700; color: #1a1a2e; display: flex; align-items: center; gap: .5rem; margin: 0; }
+    .mp-header h1 i { color: #6366f1; }
+
+    .mp-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .mp-stat-card { background: #fff; border-radius: 12px; padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,.08); border: 1px solid #f1f5f9; display: flex; align-items: center; gap: 1rem; }
+    .mp-stat-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; }
+    .mp-stat-icon.purple { background: #ede9fe; color: #7c3aed; }
+    .mp-stat-icon.green { background: #dcfce7; color: #16a34a; }
+    .mp-stat-icon.blue { background: #dbeafe; color: #2563eb; }
+    .mp-stat-icon.amber { background: #fef3c7; color: #d97706; }
+    .mp-stat-value { font-size: 1.5rem; font-weight: 700; color: #1a1a2e; }
+    .mp-stat-label { font-size: .78rem; color: #64748b; margin-top: .1rem; }
+
+    .mp-layout { display: grid; grid-template-columns: 320px 1fr; gap: 1.5rem; }
+    .mp-sidebar { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); border: 1px solid #f1f5f9; overflow: hidden; }
+    .mp-sidebar-header { padding: 1rem 1.25rem; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #1a1a2e; font-size: .9rem; }
+    .mp-merch-list { max-height: 600px; overflow-y: auto; }
+    .mp-merch-item { padding: .75rem 1.25rem; cursor: pointer; border-bottom: 1px solid #f8fafc; transition: all .15s ease; display: flex; align-items: center; gap: .75rem; }
+    .mp-merch-item:hover { background: #f8fafc; }
+    .mp-merch-item.active { background: #ede9fe; border-left: 3px solid #7c3aed; }
+    .mp-merch-avatar { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; display: flex; align-items: center; justify-content: center; font-size: .8rem; font-weight: 600; flex-shrink: 0; }
+    .mp-merch-info { flex: 1; min-width: 0; }
+    .mp-merch-name { font-weight: 600; font-size: .85rem; color: #1a1a2e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mp-merch-meta { font-size: .75rem; color: #94a3b8; display: flex; gap: .5rem; }
+    .mp-merch-badge { font-size: .7rem; padding: .1rem .4rem; border-radius: 6px; font-weight: 500; }
+    .mp-merch-badge.green { background: #dcfce7; color: #166534; }
+    .mp-merch-badge.gray { background: #f1f5f9; color: #64748b; }
+
+    .mp-main { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); border: 1px solid #f1f5f9; overflow: hidden; }
+    .mp-main-header { padding: 1rem 1.5rem; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .75rem; }
+    .mp-main-title { font-weight: 600; font-size: 1rem; color: #1a1a2e; }
+    .mp-main-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+    .mp-toolbar { padding: .75rem 1.5rem; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; background: #fafbfc; }
+    .mp-search { padding: .45rem .75rem; border: 1px solid #e2e8f0; border-radius: 8px; font-size: .85rem; outline: none; min-width: 200px; transition: border-color .2s; }
+    .mp-search:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.1); }
+    .mp-filter-btn { padding: .4rem .75rem; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; font-size: .8rem; cursor: pointer; transition: all .15s; color: #475569; }
+    .mp-filter-btn:hover { background: #f1f5f9; }
+    .mp-filter-btn.active { background: #6366f1; color: #fff; border-color: #6366f1; }
+
+    .mp-product-list { max-height: 500px; overflow-y: auto; }
+    .mp-product-row { display: flex; align-items: center; padding: .6rem 1.5rem; border-bottom: 1px solid #f8fafc; transition: background .1s; gap: .75rem; }
+    .mp-product-row:hover { background: #fafbfc; }
+    .mp-product-check { width: 18px; height: 18px; accent-color: #6366f1; cursor: pointer; flex-shrink: 0; }
+    .mp-product-code { font-weight: 600; font-size: .82rem; color: #1a1a2e; min-width: 100px; }
+    .mp-product-name { flex: 1; font-size: .85rem; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mp-product-status { display: inline-flex; align-items: center; gap: .3rem; padding: .2rem .6rem; border-radius: 20px; font-size: .72rem; font-weight: 600; }
+    .mp-product-status.active { background: #dcfce7; color: #166534; }
+    .mp-product-status.inactive { background: #fee2e2; color: #991b1b; }
+    .mp-product-action { padding: .3rem .6rem; border: none; border-radius: 6px; font-size: .75rem; cursor: pointer; font-weight: 500; transition: all .15s; }
+    .mp-product-action.activate { background: #dcfce7; color: #166534; }
+    .mp-product-action.activate:hover { background: #bbf7d0; }
+    .mp-product-action.deactivate { background: #fee2e2; color: #991b1b; }
+    .mp-product-action.deactivate:hover { background: #fecaca; }
+
+    .mp-btn { padding: .45rem .9rem; border: none; border-radius: 8px; font-size: .82rem; font-weight: 500; cursor: pointer; transition: all .15s; display: inline-flex; align-items: center; gap: .4rem; }
+    .mp-btn-primary { background: #6366f1; color: #fff; }
+    .mp-btn-primary:hover { background: #4f46e5; }
+    .mp-btn-success { background: #16a34a; color: #fff; }
+    .mp-btn-success:hover { background: #15803d; }
+    .mp-btn-danger { background: #dc2626; color: #fff; }
+    .mp-btn-danger:hover { background: #b91c1c; }
+    .mp-btn-ghost { background: transparent; border: 1px solid #e2e8f0; color: #475569; }
+    .mp-btn-ghost:hover { background: #f1f5f9; }
+    .mp-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    .mp-empty { text-align: center; padding: 3rem; color: #94a3b8; }
+    .mp-empty i { font-size: 3rem; display: block; margin-bottom: .75rem; opacity: .5; }
+    .mp-empty p { font-size: .9rem; margin: 0; }
+
+    .mp-loading { text-align: center; padding: 3rem; }
+    .mp-spinner { display: inline-block; width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top-color: #6366f1; border-radius: 50%; animation: mp-spin .6s linear infinite; }
+    @@keyframes mp-spin { to { transform: rotate(360deg); } }
+
+    .mp-toast { position: fixed; top: 1.5rem; right: 1.5rem; padding: .75rem 1.25rem; border-radius: 10px; font-size: .85rem; font-weight: 500; z-index: 9999; box-shadow: 0 4px 12px rgba(0,0,0,.15); animation: mp-slideIn .3s ease; }
+    .mp-toast.success { background: #059669; color: #fff; }
+    .mp-toast.error { background: #dc2626; color: #fff; }
+    @@keyframes mp-slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* Assign modal */
+    .mp-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+    .mp-modal { background: #fff; border-radius: 16px; width: 90%; max-width: 600px; max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.2); }
+    .mp-modal-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between; }
+    .mp-modal-header h2 { font-size: 1.1rem; font-weight: 600; color: #1a1a2e; margin: 0; }
+    .mp-modal-close { background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #94a3b8; padding: .25rem; }
+    .mp-modal-body { padding: 1.25rem 1.5rem; overflow-y: auto; flex: 1; }
+    .mp-modal-footer { padding: 1rem 1.5rem; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: .5rem; }
+
+    .mp-assign-list { max-height: 350px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px; }
+    .mp-assign-item { display: flex; align-items: center; gap: .75rem; padding: .5rem .75rem; border-bottom: 1px solid #f8fafc; }
+    .mp-assign-item:last-child { border-bottom: none; }
+    .mp-assign-item label { display: flex; align-items: center; gap: .5rem; cursor: pointer; flex: 1; font-size: .85rem; }
+
+    .mp-select-all { padding: .5rem .75rem; border-bottom: 1px solid #e5e7eb; background: #f8fafc; display: flex; align-items: center; gap: .5rem; }
+    .mp-select-all label { font-size: .82rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: .5rem; }
+
+    /* Dark mode */
+    :global(.dark-theme) .mp-header h1 { color: #e2e8f0; }
+    :global(.dark-theme) .mp-stat-card, :global(.dark-theme) .mp-sidebar, :global(.dark-theme) .mp-main { background: #1e293b; border-color: #334155; }
+    :global(.dark-theme) .mp-stat-value { color: #e2e8f0; }
+    :global(.dark-theme) .mp-stat-label { color: #94a3b8; }
+    :global(.dark-theme) .mp-sidebar-header, :global(.dark-theme) .mp-main-title, :global(.dark-theme) .mp-merch-name, :global(.dark-theme) .mp-product-code { color: #e2e8f0; }
+    :global(.dark-theme) .mp-merch-item:hover { background: #334155; }
+    :global(.dark-theme) .mp-merch-item.active { background: rgba(99,102,241,.2); }
+    :global(.dark-theme) .mp-product-row:hover { background: #334155; }
+    :global(.dark-theme) .mp-product-name { color: #cbd5e1; }
+    :global(.dark-theme) .mp-toolbar { background: #1e293b; border-color: #334155; }
+    :global(.dark-theme) .mp-search { background: #0f172a; border-color: #475569; color: #e2e8f0; }
+    :global(.dark-theme) .mp-filter-btn { background: #0f172a; border-color: #475569; color: #94a3b8; }
+    :global(.dark-theme) .mp-filter-btn:hover { background: #334155; }
+    :global(.dark-theme) .mp-btn-ghost { border-color: #475569; color: #94a3b8; }
+    :global(.dark-theme) .mp-btn-ghost:hover { background: #334155; }
+    :global(.dark-theme) .mp-modal { background: #1e293b; }
+    :global(.dark-theme) .mp-modal-header h2 { color: #e2e8f0; }
+    :global(.dark-theme) .mp-assign-list { border-color: #475569; }
+    :global(.dark-theme) .mp-assign-item { border-color: #334155; }
+    :global(.dark-theme) .mp-select-all { background: #0f172a; border-color: #475569; }
+
+    @@media (max-width: 768px) {
+        .mp-layout { grid-template-columns: 1fr; }
+    }
+</style>
+
+@if (!string.IsNullOrEmpty(toastMessage))
+{
+    <div class="mp-toast @(toastIsError ? "error" : "success")">@toastMessage</div>
+}
+
+<div class="mp-container">
+    <div class="mp-header">
+        <h1><i class="bi bi-person-badge"></i> Merchandiser Products</h1>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="mp-loading">
+            <div class="mp-spinner"></div>
+            <p style="margin-top: .75rem; color: #94a3b8;">Loading merchandisers...</p>
+        </div>
+    }
+    else
+    {
+        <div class="mp-stats-grid">
+            <div class="mp-stat-card">
+                <div class="mp-stat-icon purple"><i class="bi bi-people-fill"></i></div>
+                <div>
+                    <div class="mp-stat-value">@merchandisers.Count</div>
+                    <div class="mp-stat-label">Merchandisers</div>
+                </div>
+            </div>
+            <div class="mp-stat-card">
+                <div class="mp-stat-icon blue"><i class="bi bi-box-seam-fill"></i></div>
+                <div>
+                    <div class="mp-stat-value">@merchandisers.Sum(m => m.TotalProducts)</div>
+                    <div class="mp-stat-label">Total Assigned Products</div>
+                </div>
+            </div>
+            <div class="mp-stat-card">
+                <div class="mp-stat-icon green"><i class="bi bi-check-circle-fill"></i></div>
+                <div>
+                    <div class="mp-stat-value">@merchandisers.Sum(m => m.ActiveProducts)</div>
+                    <div class="mp-stat-label">Active Products</div>
+                </div>
+            </div>
+            <div class="mp-stat-card">
+                <div class="mp-stat-icon amber"><i class="bi bi-building"></i></div>
+                <div>
+                    <div class="mp-stat-value">@merchandisers.Sum(m => m.AssignedCustomers)</div>
+                    <div class="mp-stat-label">Assigned Customers</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mp-layout">
+            <!-- Merchandiser Sidebar -->
+            <div class="mp-sidebar">
+                <div class="mp-sidebar-header">
+                    <i class="bi bi-people me-2"></i>Merchandisers
+                </div>
+                <div class="mp-merch-list">
+                    @if (merchandisers.Count == 0)
+                    {
+                        <div class="mp-empty" style="padding: 2rem;">
+                            <i class="bi bi-person-x"></i>
+                            <p>No merchandisers found</p>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var m in merchandisers)
+                        {
+                            var initials = GetInitials(m);
+                            <div class="mp-merch-item @(selectedMerchandiser?.UserId == m.UserId ? "active" : "")"
+                                 @onclick="() => SelectMerchandiser(m)">
+                                <div class="mp-merch-avatar">@initials</div>
+                                <div class="mp-merch-info">
+                                    <div class="mp-merch-name">@(string.IsNullOrEmpty(m.FullName) ? m.Username : m.FullName)</div>
+                                    <div class="mp-merch-meta">
+                                        <span class="mp-merch-badge green">@m.ActiveProducts active</span>
+                                        <span class="mp-merch-badge gray">@m.TotalProducts total</span>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+
+            <!-- Product Management Area -->
+            <div class="mp-main">
+                @if (selectedMerchandiser == null)
+                {
+                    <div class="mp-empty" style="padding: 4rem;">
+                        <i class="bi bi-hand-index"></i>
+                        <p>Select a merchandiser to manage their products</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="mp-main-header">
+                        <div class="mp-main-title">
+                            <i class="bi bi-box-seam me-1"></i>
+                            Products for @(string.IsNullOrEmpty(selectedMerchandiser.FullName) ? selectedMerchandiser.Username : selectedMerchandiser.FullName)
+                            <span style="font-weight: 400; color: #94a3b8; font-size: .82rem; margin-left: .5rem;">
+                                (@productResponse?.ActiveCount / @productResponse?.TotalCount active)
+                            </span>
+                        </div>
+                        <div class="mp-main-actions">
+                            <button class="mp-btn mp-btn-primary" @onclick="ShowAssignModal" disabled="@isLoadingProducts">
+                                <i class="bi bi-plus-lg"></i> Assign Products
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="mp-toolbar">
+                        <input type="text" class="mp-search" placeholder="Search products..."
+                               @bind="productSearchTerm" @bind:event="oninput" />
+                        <button class="mp-filter-btn @(statusFilter == "" ? "active" : "")" @onclick='() => statusFilter = ""'>All</button>
+                        <button class="mp-filter-btn @(statusFilter == "active" ? "active" : "")" @onclick='() => statusFilter = "active"'>Active</button>
+                        <button class="mp-filter-btn @(statusFilter == "inactive" ? "active" : "")" @onclick='() => statusFilter = "inactive"'>Inactive</button>
+
+                        @if (selectedProductCodes.Count > 0)
+                        {
+                            <span style="margin-left: auto; font-size: .8rem; color: #6366f1; font-weight: 500;">@selectedProductCodes.Count selected</span>
+                            <button class="mp-btn mp-btn-success" @onclick="ActivateSelected" disabled="@isSaving">
+                                <i class="bi bi-check-lg"></i> Activate
+                            </button>
+                            <button class="mp-btn mp-btn-danger" @onclick="DeactivateSelected" disabled="@isSaving">
+                                <i class="bi bi-x-lg"></i> Deactivate
+                            </button>
+                        }
+                    </div>
+
+                    @if (isLoadingProducts)
+                    {
+                        <div class="mp-loading">
+                            <div class="mp-spinner"></div>
+                        </div>
+                    }
+                    else if (productResponse == null || productResponse.Products.Count == 0)
+                    {
+                        <div class="mp-empty">
+                            <i class="bi bi-inbox"></i>
+                            <p>No products assigned yet. Click "Assign Products" to add products.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="mp-product-list">
+                            @foreach (var product in FilteredProducts)
+                            {
+                                var isSelected = selectedProductCodes.Contains(product.ItemCode);
+                                <div class="mp-product-row">
+                                    <input type="checkbox" class="mp-product-check"
+                                           checked="@isSelected"
+                                           @onchange="(e) => ToggleProductSelection(product.ItemCode, (bool)(e.Value ?? false))" />
+                                    <span class="mp-product-code">@product.ItemCode</span>
+                                    <span class="mp-product-name">@product.ItemName</span>
+                                    <span class="mp-product-status @(product.IsActive ? "active" : "inactive")">
+                                        <i class="bi @(product.IsActive ? "bi-check-circle-fill" : "bi-x-circle-fill")"></i>
+                                        @(product.IsActive ? "Active" : "Inactive")
+                                    </span>
+                                    @if (product.IsActive)
+                                    {
+                                        <button class="mp-product-action deactivate" @onclick="() => ToggleSingleProduct(product.ItemCode, false)">
+                                            Deactivate
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="mp-product-action activate" @onclick="() => ToggleSingleProduct(product.ItemCode, true)">
+                                            Activate
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<!-- Assign Products Modal -->
+@if (showAssignModal)
+{
+    <div class="mp-overlay" @onclick="CloseAssignModal">
+        <div class="mp-modal" @onclick:stopPropagation="true">
+            <div class="mp-modal-header">
+                <h2><i class="bi bi-plus-circle me-2"></i>Assign Products</h2>
+                <button class="mp-modal-close" @onclick="CloseAssignModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="mp-modal-body">
+                <input type="text" class="mp-search" style="width: 100%; margin-bottom: .75rem;"
+                       placeholder="Search by item code or name..."
+                       @bind="assignSearchTerm" @bind:event="oninput" />
+                <div class="mp-select-all">
+                    <label>
+                        <input type="checkbox"
+                               checked="@(assignSelectedCodes.Count == FilteredAssignableProducts.Count() && FilteredAssignableProducts.Any())"
+                               @onchange="ToggleSelectAllAssign"
+                               style="accent-color: #6366f1;" />
+                        Select All (@FilteredAssignableProducts.Count())
+                    </label>
+                </div>
+                <div class="mp-assign-list">
+                    @foreach (var product in FilteredAssignableProducts)
+                    {
+                        var isChecked = assignSelectedCodes.Contains(product.ItemCode!);
+                        <div class="mp-assign-item">
+                            <label>
+                                <input type="checkbox" checked="@isChecked"
+                                       @onchange="(e) => ToggleAssignProduct(product.ItemCode!, (bool)(e.Value ?? false))"
+                                       style="accent-color: #6366f1;" />
+                                <strong>@product.ItemCode</strong> - @product.ItemName
+                            </label>
+                        </div>
+                    }
+                    @if (!FilteredAssignableProducts.Any())
+                    {
+                        <div style="padding: 1.5rem; text-align: center; color: #94a3b8; font-size: .85rem;">
+                            No products available to assign
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="mp-modal-footer">
+                <button class="mp-btn mp-btn-ghost" @onclick="CloseAssignModal">Cancel</button>
+                <button class="mp-btn mp-btn-primary" @onclick="AssignSelectedProducts"
+                        disabled="@(assignSelectedCodes.Count == 0 || isSaving)">
+                    @if (isSaving) { <div class="mp-spinner" style="width:16px;height:16px;border-width:2px;"></div> }
+                    Assign @assignSelectedCodes.Count Products
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<MerchandiserSummaryDto> merchandisers = new();
+    private MerchandiserSummaryDto? selectedMerchandiser;
+    private MerchandiserProductListResponse? productResponse;
+
+    private bool isLoading = true;
+    private bool isLoadingProducts = false;
+    private bool isSaving = false;
+    private string productSearchTerm = string.Empty;
+    private string statusFilter = string.Empty;
+    private HashSet<string> selectedProductCodes = new();
+
+    // Assign modal
+    private bool showAssignModal = false;
+    private string assignSearchTerm = string.Empty;
+    private HashSet<string> assignSelectedCodes = new();
+    private List<ProductDto> allProducts = new();
+
+    // Toast
+    private string toastMessage = string.Empty;
+    private bool toastIsError = false;
+
+    private bool _hasLoadedData = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_hasLoadedData)
+        {
+            _hasLoadedData = true;
+            await AuthStateProvider.GetAuthenticationStateAsync();
+            await LoadMerchandisers();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadMerchandisers()
+    {
+        isLoading = true;
+        try
+        {
+            merchandisers = await MerchandiserService.GetMerchandisersAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Error loading merchandisers: {ex.Message}", true);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SelectMerchandiser(MerchandiserSummaryDto merchandiser)
+    {
+        selectedMerchandiser = merchandiser;
+        selectedProductCodes.Clear();
+        productSearchTerm = string.Empty;
+        statusFilter = string.Empty;
+        await LoadMerchandiserProducts();
+    }
+
+    private async Task LoadMerchandiserProducts()
+    {
+        if (selectedMerchandiser == null) return;
+
+        isLoadingProducts = true;
+        try
+        {
+            productResponse = await MerchandiserService.GetMerchandiserProductsAsync(selectedMerchandiser.UserId);
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Error loading products: {ex.Message}", true);
+        }
+        finally
+        {
+            isLoadingProducts = false;
+        }
+    }
+
+    private IEnumerable<MerchandiserProductDto> FilteredProducts
+    {
+        get
+        {
+            if (productResponse == null) return Enumerable.Empty<MerchandiserProductDto>();
+
+            var products = productResponse.Products.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(productSearchTerm))
+            {
+                products = products.Where(p =>
+                    (p.ItemCode?.Contains(productSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (p.ItemName?.Contains(productSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+            }
+
+            if (statusFilter == "active")
+                products = products.Where(p => p.IsActive);
+            else if (statusFilter == "inactive")
+                products = products.Where(p => !p.IsActive);
+
+            return products;
+        }
+    }
+
+    private void ToggleProductSelection(string itemCode, bool isChecked)
+    {
+        if (isChecked)
+            selectedProductCodes.Add(itemCode);
+        else
+            selectedProductCodes.Remove(itemCode);
+    }
+
+    private async Task ToggleSingleProduct(string itemCode, bool isActive)
+    {
+        if (selectedMerchandiser == null) return;
+
+        isSaving = true;
+        try
+        {
+            await MerchandiserService.UpdateProductStatusAsync(selectedMerchandiser.UserId, new List<string> { itemCode }, isActive);
+            ShowToast($"{itemCode} {(isActive ? "activated" : "deactivated")}");
+            await LoadMerchandiserProducts();
+            await RefreshMerchandiserSummary();
+            await AuditService.LogAsync(isActive ? "ActivateMerchandiserProduct" : "DeactivateMerchandiserProduct", "MerchandiserProduct", $"{selectedMerchandiser.Username}: {itemCode}");
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, true);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task ActivateSelected()
+    {
+        if (selectedMerchandiser == null || selectedProductCodes.Count == 0) return;
+
+        isSaving = true;
+        try
+        {
+            await MerchandiserService.UpdateProductStatusAsync(selectedMerchandiser.UserId, selectedProductCodes.ToList(), true);
+            ShowToast($"{selectedProductCodes.Count} products activated");
+            selectedProductCodes.Clear();
+            await LoadMerchandiserProducts();
+            await RefreshMerchandiserSummary();
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, true);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task DeactivateSelected()
+    {
+        if (selectedMerchandiser == null || selectedProductCodes.Count == 0) return;
+
+        isSaving = true;
+        try
+        {
+            await MerchandiserService.UpdateProductStatusAsync(selectedMerchandiser.UserId, selectedProductCodes.ToList(), false);
+            ShowToast($"{selectedProductCodes.Count} products deactivated");
+            selectedProductCodes.Clear();
+            await LoadMerchandiserProducts();
+            await RefreshMerchandiserSummary();
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, true);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    // Assign modal
+    private async Task ShowAssignModal()
+    {
+        assignSearchTerm = string.Empty;
+        assignSelectedCodes.Clear();
+
+        // Load all products from cache
+        try
+        {
+            allProducts = await MasterDataCache.GetProductsAsync();
+        }
+        catch
+        {
+            allProducts = new();
+        }
+
+        showAssignModal = true;
+    }
+
+    private void CloseAssignModal()
+    {
+        showAssignModal = false;
+    }
+
+    private IEnumerable<ProductDto> FilteredAssignableProducts
+    {
+        get
+        {
+            // Exclude already assigned products
+            var assignedCodes = productResponse?.Products.Select(p => p.ItemCode).ToHashSet() ?? new();
+
+            var products = allProducts.Where(p => !assignedCodes.Contains(p.ItemCode ?? ""));
+
+            if (!string.IsNullOrWhiteSpace(assignSearchTerm))
+            {
+                products = products.Where(p =>
+                    (p.ItemCode?.Contains(assignSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (p.ItemName?.Contains(assignSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+            }
+
+            return products;
+        }
+    }
+
+    private void ToggleAssignProduct(string itemCode, bool isChecked)
+    {
+        if (isChecked)
+            assignSelectedCodes.Add(itemCode);
+        else
+            assignSelectedCodes.Remove(itemCode);
+    }
+
+    private void ToggleSelectAllAssign(ChangeEventArgs e)
+    {
+        if ((bool)(e.Value ?? false))
+        {
+            foreach (var p in FilteredAssignableProducts)
+            {
+                if (p.ItemCode != null)
+                    assignSelectedCodes.Add(p.ItemCode);
+            }
+        }
+        else
+        {
+            assignSelectedCodes.Clear();
+        }
+    }
+
+    private async Task AssignSelectedProducts()
+    {
+        if (selectedMerchandiser == null || assignSelectedCodes.Count == 0) return;
+
+        isSaving = true;
+        try
+        {
+            await MerchandiserService.AssignProductsAsync(selectedMerchandiser.UserId, assignSelectedCodes.ToList());
+            ShowToast($"{assignSelectedCodes.Count} products assigned");
+            CloseAssignModal();
+            await LoadMerchandiserProducts();
+            await RefreshMerchandiserSummary();
+            await AuditService.LogAsync("AssignMerchandiserProducts", "MerchandiserProduct", $"{selectedMerchandiser.Username}: {assignSelectedCodes.Count} products");
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, true);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task RefreshMerchandiserSummary()
+    {
+        try
+        {
+            merchandisers = await MerchandiserService.GetMerchandisersAsync();
+            if (selectedMerchandiser != null)
+            {
+                selectedMerchandiser = merchandisers.FirstOrDefault(m => m.UserId == selectedMerchandiser.UserId);
+            }
+        }
+        catch { }
+    }
+
+    private string GetInitials(MerchandiserSummaryDto m)
+    {
+        var first = m.FirstName?.FirstOrDefault().ToString().ToUpper() ?? "";
+        var last = m.LastName?.FirstOrDefault().ToString().ToUpper() ?? "";
+        return string.IsNullOrEmpty(first + last) ? m.Username[..1].ToUpper() : first + last;
+    }
+
+    private void ShowToast(string message, bool isError = false)
+    {
+        toastMessage = message;
+        toastIsError = isError;
+        StateHasChanged();
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(4000);
+            toastMessage = string.Empty;
+            await InvokeAsync(StateHasChanged);
+        });
+    }
+}

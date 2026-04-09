@@ -8,8 +8,11 @@
 @inject IPriceService PriceService
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Services
 @inject ILogger<CreateQuotation> Logger
 @inject IAppSettingsProvider AppSettings
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Create Quotation - Shop Inventory</PageTitle>
@@ -359,8 +362,7 @@
                     <!-- Customer -->
                     <div class="form-field" style="position:relative;">
                         <label>Customer *</label>
-                        <input type="text" @bind="bpSearchTerm" @bind:event="oninput"
-                               @onfocus="() => showBPDropdown = true"
+                        <input type="text" @bind="bpSearchTerm" @bind:event="oninput" @onfocus="() => showBPDropdown = true"
                                placeholder="Search customer..." />
                         @if (showBPDropdown && filteredBusinessPartners.Any())
                         {
@@ -423,7 +425,8 @@
                     <!-- Terms and Conditions -->
                     <div class="form-field full">
                         <label>Terms &amp; Conditions</label>
-                        <textarea rows="2" @bind="newQuotation.TermsAndConditions" placeholder="Payment terms, delivery terms..."></textarea>
+                        <textarea rows="2" @bind="newQuotation.TermsAndConditions"
+                                  placeholder="Payment terms, delivery terms..."></textarea>
                     </div>
                 </div>
             </div>
@@ -465,19 +468,29 @@
                                     var line = newQuotation.Lines[lineIndex];
                                     <tr>
                                         <td>
-                                            <input type="text" @bind="line.ItemCode" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;" placeholder="Item code" />
+                                            <input type="text" @bind="line.ItemCode"
+                                                   style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;"
+                                                   placeholder="Item code" />
                                         </td>
                                         <td>
-                                            <input type="text" @bind="line.ItemDescription" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;" placeholder="Description" />
+                                            <input type="text" @bind="line.ItemDescription"
+                                                   style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;"
+                                                   placeholder="Description" />
                                         </td>
                                         <td>
-                                            <input type="number" @bind="line.Quantity" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;" min="0.0001" step="1" />
+                                            <input type="number" @bind="line.Quantity"
+                                                   style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;"
+                                                   min="0.0001" step="1" />
                                         </td>
                                         <td>
-                                            <input type="number" @bind="line.UnitPrice" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;" min="0" step="0.01" />
+                                            <input type="number" @bind="line.UnitPrice"
+                                                   style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;"
+                                                   min="0" step="0.01" />
                                         </td>
                                         <td>
-                                            <input type="number" @bind="line.DiscountPercent" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;" min="0" max="100" step="0.1" />
+                                            <input type="number" @bind="line.DiscountPercent"
+                                                   style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;"
+                                                   min="0" max="100" step="0.1" />
                                         </td>
                                         <td style="text-align:right;font-weight:600;font-size:.85rem;">
                                             @((line.Quantity * line.UnitPrice * (1 - line.DiscountPercent / 100)).ToString("N2"))
@@ -503,7 +516,8 @@
             <!-- Footer Actions -->
             <div class="form-footer">
                 <a href="/quotations" class="btn-secondary-action">Cancel</a>
-                <MudButton Class="btn-create" OnClick="CreateQuotationAsync" Disabled="@(isCreating || newQuotation.Lines.Count == 0)">
+                <MudButton Class="btn-create" OnClick="CreateQuotationAsync"
+                           Disabled="@(isCreating || newQuotation.Lines.Count == 0)">
                     @if (isCreating)
                     {
                         <span class="spinner-border spinner-border-sm"></span>
@@ -623,11 +637,13 @@
             if (created != null)
             {
                 Snackbar.Add($"Quotation {created.QuotationNumber} created successfully!", Severity.Success);
+                await AuditService.LogAsync(AuditActions.CreateQuotation, "Quotation", created.QuotationNumber);
                 NavigationManager.NavigateTo("/quotations");
             }
             else
             {
                 Snackbar.Add("Failed to create quotation.", Severity.Error);
+                await AuditService.LogAsync(AuditActions.CreateQuotation, "Quotation", newQuotation.CardCode, null, false, "Failed to create quotation");
             }
         }
         catch (Exception ex)

@@ -223,12 +223,7 @@ public class RateLimitController : ControllerBase
             return $"apikey:{apiKey[..Math.Min(8, apiKey.Length)]}";
 
         // Fall back to IP address
-        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var forwarded = HttpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(forwarded))
-            ip = forwarded.Split(',')[0].Trim();
-
-        return $"ip:{ip}";
+        return $"ip:{HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
     }
 }
 

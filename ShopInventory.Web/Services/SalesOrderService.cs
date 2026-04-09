@@ -5,7 +5,7 @@ namespace ShopInventory.Web.Services;
 
 public interface ISalesOrderService
 {
-    Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20, SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
+    Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20, SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null);
     Task<SalesOrderDto?> GetSalesOrderByIdAsync(int id);
     Task<SalesOrderDto?> GetSalesOrderByNumberAsync(string orderNumber);
     Task<SalesOrderDto?> CreateSalesOrderAsync(CreateSalesOrderRequest request);
@@ -14,6 +14,7 @@ public interface ISalesOrderService
     Task<SalesOrderDto?> ApproveAsync(int id);
     Task<InvoiceDto?> ConvertToInvoiceAsync(int id);
     Task<bool> DeleteSalesOrderAsync(int id);
+    Task<SalesOrderDto?> PostToSAPAsync(int id);
 }
 
 public class SalesOrderService : ISalesOrderService
@@ -28,7 +29,7 @@ public class SalesOrderService : ISalesOrderService
     }
 
     public async Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20,
-        SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null)
+        SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null)
     {
         try
         {
@@ -42,6 +43,8 @@ public class SalesOrderService : ISalesOrderService
                 queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
             if (toDate.HasValue)
                 queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+            if (source.HasValue)
+                queryParams.Add($"source={(int)source.Value}");
 
             var url = $"api/salesorder?{string.Join("&", queryParams)}";
             _logger.LogInformation("Fetching sales orders from API: {Url}", url);
@@ -125,8 +128,17 @@ public class SalesOrderService : ISalesOrderService
             {
                 return await response.Content.ReadFromJsonAsync<SalesOrderDto>();
             }
-            _logger.LogWarning("Failed to update sales order {Id}: {StatusCode}", id, response.StatusCode);
-            return null;
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                throw new HttpRequestException("This order was modified by another user. Please reload and try again.");
+            }
+            var errorBody = await response.Content.ReadAsStringAsync();
+            _logger.LogWarning("Failed to update sales order {Id}: {StatusCode} - {Error}", id, response.StatusCode, errorBody);
+            throw new HttpRequestException($"Server returned {(int)response.StatusCode}: {errorBody}");
+        }
+        catch (HttpRequestException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -204,6 +216,30 @@ public class SalesOrderService : ISalesOrderService
         {
             _logger.LogError(ex, "Error deleting sales order {Id}", id);
             return false;
+        }
+    }
+
+    public async Task<SalesOrderDto?> PostToSAPAsync(int id)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync($"api/salesorder/{id}/post-to-sap", null);
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<SalesOrderDto>();
+            }
+            var errorBody = await response.Content.ReadAsStringAsync();
+            _logger.LogWarning("Failed to post sales order to SAP {Id}: {StatusCode} - {Error}", id, response.StatusCode, errorBody);
+            throw new HttpRequestException($"Server returned {(int)response.StatusCode}: {errorBody}");
+        }
+        catch (HttpRequestException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error posting sales order to SAP {Id}", id);
+            throw;
         }
     }
 }

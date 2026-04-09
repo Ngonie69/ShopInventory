@@ -3,6 +3,15 @@ using System.Text.Json.Serialization;
 namespace ShopInventory.Web.Models;
 
 /// <summary>
+/// Sales Order source enum
+/// </summary>
+public enum SalesOrderSource
+{
+    Web = 0,
+    Mobile = 1
+}
+
+/// <summary>
 /// Sales Order status enum
 /// </summary>
 public enum SalesOrderStatus
@@ -120,8 +129,22 @@ public class SalesOrderDto
     [JsonPropertyName("isSynced")]
     public bool IsSynced { get; set; }
 
+    [JsonPropertyName("source")]
+    public SalesOrderSource Source { get; set; }
+
+    [JsonPropertyName("merchandiserNotes")]
+    public string? MerchandiserNotes { get; set; }
+
+    [JsonPropertyName("deviceInfo")]
+    public string? DeviceInfo { get; set; }
+
+    [JsonPropertyName("rowVersion")]
+    public string? RowVersion { get; set; }
+
     [JsonPropertyName("lines")]
     public List<SalesOrderLineDto> Lines { get; set; } = new();
+
+    public bool IsMobileOrder => Source == SalesOrderSource.Mobile;
 }
 
 /// <summary>
@@ -188,6 +211,10 @@ public class CreateSalesOrderRequest
     public string? ShipToAddress { get; set; }
     public string? BillToAddress { get; set; }
     public string? WarehouseCode { get; set; }
+    public SalesOrderSource Source { get; set; } = SalesOrderSource.Web;
+    public string? MerchandiserNotes { get; set; }
+    public string? DeviceInfo { get; set; }
+    public string? RowVersion { get; set; }
     public List<CreateSalesOrderLineRequest> Lines { get; set; } = new();
 }
 

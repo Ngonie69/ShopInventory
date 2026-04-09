@@ -12,6 +12,7 @@
 @inject ILogger<CreateIncomingPayment> Logger
 @inject IAppSettingsProvider AppSettings
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Create Incoming Payment - Shop Inventory</PageTitle>
@@ -553,11 +554,462 @@
         }
     }
 
+    /* ── Attachment Upload ────────────────────────────── */
+    .upload-zone {
+        border: 2px dashed #d1d5db;
+        border-radius: 12px;
+        padding: 1.5rem;
+        text-align: center;
+        cursor: pointer;
+        transition: all .2s;
+        background: #f8fafc;
+        position: relative;
+    }
+
+    .upload-zone:hover {
+        border-color: #059669;
+        background: #f0fdf4;
+    }
+
+    .upload-zone.has-file {
+        border-style: solid;
+        border-color: #059669;
+        background: #f0fdf4;
+    }
+
+    .upload-zone .upload-icon {
+        font-size: 2rem;
+        color: #9ca3af;
+        margin-bottom: .5rem;
+    }
+
+    .upload-zone.has-file .upload-icon {
+        color: #059669;
+    }
+
+    .upload-zone .upload-text {
+        font-size: .88rem;
+        color: #6b7280;
+    }
+
+    .upload-zone .upload-hint {
+        font-size: .75rem;
+        color: #9ca3af;
+        margin-top: .25rem;
+    }
+
+    .file-preview {
+        display: flex;
+        align-items: center;
+        gap: .75rem;
+        padding: .65rem .85rem;
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-radius: 10px;
+        margin-top: .75rem;
+    }
+
+    .file-preview .file-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        background: #d1fae5;
+        color: #059669;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+        flex-shrink: 0;
+    }
+
+    .file-preview .file-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .file-preview .file-name {
+        font-weight: 600;
+        font-size: .85rem;
+        color: #1a1a2e;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .file-preview .file-size {
+        font-size: .75rem;
+        color: #6b7280;
+    }
+
+    .file-preview .file-remove {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #dc2626;
+        width: 28px;
+        height: 28px;
+        border-radius: 7px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all .15s;
+        font-size: .8rem;
+        flex-shrink: 0;
+    }
+
+    .file-preview .file-remove:hover {
+        background: #dc2626;
+        color: #fff;
+    }
+
     /* ── Responsive ──────────────────────────────────── */
     @@media (max-width:768px) {
         .method-tabs {
             grid-template-columns: 1fr 1fr;
         }
+    }
+
+    /* ── Dark Mode ────────────────────────────────────── */
+    .dark-theme .cp-page {
+        background: #0f172a;
+    }
+
+    .dark-theme .cp-breadcrumb {
+        color: #94a3b8;
+    }
+
+    .dark-theme .cp-breadcrumb a {
+        color: #34d399;
+    }
+
+    .dark-theme .cp-breadcrumb .sep {
+        color: #475569;
+    }
+
+    .dark-theme .cp-header h2 {
+        color: #e2e8f0;
+    }
+
+    .dark-theme .cp-header p {
+        color: #94a3b8;
+    }
+
+    /* Section cards */
+    .dark-theme .section-card {
+        background: #1e293b;
+        border-color: #334155;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .25);
+    }
+
+    .dark-theme .section-card .card-hdr {
+        border-bottom-color: #334155;
+    }
+
+    .dark-theme .section-card .card-hdr h6 {
+        color: #e2e8f0;
+    }
+
+    .dark-theme .section-card .card-hdr .header-icon {
+        background: rgba(5, 150, 105, .15) !important;
+        color: #34d399 !important;
+    }
+
+    .dark-theme .section-card .card-hdr .header-icon[style*="#dbeafe"] {
+        background: rgba(37, 99, 235, .15) !important;
+        color: #60a5fa !important;
+    }
+
+    .dark-theme .section-card .card-hdr .header-icon[style*="#fef3c7"] {
+        background: rgba(217, 119, 6, .15) !important;
+        color: #fbbf24 !important;
+    }
+
+    .dark-theme .section-card .card-hdr .header-icon[style*="#ede9fe"] {
+        background: rgba(124, 58, 237, .15) !important;
+        color: #a78bfa !important;
+    }
+
+    /* Form fields */
+    .dark-theme .field-label {
+        color: #94a3b8;
+    }
+
+    .dark-theme .form-control,
+    .dark-theme .form-select {
+        background: #0f172a;
+        border-color: #475569;
+        color: #e2e8f0;
+    }
+
+    .dark-theme .form-control::placeholder {
+        color: #64748b;
+    }
+
+    .dark-theme .form-control:focus,
+    .dark-theme .form-select:focus {
+        background: #0f172a;
+        border-color: #059669;
+        color: #e2e8f0;
+        box-shadow: 0 0 0 0.2rem rgba(5, 150, 105, .15);
+    }
+
+    .dark-theme .input-group-text {
+        background: #334155;
+        border-color: #475569;
+        color: #94a3b8;
+    }
+
+    /* Method tabs */
+    .dark-theme .method-tab {
+        background: #0f172a;
+        border-color: #334155;
+    }
+
+    .dark-theme .method-tab:hover {
+        border-color: #10b981;
+    }
+
+    .dark-theme .method-tab.active {
+        border-color: #10b981;
+        background: rgba(5, 150, 105, .08);
+        box-shadow: 0 0 0 3px rgba(5, 150, 105, .12);
+    }
+
+    .dark-theme .method-tab .tab-label {
+        color: #cbd5e1;
+    }
+
+    .dark-theme .method-tab .tab-icon {
+        color: #94a3b8;
+    }
+
+    .dark-theme .method-tab.active .tab-icon,
+    .dark-theme .method-tab.active .tab-label {
+        color: #34d399;
+    }
+
+    /* Business partner dropdown */
+    .dark-theme .bp-dropdown {
+        background: #1e293b;
+        border-color: #334155;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, .4);
+    }
+
+    .dark-theme .bp-item {
+        color: #e2e8f0;
+    }
+
+    .dark-theme .bp-item:hover {
+        background: rgba(5, 150, 105, .1);
+    }
+
+    .dark-theme .bp-selected {
+        background: rgba(5, 150, 105, .1);
+        border-color: rgba(16, 185, 129, .3);
+        color: #e2e8f0;
+    }
+
+    /* Invoice line cards */
+    .dark-theme .inv-card {
+        background: #0f172a;
+        border-color: #334155;
+    }
+
+    .dark-theme .inv-card:hover {
+        border-color: #10b981;
+        box-shadow: 0 2px 10px rgba(5, 150, 105, .12);
+    }
+
+    .dark-theme .inv-badge {
+        background: rgba(5, 150, 105, .15);
+        color: #34d399;
+    }
+
+    .dark-theme .inv-remove {
+        background: rgba(239, 68, 68, .1);
+        border-color: rgba(239, 68, 68, .25);
+        color: #f87171;
+    }
+
+    .dark-theme .inv-remove:hover {
+        background: #dc2626;
+        color: #fff;
+        border-color: #dc2626;
+    }
+
+    .dark-theme .inv-empty {
+        color: #64748b;
+    }
+
+    /* Upload zone */
+    .dark-theme .upload-zone {
+        border-color: #475569;
+        background: #0f172a;
+    }
+
+    .dark-theme .upload-zone:hover {
+        border-color: #10b981;
+        background: rgba(5, 150, 105, .05);
+    }
+
+    .dark-theme .upload-zone.has-file {
+        border-color: #10b981;
+        background: rgba(5, 150, 105, .08);
+    }
+
+    .dark-theme .upload-zone .upload-icon {
+        color: #64748b;
+    }
+
+    .dark-theme .upload-zone.has-file .upload-icon {
+        color: #34d399;
+    }
+
+    .dark-theme .upload-zone .upload-text {
+        color: #94a3b8;
+    }
+
+    .dark-theme .upload-zone .upload-hint {
+        color: #64748b;
+    }
+
+    .dark-theme .file-preview {
+        background: rgba(5, 150, 105, .08);
+        border-color: rgba(16, 185, 129, .25);
+    }
+
+    .dark-theme .file-preview .file-icon {
+        background: rgba(5, 150, 105, .2);
+        color: #34d399;
+    }
+
+    .dark-theme .file-preview .file-name {
+        color: #e2e8f0;
+    }
+
+    .dark-theme .file-preview .file-size {
+        color: #94a3b8;
+    }
+
+    .dark-theme .file-preview .file-remove {
+        background: rgba(239, 68, 68, .1);
+        border-color: rgba(239, 68, 68, .25);
+        color: #f87171;
+    }
+
+    .dark-theme .file-preview .file-remove:hover {
+        background: #dc2626;
+        color: #fff;
+    }
+
+    /* Summary sidebar */
+    .dark-theme .summary-card {
+        background: #1e293b;
+        border-color: #334155;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .25);
+    }
+
+    .dark-theme .summary-hdr {
+        border-bottom-color: #334155;
+    }
+
+    .dark-theme .summary-hdr h6 {
+        color: #e2e8f0;
+    }
+
+    .dark-theme .check-list li {
+        color: #cbd5e1;
+    }
+
+    .dark-theme .check-list li .check-icon.pass {
+        background: rgba(5, 150, 105, .2);
+        color: #34d399;
+    }
+
+    .dark-theme .check-list li .check-icon.fail {
+        background: rgba(239, 68, 68, .15);
+        color: #f87171;
+    }
+
+    .dark-theme .sum-line .sum-label {
+        color: #94a3b8;
+    }
+
+    .dark-theme .sum-line .sum-value {
+        color: #e2e8f0;
+    }
+
+    .dark-theme .sum-divider {
+        border-top-color: #334155;
+    }
+
+    .dark-theme .sum-total .total-label {
+        color: #e2e8f0;
+    }
+
+    /* Buttons */
+    .dark-theme .btn-back {
+        background: #1e293b;
+        border-color: #475569;
+        color: #cbd5e1;
+    }
+
+    .dark-theme .btn-back:hover {
+        background: #334155;
+        color: #e2e8f0;
+    }
+
+    .dark-theme .btn-secondary-action {
+        background: #1e293b;
+        border-color: #475569;
+        color: #cbd5e1;
+    }
+
+    .dark-theme .btn-secondary-action:hover {
+        background: #334155;
+        color: #e2e8f0;
+    }
+
+    .dark-theme .btn-execute:disabled {
+        opacity: .35;
+    }
+
+    /* Alerts */
+    .dark-theme .alert-banner.success-alert {
+        background: rgba(16, 185, 129, .1);
+        border-color: rgba(16, 185, 129, .25);
+        color: #6ee7b7;
+    }
+
+    .dark-theme .alert-banner.error-alert {
+        background: rgba(239, 68, 68, .1);
+        border-color: rgba(239, 68, 68, .25);
+        color: #fca5a5;
+    }
+
+    /* Info hint */
+    .dark-theme .info-hint {
+        background: rgba(5, 150, 105, .06);
+        border-color: #334155;
+        color: #94a3b8;
+    }
+
+    /* MudBlazor overrides */
+    .dark-theme .mud-input-outlined .mud-input-outlined-border {
+        border-color: #475569 !important;
+    }
+
+    .dark-theme .mud-input.mud-input-outlined {
+        color: #e2e8f0 !important;
+    }
+
+    .dark-theme .mud-input-label {
+        color: #94a3b8 !important;
+    }
+
+    .dark-theme .mud-input-slot,
+    .dark-theme .mud-input>input {
+        color: #e2e8f0 !important;
     }
 </style>
 
@@ -877,7 +1329,7 @@
                                                                                    class="form-control form-control-sm @(invoiceValidationErrors.ContainsKey(index) && invoiceValidationErrors[index].ContainsKey("DocEntry") ? "validation-error" : "")"
                                                                                    placeholder="DocEntry" @bind="invoiceLines[index].DocEntry" />
                                                                             @if (invoiceValidationErrors.ContainsKey(index) &&
-                                                                                                                                                                                            invoiceValidationErrors[index].ContainsKey("DocEntry"))
+                                                                                                                                                                                                                                                                        invoiceValidationErrors[index].ContainsKey("DocEntry"))
                                                                             {
                                                                                 <div class="val-msg">@invoiceValidationErrors[index]["DocEntry"]</div>
                                                                             }
@@ -888,7 +1340,7 @@
                                                                                    class="form-control form-control-sm @(invoiceValidationErrors.ContainsKey(index) && invoiceValidationErrors[index].ContainsKey("SumApplied") ? "validation-error" : "")"
                                                                                    step="0.01" min="0" placeholder="0.00" @bind="invoiceLines[index].SumApplied" />
                                                                             @if (invoiceValidationErrors.ContainsKey(index) &&
-                                                                                                                                                                                            invoiceValidationErrors[index].ContainsKey("SumApplied"))
+                                                                                                                                                                                                                                                                        invoiceValidationErrors[index].ContainsKey("SumApplied"))
                                                                             {
                                                                                 <div class="val-msg">@invoiceValidationErrors[index]["SumApplied"]</div>
                                                                             }
@@ -908,123 +1360,184 @@
                                                 </div>
                                             </div>
 
-                                            <!-- ━━━ Right Column: Summary Sidebar ━━━ -->
-                                            <div class="col-lg-4">
-                                                <div class="summary-section">
-                                                    <div class="summary-card">
-                                                        <!-- Validation Checklist -->
-                                                        <div class="summary-hdr">
-                                                            <i class="bi bi-shield-check" style="color:#059669;"></i>
-                                                            <h6>Validation Checklist</h6>
+                                            <!-- ── Attachment Section ── -->
+                                            <div class="section-card">
+                                                <div class="card-hdr">
+                                                    <div class="hdr-left">
+                                                        <div class="header-icon" style="background:#ede9fe; color:#7c3aed;"><i
+                                                            class="bi bi-paperclip"></i></div>
+                                                            <h6>Attachment <span class="required">*</span></h6>
                                                         </div>
-                                                        <div style="padding:.85rem 1.15rem; border-bottom:1px solid #f3f4f6;">
-                                                            <ul class="check-list">
-                                                                <li>
-                                                                    <span
-                                                                        class="check-icon @(selectedBusinessPartner != null || !string.IsNullOrWhiteSpace(bpSearchTerm) ? "pass" : "fail")">
-                                                                        <i
-                                                                        class="bi @(selectedBusinessPartner != null || !string.IsNullOrWhiteSpace(bpSearchTerm) ? "bi-check" : "bi-x")"></i>
-                                                                    </span>
-                                                                    Customer selected
-                                                                </li>
-                                                                <li>
-                                                                    <span class="check-icon @(TotalPayment > 0 ? "pass" : "fail")">
-                                                                        <i class="bi @(TotalPayment > 0 ? "bi-check" : "bi-x")"></i>
-                                                                    </span>
-                                                                    Payment amount entered
-                                                                </li>
-                                                                <li>
-                                                                    <span
-                                                                        class="check-icon @(activePaymentMethod == "transfer" && string.IsNullOrWhiteSpace(transferReference) ? "fail" : "pass")">
-                                                                        <i
-                                                                        class="bi @(activePaymentMethod == "transfer" && string.IsNullOrWhiteSpace(transferReference) ? "bi-x" : "bi-check")"></i>
-                                                                    </span>
-                                                                    Method details filled
-                                                                </li>
-                                                                <li>
-                                                                    <span class="check-icon @(paymentAttachment != null ? "pass" : "fail")">
-                                                                        <i class="bi @(paymentAttachment != null ? "bi-check" : "bi-x")"></i>
-                                                                    </span>
-                                                                    Attachment uploaded
-                                                                </li>
-                                                            </ul>
+                                                        @if (paymentAttachment != null)
+                                                        {
+                                                            <span class="badge" style="background:#d1fae5; color:#065f46; font-size:.72rem; font-weight:600;"><i
+                                                                class="bi bi-check-lg me-1"></i>Uploaded</span>
+                                                            }
                                                         </div>
-
-                                                        <!-- Summary -->
-                                                        <div class="summary-hdr" style="border-bottom:none;">
-                                                            <i class="bi bi-calculator" style="color:#059669;"></i>
-                                                            <h6>Payment Summary</h6>
-                                                        </div>
-                                                        <div class="summary-body" style="padding-top:0;">
-                                                            <div class="sum-line">
-                                                                <span class="sum-label"><i class="bi bi-cash me-1"
-                                                                                               style="color:#059669;"></i>Cash</span>
-                                                                    <span class="sum-value">@cashSum.ToString("N2")</span>
+                                                        <div class="card-body-inner">
+                                                            @if (validationErrors.ContainsKey("Attachment"))
+                                                            {
+                                                                <div class="alert-banner error-alert" style="margin-bottom:.75rem;">
+                                                                    <i class="bi bi-exclamation-circle-fill"></i>
+                                                                    <div class="alert-body">@validationErrors["Attachment"]</div>
                                                                 </div>
-                                                                <div class="sum-line">
-                                                                    <span class="sum-label"><i class="bi bi-bank me-1"
-                                                                                                   style="color:#2563eb;"></i>Transfer</span>
-                                                                        <span class="sum-value">@transferSum.ToString("N2")</span>
+                                                            }
+
+                                                            <label class="upload-zone @(paymentAttachment != null ? "has-file" : "")">
+                                                                <InputFile OnChange="OnAttachmentSelected" accept=".pdf,.jpg,.jpeg,.png,.webp"
+                                                                           style="display:none;" />
+                                                                <div class="upload-icon"><i
+                                                                    class="bi @(paymentAttachment != null ? "bi-file-earmark-check" : "bi-cloud-arrow-up")"></i>
+                                                                </div>
+                                                                <div class="upload-text">
+                                                                    @if (paymentAttachment != null)
+                                                                    {
+                                                                        <span>Click to replace file</span>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <span>Click to upload proof of payment</span>
+                                                                    }
+                                                                </div>
+                                                                <div class="upload-hint">PDF, JPEG, PNG or WebP — Max 20 MB</div>
+                                                            </label>
+
+                                                            @if (paymentAttachment != null)
+                                                            {
+                                                                <div class="file-preview">
+                                                                    <div class="file-icon">
+                                                                        <i
+                                                                        class="bi @(paymentAttachment.ContentType.Contains("pdf") ? "bi-file-earmark-pdf" : "bi-file-earmark-image")"></i>
                                                                     </div>
+                                                                    <div class="file-info">
+                                                                        <div class="file-name">@paymentAttachment.Name</div>
+                                                                        <div class="file-size">@FormatFileSize(paymentAttachment.Size)</div>
+                                                                    </div>
+                                                                    <button type="button" class="file-remove" @onclick="RemoveAttachment" title="Remove">
+                                                                        <i class="bi bi-x"></i>
+                                                                    </button>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    </div>
+
+                                                    <!-- ━━━ Right Column: Summary Sidebar ━━━ -->
+                                                    <div class="col-lg-4">
+                                                        <div class="summary-section">
+                                                            <div class="summary-card">
+                                                                <!-- Validation Checklist -->
+                                                                <div class="summary-hdr">
+                                                                    <i class="bi bi-shield-check" style="color:#059669;"></i>
+                                                                    <h6>Validation Checklist</h6>
+                                                                </div>
+                                                                <div style="padding:.85rem 1.15rem; border-bottom:1px solid #f3f4f6;">
+                                                                    <ul class="check-list">
+                                                                        <li>
+                                                                            <span
+                                                                                class="check-icon @(selectedBusinessPartner != null || !string.IsNullOrWhiteSpace(bpSearchTerm) ? "pass" : "fail")">
+                                                                                <i
+                                                                                class="bi @(selectedBusinessPartner != null || !string.IsNullOrWhiteSpace(bpSearchTerm) ? "bi-check" : "bi-x")"></i>
+                                                                            </span>
+                                                                            Customer selected
+                                                                        </li>
+                                                                        <li>
+                                                                            <span class="check-icon @(TotalPayment > 0 ? "pass" : "fail")">
+                                                                                <i class="bi @(TotalPayment > 0 ? "bi-check" : "bi-x")"></i>
+                                                                            </span>
+                                                                            Payment amount entered
+                                                                        </li>
+                                                                        <li>
+                                                                            <span
+                                                                                class="check-icon @(activePaymentMethod == "transfer" && string.IsNullOrWhiteSpace(transferReference) ? "fail" : "pass")">
+                                                                                <i
+                                                                                class="bi @(activePaymentMethod == "transfer" && string.IsNullOrWhiteSpace(transferReference) ? "bi-x" : "bi-check")"></i>
+                                                                            </span>
+                                                                            Method details filled
+                                                                        </li>
+                                                                        <li>
+                                                                            <span class="check-icon @(paymentAttachment != null ? "pass" : "fail")">
+                                                                                <i class="bi @(paymentAttachment != null ? "bi-check" : "bi-x")"></i>
+                                                                            </span>
+                                                                            Attachment uploaded
+                                                                        </li>
+                                                                    </ul>
+                                                                </div>
+
+                                                                <!-- Summary -->
+                                                                <div class="summary-hdr" style="border-bottom:none;">
+                                                                    <i class="bi bi-calculator" style="color:#059669;"></i>
+                                                                    <h6>Payment Summary</h6>
+                                                                </div>
+                                                                <div class="summary-body" style="padding-top:0;">
                                                                     <div class="sum-line">
-                                                                        <span class="sum-label"><i class="bi bi-journal-check me-1"
-                                                                                                       style="color:#d97706;"></i>Check</span>
-                                                                            <span class="sum-value">@checkSum.ToString("N2")</span>
+                                                                        <span class="sum-label"><i class="bi bi-cash me-1"
+                                                                                                       style="color:#059669;"></i>Cash</span>
+                                                                            <span class="sum-value">@cashSum.ToString("N2")</span>
                                                                         </div>
                                                                         <div class="sum-line">
-                                                                            <span class="sum-label"><i class="bi bi-credit-card me-1"
-                                                                                                           style="color:#7c3aed;"></i>Credit</span>
-                                                                                <span class="sum-value">@creditSum.ToString("N2")</span>
+                                                                            <span class="sum-label"><i class="bi bi-bank me-1"
+                                                                                                           style="color:#2563eb;"></i>Transfer</span>
+                                                                                <span class="sum-value">@transferSum.ToString("N2")</span>
                                                                             </div>
-
-                                                                            @if (invoiceLines.Any(l => l.SumApplied > 0))
-                                                                            {
-                                                                                <hr class="sum-divider" />
+                                                                            <div class="sum-line">
+                                                                                <span class="sum-label"><i class="bi bi-journal-check me-1"
+                                                                                                               style="color:#d97706;"></i>Check</span>
+                                                                                    <span class="sum-value">@checkSum.ToString("N2")</span>
+                                                                                </div>
                                                                                 <div class="sum-line">
-                                                                                    <span class="sum-label">Applied to Invoices</span>
-                                                                                    <span class="sum-value">@invoiceLines.Sum(l => l.SumApplied).ToString("N2")</span>
-                                                                                </div>
-                                                                                <div style="font-size:.78rem; color:#6b7280; text-align:right;">@invoiceLines.Count(l =>
-                                                                                                                                                                                                        l.DocEntry > 0) invoice(s)</div>
-                                                                                }
+                                                                                    <span class="sum-label"><i class="bi bi-credit-card me-1"
+                                                                                                                   style="color:#7c3aed;"></i>Credit</span>
+                                                                                        <span class="sum-value">@creditSum.ToString("N2")</span>
+                                                                                    </div>
 
-                                                                                <hr class="sum-divider" />
-                                                                                <div class="sum-total">
-                                                                                    <span class="total-label">Total Payment</span>
-                                                                                    <span class="total-value">@TotalPayment.ToString("N2")</span>
-                                                                                </div>
-                                                                            </div>
+                                                                                    @if (invoiceLines.Any(l => l.SumApplied > 0))
+                                                                                    {
+                                                                                        <hr class="sum-divider" />
+                                                                                        <div class="sum-line">
+                                                                                            <span class="sum-label">Applied to Invoices</span>
+                                                                                            <span class="sum-value">@invoiceLines.Sum(l => l.SumApplied).ToString("N2")</span>
+                                                                                        </div>
+                                                                                        <div style="font-size:.78rem; color:#6b7280; text-align:right;">@invoiceLines.Count(l =>
+                                                                                                                                                                                                                                                                                                    l.DocEntry > 0) invoice(s)</div>
+                                                                                        }
 
-                                                                            <!-- Actions -->
-                                                                            <div style="padding:0 1.15rem 1.15rem;">
-                                                                                <MudButton Class="btn-execute" OnClick="SubmitPayment" Disabled="@isSubmitting">
-                                                                                    @if (isSubmitting)
-                                                                                    {
-                                                                                        <span class="spinner-border spinner-border-sm"></span>
-                                                                                        <span>Creating…</span>
-                                                                                    }
-                                                                                    else
-                                                                                    {
-                                                                                        <i class="bi bi-check-circle-fill"></i>
-                                                                                        <span>Create Payment</span>
-                                                                                    }
-                                                                                </MudButton>
-                                                                                <MudButton Class="btn-secondary-action" OnClick="ClearForm" Disabled="@isSubmitting">
-                                                                                    <i class="bi bi-arrow-counterclockwise"></i> Clear Form
-                                                                                </MudButton>
-                                                                                <div class="info-hint">
-                                                                                    <i class="bi bi-info-circle" style="flex-shrink:0; margin-top:1px;"></i>
-                                                                                    <span>Payments are posted directly to SAP Business One. Ensure all details are correct
-                                                                                        before submitting.</span>
+                                                                                        <hr class="sum-divider" />
+                                                                                        <div class="sum-total">
+                                                                                            <span class="total-label">Total Payment</span>
+                                                                                            <span class="total-value">@TotalPayment.ToString("N2")</span>
+                                                                                        </div>
+                                                                                    </div>
+
+                                                                                    <!-- Actions -->
+                                                                                    <div style="padding:0 1.15rem 1.15rem;">
+                                                                                        <MudButton Class="btn-execute" OnClick="SubmitPayment" Disabled="@isSubmitting">
+                                                                                            @if (isSubmitting)
+                                                                                            {
+                                                                                                <span class="spinner-border spinner-border-sm"></span>
+                                                                                                <span>Creating…</span>
+                                                                                            }
+                                                                                            else
+                                                                                            {
+                                                                                                <i class="bi bi-check-circle-fill"></i>
+                                                                                                <span>Create Payment</span>
+                                                                                            }
+                                                                                        </MudButton>
+                                                                                        <MudButton Class="btn-secondary-action" OnClick="ClearForm" Disabled="@isSubmitting">
+                                                                                            <i class="bi bi-arrow-counterclockwise"></i> Clear Form
+                                                                                        </MudButton>
+                                                                                        <div class="info-hint">
+                                                                                            <i class="bi bi-info-circle" style="flex-shrink:0; margin-top:1px;"></i>
+                                                                                            <span>Payments are posted directly to SAP Business One. Ensure all details are correct
+                                                                                                before submitting.</span>
+                                                                                            </div>
+                                                                                        </div>
                                                                                     </div>
                                                                                 </div>
                                                                             </div>
                                                                         </div>
+                                                                        }
                                                                     </div>
                                                                 </div>
-                                                                }
-                                                            </div>
-                                                        </div>
 
 @code {
     // State
@@ -1499,6 +2012,8 @@ VoucherNum = creditVoucherNum
                 Logger.LogInformation("Incoming payment #{DocNum} (DocEntry: {DocEntry}) created successfully",
                 payment?.DocNum, payment?.DocEntry);
                 successMessage = $"Payment #{payment?.DocNum} created successfully! Total: {payment?.DocTotal:N2}";
+                // Audit log: payment created
+                await AuditService.LogAsync(AuditActions.CreatePayment, "Payment", payment?.DocNum.ToString());
                 ClearForm();
             }
             else
@@ -1512,6 +2027,8 @@ VoucherNum = creditVoucherNum
                 {
                     errorMessage = message;
                 }
+                // Audit log: payment creation failed
+                await AuditService.LogAsync(AuditActions.CreatePayment, "Payment", cardCode, null, false, errorMessage);
             }
         }
         catch (HttpRequestException httpEx)
@@ -1576,6 +2093,13 @@ VoucherNum = creditVoucherNum
     private void RemoveAttachment()
     {
         paymentAttachment = null;
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:N1} KB";
+        return $"{bytes / (1024.0 * 1024.0):N1} MB";
     }
 
     private class InvoiceLineModel

@@ -1,6 +1,7 @@
 @page "/backups"
 @inject IBackupService BackupService
 @inject IJSRuntime JS
+@inject IAuditService AuditService
 @attribute [Authorize(Roles = "Admin")]
 @rendermode InteractiveServer
 
@@ -1080,6 +1081,7 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
+        await AuditService.LogAsync(AuditActions.ViewBackups, "Backup", null);
     }
 
     private async Task LoadData()
@@ -1131,6 +1133,7 @@
                 showCreateModal = false;
                 newBackup = new();
                 ShowToast("Backup created successfully");
+                await AuditService.LogAsync(AuditActions.CreateBackup, "Backup", result.Id.ToString(), $"Type: {result.BackupType}", true);
                 await LoadData();
             }
             else
@@ -1167,6 +1170,7 @@
                 showRestoreModal = false;
                 backupToRestore = null;
                 ShowToast("Backup restored successfully");
+                await AuditService.LogAsync(AuditActions.RestoreBackup, "Backup", backupToRestore?.Id.ToString());
                 await LoadData();
             }
             else
@@ -1202,6 +1206,7 @@
                 showDeleteModal = false;
                 backupToDelete = null;
                 ShowToast("Backup deleted successfully");
+                await AuditService.LogAsync(AuditActions.DeleteBackup, "Backup", backupToDelete?.Id.ToString());
                 await LoadData();
             }
             else
@@ -1223,6 +1228,7 @@
             if (backup == null) return;
 
             await JS.InvokeVoidAsync("open", $"/download/backup/{id}", "_blank");
+            await AuditService.LogAsync(AuditActions.DownloadBackup, "Backup", id.ToString());
         }
         catch (Exception ex)
         {

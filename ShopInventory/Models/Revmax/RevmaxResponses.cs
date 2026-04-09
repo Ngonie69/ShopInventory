@@ -4,6 +4,34 @@ using System.Text.Json.Serialization;
 namespace ShopInventory.Models.Revmax;
 
 /// <summary>
+/// Handles REVMax responses where Data can be an empty string instead of an object/null.
+/// </summary>
+public class EmptyStringToNullConverter<T> : JsonConverter<T?> where T : class
+{
+    public override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            // REVMax returns "" for Data when not found — treat as null
+            reader.GetString();
+            return null;
+        }
+
+        if (reader.TokenType == JsonTokenType.Null)
+        {
+            return null;
+        }
+
+        return JsonSerializer.Deserialize<T>(ref reader, options);
+    }
+
+    public override void Write(Utf8JsonWriter writer, T? value, JsonSerializerOptions options)
+    {
+        JsonSerializer.Serialize(writer, value, options);
+    }
+}
+
+/// <summary>
 /// Card details response from REVMax.
 /// </summary>
 public class CardDetailsResponse
@@ -74,14 +102,7 @@ public class LicenseResponse
     public string? DeviceID { get; set; }
     public string? DeviceSerialNumber { get; set; }
     public string? FiscalDay { get; set; }
-    public LicenseData? Data { get; set; }
-}
-
-public class LicenseData
-{
-    public string? Status { get; set; }
-    public string? Start { get; set; }
-    public string? End { get; set; }
+    public JsonElement? Data { get; set; }
 }
 
 /// <summary>
@@ -113,6 +134,8 @@ public class InvoiceResponse
     public string? DeviceID { get; set; }
     public string? DeviceSerialNumber { get; set; }
     public string? FiscalDay { get; set; }
+
+    [JsonConverter(typeof(EmptyStringToNullConverter<InvoiceData>))]
     public InvoiceData? Data { get; set; }
 
     [JsonIgnore]

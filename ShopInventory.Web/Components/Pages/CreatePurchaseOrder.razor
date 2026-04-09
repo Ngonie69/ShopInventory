@@ -4,8 +4,11 @@
 @inject IPurchaseOrderService PurchaseOrderService
 @inject IMasterDataCacheService CacheService
 @inject NavigationManager NavigationManager
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Services
 @inject ILogger<CreatePurchaseOrder> Logger
 @inject IAppSettingsProvider AppSettings
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Create Purchase Order - Shop Inventory</PageTitle>
@@ -1065,6 +1068,7 @@ new CreatePurchaseOrderLineRequest()
 
                 successMessage = $"Purchase order {result.OrderNumber} created successfully!";
                 Logger.LogInformation("Created purchase order {OrderNumber}", result.OrderNumber);
+                await AuditService.LogAsync(AuditActions.CreatePurchaseOrder, "PurchaseOrder", result.OrderNumber);
 
                 // Reset form
                 purchaseOrder = new CreatePurchaseOrderRequest
@@ -1084,6 +1088,7 @@ new CreatePurchaseOrderLineRequest()
             else
             {
                 errorMessage = "Failed to create purchase order. The API returned no result — check server logs for details.";
+                await AuditService.LogAsync(AuditActions.CreatePurchaseOrder, "PurchaseOrder", null, null, false, errorMessage);
             }
         }
         catch (HttpRequestException ex)

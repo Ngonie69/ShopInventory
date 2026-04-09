@@ -141,7 +141,7 @@ public class AuthController : ControllerBase
             User.Identity?.Name, request.Username);
 
         // Validate role
-        var validRoles = new[] { "Admin", "Cashier", "StockController", "DepotController", "PodOperator" };
+        var validRoles = new[] { "Admin", "Manager", "Cashier", "StockController", "DepotController", "PodOperator", "Driver", "Merchandiser", "SalesRep" };
         if (!validRoles.Contains(request.Role, StringComparer.OrdinalIgnoreCase))
         {
             return BadRequest(new ErrorResponseDto
@@ -178,13 +178,6 @@ public class AuthController : ControllerBase
 
     private string GetClientIpAddress()
     {
-        // Check for forwarded IP (when behind proxy/load balancer)
-        var forwardedFor = Request.Headers["X-Forwarded-For"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(forwardedFor))
-        {
-            return forwardedFor.Split(',')[0].Trim();
-        }
-
         return HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
     }
 }

@@ -33,6 +33,8 @@ public class UserDto
     public List<string> AssignedWarehouseCodes { get; set; } = new();
     /// <summary>Backward compat — first warehouse code</summary>
     public string? AssignedWarehouseCode => AssignedWarehouseCodes.FirstOrDefault();
+    public List<string> AssignedCustomerCodes { get; set; } = new();
+    public string? AssignedSection { get; set; }
 }
 
 /// <summary>
@@ -47,6 +49,8 @@ public class CreateUserRequest
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
     public List<string>? AssignedWarehouseCodes { get; set; }
+    public List<string>? AssignedCustomerCodes { get; set; }
+    public string? AssignedSection { get; set; }
 }
 
 /// <summary>
@@ -60,6 +64,8 @@ public class UpdateUserRequest
     public string? LastName { get; set; }
     public bool? IsActive { get; set; }
     public List<string>? AssignedWarehouseCodes { get; set; }
+    public List<string>? AssignedCustomerCodes { get; set; }
+    public string? AssignedSection { get; set; }
 }
 
 /// <summary>

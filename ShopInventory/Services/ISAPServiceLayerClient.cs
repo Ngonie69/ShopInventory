@@ -8,8 +8,10 @@ public interface ISAPServiceLayerClient
     // Inventory Transfer Operations
     Task<List<InventoryTransfer>> GetInventoryTransfersToWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
     Task<List<InventoryTransfer>> GetPagedInventoryTransfersToWarehouseAsync(string warehouseCode, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<List<InventoryTransfer>> GetPagedInventoryTransfersByOffsetAsync(string warehouseCode, int skip, int pageSize, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
     Task<List<InventoryTransfer>> GetInventoryTransfersByDateAsync(string warehouseCode, DateTime date, CancellationToken cancellationToken = default);
     Task<List<InventoryTransfer>> GetInventoryTransfersByDateRangeAsync(string warehouseCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<int> GetInventoryTransfersCountAsync(string warehouseCode, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
     Task<InventoryTransfer?> GetInventoryTransferByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -67,6 +69,9 @@ public interface ISAPServiceLayerClient
     Task<List<Invoice>> GetInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoiceHeadersByDateRangeAsync(DateTime fromDate, DateTime toDate, List<string>? excludeCardCodes = null, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetPagedInvoicesAsync(int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, CancellationToken cancellationToken = default);
+    Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+    Task<int> GetInvoicesCountAsync(int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
 
     // Product/Item Operations
     Task<List<Item>> GetAllItemsAsync(CancellationToken cancellationToken = default);
@@ -170,11 +175,14 @@ public interface ISAPServiceLayerClient
     // Sales Order Operations (from SAP)
     Task<List<SAPSalesOrder>> GetSalesOrdersAsync(CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetPagedSalesOrdersAsync(int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<List<SAPSalesOrder>> GetPagedSalesOrdersByOffsetAsync(int skip, int pageSize, CancellationToken cancellationToken = default);
     Task<SAPSalesOrder?> GetSalesOrderByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetSalesOrdersByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetSalesOrdersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<List<SAPSalesOrder>> GetSalesOrderHeadersAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, int skip = 0, int pageSize = 20, string? documentStatus = null, string? cancelled = null, CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetSalesOrderHeadersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
-    Task<int> GetSalesOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+    Task<int> GetSalesOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? documentStatus = null, string? cancelled = null, CancellationToken cancellationToken = default);
+    Task<SAPSalesOrder> CreateSalesOrderAsync(ShopInventory.Models.Entities.SalesOrderEntity order, CancellationToken cancellationToken = default);
     Task<List<Dictionary<string, object?>>> ExecuteRawSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken = default);
 
     // Credit Note/Credit Memo Operations (from SAP)
@@ -223,7 +231,25 @@ public interface ISAPServiceLayerClient
     /// <summary>
     /// Explicitly logs out the current SAP session to free the server-side session slot.
     /// </summary>
-    Task LogoutAsync();
+    Task LogoutAsync(CancellationToken cancellationToken = default);
+
+    // SAP Attachment Operations
+    /// <summary>
+    /// Copies a file to the SAP attachments share and creates an Attachments2 metadata record.
+    /// Returns the AbsoluteEntry of the created attachment.
+    /// </summary>
+    Task<int> UploadAttachmentToSAPAsync(Stream fileStream, string fileName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Appends a file to an existing SAP Attachments2 record.
+    /// Returns the unchanged AbsoluteEntry of the attachment.
+    /// </summary>
+    Task<int> AppendAttachmentToSAPAsync(int attachmentEntry, Stream fileStream, string fileName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Links an existing SAP attachment to an invoice by updating its AttachmentEntry field.
+    /// </summary>
+    Task LinkAttachmentToInvoiceAsync(int invoiceDocEntry, int attachmentEntry, CancellationToken cancellationToken = default);
 
     // Quotation Operations (from SAP)
     Task<List<SAPQuotation>> GetQuotationsFromSAPAsync(CancellationToken cancellationToken = default);

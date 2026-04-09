@@ -102,6 +102,65 @@ public static class AuditActions
     // Inventory transfer actions
     public const string ViewTransfers = "ViewTransfers";
     public const string ViewTransfer = "ViewTransfer";
+    public const string CreateTransfer = "CreateTransfer";
+
+    // Credit Note actions
+    public const string ViewCreditNotes = "ViewCreditNotes";
+    public const string CreateCreditNote = "CreateCreditNote";
+    public const string ApproveCreditNote = "ApproveCreditNote";
+    public const string DeleteCreditNote = "DeleteCreditNote";
+
+    // Quotation actions
+    public const string ViewQuotations = "ViewQuotations";
+    public const string CreateQuotation = "CreateQuotation";
+    public const string ApproveQuotation = "ApproveQuotation";
+    public const string ConvertQuotationToOrder = "ConvertQuotationToOrder";
+    public const string DeleteQuotation = "DeleteQuotation";
+
+    // Sales Order actions
+    public const string ViewSalesOrders = "ViewSalesOrders";
+    public const string CreateSalesOrder = "CreateSalesOrder";
+    public const string ApproveSalesOrder = "ApproveSalesOrder";
+    public const string PostSalesOrderToSAP = "PostSalesOrderToSAP";
+    public const string ConvertOrderToInvoice = "ConvertOrderToInvoice";
+    public const string DeleteSalesOrder = "DeleteSalesOrder";
+
+    // Purchase Order actions
+    public const string ViewPurchaseOrders = "ViewPurchaseOrders";
+    public const string CreatePurchaseOrder = "CreatePurchaseOrder";
+    public const string ApprovePurchaseOrder = "ApprovePurchaseOrder";
+    public const string ReceiveGoods = "ReceiveGoods";
+    public const string DeletePurchaseOrder = "DeletePurchaseOrder";
+
+    // POD actions
+    public const string UploadPod = "UploadPod";
+    public const string BulkUploadPod = "BulkUploadPod";
+
+    // Customer actions
+    public const string ViewCustomers = "ViewCustomers";
+    public const string GenerateStatement = "GenerateStatement";
+
+    // Stock actions
+    public const string ViewStock = "ViewStock";
+
+    // Exchange Rate actions
+    public const string ViewExchangeRates = "ViewExchangeRates";
+    public const string UpdateExchangeRate = "UpdateExchangeRate";
+    public const string FetchExternalRates = "FetchExternalRates";
+
+    // Backup actions
+    public const string ViewBackups = "ViewBackups";
+    public const string CreateBackup = "CreateBackup";
+    public const string RestoreBackup = "RestoreBackup";
+    public const string DeleteBackup = "DeleteBackup";
+    public const string DownloadBackup = "DownloadBackup";
+
+    // Dashboard actions
+    public const string ViewDashboard = "ViewDashboard";
+
+    // Document actions
+    public const string DownloadInvoicePdf = "DownloadInvoicePdf";
+    public const string PrintInvoicePdf = "PrintInvoicePdf";
 
     // Settings actions
     public const string ViewSettings = "ViewSettings";

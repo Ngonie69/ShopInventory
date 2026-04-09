@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Mappings;
+using ShopInventory.Models;
 using ShopInventory.Services;
 
 namespace ShopInventory.Controllers;
@@ -359,6 +360,9 @@ public class InventoryTransferController : ControllerBase
                 page,
                 pageSize,
                 cancellationToken);
+            var totalCount = await _sapClient.GetInventoryTransfersCountAsync(warehouseCode, cancellationToken: cancellationToken);
+            var totalPages = pageSize > 0 ? (int)Math.Ceiling(totalCount / (double)pageSize) : 1;
+            var hasMore = (page * pageSize) < totalCount;
 
             _logger.LogInformation("Retrieved {Count} inventory transfers (page {Page}) to warehouse {Warehouse}",
                 transfers.Count, page, warehouseCode);
@@ -369,7 +373,9 @@ public class InventoryTransferController : ControllerBase
                 Page = page,
                 PageSize = pageSize,
                 Count = transfers.Count,
-                HasMore = transfers.Count == pageSize,
+                TotalCount = totalCount,
+                TotalPages = totalPages,
+                HasMore = hasMore,
                 Transfers = transfers.ToDto()
             });
         }
@@ -469,6 +475,9 @@ public class InventoryTransferController : ControllerBase
     /// <param name="warehouseCode">The warehouse code to filter by</param>
     /// <param name="fromDate">Start date (format: yyyy-MM-dd)</param>
     /// <param name="toDate">End date (format: yyyy-MM-dd)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <param name="page">Optional page number for paged results</param>
+    /// <param name="pageSize">Optional page size for paged results</param>
     /// <returns>List of inventory transfers within the date range</returns>
     [HttpGet("{warehouseCode}/daterange")]
     [ProducesResponseType(typeof(InventoryTransferDateResponseDto), StatusCodes.Status200OK)]
@@ -478,7 +487,9 @@ public class InventoryTransferController : ControllerBase
         string warehouseCode,
         [FromQuery] string fromDate,
         [FromQuery] string toDate,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null)
     {
         try
         {
@@ -507,11 +518,49 @@ public class InventoryTransferController : ControllerBase
                 return BadRequest(new ErrorResponseDto { Message = "fromDate cannot be greater than toDate." });
             }
 
-            var transfers = await _sapClient.GetInventoryTransfersByDateRangeAsync(
-                warehouseCode,
-                parsedFromDate,
-                parsedToDate,
-                cancellationToken);
+            var usePagination = page.HasValue || pageSize.HasValue;
+            List<InventoryTransfer> transfers;
+            var currentPage = page ?? 1;
+            var currentPageSize = pageSize ?? 20;
+            int totalCount;
+            int totalPages;
+            bool hasMore;
+
+            if (usePagination)
+            {
+                currentPage = Math.Max(currentPage, 1);
+                currentPageSize = Math.Clamp(currentPageSize, 1, 100);
+                var skip = (currentPage - 1) * currentPageSize;
+
+                transfers = await _sapClient.GetPagedInventoryTransfersByOffsetAsync(
+                    warehouseCode,
+                    skip,
+                    currentPageSize,
+                    parsedFromDate,
+                    parsedToDate,
+                    cancellationToken);
+
+                totalCount = await _sapClient.GetInventoryTransfersCountAsync(
+                    warehouseCode,
+                    parsedFromDate,
+                    parsedToDate,
+                    cancellationToken);
+                totalPages = currentPageSize > 0 ? (int)Math.Ceiling(totalCount / (double)currentPageSize) : 1;
+                hasMore = (currentPage * currentPageSize) < totalCount;
+            }
+            else
+            {
+                transfers = await _sapClient.GetInventoryTransfersByDateRangeAsync(
+                    warehouseCode,
+                    parsedFromDate,
+                    parsedToDate,
+                    cancellationToken);
+                totalCount = transfers.Count;
+                currentPage = 1;
+                currentPageSize = transfers.Count;
+                totalPages = totalCount > 0 ? 1 : 0;
+                hasMore = false;
+            }
 
             _logger.LogInformation("Retrieved {Count} inventory transfers to warehouse {Warehouse} from {FromDate} to {ToDate}",
                 transfers.Count, warehouseCode, fromDate, toDate);
@@ -521,7 +570,12 @@ public class InventoryTransferController : ControllerBase
                 Warehouse = warehouseCode,
                 FromDate = parsedFromDate.ToString("yyyy-MM-dd"),
                 ToDate = parsedToDate.ToString("yyyy-MM-dd"),
+                Page = currentPage,
+                PageSize = currentPageSize,
                 Count = transfers.Count,
+                TotalCount = totalCount,
+                TotalPages = totalPages,
+                HasMore = hasMore,
                 Transfers = transfers.ToDto()
             });
         }

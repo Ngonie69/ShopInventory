@@ -8,8 +8,10 @@
 @inject NavigationManager NavigationManager
 @inject ILogger<CreateInventoryTransfer> Logger
 @inject IJSRuntime JS
+@using ShopInventory.Web.Data
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IAppSettingsProvider AppSettings
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Create Inventory Transfer - Shop Inventory</PageTitle>
@@ -561,6 +563,316 @@
             display: none;
         }
     }
+
+    /* ── Dark Mode Overrides ─────────────────────────── */
+    .dark-theme .transfer-page {
+        background: #0f172a;
+    }
+
+    .dark-theme .page-header h2 {
+        color: #e2e8f0;
+    }
+
+    .dark-theme .breadcrumb-nav {
+        color: #94a3b8;
+    }
+
+    .dark-theme .breadcrumb-nav a {
+        color: #60a5fa;
+    }
+
+    /* Step indicator */
+    .dark-theme .step-indicator {
+        background: #1e293b;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+    }
+
+    .dark-theme .step-item {
+        background: #1e293b;
+        color: #64748b;
+    }
+
+    .dark-theme .step-item.active {
+        color: #60a5fa;
+        background: rgba(59, 130, 246, .1);
+    }
+
+    .dark-theme .step-item.completed {
+        color: #34d399;
+        background: rgba(52, 211, 153, .08);
+    }
+
+    .dark-theme .step-number {
+        background: #334155;
+        color: #64748b;
+    }
+
+    .dark-theme .step-item.active .step-number {
+        background: #2563eb;
+        color: #fff;
+    }
+
+    .dark-theme .step-item.completed .step-number {
+        background: #059669;
+        color: #fff;
+    }
+
+    /* Cards */
+    .dark-theme .section-card {
+        background: #1e293b;
+        border-color: #334155;
+        box-shadow: 0 1px 6px rgba(0, 0, 0, .25);
+    }
+
+    .dark-theme .section-card:hover {
+        box-shadow: 0 4px 16px rgba(0, 0, 0, .35);
+    }
+
+    .dark-theme .section-card .card-header {
+        background: #1e293b;
+        border-bottom-color: #334155;
+    }
+
+    .dark-theme .section-card .card-header h5 {
+        color: #e2e8f0;
+    }
+
+    .dark-theme .header-icon.blue {
+        background: rgba(37, 99, 235, .15);
+        color: #60a5fa;
+    }
+
+    .dark-theme .header-icon.green {
+        background: rgba(5, 150, 105, .15);
+        color: #34d399;
+    }
+
+    .dark-theme .header-icon.amber {
+        background: rgba(217, 119, 6, .15);
+        color: #fbbf24;
+    }
+
+    .dark-theme .header-icon.purple {
+        background: rgba(124, 58, 237, .15);
+        color: #a78bfa;
+    }
+
+    /* Warehouse visual */
+    .dark-theme .warehouse-box {
+        background: #0f172a;
+        border-color: #475569;
+    }
+
+    .dark-theme .warehouse-box.filled {
+        border-color: #3b82f6;
+        background: rgba(59, 130, 246, .08);
+    }
+
+    .dark-theme .warehouse-box.filled.destination {
+        border-color: #10b981;
+        background: rgba(16, 185, 129, .08);
+    }
+
+    .dark-theme .warehouse-box .wh-label {
+        color: #94a3b8;
+    }
+
+    .dark-theme .warehouse-box .wh-code {
+        color: #e2e8f0;
+    }
+
+    .dark-theme .warehouse-box .wh-name {
+        color: #94a3b8;
+    }
+
+    .dark-theme .transfer-arrow {
+        color: #64748b;
+    }
+
+    .dark-theme .transfer-arrow i {
+        color: #3b82f6;
+    }
+
+    /* Form controls */
+    .dark-theme .form-label {
+        color: #cbd5e1;
+    }
+
+    .dark-theme .form-control,
+    .dark-theme .form-select {
+        background: #0f172a;
+        border-color: #475569;
+        color: #e2e8f0;
+    }
+
+    .dark-theme .form-control::placeholder {
+        color: #64748b;
+    }
+
+    .dark-theme .form-control:focus {
+        background: #0f172a;
+        border-color: #3b82f6;
+        color: #e2e8f0;
+        box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, .15);
+    }
+
+    /* Line items */
+    .dark-theme .line-item-card {
+        background: #0f172a;
+        border-color: #334155;
+    }
+
+    .dark-theme .line-item-card:hover {
+        border-color: #475569;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, .3);
+    }
+
+    .dark-theme .line-item-card.has-product {
+        border-left-color: #3b82f6;
+        background: #1e293b;
+    }
+
+    .dark-theme .line-badge {
+        background: #334155;
+        color: #94a3b8;
+    }
+
+    .dark-theme .line-item-card.has-product .line-badge {
+        background: rgba(37, 99, 235, .15);
+        color: #60a5fa;
+    }
+
+    .dark-theme .btn-remove-line {
+        color: #64748b;
+    }
+
+    .dark-theme .btn-remove-line:hover:not(:disabled) {
+        background: rgba(239, 68, 68, .15);
+        color: #f87171;
+    }
+
+    .dark-theme .product-preview {
+        background: rgba(59, 130, 246, .08);
+    }
+
+    .dark-theme .product-preview .product-icon {
+        background: rgba(37, 99, 235, .2);
+        color: #60a5fa;
+    }
+
+    .dark-theme .product-preview .product-name {
+        color: #e2e8f0;
+    }
+
+    .dark-theme .product-preview .product-stock {
+        color: #94a3b8;
+    }
+
+    .dark-theme .btn-add-item {
+        border-color: #475569;
+        color: #94a3b8;
+        background: #0f172a;
+    }
+
+    .dark-theme .btn-add-item:hover {
+        border-color: #3b82f6;
+        color: #60a5fa;
+        background: rgba(59, 130, 246, .08);
+    }
+
+    /* Summary sidebar */
+    .dark-theme .summary-stat {
+        border-bottom-color: #334155;
+    }
+
+    .dark-theme .summary-stat .stat-label {
+        color: #94a3b8;
+    }
+
+    .dark-theme .summary-stat .stat-value {
+        color: #e2e8f0;
+    }
+
+    /* Validation checklist */
+    .dark-theme .validation-checklist li {
+        color: #cbd5e1;
+    }
+
+    .dark-theme .check-icon.pass {
+        background: rgba(5, 150, 105, .2);
+        color: #34d399;
+    }
+
+    .dark-theme .check-icon.fail {
+        background: rgba(239, 68, 68, .15);
+        color: #f87171;
+    }
+
+    /* Alert banners */
+    .dark-theme .alert-banner.error {
+        background: rgba(239, 68, 68, .1);
+        border-color: rgba(239, 68, 68, .25);
+        color: #fca5a5;
+    }
+
+    .dark-theme .alert-banner.success {
+        background: rgba(16, 185, 129, .1);
+        border-color: rgba(16, 185, 129, .25);
+        color: #6ee7b7;
+    }
+
+    /* Info hint */
+    .dark-theme .info-hint {
+        background: rgba(59, 130, 246, .08);
+        border-color: rgba(59, 130, 246, .2);
+        color: #93c5fd;
+    }
+
+    /* Execute button keeps its gradient — just tweak disabled */
+    .dark-theme .btn-execute:disabled {
+        opacity: 0.35;
+    }
+
+    /* MudBlazor overrides in dark context */
+    .dark-theme .mud-input-outlined .mud-input-outlined-border {
+        border-color: #475569 !important;
+    }
+
+    .dark-theme .mud-input.mud-input-outlined {
+        color: #e2e8f0 !important;
+    }
+
+    .dark-theme .mud-input-label {
+        color: #94a3b8 !important;
+    }
+
+    .dark-theme .mud-input-slot,
+    .dark-theme .mud-input>input {
+        color: #e2e8f0 !important;
+    }
+
+    .dark-theme .mud-autocomplete .mud-menu .mud-list {
+        background: #1e293b !important;
+    }
+
+    /* Text & link overrides */
+    .dark-theme .text-muted {
+        color: #64748b !important;
+    }
+
+    .dark-theme .transfer-page a.btn-outline-secondary {
+        border-color: #475569;
+        color: #cbd5e1;
+    }
+
+    .dark-theme .transfer-page a.btn-outline-secondary:hover {
+        background: #334155;
+        color: #e2e8f0;
+    }
+
+    .dark-theme .transfer-page a.btn-link {
+        color: #60a5fa;
+    }
 </style>
 
 <div class="transfer-page">
@@ -635,7 +947,7 @@
                             <h5>Warehouse Selection</h5>
                         </div>
                         @if (selectedFromWarehouse != null && selectedToWarehouse != null
-                                                && selectedFromWarehouse.WarehouseCode != selectedToWarehouse?.WarehouseCode)
+                                                                        && selectedFromWarehouse.WarehouseCode != selectedToWarehouse?.WarehouseCode)
                         {
                             <span class="badge bg-success-subtle text-success"><i
                                 class="bi bi-check-lg me-1"></i>Complete</span>
@@ -684,7 +996,7 @@
                                 </div>
 
                                 @if (selectedFromWarehouse != null && selectedToWarehouse != null
-                                                        && selectedFromWarehouse.WarehouseCode == selectedToWarehouse.WarehouseCode)
+                                                                                        && selectedFromWarehouse.WarehouseCode == selectedToWarehouse.WarehouseCode)
                                 {
                                     <div class="info-hint mb-3" style="background:#fef2f2; border-color:#fecaca; color:#991b1b;">
                                         <i class="bi bi-exclamation-triangle-fill"></i>
@@ -878,7 +1190,7 @@
                                                                                     @currentLine.SelectedProduct.QuantityInStock.ToString("N0")
                                                                                 </span>
                                                                                 @if (currentLine.Quantity > 0 && currentLine.Quantity >
-                                                                                                                        currentLine.SelectedProduct.QuantityInStock)
+                                                                                                                                                                                                        currentLine.SelectedProduct.QuantityInStock)
                                                                                 {
                                                                                     <span class="text-danger ms-2">
                                                                                         <i class="bi bi-exclamation-triangle-fill"></i> Exceeds stock
@@ -996,7 +1308,7 @@
                                                     <div class="summary-stat">
                                                         <span class="stat-label">Total Qty</span>
                                                         <span class="stat-value">@lines.Where(l => l.Quantity > 0).Sum(l =>
-                                                                                                l.Quantity).ToString("N2")</span>
+                                                                                                                                                            l.Quantity).ToString("N2")</span>
                                                         </div>
                                                         <div class="summary-stat">
                                                             <span class="stat-label">Doc Date</span>
@@ -1374,6 +1686,9 @@
                 Logger.LogInformation("Inventory transfer created: DocNum={DocNum}, DocEntry={DocEntry}",
                 transfer?.DocNum, transfer?.DocEntry);
 
+                // Audit log: transfer created
+                await AuditService.LogAsync(AuditActions.CreateTransfer, "InventoryTransfer", transfer?.DocNum.ToString());
+
                 StateHasChanged();
                 await Task.Delay(1500);
                 NavigationManager.NavigateTo("/inventory-transfers");
@@ -1382,6 +1697,8 @@
             {
                 errorMessage = message;
                 Logger.LogWarning("Failed to create inventory transfer: {Message}", message);
+                // Audit log: transfer creation failed
+                await AuditService.LogAsync(AuditActions.CreateTransfer, "InventoryTransfer", null, null, false, message);
                 StateHasChanged();
                 await ScrollToTopAsync();
             }

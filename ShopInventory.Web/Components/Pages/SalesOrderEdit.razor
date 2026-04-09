@@ -1,0 +1,1186 @@
+@page "/sales-orders/edit/{Id:int}"
+@using Microsoft.AspNetCore.Authorization
+@using MudBlazor
+@attribute [Authorize(Roles = "Admin,Cashier,Merchandiser,SalesRep")]
+@inject ISalesOrderService SalesOrderService
+@inject IBusinessPartnerService BusinessPartnerService
+@inject IMasterDataCacheService CacheService
+@inject IPriceService PriceService
+@inject NavigationManager NavigationManager
+@inject ISnackbar Snackbar
+@inject ILogger<SalesOrderEdit> Logger
+@inject IAppSettingsProvider AppSettings
+@rendermode InteractiveServer
+
+<PageTitle>Edit Sales Order - Shop Inventory</PageTitle>
+
+<style>
+    /* ── Page ────────────────────────────────────────── */
+    .soe-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
+    }
+
+    /* ── Breadcrumb ──────────────────────────────────── */
+    .soe-breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+        font-size: .85rem;
+        color: #6b7280;
+        margin-bottom: 1.25rem;
+    }
+
+    .soe-breadcrumb a {
+        color: #667eea;
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .soe-breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .soe-breadcrumb .sep {
+        color: #d1d5db;
+    }
+
+    /* ── Header ──────────────────────────────────────── */
+    .soe-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .soe-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .soe-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .soe-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+        letter-spacing: -.3px;
+    }
+
+    .soe-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: .88rem;
+    }
+
+    .soe-header-actions {
+        display: flex;
+        gap: .5rem;
+        align-items: center;
+    }
+
+    .btn-back {
+        background: #fff;
+        color: #374151;
+        border: 1px solid #d1d5db;
+        padding: .55rem 1.1rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .85rem;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        transition: all .15s;
+    }
+
+    .btn-back:hover {
+        background: #f9fafb;
+        border-color: #9ca3af;
+        color: #374151;
+    }
+
+    /* ── Form Card ───────────────────────────────────── */
+    .form-card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 14px;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .form-card-title {
+        font-weight: 600;
+        font-size: .95rem;
+        color: #1a1a2e;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .85rem;
+    }
+
+    .form-field {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .form-field.full {
+        grid-column: span 2;
+    }
+
+    .form-field label {
+        font-size: .75rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .4px;
+        margin-bottom: .25rem;
+    }
+
+    .form-field input,
+    .form-field select,
+    .form-field textarea {
+        padding: .5rem .75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: .88rem;
+        color: #374151;
+        transition: all .15s;
+    }
+
+    .form-field input:focus,
+    .form-field select:focus,
+    .form-field textarea:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
+    }
+
+    /* ── Customer Selection ───────────────────────────── */
+    .dropdown-autocomplete {
+        position: absolute;
+        z-index: 100;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        max-height: 250px;
+        overflow-y: auto;
+        width: 100%;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, .12);
+        margin-top: 2px;
+    }
+
+    .dropdown-item {
+        padding: .5rem .75rem;
+        cursor: pointer;
+        font-size: .85rem;
+        border-bottom: 1px solid #f3f4f6;
+        transition: background .12s;
+    }
+
+    .dropdown-item:hover,
+    .dropdown-item.selected {
+        background: #f0f4ff;
+    }
+
+    /* ── Buttons ─────────────────────────────────────── */
+    .btn-so-gradient {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        text-decoration: none;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
+        cursor: pointer;
+    }
+
+    .btn-so-gradient:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .4);
+        color: #fff;
+    }
+
+    .btn-save {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .btn-save:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
+    }
+
+    .btn-save:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .btn-secondary-action {
+        background: #fff;
+        color: #374151;
+        border: 1px solid #d1d5db;
+        padding: .55rem 1.35rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .15s;
+        text-decoration: none;
+    }
+
+    .btn-secondary-action:hover {
+        background: #f9fafb;
+        border-color: #9ca3af;
+    }
+
+    /* ── Mobile badge ────────────────────────────────── */
+    .mobile-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        background: #dbeafe;
+        color: #1e40af;
+        font-size: .72rem;
+        font-weight: 600;
+        padding: .15rem .5rem;
+        border-radius: 6px;
+    }
+
+    /* ── Footer ──────────────────────────────────────── */
+    .form-footer {
+        display: flex;
+        gap: .5rem;
+        justify-content: flex-end;
+        padding-top: 1rem;
+    }
+
+    /* ── Loading ─────────────────────────────────────── */
+    .loading-state {
+        text-align: center;
+        padding: 3rem;
+    }
+
+    /* ── Line items scroll area for 70+ lines ────────── */
+    .line-items-scroll {
+        max-height: 65vh;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: #d1d5db transparent;
+    }
+
+    .line-items-scroll::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .line-items-scroll::-webkit-scrollbar-thumb {
+        background: #d1d5db;
+        border-radius: 3px;
+    }
+
+    @@media (max-width: 768px) {
+        .soe-header {
+            flex-direction: column;
+        }
+
+        .form-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .form-field.full {
+            grid-column: span 1;
+        }
+    }
+</style>
+
+<div class="soe-page">
+    <div class="container-fluid">
+
+        <!-- Breadcrumb -->
+        <div class="soe-breadcrumb">
+            <a href="/sales-orders">Sales Orders</a>
+            <span class="sep">/</span>
+            <span>Edit @(originalOrder?.OrderNumber ?? $"#{Id}")</span>
+        </div>
+
+        <!-- Header -->
+        <div class="soe-header">
+            <div class="soe-header-left">
+                <div class="soe-header-icon"><i class="bi bi-pencil-square"></i></div>
+                <div>
+                    <h2>Edit Sales Order @(originalOrder?.OrderNumber)</h2>
+                    <p>
+                        @if (originalOrder != null)
+                        {
+                            <span>@originalOrder.Status — @originalOrder.CardCode
+                                @(!string.IsNullOrEmpty(originalOrder.CardName) ? $"({originalOrder.CardName})" : "")</span>
+                                @if (originalOrder.IsMobileOrder)
+                                {
+                                    <span class="mobile-badge ms-2"><i class="bi bi-phone"></i> Mobile</span>
+                                }
+                            }
+                        </p>
+                    </div>
+                </div>
+                <div class="soe-header-actions">
+                    <a href="/sales-orders" class="btn-back"><i class="bi bi-arrow-left"></i> Back</a>
+                </div>
+            </div>
+
+            @if (isLoading)
+            {
+                <div class="loading-state">
+                    <div class="spinner-border" style="color:#667eea;width:2.5rem;height:2.5rem;" role="status"></div>
+                    <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading sales order...</p>
+                </div>
+            }
+            else if (loadError != null)
+            {
+                <div class="form-card" style="text-align:center; padding:3rem;">
+                    <i class="bi bi-exclamation-triangle" style="font-size:2rem; color:#ef4444;"></i>
+                    <p style="color:#ef4444; font-weight:600; margin:.75rem 0 .25rem;">@loadError</p>
+                    <a href="/sales-orders" class="btn-secondary-action" style="margin-top:.75rem;">Back to Sales Orders</a>
+                </div>
+            }
+            else if (!isEditable)
+            {
+                <div class="form-card" style="text-align:center; padding:3rem;">
+                    <i class="bi bi-lock" style="font-size:2rem; color:#f59e0b;"></i>
+                    <p style="color:#374151; font-weight:600; margin:.75rem 0 .25rem;">This order cannot be edited</p>
+                    <p style="color:#6b7280; font-size:.85rem;">Only Draft or Pending orders can be edited. Current status:
+                        <strong>@originalOrder?.Status</strong></p>
+                        <a href="/sales-orders" class="btn-secondary-action" style="margin-top:.75rem;">Back to Sales Orders</a>
+                    </div>
+                }
+        else
+                {
+                    <!-- Merchandiser Notes (if mobile order) -->
+                    @if (originalOrder?.IsMobileOrder == true && !string.IsNullOrEmpty(originalOrder.MerchandiserNotes))
+                    {
+                        <div class="form-card" style="background:#eff6ff; border-color:#bfdbfe;">
+                            <div class="form-card-title" style="color:#1e40af;">
+                                <i class="bi bi-phone"></i> Merchandiser Notes
+                                @if (!string.IsNullOrEmpty(originalOrder.DeviceInfo))
+                                {
+                                    <span
+                                    style="font-size:.72rem; font-weight:400; color:#6b7280; margin-left:auto;">@originalOrder.DeviceInfo</span>
+                                }
+                            </div>
+                            <p style="color:#1e40af; font-size:.88rem; margin:0; white-space:pre-wrap;">@originalOrder.MerchandiserNotes
+                            </p>
+                        </div>
+                    }
+
+                    <!-- Customer (read-only for edits) -->
+                    <div class="form-card">
+                        <div class="form-card-title"><i class="bi bi-person-badge"></i> Customer</div>
+                        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:.75rem 1rem;">
+                            <div style="font-weight:700; color:#065f46;">
+                                <i class="bi bi-check-circle-fill me-1" style="color:#059669;"></i>
+                                @editRequest.CardCode
+                            </div>
+                            <div style="font-size:.85rem; color:#065f46; opacity:.8;">@editRequest.CardName</div>
+                            @if (customerPriceListNum.HasValue)
+                            {
+                                <div style="font-size:.82rem; color:#065f46; opacity:.7; margin-top:.25rem;">
+                                    <i class="bi bi-tags me-1"></i>Price List #@customerPriceListNum
+                                    @if (isLoadingCustomerPrices)
+                                    {
+                                        <span class="spinner-border spinner-border-sm ms-1"></span>
+                                    }
+                                    else
+                                    {
+                                        <span
+                                            style="background:#d1fae5; color:#065f46; font-size:.7rem; padding:.1rem .4rem; border-radius:4px; font-weight:600; margin-left:.25rem;">
+                                            @customerPriceListPrices.Count items
+                                        </span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- Order Details -->
+                    <div class="form-card">
+                        <div class="form-card-title"><i class="bi bi-info-circle"></i> Order Details</div>
+                        <div class="form-grid">
+                            <div class="form-field">
+                                <label>Delivery Date</label>
+                                <MudDatePicker @bind-Date="editRequest.DeliveryDate" Variant="Variant.Outlined"
+                                               Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat" Editable="true" />
+                            </div>
+                            <div class="form-field">
+                                <label>Currency</label>
+                                <select @bind="editRequest.Currency">
+                                    <option value="USD">USD — US Dollar</option>
+                                    <option value="ZIG">ZIG — Zimbabwe Gold</option>
+                                </select>
+                            </div>
+                            <div class="form-field">
+                                <label>Customer Reference</label>
+                                <input type="text" @bind="editRequest.CustomerRefNo" placeholder="PO / Reference number" />
+                            </div>
+                            <div class="form-field">
+                                <label>Warehouse</label>
+                                <select @bind="editRequest.WarehouseCode">
+                                    <option value="">— Default —</option>
+                                    @foreach (var wh in cachedWarehouses)
+                                    {
+                                        <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="form-field full">
+                                <label>Comments</label>
+                                <textarea @bind="editRequest.Comments" rows="2" placeholder="Optional comments"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Line Items Section -->
+                    <div class="form-card">
+                        <div class="d-flex justify-content-between align-items-center" style="margin-bottom:.75rem;">
+                            <span style="font-weight:600; font-size:.92rem; color:#1a1a2e;">
+                                <i class="bi bi-list-ul me-1" style="color:#667eea;"></i>Order Lines
+                                <span
+                                    style="font-size:.78rem; font-weight:400; color:#6b7280; margin-left:.5rem;">(@editRequest.Lines.Count
+                                    lines)</span>
+                                </span>
+                                <button type="button" class="btn-so-gradient" style="padding:.35rem .85rem; font-size:.8rem;"
+                                        @onclick="AddOrderLine">
+                                    <i class="bi bi-plus-lg"></i> Add Line
+                                </button>
+                            </div>
+
+                            @if (editRequest.Lines.Any())
+                            {
+                                <div class="line-items-scroll">
+                                    @for (int i = 0; i < editRequest.Lines.Count; i++)
+                                    {
+                                        var index = i;
+                                        var line = editRequest.Lines[index];
+                                        var lineState = GetLineState(index);
+                                        var lineErrors = GetLineValidationErrors(index);
+
+                                        <div
+                                            style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.85rem; margin-bottom:.65rem; position:relative;">
+                                            <!-- Line Header -->
+                                            <div class="d-flex justify-content-between align-items-center" style="margin-bottom:.6rem;">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <span
+                                                        style="background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:.75rem;">@(index
+                                                                                        + 1)</span>
+                                    @if (!string.IsNullOrEmpty(line.ItemDescription))
+                                    {
+                                        <span style="font-weight:600; font-size:.85rem; color:#1a1a2e;">@line.ItemCode</span>
+                                        <span style="color:#d1d5db;">—</span>
+                                        <span style="color:#6b7280; font-size:.82rem;">@TruncateName(line.ItemDescription,
+                                                                            30)</span>
+                                        }
+                                        else
+                                        {
+                                            <span style="color:#9ca3af; font-size:.82rem;">New Line Item</span>
+                                        }
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span
+                                        style="font-weight:700; color:#059669; font-size:.92rem;">@CalculateLineTotal(line).ToString("N2")</span>
+                                        <button type="button"
+                                                style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:.75rem;"
+                                                @onclick="() => RemoveOrderLine(index)">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Item Code + Description -->
+                                <div class="row g-2 mb-2">
+                                    <div class="col-5">
+                                        <label
+                                            style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Item
+                                            Code <span style="color:#ef4444;">*</span></label>
+                                            <div class="position-relative">
+                                                <input type="text"
+                                                       style="width:100%; padding:.4rem .6rem; border:1px solid @(lineErrors.ContainsKey("ItemCode") ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
+                                                       value="@line.ItemCode" @oninput="(e) => OnItemCodeInput(index, e.Value?.ToString())"
+                                                       @onkeydown="(e) => OnItemCodeKeyDown(index, e)"
+                                                       @onfocus="() => OnItemCodeFocus(index)" @onblur="() => OnItemCodeBlur(index)"
+                                                       placeholder="Search item…" autocomplete="off" />
+                                                @if (lineState.ShowProductDropdown && lineState.FilteredProducts.Any())
+                                                {
+                                                    <div class="dropdown-autocomplete" @onmousedown:preventDefault>
+                                                        @foreach (var product in lineState.FilteredProducts.Take(10))
+                                                        {
+                                                            var isSelected = lineState.SuggestedProduct?.ItemCode == product.ItemCode;
+                                                            var displayPrice = GetPriceForItem(product.ItemCode, product.Price);
+                                                            <div class="dropdown-item @(isSelected ? "selected" : "")"
+                                                                 @onmousedown="async () => await SelectProduct(index, product)">
+                                                                <div class="d-flex justify-content-between align-items-center">
+                                                                    <div>
+                                                                        <div style="font-weight:600; font-size:.82rem;">@product.ItemCode</div>
+                                                                        <small
+                                                                            style="@(isSelected ? "color:rgba(255,255,255,.7);" : "color:#6b7280;")">@TruncateName(product.ItemName,
+                                                                                                                                25)</small>
+                                                                        </div>
+                                                                        <span
+                                                                            style="font-size:.75rem; font-weight:600; padding:.1rem .4rem; border-radius:4px; @(isSelected ? "background:rgba(255,255,255,.2); color:#fff;" : "background:#dbeafe; color:#1e40af;")">
+                                                                            @displayPrice.ToString("N2")
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            }
+                                                            @if (lineState.FilteredProducts.Count > 10)
+                                                            {
+                                                                <div class="dropdown-item"
+                                                                     style="color:#9ca3af; text-align:center; font-size:.78rem;">
+                                                                    +@(lineState.FilteredProducts.Count - 10) more…
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                            <div class="col-7">
+                                                <label
+                                                style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Description</label>
+                                                @if (!string.IsNullOrEmpty(line.ItemDescription))
+                                                {
+                                                    <div
+                                                        style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:7px; padding:.4rem .6rem; font-size:.82rem; color:#0c4a6e;">
+                                                        <i class="bi bi-box-seam me-1"
+                                                           style="color:#667eea;"></i>@TruncateName(line.ItemDescription, 35)
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <input type="text"
+                                                           style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem; background:#f3f4f6; cursor:default;"
+                                                           placeholder="Select an item" readonly />
+                                                }
+                                            </div>
+                                        </div>
+
+                                        <!-- Quantity + Price + Discount + Warehouse -->
+                                        <div class="row g-2">
+                                            <div class="col-3">
+                                                <label
+                                                    style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Qty
+                                                    <span style="color:#ef4444;">*</span></label>
+                                                    <input type="number"
+                                                           style="width:100%; padding:.4rem .6rem; border:1px solid @(lineErrors.ContainsKey("Quantity") ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
+                                                           value="@line.Quantity" @onchange="(e) => OnQuantityChange(index, e.Value?.ToString())"
+                                                           min="0.001" step="0.001" placeholder="0" />
+                                                </div>
+                                                <div class="col-3">
+                                                    <label
+                                                        style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Unit
+                                                        Price</label>
+                                                        <input type="text"
+                                                               style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem; background:#f3f4f6; cursor:default;"
+                                                               value="@line.UnitPrice.ToString("N2")" readonly />
+                                                    </div>
+                                                    <div class="col-3">
+                                                        <label
+                                                            style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Discount
+                                                            %</label>
+                                                            <input type="number"
+                                                                   style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
+                                                                   @bind="line.DiscountPercent" min="0" max="100" step="0.01" />
+                                                        </div>
+                                                        <div class="col-3">
+                                                            <label
+                                                            style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Warehouse</label>
+                                                            <select
+                                                                style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
+                                                                @bind="line.WarehouseCode">
+                                                                <option value="">Default</option>
+                                                                @foreach (var wh in cachedWarehouses)
+                                                                {
+                                                                    <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
+                                                                }
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+
+                                        <!-- Add another line -->
+                                        <div style="text-align:center; margin-top:.5rem;">
+                                            <button type="button"
+                                                    style="background:none; border:1px dashed #d1d5db; color:#6b7280; padding:.4rem 1rem; border-radius:8px; font-size:.82rem; cursor:pointer;"
+                                                    @onclick="AddOrderLine">
+                                                <i class="bi bi-plus-lg me-1"></i>Add Another Line
+                                            </button>
+                                        </div>
+                                    }
+                else
+                                    {
+                                        <div
+                                            style="text-align:center; padding:2rem 1rem; background:#f9fafb; border-radius:10px; border:2px dashed #e5e7eb;">
+                                            <div style="font-size:1.5rem; color:#9ca3af; margin-bottom:.5rem;"><i class="bi bi-inbox"></i></div>
+                                            <p style="color:#6b7280; font-size:.85rem; margin-bottom:.25rem;">No order lines</p>
+                                            <p style="color:#9ca3af; font-size:.78rem; margin-bottom:.75rem;">Add products to this sales order</p>
+                                            <button type="button" class="btn-so-gradient" style="padding:.4rem 1rem; font-size:.82rem;"
+                                                    @onclick="AddOrderLine">
+                                                <i class="bi bi-plus-lg"></i> Add First Line
+                                            </button>
+                                        </div>
+                                    }
+                                    @if (validationErrors.ContainsKey("Lines"))
+                                    {
+                                        <div style="color:#ef4444; font-size:.78rem; margin-top:.4rem;">@validationErrors["Lines"]</div>
+                                    }
+
+                                    <!-- Order Summary -->
+                                    @if (editRequest.Lines.Any())
+                                    {
+                                        <div
+                                            style="background:linear-gradient(135deg,#667eea,#764ba2); border-radius:10px; padding:.85rem 1.15rem; margin-top:1rem; color:#fff;">
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <div>
+                                                    <div style="font-size:.78rem; opacity:.8;">@editRequest.Lines.Count line(s) ·
+                                                        @editRequest.Currency</div>
+                                                        <div style="font-size:.85rem; font-weight:500;">Subtotal</div>
+                                                    </div>
+                                                    <div style="font-size:1.3rem; font-weight:700;">@CalculateOrderTotal().ToString("N2")</div>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+
+                                    <!-- Footer Actions -->
+                                    <div class="form-footer">
+                                        <a href="/sales-orders" class="btn-secondary-action">Cancel</a>
+                                        <MudButton Class="btn-save" OnClick="SaveOrder" Disabled="@isSaving">
+                                            @if (isSaving)
+                                            {
+                                                <span class="spinner-border spinner-border-sm"></span>
+                                            }
+                                            <span>Save Changes</span>
+                                        </MudButton>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private SalesOrderDto? originalOrder;
+    private CreateSalesOrderRequest editRequest = new();
+    private string? rowVersion;
+
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private bool isEditable = false;
+    private string? loadError;
+
+    // Master data
+    private List<ProductDto> cachedProducts = new();
+    private List<WarehouseDto> cachedWarehouses = new();
+
+    // Customer price list
+    private Dictionary<string, decimal> customerPriceListPrices = new();
+    private int? customerPriceListNum;
+    private bool isLoadingCustomerPrices = false;
+
+    // Line item autocomplete state
+    private Dictionary<int, LineState> lineStates = new();
+
+    // Validation
+    private Dictionary<string, string> validationErrors = new();
+    private Dictionary<int, Dictionary<string, string>> lineValidationErrors = new();
+
+    private class LineState
+    {
+        public string SearchTerm { get; set; } = string.Empty;
+        public bool ShowProductDropdown { get; set; } = false;
+        public List<ProductDto> FilteredProducts { get; set; } = new();
+        public ProductDto? SuggestedProduct { get; set; } = null;
+        public string SuggestionSuffix { get; set; } = string.Empty;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadOrder();
+    }
+
+    private async Task LoadOrder()
+    {
+        isLoading = true;
+        loadError = null;
+
+        try
+        {
+            // Load order and master data in parallel
+            var orderTask = SalesOrderService.GetSalesOrderByIdAsync(Id);
+            var warehouseTask = CacheService.GetWarehousesAsync();
+            var productTask = CacheService.GetProductsAsync();
+
+            await Task.WhenAll(orderTask, warehouseTask, productTask);
+
+            originalOrder = orderTask.Result;
+            cachedWarehouses = warehouseTask.Result;
+            cachedProducts = productTask.Result;
+
+            if (originalOrder == null)
+            {
+                loadError = $"Sales order #{Id} not found.";
+                return;
+            }
+
+            // Only Draft and Pending orders can be edited
+            isEditable = originalOrder.Status == SalesOrderStatus.Draft || originalOrder.Status == SalesOrderStatus.Pending;
+
+            if (!isEditable) return;
+
+            // Map SalesOrderDto to CreateSalesOrderRequest for editing
+            MapOrderToEditRequest();
+
+            // Load customer price list if available
+            await LoadCustomerPriceList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading sales order {Id} for editing", Id);
+            loadError = "Failed to load sales order. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void MapOrderToEditRequest()
+    {
+        if (originalOrder == null) return;
+
+        editRequest = new CreateSalesOrderRequest
+        {
+            DeliveryDate = originalOrder.DeliveryDate,
+            CardCode = originalOrder.CardCode,
+            CardName = originalOrder.CardName,
+            CustomerRefNo = originalOrder.CustomerRefNo,
+            Comments = originalOrder.Comments,
+            SalesPersonCode = originalOrder.SalesPersonCode,
+            SalesPersonName = originalOrder.SalesPersonName,
+            Currency = originalOrder.Currency ?? "USD",
+            DiscountPercent = originalOrder.DiscountPercent,
+            ShipToAddress = originalOrder.ShipToAddress,
+            BillToAddress = originalOrder.BillToAddress,
+            WarehouseCode = originalOrder.WarehouseCode,
+            Source = originalOrder.Source,
+            MerchandiserNotes = originalOrder.MerchandiserNotes,
+            DeviceInfo = originalOrder.DeviceInfo,
+            RowVersion = originalOrder.RowVersion,
+            Lines = originalOrder.Lines.Select(l => new CreateSalesOrderLineRequest
+            {
+                ItemCode = l.ItemCode,
+                ItemDescription = l.ItemDescription,
+                Quantity = l.Quantity,
+                UnitPrice = l.UnitPrice,
+                DiscountPercent = l.DiscountPercent,
+                TaxPercent = l.TaxPercent,
+                WarehouseCode = l.WarehouseCode,
+                UoMCode = l.UoMCode,
+                BatchNumber = l.BatchNumber
+            }).ToList()
+        };
+
+        rowVersion = originalOrder.RowVersion;
+
+        // Initialize line states for each existing line
+        for (int i = 0; i < editRequest.Lines.Count; i++)
+        {
+            lineStates[i] = new LineState
+            {
+                SearchTerm = editRequest.Lines[i].ItemCode ?? string.Empty
+            };
+        }
+    }
+
+    private async Task LoadCustomerPriceList()
+    {
+        if (originalOrder == null || string.IsNullOrEmpty(originalOrder.CardCode)) return;
+
+        try
+        {
+            // Try to find the business partner to get price list
+            var allBPs = await CacheService.GetBusinessPartnersAsync();
+            var bp = allBPs.FirstOrDefault(b => b.CardCode == originalOrder.CardCode);
+
+            if (bp?.PriceListNum != null && bp.PriceListNum.Value > 0)
+            {
+                isLoadingCustomerPrices = true;
+                StateHasChanged();
+
+                var response = await PriceService.GetPricesByPriceListAsync(bp.PriceListNum.Value);
+                if (response?.Prices != null && response.Prices.Any())
+                {
+                    customerPriceListPrices.Clear();
+                    foreach (var price in response.Prices)
+                    {
+                        if (!string.IsNullOrEmpty(price.ItemCode))
+                        {
+                            customerPriceListPrices[price.ItemCode] = price.Price;
+                        }
+                    }
+                    customerPriceListNum = bp.PriceListNum.Value;
+                }
+
+                isLoadingCustomerPrices = false;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Error loading customer price list for {CardCode}", originalOrder.CardCode);
+            isLoadingCustomerPrices = false;
+        }
+    }
+
+    private decimal GetPriceForItem(string? itemCode, decimal defaultPrice)
+    {
+        if (string.IsNullOrEmpty(itemCode)) return defaultPrice;
+        return customerPriceListPrices.TryGetValue(itemCode, out var customerPrice) ? customerPrice : defaultPrice;
+    }
+
+    // ── Line Item Management ────────────────────────────
+
+    private void AddOrderLine()
+    {
+        editRequest.Lines.Add(new CreateSalesOrderLineRequest
+        {
+            Quantity = 1,
+            WarehouseCode = editRequest.WarehouseCode ?? ""
+        });
+    }
+
+    private void RemoveOrderLine(int index)
+    {
+        if (index >= 0 && index < editRequest.Lines.Count)
+        {
+            editRequest.Lines.RemoveAt(index);
+            lineStates.Remove(index);
+            lineValidationErrors.Remove(index);
+
+            var oldStates = new Dictionary<int, LineState>(lineStates);
+            var oldErrors = new Dictionary<int, Dictionary<string, string>>(lineValidationErrors);
+            lineStates.Clear();
+            lineValidationErrors.Clear();
+
+            for (int i = 0; i < editRequest.Lines.Count; i++)
+            {
+                var oldIndex = i >= index ? i + 1 : i;
+                if (oldStates.TryGetValue(oldIndex, out var state))
+                    lineStates[i] = state;
+                if (oldErrors.TryGetValue(oldIndex, out var errors))
+                    lineValidationErrors[i] = errors;
+            }
+        }
+    }
+
+    private LineState GetLineState(int index)
+    {
+        if (!lineStates.ContainsKey(index))
+            lineStates[index] = new LineState();
+        return lineStates[index];
+    }
+
+    private Dictionary<string, string> GetLineValidationErrors(int index)
+    {
+        return lineValidationErrors.TryGetValue(index, out var errors) ? errors : new Dictionary<string, string>();
+    }
+
+    // ── Product Autocomplete ────────────────────────────
+
+    private void OnItemCodeInput(int index, string? value)
+    {
+        var line = editRequest.Lines[index];
+        line.ItemCode = value ?? string.Empty;
+
+        var state = GetLineState(index);
+        state.SearchTerm = value ?? string.Empty;
+        state.SuggestedProduct = null;
+        state.SuggestionSuffix = string.Empty;
+
+        if (lineValidationErrors.TryGetValue(index, out var errors))
+            errors.Remove("ItemCode");
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            state.FilteredProducts = new List<ProductDto>();
+            state.ShowProductDropdown = false;
+            return;
+        }
+
+        var searchLower = value.ToLowerInvariant();
+        var searchUpper = value.ToUpperInvariant();
+
+        state.FilteredProducts = cachedProducts.Where(p =>
+            (p.ItemCode?.ToUpperInvariant().StartsWith(searchUpper) ?? false) ||
+            (p.ItemCode?.ToLowerInvariant().Contains(searchLower) ?? false) ||
+            (p.ItemName?.ToLowerInvariant().Contains(searchLower) ?? false) ||
+            (p.BarCode?.ToLowerInvariant().Contains(searchLower) ?? false))
+            .OrderByDescending(p => p.ItemCode?.ToUpperInvariant().StartsWith(searchUpper) ?? false)
+            .ThenBy(p => p.ItemCode)
+            .ToList();
+
+        var exactMatch = state.FilteredProducts.FirstOrDefault(p =>
+            p.ItemCode?.ToUpperInvariant().StartsWith(searchUpper) ?? false);
+
+        if (exactMatch != null && !string.IsNullOrEmpty(exactMatch.ItemCode))
+        {
+            state.SuggestedProduct = exactMatch;
+            state.SuggestionSuffix = exactMatch.ItemCode.Substring(value.Length);
+        }
+
+        state.ShowProductDropdown = state.FilteredProducts.Any();
+        StateHasChanged();
+    }
+
+    private async Task OnItemCodeKeyDown(int index, KeyboardEventArgs e)
+    {
+        var state = GetLineState(index);
+
+        if ((e.Key == "Tab" || e.Key == "ArrowRight") && state.SuggestedProduct != null)
+        {
+            if (e.Key == "Tab" || !string.IsNullOrEmpty(state.SuggestionSuffix))
+                await SelectProduct(index, state.SuggestedProduct);
+        }
+        else if (e.Key == "ArrowDown" && state.ShowProductDropdown && state.FilteredProducts.Any())
+        {
+            var currentIndex = state.SuggestedProduct != null ? state.FilteredProducts.IndexOf(state.SuggestedProduct) : -1;
+            var nextIndex = Math.Min(currentIndex + 1, state.FilteredProducts.Count - 1);
+            state.SuggestedProduct = state.FilteredProducts[nextIndex];
+            StateHasChanged();
+        }
+        else if (e.Key == "ArrowUp" && state.ShowProductDropdown && state.FilteredProducts.Any())
+        {
+            var currentIndex = state.SuggestedProduct != null ? state.FilteredProducts.IndexOf(state.SuggestedProduct) :
+state.FilteredProducts.Count;
+            var prevIndex = Math.Max(currentIndex - 1, 0);
+            state.SuggestedProduct = state.FilteredProducts[prevIndex];
+            StateHasChanged();
+        }
+        else if (e.Key == "Enter" && state.SuggestedProduct != null)
+        {
+            await SelectProduct(index, state.SuggestedProduct);
+        }
+        else if (e.Key == "Escape")
+        {
+            state.ShowProductDropdown = false;
+            state.SuggestedProduct = null;
+            state.SuggestionSuffix = string.Empty;
+            StateHasChanged();
+        }
+    }
+
+    private void OnItemCodeFocus(int index)
+    {
+        var state = GetLineState(index);
+        if (!string.IsNullOrEmpty(state.SearchTerm) || cachedProducts.Any())
+        {
+            state.ShowProductDropdown = true;
+            if (string.IsNullOrEmpty(state.SearchTerm))
+                state.FilteredProducts = cachedProducts.Take(15).ToList();
+        }
+    }
+
+    private async Task OnItemCodeBlur(int index)
+    {
+        await Task.Delay(200);
+        var state = GetLineState(index);
+        state.ShowProductDropdown = false;
+        state.SuggestionSuffix = string.Empty;
+        StateHasChanged();
+    }
+
+    private async Task SelectProduct(int index, ProductDto product)
+    {
+        var line = editRequest.Lines[index];
+        line.ItemCode = product.ItemCode ?? string.Empty;
+        line.ItemDescription = product.ItemName ?? string.Empty;
+        line.UnitPrice = GetPriceForItem(product.ItemCode, product.Price);
+
+        if (line.UnitPrice == 0 && !string.IsNullOrEmpty(product.ItemCode))
+        {
+            try
+            {
+                var priceInfo = await PriceService.GetPriceByItemCodeAsync(product.ItemCode);
+                if (priceInfo != null)
+                {
+                    var currency = editRequest.Currency ?? "USD";
+                    line.UnitPrice = currency.Equals("USD", StringComparison.OrdinalIgnoreCase)
+                        ? priceInfo.UsdPrice ?? 0
+                        : priceInfo.ZigPrice ?? priceInfo.UsdPrice ?? 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to fetch price for item {ItemCode}", product.ItemCode);
+            }
+        }
+
+        line.WarehouseCode = !string.IsNullOrEmpty(editRequest.WarehouseCode) ? editRequest.WarehouseCode :
+(product.DefaultWarehouse ?? "01");
+
+        var state = GetLineState(index);
+        state.ShowProductDropdown = false;
+        state.SearchTerm = product.ItemCode ?? string.Empty;
+        state.SuggestedProduct = null;
+        state.SuggestionSuffix = string.Empty;
+
+        if (lineValidationErrors.TryGetValue(index, out var errors))
+            errors.Remove("ItemCode");
+
+        StateHasChanged();
+    }
+
+    private void OnQuantityChange(int index, string? value)
+    {
+        var line = editRequest.Lines[index];
+        if (decimal.TryParse(value, out var quantity))
+        {
+            line.Quantity = quantity < 0 ? 0 : quantity;
+        }
+        else
+        {
+            line.Quantity = 0;
+        }
+
+        if (lineValidationErrors.TryGetValue(index, out var errors))
+            errors.Remove("Quantity");
+
+        StateHasChanged();
+    }
+
+    // ── Calculations ────────────────────────────────────
+
+    private decimal CalculateLineTotal(CreateSalesOrderLineRequest line)
+    {
+        var subtotal = line.Quantity * line.UnitPrice;
+        return line.DiscountPercent > 0 ? subtotal * (1 - line.DiscountPercent / 100) : subtotal;
+    }
+
+    private decimal CalculateOrderTotal()
+    {
+        return editRequest.Lines.Sum(l => CalculateLineTotal(l));
+    }
+
+    private string TruncateName(string? name, int maxLength)
+    {
+        return name?.Length > maxLength ? name[..maxLength] + "…" : name ?? "";
+    }
+
+    // ── Validation & Submit ─────────────────────────────
+
+    private bool ValidateForm()
+    {
+        validationErrors.Clear();
+        lineValidationErrors.Clear();
+
+        if (string.IsNullOrEmpty(editRequest.CardCode))
+            validationErrors["Customer"] = "Customer is required";
+
+        if (!editRequest.Lines.Any())
+            validationErrors["Lines"] = "At least one line item is required";
+
+        for (int i = 0; i < editRequest.Lines.Count; i++)
+        {
+            var line = editRequest.Lines[i];
+            var errors = new Dictionary<string, string>();
+
+            if (string.IsNullOrEmpty(line.ItemCode))
+                errors["ItemCode"] = "Item code is required";
+            if (line.Quantity <= 0)
+                errors["Quantity"] = "Quantity must be greater than 0";
+
+            if (errors.Any())
+                lineValidationErrors[i] = errors;
+        }
+
+        return !validationErrors.Any() && !lineValidationErrors.Any();
+    }
+
+    private async Task SaveOrder()
+    {
+        if (!ValidateForm()) return;
+
+        isSaving = true;
+        try
+        {
+            // Include the row version for concurrency check
+            editRequest.RowVersion = rowVersion;
+
+            var result = await SalesOrderService.UpdateSalesOrderAsync(Id, editRequest);
+            if (result != null)
+            {
+                Snackbar.Add($"Sales order {result.OrderNumber} updated successfully!", Severity.Success);
+                NavigationManager.NavigateTo("/sales-orders");
+            }
+            else
+            {
+                Snackbar.Add("Failed to update sales order. Please try again.", Severity.Error);
+            }
+        }
+        catch (HttpRequestException ex) when (ex.Message.Contains("modified by another user"))
+        {
+            Snackbar.Add("This order was modified by another user. Reloading...", Severity.Warning);
+            await LoadOrder();
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add($"Failed to save: {ex.Message}", Severity.Error);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving sales order {Id}", Id);
+            Snackbar.Add($"Error saving order: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

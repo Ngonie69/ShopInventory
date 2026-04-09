@@ -1,4 +1,5 @@
 ﻿@inherits LayoutComponentBase
+@using ShopInventory.Web.Data
 @inject IAuthService AuthService
 @inject NavigationManager NavigationManager
 @inject IThemeService ThemeService
@@ -8,6 +9,7 @@
 @inject ISnackbar Snackbar
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IAppSettingsProvider AppSettings
+@inject IAuditService AuditService
 @implements IDisposable
 
 <MudThemeProvider @ref="_mudThemeProvider" @bind-IsDarkMode="@_isDarkMode" />
@@ -402,6 +404,8 @@
     {
         _pollTimer?.Dispose();
         _pollTimer = null;
+        // Audit log: logout (capture user before logout clears state)
+        await AuditService.LogAsync(AuditActions.Logout, "Auth");
         await AuthService.LogoutAsync();
         NavigationManager.NavigateTo("/login");
     }

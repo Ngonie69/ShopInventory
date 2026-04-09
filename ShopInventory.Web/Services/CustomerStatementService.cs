@@ -259,13 +259,11 @@ public class CustomerStatementService : ICustomerStatementService
                 AccountBalance = customer.Balance ?? 0
             };
 
-            // Phase 2: Fetch invoices, payments, monthly spend, payment terms, and account breakdown in parallel
-            // Limit dashboard to the last 31 days to avoid loading too much data from SAP
+            // Phase 2: Fetch invoices, payments, payment terms, and account breakdown in parallel
             var now = IAuditService.ToCAT(DateTime.UtcNow);
             var dashboardFrom = now.AddDays(-31);
             var invoicesTask = GetOpenInvoicesAsync(cardCode, dashboardFrom, now);
             var paymentsTask = GetPaymentHistoryAsync(cardCode, dashboardFrom, now);
-            var monthlySpendTask = GetMonthlySpendAsync(cardCode, 1);
 
             // Fetch payment terms for aging calculation
             var paymentTermsTask = customer.PayTermGrpCode.HasValue
@@ -276,7 +274,7 @@ public class CustomerStatementService : ICustomerStatementService
                 ? BuildAccountBreakdownAsync(linkedAccounts)
                 : Task.FromResult(new List<AccountSummary>());
 
-            await Task.WhenAll(invoicesTask, paymentsTask, monthlySpendTask, paymentTermsTask, breakdownTask);
+            await Task.WhenAll(invoicesTask, paymentsTask, paymentTermsTask, breakdownTask);
 
             // Apply payment terms to aging calculation
             var paymentTerms = paymentTermsTask.Result;
@@ -318,8 +316,15 @@ public class CustomerStatementService : ICustomerStatementService
             }
             summary.RecentPayments = payments.Take(5).ToList();
 
-            // Monthly spend chart data
-            summary.MonthlySpend = monthlySpendTask.Result;
+            // Derive monthly spend from already-fetched invoices (no extra SAP call)
+            var monthStart = new DateTime(now.Year, now.Month, 1);
+            var currentMonthInvoiced = openInvoices
+                .Where(i => i.DocDate >= monthStart && i.DocDate <= now)
+                .Sum(i => i.DocTotal);
+            summary.MonthlySpend = new List<MonthlySpend>
+            {
+                new() { Month = monthStart.ToString("MMM yyyy"), Invoiced = currentMonthInvoiced }
+            };
 
             // Account breakdown for multi-account customers
             if (accountStructure == "Multi" && linkedAccounts.Any())
@@ -399,26 +404,24 @@ public class CustomerStatementService : ICustomerStatementService
 
             try
             {
-                var partner = await _businessPartnerService.GetBusinessPartnerByCodeAsync(account.CardCode);
-                acctSummary.Balance = partner?.Balance ?? 0;
+                // Fetch BP, invoices, and sales orders in parallel within each account
+                var partnerTask = _businessPartnerService.GetBusinessPartnerByCodeAsync(account.CardCode);
+                var invoiceTask = GetOpenInvoicesForSingleAccountAsync(account.CardCode);
+                var ordersTask = account.AccountType == "Sub"
+                    ? _salesOrderService.GetSalesOrdersAsync(cardCode: account.CardCode, status: SalesOrderStatus.Pending)
+                    : Task.FromResult<SalesOrderListResponse?>(null);
 
-                // Both Main and Sub accounts can have invoices
-                var invoices = await GetOpenInvoicesForSingleAccountAsync(account.CardCode);
+                await Task.WhenAll(partnerTask, invoiceTask, ordersTask);
+
+                acctSummary.Balance = partnerTask.Result?.Balance ?? 0;
+
+                var invoices = invoiceTask.Result;
                 acctSummary.OpenInvoicesCount = invoices.Count;
                 acctSummary.TotalOutstanding = invoices.Sum(i => i.Balance);
 
                 if (account.AccountType == "Sub")
                 {
-                    try
-                    {
-                        var orders = await _salesOrderService.GetSalesOrdersAsync(
-                            cardCode: account.CardCode, status: SalesOrderStatus.Pending);
-                        acctSummary.OpenSalesOrdersCount = orders?.TotalCount ?? 0;
-                    }
-                    catch
-                    {
-                        acctSummary.OpenSalesOrdersCount = 0;
-                    }
+                    acctSummary.OpenSalesOrdersCount = ordersTask.Result?.TotalCount ?? 0;
                 }
             }
             catch (Exception ex)
@@ -560,13 +563,11 @@ public class CustomerStatementService : ICustomerStatementService
         {
             // Get all account CardCodes (main + sub, since sub accounts also have invoices)
             var allCardCodes = await _linkedAccountService.GetAllCardCodesAsync(cardCode);
-            var allInvoices = new List<CustomerInvoiceSummary>();
 
-            foreach (var acctCardCode in allCardCodes)
-            {
-                var invoices = await GetOpenInvoicesForSingleAccountAsync(acctCardCode);
-                allInvoices.AddRange(invoices);
-            }
+            // Fetch all accounts in parallel
+            var invoiceTasks = allCardCodes.Select(acctCardCode => GetOpenInvoicesForSingleAccountAsync(acctCardCode));
+            var invoiceResults = await Task.WhenAll(invoiceTasks);
+            var allInvoices = invoiceResults.SelectMany(r => r).ToList();
 
             IEnumerable<CustomerInvoiceSummary> result = allInvoices;
 
@@ -634,15 +635,15 @@ public class CustomerStatementService : ICustomerStatementService
         try
         {
             var allCardCodes = await _linkedAccountService.GetAllCardCodesAsync(cardCode);
-            var allPayments = new List<CustomerPaymentSummary>();
 
-            foreach (var acctCardCode in allCardCodes)
+            // Fetch all accounts in parallel
+            var paymentTasks = allCardCodes.Select(async acctCardCode =>
             {
                 var response = await _httpClient.GetFromJsonAsync<IncomingPaymentDateResponse>(
                     $"api/incomingpayment/customer/{acctCardCode}");
                 var payments = response?.Payments ?? new List<IncomingPaymentDto>();
 
-                var mapped = payments
+                return payments
                     .Select(p => new CustomerPaymentSummary
                     {
                         DocEntry = p.DocEntry,
@@ -651,11 +652,12 @@ public class CustomerStatementService : ICustomerStatementService
                         DocTotal = p.DocTotal,
                         PaymentMethod = DeterminePaymentMethod(p),
                         Reference = p.TransferReference ?? p.Remarks,
-                        Currency = p.DocCurrency
-                    });
-
-                allPayments.AddRange(mapped);
-            }
+                        Currency = p.DocCurrency,
+                        CardCode = acctCardCode
+                    }).ToList();
+            });
+            var paymentResults = await Task.WhenAll(paymentTasks);
+            var allPayments = paymentResults.SelectMany(r => r).ToList();
 
             IEnumerable<CustomerPaymentSummary> result = allPayments;
 
@@ -834,19 +836,22 @@ public class CustomerStatementService : ICustomerStatementService
             var fromDate = new DateTime(now.Year, now.Month, 1).AddMonths(-(months - 1));
             var toDate = now;
 
-            var allInvoices = new List<CustomerInvoiceSummary>();
-            foreach (var acctCardCode in allCardCodes)
+            // Fetch all accounts in parallel
+            var spendTasks = allCardCodes.Select(async acctCardCode =>
             {
                 var response = await _invoiceService.GetInvoicesByCustomerAsync(acctCardCode, fromDate, toDate);
                 if (response?.Invoices != null)
                 {
-                    allInvoices.AddRange(response.Invoices.Select(inv => new CustomerInvoiceSummary
+                    return response.Invoices.Select(inv => new CustomerInvoiceSummary
                     {
                         DocDate = DateTime.TryParse(inv.DocDate?.ToString(), out var d) ? d : DateTime.MinValue,
                         DocTotal = inv.DocTotal
-                    }));
+                    }).ToList();
                 }
-            }
+                return new List<CustomerInvoiceSummary>();
+            });
+            var spendResults = await Task.WhenAll(spendTasks);
+            var allInvoices = spendResults.SelectMany(r => r).ToList();
 
             var result = new List<MonthlySpend>();
             for (int i = 0; i < months; i++)

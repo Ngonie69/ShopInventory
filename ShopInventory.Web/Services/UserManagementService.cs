@@ -210,7 +210,9 @@ public class UserManagementService : IUserManagementService
             LastName = model.LastName,
             Role = model.Role,
             AssignedWarehouseCodes = model.AssignedWarehouseCodes,
-            AllowedPaymentMethods = model.AllowedPaymentMethods
+            AllowedPaymentMethods = model.AllowedPaymentMethods,
+            AssignedSection = model.AssignedSection,
+            AssignedCustomerCodes = model.AssignedCustomerCodes
         });
 
         if (!response.IsSuccessStatusCode)
@@ -230,7 +232,9 @@ public class UserManagementService : IUserManagementService
             Role = model.Role,
             IsActive = model.IsActive,
             AssignedWarehouseCodes = model.AssignedWarehouseCodes,
-            AllowedPaymentMethods = model.AllowedPaymentMethods
+            AllowedPaymentMethods = model.AllowedPaymentMethods,
+            AssignedSection = model.AssignedSection,
+            AssignedCustomerCodes = model.AssignedCustomerCodes
         });
 
         if (!response.IsSuccessStatusCode)

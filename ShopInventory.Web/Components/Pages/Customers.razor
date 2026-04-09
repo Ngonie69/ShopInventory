@@ -6,6 +6,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
 @inject IAppSettingsProvider AppSettings
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Customers - Shop Inventory</PageTitle>
@@ -958,9 +959,9 @@
                                        placeholder="Quick filter..." />
                             </div>
                         </div>
-                        <MudTable @ref="@_table" Items="@customers" RowsPerPage="10" Dense="true" Hover="true" Striped="true"
-                                  Filter="new Func<BusinessPartnerDto, bool>(_quickFilter)" OnRowClick="@OnCustomerRowClicked"
-                                  T="BusinessPartnerDto" Elevation="0" Style="background:transparent;">
+                        <MudTable @ref="@_table" Items="@customers" RowsPerPage="@_pageSize" Dense="true" Hover="true"
+                                  Striped="true" Filter="new Func<BusinessPartnerDto, bool>(_quickFilter)"
+                                  OnRowClick="@OnCustomerRowClicked" T="BusinessPartnerDto" Elevation="0" Style="background:transparent;">
                             <HeaderContent>
                                 <MudTh>Code</MudTh>
                                 <MudTh>Name</MudTh>
@@ -1003,7 +1004,7 @@
                                 <MudTd DataLabel="Currency">
                                     <span
                                         style="font-size:.82rem;padding:.15rem .45rem;border-radius:4px;background:#f3f4f6;color:#374151;font-weight:600;">@(context.Currency
-                                                                                                            ?? "USD")</span>
+                                                                                                                                                                                            ?? "USD")</span>
                                     </MudTd>
                                     <MudTd DataLabel="Balance" Style="text-align:right">
                                         <span class="@(context.Balance > 0 ? "balance-positive" : "balance-zero")">
@@ -1031,9 +1032,21 @@
                                     </MudTd>
                                 </RowTemplate>
                                 <PagerContent>
-                                    <MudPagination SelectedChanged="PageChanged"
-                                                   Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
-                                                   Class="pa-4" />
+                                    <div class="pager-row">
+                                        <div class="page-size-wrap">
+                                            <span>Show</span>
+                                            <select @bind="_pageSize">
+                                                <option value="10">10</option>
+                                                <option value="25">25</option>
+                                                <option value="50">50</option>
+                                                <option value="100">100</option>
+                                            </select>
+                                            <span>per page</span>
+                                        </div>
+                                        <MudPagination SelectedChanged="PageChanged"
+                                                       Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
+                                                       Class="pa-4" />
+                                    </div>
                                 </PagerContent>
                             </MudTable>
                         </div>
@@ -1193,6 +1206,7 @@
 
 @code {
     private MudTable<BusinessPartnerDto>? _table;
+    private int _pageSize = 10;
     private List<BusinessPartnerDto>? customers;
     private BusinessPartnerDto? selectedCustomer;
     private bool isLoading = true;
@@ -1247,6 +1261,7 @@
     {
         await LoadCustomers();
         lastSyncTime = await BusinessPartnerService.GetLastSyncTimeAsync();
+        await AuditService.LogAsync(AuditActions.ViewCustomers, "Customer", null);
     }
 
     private async Task LoadCustomers()
@@ -1391,6 +1406,7 @@
 
                 var base64 = Convert.ToBase64String(fileBytes);
                 await JS.InvokeVoidAsync("downloadFile", fileName, base64);
+                await AuditService.LogAsync(AuditActions.GenerateStatement, "Customer", cardCode);
             }
             else
             {

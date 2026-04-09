@@ -1,0 +1,1092 @@
+@page "/mobile-drafts"
+@using Microsoft.AspNetCore.Authorization
+@using MudBlazor
+@attribute [Authorize(Roles = "Admin,Cashier,Merchandiser,SalesRep")]
+@inject ISalesOrderService SalesOrderService
+@inject NavigationManager NavigationManager
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject ILogger<MobileDrafts> Logger
+@inject IAppSettingsProvider AppSettings
+@rendermode InteractiveServer
+
+<PageTitle>Mobile Drafts - Shop Inventory</PageTitle>
+
+<style>
+    /* ── Page ────────────────────────────────────────── */
+    .md-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
+    }
+
+    /* ── Header ──────────────────────────────────────── */
+    .md-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .md-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .md-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #2563eb, #1e40af);
+        box-shadow: 0 4px 14px rgba(37, 99, 235, .3);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .md-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+        letter-spacing: -.3px;
+    }
+
+    .md-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: .88rem;
+    }
+
+    /* ── Stat Cards ───────────────────────────────────── */
+    .stat-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .stat-card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1rem 1.15rem;
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        transition: transform .15s, box-shadow .15s;
+    }
+
+    .stat-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, .06);
+    }
+
+    .stat-icon {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.15rem;
+        flex-shrink: 0;
+    }
+
+    .stat-icon.total { background: #dbeafe; color: #2563eb; }
+    .stat-icon.pending { background: #fef3c7; color: #d97706; }
+    .stat-icon.approved { background: #d1fae5; color: #059669; }
+    .stat-icon.draft { background: #f3f4f6; color: #6b7280; }
+
+    .stat-info .stat-value {
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        line-height: 1.1;
+        font-family: 'Space Grotesk', monospace;
+    }
+
+    .stat-info .stat-label {
+        font-size: .72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #9ca3af;
+    }
+
+    /* ── Filter Bar ──────────────────────────────────── */
+    .filter-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .75rem;
+        align-items: flex-end;
+        padding: 1rem 1.25rem;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        margin-bottom: 1.25rem;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .filter-bar .filter-field {
+        flex: 1;
+        min-width: 140px;
+    }
+
+    .filter-bar .filter-field label {
+        display: block;
+        font-size: .72rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        margin-bottom: .3rem;
+    }
+
+    .filter-bar .filter-field input,
+    .filter-bar .filter-field select {
+        width: 100%;
+        padding: .5rem .75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: .88rem;
+        color: #374151;
+        background: #fff;
+        transition: all .15s;
+    }
+
+    .filter-bar .filter-field input:focus,
+    .filter-bar .filter-field select:focus {
+        outline: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, .15);
+    }
+
+    .filter-actions-row {
+        display: flex;
+        gap: .5rem;
+        align-items: flex-end;
+    }
+
+    .btn-search {
+        background: linear-gradient(135deg, #2563eb, #1e40af);
+        color: #fff;
+        border: none;
+        padding: .5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .btn-search:hover {
+        opacity: .92;
+        transform: translateY(-1px);
+    }
+
+    .btn-clear {
+        background: #fff;
+        color: #6b7280;
+        border: 1px solid #d1d5db;
+        padding: .5rem 1.1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        transition: all .15s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .btn-clear:hover { background: #f3f4f6; }
+
+    /* ── Table ───────────────────────────────────────── */
+    .md-table-wrap {
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        overflow: hidden;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .md-table-header {
+        padding: .85rem 1.25rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #e5e7eb;
+        background: #f8fafc;
+    }
+
+    .md-table-header h6 {
+        margin: 0;
+        font-weight: 600;
+        color: #1a1a2e;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+        font-size: .92rem;
+    }
+
+    .md-count-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .25rem;
+        padding: .2rem .6rem;
+        border-radius: 6px;
+        font-size: .75rem;
+        font-weight: 600;
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    /* ── Status Badges ───────────────────────────────── */
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        padding: .2rem .6rem;
+        border-radius: 6px;
+        font-size: .73rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .status-badge.draft { background: #f3f4f6; color: #6b7280; }
+    .status-badge.pending { background: #fef3c7; color: #92400e; }
+    .status-badge.approved { background: #d1fae5; color: #065f46; }
+    .status-badge.partial { background: #e0e7ff; color: #3730a3; }
+    .status-badge.fulfilled { background: #dbeafe; color: #1e40af; }
+    .status-badge.invoiced { background: #d1fae5; color: #065f46; }
+    .status-badge.cancelled { background: #fee2e2; color: #991b1b; }
+    .status-badge.on-hold { background: #374151; color: #fff; }
+
+    /* ── Cell Styles ─────────────────────────────────── */
+    .doc-number {
+        font-weight: 700;
+        color: #2563eb;
+        font-family: 'Space Grotesk', monospace;
+        font-size: .88rem;
+    }
+
+    .customer-info .name {
+        font-weight: 600;
+        font-size: .85rem;
+        color: #1a1a2e;
+    }
+
+    .customer-info .code {
+        font-size: .75rem;
+        color: #9ca3af;
+        font-family: 'Space Grotesk', monospace;
+    }
+
+    .amount-cell {
+        font-weight: 700;
+        color: #1a1a2e;
+        font-family: 'Space Grotesk', monospace;
+        font-size: .88rem;
+    }
+
+    .sync-dot {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        font-size: .78rem;
+        font-weight: 600;
+    }
+
+    .sync-dot i { font-size: .7rem; }
+    .sync-dot.synced { color: #059669; }
+    .sync-dot.unsynced { color: #d97706; }
+
+    .btn-md-gradient {
+        background: linear-gradient(135deg, #2563eb, #1e40af);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        text-decoration: none;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        box-shadow: 0 2px 8px rgba(37, 99, 235, .25);
+        cursor: pointer;
+    }
+
+    .btn-md-gradient:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(37, 99, 235, .4);
+        color: #fff;
+    }
+
+    /* ── Drawer ──────────────────────────────────────── */
+    .modal-backdrop-custom {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, .45);
+        z-index: 9998;
+        animation: fadeIn .2s ease;
+    }
+
+    .detail-drawer {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: min(640px, 95vw);
+        height: 100vh;
+        background: #fff;
+        z-index: 9999;
+        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
+        display: flex;
+        flex-direction: column;
+        animation: slideInRight .25s ease;
+    }
+
+    .drawer-header {
+        padding: 1.15rem 1.5rem;
+        background: linear-gradient(135deg, #2563eb, #1e40af);
+        color: #fff;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-shrink: 0;
+    }
+
+    .drawer-header h5 { margin: 0; font-weight: 600; font-size: 1.05rem; }
+
+    .drawer-header .btn-close-drawer {
+        background: rgba(255, 255, 255, .15);
+        border: none;
+        color: #fff;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background .15s;
+        font-size: 1rem;
+    }
+
+    .drawer-header .btn-close-drawer:hover { background: rgba(255, 255, 255, .25); }
+
+    .drawer-body { flex: 1; overflow-y: auto; padding: 1.5rem; }
+
+    .drawer-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        gap: .5rem;
+        justify-content: flex-end;
+        flex-shrink: 0;
+    }
+
+    .detail-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .85rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .detail-item .detail-label {
+        font-size: .72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #9ca3af;
+        margin-bottom: .15rem;
+    }
+
+    .detail-item .detail-value {
+        font-size: .92rem;
+        font-weight: 600;
+        color: #1a1a2e;
+    }
+
+    .detail-section-title {
+        font-weight: 600;
+        color: #1a1a2e;
+        font-size: .9rem;
+        margin-bottom: .75rem;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .lines-table {
+        width: 100%;
+        font-size: .85rem;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .lines-table th {
+        background: #f8fafc;
+        font-size: .72rem;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #6b7280;
+        font-weight: 600;
+        padding: .6rem .75rem;
+        border-bottom: 2px solid #e5e7eb;
+    }
+
+    .lines-table td {
+        padding: .55rem .75rem;
+        border-bottom: 1px solid #f3f4f6;
+        color: #374151;
+    }
+
+    .lines-table tr:last-child td { border-bottom: none; }
+
+    .lines-table tfoot td {
+        border-top: 2px solid #e5e7eb;
+        background: #f8fafc;
+    }
+
+    .total-banner {
+        background: linear-gradient(135deg, #2563eb, #1e40af);
+        color: #fff;
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 1.25rem;
+    }
+
+    .total-banner .total-label { font-size: .9rem; font-weight: 500; }
+    .total-banner .total-value { font-size: 1.4rem; font-weight: 700; }
+
+    /* ── Empty / Loading ─────────────────────────────── */
+    .empty-state {
+        text-align: center;
+        padding: 3rem 1.5rem;
+        background: #fff;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+    }
+
+    .empty-icon {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: #dbeafe;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 1rem;
+        font-size: 1.8rem;
+        color: #2563eb;
+    }
+
+    .empty-state h6 { font-weight: 600; color: #374151; margin-bottom: .35rem; }
+    .empty-state p { color: #9ca3af; font-size: .88rem; }
+
+    .loading-state {
+        text-align: center;
+        padding: 3rem;
+        background: #fff;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+    }
+
+    .alert-banner {
+        border-radius: 10px;
+        padding: .75rem 1rem;
+        display: flex;
+        align-items: flex-start;
+        gap: .6rem;
+        margin-bottom: 1rem;
+        font-size: .88rem;
+        animation: slideDown .3s ease;
+    }
+
+    .alert-banner.error-alert {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #991b1b;
+    }
+
+    .btn-secondary-action {
+        background: #fff;
+        color: #374151;
+        border: 1px solid #d1d5db;
+        padding: .55rem 1.35rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .15s;
+    }
+
+    .btn-secondary-action:hover { background: #f9fafb; }
+
+    @@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @@keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+    @@keyframes slideDown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+
+    @@media (max-width:768px) {
+        .md-header { flex-direction: column; }
+        .filter-bar { flex-direction: column; }
+        .stat-row { grid-template-columns: 1fr 1fr; }
+        .detail-grid { grid-template-columns: 1fr; }
+    }
+</style>
+
+<div class="md-page">
+    <div class="container-fluid">
+
+        <!-- ━━━ Header ━━━ -->
+        <div class="md-header">
+            <div class="md-header-left">
+                <div class="md-header-icon"><i class="bi bi-phone"></i></div>
+                <div>
+                    <h2>Mobile Draft Orders</h2>
+                    <p>Review and approve sales orders submitted from the mobile app</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ━━━ Alerts ━━━ -->
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert-banner error-alert">
+                <i class="bi bi-exclamation-octagon-fill"></i>
+                <div style="flex:1;">@errorMessage</div>
+                <MudIconButton Icon="@Icons.Material.Filled.Close"
+                               Style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;"
+                               OnClick="() => errorMessage = null" />
+            </div>
+        }
+
+        <!-- ━━━ Stat Cards ━━━ -->
+        @if (orders?.Any() == true)
+        {
+            <div class="stat-row">
+                <div class="stat-card">
+                    <div class="stat-icon total"><i class="bi bi-phone"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value">@totalCount</div>
+                        <div class="stat-label">Total Drafts</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon draft"><i class="bi bi-pencil-square"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value">@orders.Count(o => o.Status == SalesOrderStatus.Draft)</div>
+                        <div class="stat-label">Draft</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon pending"><i class="bi bi-clock-history"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value">@orders.Count(o => o.Status == SalesOrderStatus.Pending)</div>
+                        <div class="stat-label">Pending</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon approved"><i class="bi bi-check-circle"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value">@orders.Count(o => o.Status == SalesOrderStatus.Approved)</div>
+                        <div class="stat-label">Approved</div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- ━━━ Filter Bar ━━━ -->
+        <div class="filter-bar">
+            <div class="filter-field">
+                <label>Customer</label>
+                <input type="text" @bind="customerFilter" placeholder="Customer code" />
+            </div>
+            <div class="filter-field">
+                <label>Status</label>
+                <select @bind="statusFilter">
+                    <option value="">All Statuses</option>
+                    @foreach (SalesOrderStatus status in Enum.GetValues(typeof(SalesOrderStatus)))
+                    {
+                        <option value="@(((int)status).ToString())">@status</option>
+                    }
+                </select>
+            </div>
+            <div class="filter-field">
+                <label>From Date</label>
+                <MudDatePicker @bind-Date="fromDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                               DateFormat="@AppSettings.DateFormat" Editable="true" />
+            </div>
+            <div class="filter-field">
+                <label>To Date</label>
+                <MudDatePicker @bind-Date="toDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                               DateFormat="@AppSettings.DateFormat" Editable="true" />
+            </div>
+            <div class="filter-actions-row">
+                <MudButton Class="btn-search" OnClick="ApplyFilter">
+                    <i class="bi bi-search"></i> Search
+                </MudButton>
+                <MudButton Class="btn-clear" OnClick="ClearFilter">
+                    <i class="bi bi-x-circle"></i> Clear
+                </MudButton>
+            </div>
+        </div>
+
+        <!-- ━━━ Content ━━━ -->
+        @if (isLoading)
+        {
+            <div class="loading-state">
+                <div class="spinner-border" style="color:#2563eb;width:2.5rem;height:2.5rem;" role="status"></div>
+                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading mobile drafts...</p>
+            </div>
+        }
+        else if (orders?.Any() == true)
+        {
+            <div class="md-table-wrap">
+                <div class="md-table-header">
+                    <h6><i class="bi bi-phone"></i> Mobile Draft Orders</h6>
+                    <span class="md-count-badge">@totalCount total</span>
+                </div>
+                <MudTable @ref="@_table" Items="@orders" RowsPerPage="@_pageSize" Hover="true" Striped="true" Dense="true"
+                          Breakpoint="Breakpoint.Sm" Loading="@isLoading" LoadingProgressColor="Color.Primary" T="SalesOrderDto"
+                          Elevation="0" Style="background:transparent;">
+                    <HeaderContent>
+                        <MudTh>Order #</MudTh>
+                        <MudTh>Customer</MudTh>
+                        <MudTh>Order Date</MudTh>
+                        <MudTh>Delivery</MudTh>
+                        <MudTh>Status</MudTh>
+                        <MudTh>Currency</MudTh>
+                        <MudTh Style="text-align:right">Total</MudTh>
+                        <MudTh>SAP Doc #</MudTh>
+                        <MudTh Style="width:150px">Actions</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Order #"><span class="doc-number">@context.OrderNumber</span></MudTd>
+                        <MudTd DataLabel="Customer">
+                            <div class="customer-info">
+                                <span class="name">@context.CardName</span>
+                                <span class="code">@context.CardCode</span>
+                            </div>
+                        </MudTd>
+                        <MudTd DataLabel="Order Date"><span style="font-size:.85rem;color:#374151;">@context.OrderDate.ToString("dd MMM yyyy")</span></MudTd>
+                        <MudTd DataLabel="Delivery"><span style="font-size:.85rem;color:#374151;">@(context.DeliveryDate?.ToString("dd MMM yyyy") ?? "—")</span></MudTd>
+                        <MudTd DataLabel="Status">
+                            <span class="status-badge @GetStatusCssClass(context.Status)">@context.StatusName</span>
+                        </MudTd>
+                        <MudTd DataLabel="Currency"><span style="font-size:.85rem;color:#6b7280;">@context.Currency</span></MudTd>
+                        <MudTd DataLabel="Total" Style="text-align:right">
+                            <span class="amount-cell">@context.DocTotal.ToString("N2")</span>
+                        </MudTd>
+                        <MudTd DataLabel="SAP Doc #">
+                            @if (context.SAPDocNum.HasValue)
+                            {
+                                <span class="sap-doc-num" style="font-weight:700; color:#059669; font-family:'Space Grotesk',monospace; font-size:.88rem;">
+                                    <i class="bi bi-check-circle-fill me-1" style="font-size:.7rem;"></i>@context.SAPDocNum
+                                </span>
+                            }
+                            else if (context.IsSynced)
+                            {
+                                <span class="sync-dot synced"><i class="bi bi-circle-fill"></i> Synced</span>
+                            }
+                            else
+                            {
+                                <span class="sync-dot unsynced"><i class="bi bi-circle-fill"></i> Pending</span>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Actions">
+                            <MudStack Row="true" Spacing="1">
+                                <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small"
+                                               Variant="Variant.Outlined" Color="Color.Primary" Title="View Details"
+                                               OnClick="() => ViewOrder(context)" />
+                                @if ((context.Status == SalesOrderStatus.Draft || context.Status == SalesOrderStatus.Pending) && !context.IsSynced)
+                                {
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                                   Variant="Variant.Outlined" Color="Color.Warning" Title="Edit"
+                                                   OnClick="() => NavigateToEdit(context.Id)" />
+                                }
+                                @if (context.Status == SalesOrderStatus.Approved && context.InvoiceId == null)
+                                {
+                                    <MudIconButton
+                                        Icon="@(convertingOrderId == context.Id ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Receipt)"
+                                        Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
+                                        Title="Convert to Invoice" Disabled="@(convertingOrderId == context.Id)"
+                                        OnClick="() => ConvertToInvoice(context)" />
+                                }
+                                @if (!context.IsSynced)
+                                {
+                                    @if (context.Status == SalesOrderStatus.Pending)
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small"
+                                                       Variant="Variant.Outlined" Color="Color.Success" Title="Approve"
+                                                       OnClick="() => ApproveOrder(context.Id)" />
+                                    }
+                                    @if (context.Status == SalesOrderStatus.Draft || context.Status == SalesOrderStatus.Cancelled)
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                                       Variant="Variant.Outlined" Color="Color.Error" Title="Delete"
+                                                       OnClick="() => DeleteOrder(context.Id)" />
+                                    }
+                                }
+                            </MudStack>
+                        </MudTd>
+                    </RowTemplate>
+                    <PagerContent>
+                        <div class="pager-row">
+                            <div class="page-size-wrap">
+                                <span>Show</span>
+                                <select @bind="_pageSize">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                                <span>per page</span>
+                            </div>
+                            <MudPagination SelectedChanged="PageChanged"
+                                           Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
+                                           Class="pa-4" />
+                        </div>
+                    </PagerContent>
+                </MudTable>
+            </div>
+        }
+        else
+        {
+            <div class="empty-state">
+                <div class="empty-icon"><i class="bi bi-phone"></i></div>
+                <h6>No mobile draft orders found</h6>
+                <p>Orders submitted from the mobile app will appear here for review.</p>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- ━━━ View Order Drawer ━━━ -->
+@if (selectedOrder != null)
+{
+    <div class="modal-backdrop-custom" @onclick="() => selectedOrder = null"></div>
+    <div class="detail-drawer">
+        <div class="drawer-header">
+            <h5><i class="bi bi-phone me-2"></i>Mobile Order: @selectedOrder.OrderNumber</h5>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer"
+                           OnClick="() => selectedOrder = null" />
+        </div>
+        <div class="drawer-body">
+            <div class="detail-grid">
+                <div class="detail-item">
+                    <div class="detail-label">Customer</div>
+                    <div class="detail-value">@selectedOrder.CardCode — @selectedOrder.CardName</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Order Date</div>
+                    <div class="detail-value">@selectedOrder.OrderDate.ToString("dd MMM yyyy")</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Delivery Date</div>
+                    <div class="detail-value">@(selectedOrder.DeliveryDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Status</div>
+                    <div class="detail-value"><span class="status-badge @GetStatusCssClass(selectedOrder.Status)">@selectedOrder.StatusName</span></div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Currency</div>
+                    <div class="detail-value">@selectedOrder.Currency</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Created By</div>
+                    <div class="detail-value">@selectedOrder.CreatedByUserName</div>
+                </div>
+                @if (selectedOrder.SAPDocNum.HasValue)
+                {
+                    <div class="detail-item">
+                        <div class="detail-label">SAP Document #</div>
+                        <div class="detail-value" style="color:#059669; font-family:'Space Grotesk',monospace;">@selectedOrder.SAPDocNum</div>
+                    </div>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(selectedOrder.MerchandiserNotes))
+            {
+                <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px; padding:.85rem 1rem; margin-bottom:1.25rem;">
+                    <div style="font-size:.78rem; font-weight:600; color:#1e40af; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.35rem;">
+                        <i class="bi bi-chat-left-text"></i> Merchandiser Notes
+                    </div>
+                    <p style="color:#1e40af; font-size:.88rem; margin:0; white-space:pre-wrap;">@selectedOrder.MerchandiserNotes</p>
+                </div>
+            }
+
+            @if (selectedOrder.Lines?.Any() == true)
+            {
+                <div class="detail-section-title"><i class="bi bi-list-ul"></i> Order Lines</div>
+                <table class="lines-table">
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Description</th>
+                            <th style="text-align:right">Qty</th>
+                            <th style="text-align:right">Unit Price</th>
+                            <th style="text-align:right">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var line in selectedOrder.Lines)
+                        {
+                            <tr>
+                                <td><span style="font-weight:600;color:#2563eb;">@line.ItemCode</span></td>
+                                <td>@line.ItemDescription</td>
+                                <td style="text-align:right;font-weight:600;">@line.Quantity</td>
+                                <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
+                                <td style="text-align:right;font-weight:600;">@line.LineTotal.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td colspan="4" style="text-align:right;font-weight:600;">Subtotal:</td>
+                            <td style="text-align:right;font-weight:600;">@selectedOrder.SubTotal.ToString("N2")</td>
+                        </tr>
+                        <tr>
+                            <td colspan="4" style="text-align:right;font-weight:600;">Tax:</td>
+                            <td style="text-align:right;">@selectedOrder.TaxAmount.ToString("N2")</td>
+                        </tr>
+                    </tfoot>
+                </table>
+
+                <div class="total-banner">
+                    <span class="total-label">Total</span>
+                    <span class="total-value">@selectedOrder.DocTotal.ToString("N2")</span>
+                </div>
+            }
+        </div>
+        <div class="drawer-footer">
+            @if ((selectedOrder.Status == SalesOrderStatus.Draft || selectedOrder.Status == SalesOrderStatus.Pending) && !selectedOrder.IsSynced)
+            {
+                <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem;"
+                           OnClick="() => NavigateToEdit(selectedOrder.Id)">
+                    <i class="bi bi-pencil-square me-1"></i> Edit
+                </MudButton>
+            }
+            @if (selectedOrder.Status == SalesOrderStatus.Approved && !selectedOrder.IsSynced)
+            {
+                <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#059669,#047857);"
+                           Disabled="@isPostingToSAP"
+                           OnClick="() => PostOrderToSAP(selectedOrder.Id)">
+                    @if (isPostingToSAP)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    <i class="bi bi-cloud-upload me-1"></i> Post to SAP
+                </MudButton>
+            }
+            <MudButton Class="btn-secondary-action" OnClick="() => selectedOrder = null">Close</MudButton>
+        </div>
+    </div>
+}
+
+@code {
+    private MudTable<SalesOrderDto>? _table;
+    private int _pageSize = 10;
+    private List<SalesOrderDto>? orders;
+    private SalesOrderDto? selectedOrder;
+    private bool isLoading = true;
+    private string? errorMessage;
+    private int? convertingOrderId;
+    private bool isPostingToSAP = false;
+
+    // Filters
+    private string? customerFilter;
+    private string? statusFilter;
+    private DateTime? fromDate;
+    private DateTime? toDate;
+
+    // Pagination
+    private int currentPage = 1;
+    private int pageSize = 10000;
+    private int totalPages = 1;
+    private int totalCount = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadOrders();
+    }
+
+    private void PageChanged(int i)
+    {
+        _table?.NavigateTo(i - 1);
+    }
+
+    private async Task LoadOrders()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            SalesOrderStatus? status = null;
+            if (!string.IsNullOrEmpty(statusFilter) && int.TryParse(statusFilter, out var statusInt))
+            {
+                status = (SalesOrderStatus)statusInt;
+            }
+
+            var response = await SalesOrderService.GetSalesOrdersAsync(currentPage, pageSize, status, customerFilter, fromDate, toDate, SalesOrderSource.Mobile);
+            if (response != null)
+            {
+                orders = response.Orders;
+                totalCount = response.TotalCount;
+                totalPages = response.TotalPages;
+            }
+            else
+            {
+                errorMessage = "Failed to load mobile draft orders.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ApplyFilter() => await LoadOrders();
+
+    private async Task ClearFilter()
+    {
+        customerFilter = null;
+        statusFilter = null;
+        fromDate = null;
+        toDate = null;
+        currentPage = 1;
+        await LoadOrders();
+    }
+
+    private void ViewOrder(SalesOrderDto order)
+    {
+        selectedOrder = order;
+    }
+
+    private void NavigateToEdit(int id)
+    {
+        NavigationManager.NavigateTo($"/sales-orders/edit/{id}");
+    }
+
+    private async Task ApproveOrder(int id)
+    {
+        var result = await SalesOrderService.ApproveAsync(id);
+        if (result != null)
+        {
+            await LoadOrders();
+        }
+    }
+
+    private async Task PostOrderToSAP(int id)
+    {
+        isPostingToSAP = true;
+        StateHasChanged();
+
+        try
+        {
+            var result = await SalesOrderService.PostToSAPAsync(id);
+            if (result != null)
+            {
+                Snackbar.Add($"Order {result.OrderNumber} posted to SAP successfully! (Doc #{result.SAPDocNum})", Severity.Success);
+                selectedOrder = null;
+                await LoadOrders();
+            }
+            else
+            {
+                Snackbar.Add("Failed to post order to SAP. Please try again.", Severity.Error);
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add($"SAP posting failed: {ex.Message}", Severity.Error);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error posting to SAP: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isPostingToSAP = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ConvertToInvoice(SalesOrderDto order)
+    {
+        var result = await DialogService.ShowMessageBoxAsync(
+            "Convert to Invoice",
+            $"Are you sure you want to convert order {order.OrderNumber} for {order.CardName ?? order.CardCode} (Total: {order.Currency} {order.DocTotal:N2}) into an invoice?",
+            yesText: "Convert",
+            cancelText: "Cancel");
+
+        if (result != true) return;
+
+        convertingOrderId = order.Id;
+        StateHasChanged();
+
+        try
+        {
+            var invoice = await SalesOrderService.ConvertToInvoiceAsync(order.Id);
+            if (invoice != null)
+            {
+                Snackbar.Add($"Order {order.OrderNumber} converted to Invoice #{invoice.DocNum} successfully!", Severity.Success);
+                await LoadOrders();
+            }
+            else
+            {
+                Snackbar.Add("Failed to convert sales order to invoice. Please try again.", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error converting order: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            convertingOrderId = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteOrder(int id)
+    {
+        var success = await SalesOrderService.DeleteSalesOrderAsync(id);
+        if (success)
+        {
+            await LoadOrders();
+        }
+    }
+
+    private string GetStatusCssClass(SalesOrderStatus status) => status switch
+    {
+        SalesOrderStatus.Draft => "draft",
+        SalesOrderStatus.Pending => "pending",
+        SalesOrderStatus.Approved => "approved",
+        SalesOrderStatus.PartiallyFulfilled => "partial",
+        SalesOrderStatus.Fulfilled => "fulfilled",
+        SalesOrderStatus.Invoiced => "invoiced",
+        SalesOrderStatus.Cancelled => "cancelled",
+        SalesOrderStatus.OnHold => "on-hold",
+        _ => "draft"
+    };
+}

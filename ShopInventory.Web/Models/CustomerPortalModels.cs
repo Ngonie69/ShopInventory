@@ -280,6 +280,9 @@ public class CustomerPaymentSummary
 
     [JsonPropertyName("currency")]
     public string? Currency { get; set; }
+
+    [JsonPropertyName("cardCode")]
+    public string? CardCode { get; set; }
 }
 
 #endregion

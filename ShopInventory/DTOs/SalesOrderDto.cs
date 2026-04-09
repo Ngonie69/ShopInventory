@@ -43,6 +43,10 @@ public class SalesOrderDto
     public DateTime UpdatedAt { get; set; }
     public int? InvoiceId { get; set; }
     public bool IsSynced { get; set; }
+    public SalesOrderSource Source { get; set; }
+    public string? MerchandiserNotes { get; set; }
+    public string? DeviceInfo { get; set; }
+    public string? RowVersion { get; set; }
     public List<SalesOrderLineDto> Lines { get; set; } = new();
 }
 
@@ -87,6 +91,10 @@ public class CreateSalesOrderRequest
     public string? ShipToAddress { get; set; }
     public string? BillToAddress { get; set; }
     public string? WarehouseCode { get; set; }
+    public SalesOrderSource Source { get; set; } = SalesOrderSource.Web;
+    public string? MerchandiserNotes { get; set; }
+    public string? DeviceInfo { get; set; }
+    public string? RowVersion { get; set; }
 
     [Required(ErrorMessage = "At least one line item is required")]
     [MinLength(1, ErrorMessage = "At least one line item is required")]

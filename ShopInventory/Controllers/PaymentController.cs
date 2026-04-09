@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using ShopInventory.DTOs;
 using ShopInventory.Services;
 using Swashbuckle.AspNetCore.Annotations;
+using System.Globalization;
 using System.Security.Claims;
 
 namespace ShopInventory.Controllers;
@@ -152,9 +153,12 @@ public class PaymentController : ControllerBase
     [HttpPost("callback/paynow")]
     [AllowAnonymous]
     [SwaggerOperation(Summary = "PayNow callback", Description = "Receives payment notifications from PayNow")]
-    public async Task<IActionResult> PayNowCallback([FromForm] PaymentCallbackPayload payload)
+    public async Task<IActionResult> PayNowCallback(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Received PayNow callback");
+
+        var form = await Request.ReadFormAsync(cancellationToken);
+        var payload = BuildPayNowCallbackPayload(form);
         var result = await _paymentService.ProcessCallbackAsync("PayNow", payload);
         return result ? Ok() : BadRequest();
     }
@@ -168,6 +172,8 @@ public class PaymentController : ControllerBase
     public async Task<IActionResult> InnbucksCallback([FromBody] PaymentCallbackPayload payload)
     {
         _logger.LogInformation("Received Innbucks callback");
+        payload.Provider = "Innbucks";
+        payload.Signature ??= GetCallbackSignature();
         var result = await _paymentService.ProcessCallbackAsync("Innbucks", payload);
         return result ? Ok() : BadRequest();
     }
@@ -181,7 +187,44 @@ public class PaymentController : ControllerBase
     public async Task<IActionResult> EcocashCallback([FromBody] PaymentCallbackPayload payload)
     {
         _logger.LogInformation("Received Ecocash callback");
+        payload.Provider = "Ecocash";
+        payload.Signature ??= GetCallbackSignature();
         var result = await _paymentService.ProcessCallbackAsync("Ecocash", payload);
         return result ? Ok() : BadRequest();
+    }
+
+    private PaymentCallbackPayload BuildPayNowCallbackPayload(IFormCollection form)
+    {
+        var rawData = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in form)
+        {
+            rawData[pair.Key] = pair.Value.ToString();
+        }
+
+        decimal? amount = null;
+        if (decimal.TryParse(form["amount"], NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedAmount))
+        {
+            amount = parsedAmount;
+        }
+
+        return new PaymentCallbackPayload
+        {
+            Provider = "PayNow",
+            TransactionId = form["paynowreference"],
+            ExternalTransactionId = form["pollurl"],
+            Status = form["status"],
+            Reference = form["reference"],
+            Amount = amount,
+            Signature = form["hash"],
+            RawData = rawData
+        };
+    }
+
+    private string? GetCallbackSignature()
+    {
+        return Request.Headers["X-Signature"].FirstOrDefault()
+            ?? Request.Headers["X-Callback-Signature"].FirstOrDefault()
+            ?? Request.Headers["X-Webhook-Signature"].FirstOrDefault()
+            ?? Request.Headers["X-Hub-Signature-256"].FirstOrDefault();
     }
 }

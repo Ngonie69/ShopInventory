@@ -5,16 +5,32 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Serilog;
 using ShopInventory.Authentication;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Middleware;
 using ShopInventory.Services;
 using System.IO.Compression;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.RateLimiting;
 
+// Configure Serilog
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Debug()
+    .WriteTo.Console()
+    .WriteTo.File("logs/shopinventory-api-.log", rollingInterval: RollingInterval.Day)
+    .CreateLogger();
+
+try
+{
+Log.Information("Starting ShopInventory API");
+
 var builder = WebApplication.CreateBuilder(args);
+
+// Use Serilog
+builder.Host.UseSerilog();
 
 // Add services to the container.
 builder.Services.AddControllers();
@@ -188,7 +204,7 @@ builder.Services.AddAuthorization(options =>
         .RequireRole("Admin")
         .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
     options.AddPolicy("ApiAccess", policy =>
-        policy.RequireRole("Admin", "ApiUser", "User", "Cashier", "StockController", "DepotController", "Manager", "PodOperator")
+        policy.RequireRole("Admin", "ApiUser", "User", "Cashier", "StockController", "DepotController", "Manager", "PodOperator", "Driver", "Merchandiser")
               .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
 });
 
@@ -374,24 +390,36 @@ builder.Services.AddHttpClient<ISAPServiceLayerClient, SAPServiceLayerClient>((s
     client.Timeout = TimeSpan.FromMinutes(5); // Increased timeout for large data operations
 })
 .AddHttpMessageHandler<SAPConcurrencyHandler>()
-.ConfigurePrimaryHttpMessageHandler(() =>
+.ConfigurePrimaryHttpMessageHandler(serviceProvider =>
 {
+    var sapSettings = serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value;
+    var allowDevelopmentCertificateBypass = sapSettings.SkipCertificateValidation && builder.Environment.IsDevelopment();
+    var allowedThumbprints = sapSettings.AllowedServerCertificateThumbprints
+        .Where(value => !string.IsNullOrWhiteSpace(value) && !value.StartsWith("${", StringComparison.Ordinal))
+        .Select(value => value.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant())
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
     return new SocketsHttpHandler
     {
-        // SAP B1 Service Layer uses a self-signed certificate on an internal network (10.10.10.6).
-        // In production, replace this with proper certificate pinning or install the SAP cert
-        // in the trusted certificate store. For now, validate that we're only allowing
-        // the specific SAP host to use self-signed certs.
         SslOptions = new System.Net.Security.SslClientAuthenticationOptions
         {
-            RemoteCertificateValidationCallback = (message, cert, chain, errors) =>
+            // Invalid certificates are only allowed when explicitly enabled in configuration.
+            RemoteCertificateValidationCallback = (_, certificate, _, errors) =>
             {
                 if (errors == System.Net.Security.SslPolicyErrors.None)
+                {
                     return true;
+                }
 
-                // Only allow self-signed certs for the known SAP internal host
-                // The sender for SocketsHttpHandler is the SslStream, so check via the cert or use a broad check
-                return true; // Internal network — matches previous behavior
+                if (allowDevelopmentCertificateBypass)
+                {
+                    return true;
+                }
+
+                var certificate2 = certificate as X509Certificate2 ?? (certificate != null ? new X509Certificate2(certificate) : null);
+                var thumbprint = certificate2?.Thumbprint?.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant();
+
+                return !string.IsNullOrWhiteSpace(thumbprint) && allowedThumbprints.Contains(thumbprint);
             }
         },
         // Recycle connections to avoid stale/aborted TCP connections
@@ -434,7 +462,7 @@ using (var scope = app.Services.CreateScope())
     {
         var context = services.GetRequiredService<ApplicationDbContext>();
         var logger = services.GetRequiredService<ILogger<Program>>();
-        await DbInitializer.InitializeAsync(context, logger);
+        await DbInitializer.InitializeAsync(context, logger, app.Environment);
 
         // Wire up the reserved quantity provider to the batch validation service
         // This is done after construction to avoid circular dependency
@@ -530,10 +558,28 @@ app.MapControllers().RequireRateLimiting("api");
 var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
 lifetime.ApplicationStopping.Register(() =>
 {
-    using var scope = app.Services.CreateScope();
-    var sapClient = scope.ServiceProvider.GetRequiredService<ISAPServiceLayerClient>();
-    sapClient.LogoutAsync().GetAwaiter().GetResult();
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var scope = app.Services.CreateScope();
+        var sapClient = scope.ServiceProvider.GetRequiredService<ISAPServiceLayerClient>();
+        sapClient.LogoutAsync(cts.Token).GetAwaiter().GetResult();
+    }
+    catch (Exception ex)
+    {
+        Log.Warning(ex, "SAP logout during shutdown did not complete within timeout");
+    }
 });
 
 app.Run();
+
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Application terminated unexpectedly");
+}
+finally
+{
+    Log.CloseAndFlush();
+}
 

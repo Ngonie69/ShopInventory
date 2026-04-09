@@ -64,53 +64,70 @@ public class SalesOrderService : ISalesOrderService
     }
 
     public async Task<SalesOrderListResponseDto> GetAllAsync(int page, int pageSize, SalesOrderStatus? status = null,
-        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
+        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
+        SalesOrderSource? source = null, CancellationToken cancellationToken = default)
     {
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        // Normalize dates to UTC for Npgsql timestamptz compatibility
+        if (fromDate.HasValue && fromDate.Value.Kind == DateTimeKind.Unspecified)
+            fromDate = DateTime.SpecifyKind(fromDate.Value, DateTimeKind.Utc);
+        if (toDate.HasValue && toDate.Value.Kind == DateTimeKind.Unspecified)
+            toDate = DateTime.SpecifyKind(toDate.Value, DateTimeKind.Utc);
+
+        // Mobile/source-filtered orders are local-only — SAP has no source concept
+        if (source.HasValue)
+        {
+            _logger.LogInformation("Fetching {Source} orders from local DB", source.Value);
+            return await GetAllFromLocalAsync(page, pageSize, status, cardCode, fromDate, toDate, source, cancellationToken);
+        }
+
+        var localOffset = Math.Max(0, (page - 1) * pageSize);
+        var localUnsyncedCount = await GetLocalUnsyncedOrdersCountAsync(status, cardCode, fromDate, toDate, cancellationToken);
+        var localPage = await GetLocalUnsyncedOrdersPageAsync(localOffset, pageSize, status, cardCode, fromDate, toDate, cancellationToken);
+        var remainingSlots = Math.Max(0, pageSize - localPage.Count);
+        var sapOffset = Math.Max(0, localOffset - localUnsyncedCount);
+
         try
         {
-            // Fetch from SAP
             _logger.LogInformation("Fetching sales orders from SAP - Page: {Page}, PageSize: {PageSize}", page, pageSize);
 
-            List<SAPSalesOrder> sapOrders;
-            int totalCount;
+            var sapOrders = new List<SAPSalesOrder>();
+            var sapTotalCount = 0;
 
-            if (!string.IsNullOrEmpty(cardCode))
+            if (TryMapSapStatusFilter(status, out var documentStatus, out var cancelled))
             {
-                _logger.LogInformation("Fetching sales orders by customer: {CardCode}", cardCode);
-                sapOrders = await _sapClient.GetSalesOrdersByCustomerAsync(cardCode, cancellationToken);
-                totalCount = sapOrders.Count;
-                sapOrders = sapOrders.Skip((page - 1) * pageSize).Take(pageSize).ToList();
-            }
-            else if (fromDate.HasValue && toDate.HasValue)
-            {
-                _logger.LogInformation("Fetching sales orders by date range: {FromDate} - {ToDate}", fromDate, toDate);
-                sapOrders = await _sapClient.GetSalesOrdersByDateRangeAsync(fromDate.Value, toDate.Value, cancellationToken);
-                totalCount = sapOrders.Count;
-                sapOrders = sapOrders.Skip((page - 1) * pageSize).Take(pageSize).ToList();
-            }
-            else
-            {
-                _logger.LogInformation("Fetching paged sales orders from SAP");
-                sapOrders = await _sapClient.GetPagedSalesOrdersAsync(page, pageSize, cancellationToken);
-                _logger.LogInformation("SAP returned {Count} sales orders", sapOrders.Count);
+                var (sapFromDate, sapToDate) = ResolveSapDateRange(cardCode, fromDate, toDate);
+                sapTotalCount = await _sapClient.GetSalesOrdersCountAsync(
+                    cardCode,
+                    sapFromDate,
+                    sapToDate,
+                    documentStatus,
+                    cancelled,
+                    cancellationToken);
 
-                totalCount = await _sapClient.GetSalesOrdersCountAsync(cardCode, fromDate, toDate, cancellationToken);
-                _logger.LogInformation("SAP total count: {TotalCount}", totalCount);
-            }
-
-            // Filter by status if provided (status is a local concept, SAP uses DocumentStatus)
-            if (status.HasValue)
-            {
-                sapOrders = sapOrders.Where(o => MapSAPStatusToLocal(o.DocumentStatus, o.Cancelled) == status.Value).ToList();
+                if (remainingSlots > 0)
+                {
+                    sapOrders = await _sapClient.GetSalesOrderHeadersAsync(
+                        cardCode,
+                        sapFromDate,
+                        sapToDate,
+                        sapOffset,
+                        remainingSlots,
+                        documentStatus,
+                        cancelled,
+                        cancellationToken);
+                }
             }
 
             var result = new SalesOrderListResponseDto
             {
                 Page = page,
                 PageSize = pageSize,
-                TotalCount = totalCount,
-                TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
-                Orders = sapOrders.Select(MapFromSAP).ToList()
+                TotalCount = sapTotalCount + localUnsyncedCount,
+                TotalPages = (int)Math.Ceiling((sapTotalCount + localUnsyncedCount) / (double)pageSize),
+                Orders = localPage.Concat(sapOrders.Select(MapFromSAP)).ToList()
             };
 
             _logger.LogInformation("Returning {OrderCount} sales orders, TotalCount: {TotalCount}, TotalPages: {TotalPages}",
@@ -121,18 +138,17 @@ public class SalesOrderService : ISalesOrderService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to fetch sales orders from SAP, falling back to local DB");
-            return await GetAllFromLocalAsync(page, pageSize, status, cardCode, fromDate, toDate, cancellationToken);
+            return await GetAllFromLocalAsync(page, pageSize, status, cardCode, fromDate, toDate, source, cancellationToken);
         }
     }
 
-    private async Task<SalesOrderListResponseDto> GetAllFromLocalAsync(int page, int pageSize, SalesOrderStatus? status = null,
-        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
+    private IQueryable<SalesOrderEntity> BuildLocalUnsyncedOrdersQuery(SalesOrderStatus? status = null,
+        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
+        CancellationToken cancellationToken = default)
     {
         var query = _context.SalesOrders
-            .Include(o => o.Lines)
-            .Include(o => o.CreatedByUser)
-            .Include(o => o.ApprovedByUser)
             .AsNoTracking()
+            .Where(o => !o.IsSynced)
             .AsQueryable();
 
         if (status.HasValue)
@@ -147,11 +163,171 @@ public class SalesOrderService : ISalesOrderService
         if (toDate.HasValue)
             query = query.Where(o => o.OrderDate <= toDate.Value);
 
+        return query;
+    }
+
+    private async Task<int> GetLocalUnsyncedOrdersCountAsync(SalesOrderStatus? status = null,
+        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildLocalUnsyncedOrdersQuery(status, cardCode, fromDate, toDate, cancellationToken)
+            .CountAsync(cancellationToken);
+    }
+
+    private async Task<List<SalesOrderDto>> GetLocalUnsyncedOrdersPageAsync(int skip, int take,
+        SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (take <= 0)
+            return new List<SalesOrderDto>();
+
+        var orders = await BuildLocalUnsyncedOrdersQuery(status, cardCode, fromDate, toDate, cancellationToken)
+            .OrderByDescending(o => o.OrderDate)
+            .ThenByDescending(o => o.Id)
+            .Skip(skip)
+            .Take(take)
+            .Select(o => new SalesOrderDto
+            {
+                Id = o.Id,
+                SAPDocEntry = o.SAPDocEntry,
+                SAPDocNum = o.SAPDocNum,
+                OrderNumber = o.OrderNumber,
+                OrderDate = o.OrderDate,
+                DeliveryDate = o.DeliveryDate,
+                CardCode = o.CardCode,
+                CardName = o.CardName,
+                CustomerRefNo = o.CustomerRefNo,
+                Status = o.Status,
+                Comments = o.Comments,
+                SalesPersonCode = o.SalesPersonCode,
+                SalesPersonName = o.SalesPersonName,
+                Currency = o.Currency,
+                ExchangeRate = o.ExchangeRate,
+                SubTotal = o.SubTotal,
+                TaxAmount = o.TaxAmount,
+                DiscountPercent = o.DiscountPercent,
+                DiscountAmount = o.DiscountAmount,
+                DocTotal = o.DocTotal,
+                ShipToAddress = o.ShipToAddress,
+                BillToAddress = o.BillToAddress,
+                WarehouseCode = o.WarehouseCode,
+                CreatedByUserId = o.CreatedByUserId,
+                CreatedByUserName = o.CreatedByUser != null ? o.CreatedByUser.Username : null,
+                ApprovedByUserId = o.ApprovedByUserId,
+                ApprovedByUserName = o.ApprovedByUser != null ? o.ApprovedByUser.Username : null,
+                ApprovedDate = o.ApprovedDate,
+                CreatedAt = o.CreatedAt,
+                UpdatedAt = o.UpdatedAt,
+                InvoiceId = o.InvoiceId,
+                IsSynced = o.IsSynced,
+                Source = o.Source,
+                MerchandiserNotes = o.MerchandiserNotes,
+                DeviceInfo = o.DeviceInfo,
+                RowVersion = o.RowVersion != null ? Convert.ToBase64String(o.RowVersion) : null,
+                Lines = o.Lines.Select(l => new SalesOrderLineDto
+                {
+                    Id = l.Id,
+                    LineNum = l.LineNum,
+                    ItemCode = l.ItemCode,
+                    ItemDescription = l.ItemDescription,
+                    Quantity = l.Quantity,
+                    QuantityFulfilled = l.QuantityFulfilled,
+                    UnitPrice = l.UnitPrice,
+                    DiscountPercent = l.DiscountPercent,
+                    TaxPercent = l.TaxPercent,
+                    LineTotal = l.LineTotal,
+                    WarehouseCode = l.WarehouseCode,
+                    UoMCode = l.UoMCode,
+                    BatchNumber = l.BatchNumber
+                }).ToList()
+            })
+            .ToListAsync(cancellationToken);
+
+        return orders;
+    }
+
+    private async Task<SalesOrderListResponseDto> GetAllFromLocalAsync(int page, int pageSize, SalesOrderStatus? status = null,
+        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
+        SalesOrderSource? source = null, CancellationToken cancellationToken = default)
+    {
+        var query = _context.SalesOrders
+            .AsNoTracking()
+            .AsQueryable();
+        if (status.HasValue)
+            query = query.Where(o => o.Status == status.Value);
+
+        if (!string.IsNullOrEmpty(cardCode))
+            query = query.Where(o => o.CardCode == cardCode);
+
+        if (fromDate.HasValue)
+            query = query.Where(o => o.OrderDate >= fromDate.Value);
+
+        if (toDate.HasValue)
+            query = query.Where(o => o.OrderDate <= toDate.Value);
+
+        if (source.HasValue)
+            query = query.Where(o => o.Source == source.Value);
+
         var totalCount = await query.CountAsync(cancellationToken);
         var orders = await query
             .OrderByDescending(o => o.OrderDate)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
+            .Select(o => new SalesOrderDto
+            {
+                Id = o.Id,
+                SAPDocEntry = o.SAPDocEntry,
+                SAPDocNum = o.SAPDocNum,
+                OrderNumber = o.OrderNumber,
+                OrderDate = o.OrderDate,
+                DeliveryDate = o.DeliveryDate,
+                CardCode = o.CardCode,
+                CardName = o.CardName,
+                CustomerRefNo = o.CustomerRefNo,
+                Status = o.Status,
+                Comments = o.Comments,
+                SalesPersonCode = o.SalesPersonCode,
+                SalesPersonName = o.SalesPersonName,
+                Currency = o.Currency,
+                ExchangeRate = o.ExchangeRate,
+                SubTotal = o.SubTotal,
+                TaxAmount = o.TaxAmount,
+                DiscountPercent = o.DiscountPercent,
+                DiscountAmount = o.DiscountAmount,
+                DocTotal = o.DocTotal,
+                ShipToAddress = o.ShipToAddress,
+                BillToAddress = o.BillToAddress,
+                WarehouseCode = o.WarehouseCode,
+                CreatedByUserId = o.CreatedByUserId,
+                CreatedByUserName = o.CreatedByUser != null ? o.CreatedByUser.Username : null,
+                ApprovedByUserId = o.ApprovedByUserId,
+                ApprovedByUserName = o.ApprovedByUser != null ? o.ApprovedByUser.Username : null,
+                ApprovedDate = o.ApprovedDate,
+                CreatedAt = o.CreatedAt,
+                UpdatedAt = o.UpdatedAt,
+                InvoiceId = o.InvoiceId,
+                IsSynced = o.IsSynced,
+                Source = o.Source,
+                MerchandiserNotes = o.MerchandiserNotes,
+                DeviceInfo = o.DeviceInfo,
+                RowVersion = o.RowVersion != null ? Convert.ToBase64String(o.RowVersion) : null,
+                Lines = o.Lines.Select(l => new SalesOrderLineDto
+                {
+                    Id = l.Id,
+                    LineNum = l.LineNum,
+                    ItemCode = l.ItemCode,
+                    ItemDescription = l.ItemDescription,
+                    Quantity = l.Quantity,
+                    QuantityFulfilled = l.QuantityFulfilled,
+                    UnitPrice = l.UnitPrice,
+                    DiscountPercent = l.DiscountPercent,
+                    TaxPercent = l.TaxPercent,
+                    LineTotal = l.LineTotal,
+                    WarehouseCode = l.WarehouseCode,
+                    UoMCode = l.UoMCode,
+                    BatchNumber = l.BatchNumber
+                }).ToList()
+            })
             .ToListAsync(cancellationToken);
 
         return new SalesOrderListResponseDto
@@ -160,7 +336,7 @@ public class SalesOrderService : ISalesOrderService
             PageSize = pageSize,
             TotalCount = totalCount,
             TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
-            Orders = orders.Select(MapToDto).ToList()
+            Orders = orders
         };
     }
 
@@ -187,7 +363,10 @@ public class SalesOrderService : ISalesOrderService
             BillToAddress = request.BillToAddress,
             WarehouseCode = request.WarehouseCode,
             CreatedByUserId = userId,
-            Status = SalesOrderStatus.Draft
+            Status = SalesOrderStatus.Draft,
+            Source = request.Source,
+            MerchandiserNotes = request.MerchandiserNotes,
+            DeviceInfo = request.DeviceInfo
         };
 
         decimal subTotal = 0;
@@ -229,6 +408,37 @@ public class SalesOrderService : ISalesOrderService
 
         _logger.LogInformation("Created sales order {OrderNumber} for customer {CardCode}", orderNumber, request.CardCode);
 
+        // Auto-post web orders to SAP immediately
+        if (request.Source == SalesOrderSource.Web || request.Source == null)
+        {
+            try
+            {
+                order.Status = SalesOrderStatus.Approved;
+                await _context.SaveChangesAsync(cancellationToken);
+
+                var sapOrder = await _sapClient.CreateSalesOrderAsync(order, cancellationToken);
+
+                order.SAPDocEntry = sapOrder.DocEntry;
+                order.SAPDocNum = sapOrder.DocNum;
+                order.IsSynced = true;
+                order.SyncError = null;
+                order.UpdatedAt = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync(cancellationToken);
+
+                _logger.LogInformation("Auto-posted sales order {OrderNumber} to SAP as DocEntry={DocEntry}, DocNum={DocNum}",
+                    order.OrderNumber, sapOrder.DocEntry, sapOrder.DocNum);
+            }
+            catch (Exception ex)
+            {
+                order.SyncError = ex.Message.Length > 500 ? ex.Message[..500] : ex.Message;
+                order.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync(cancellationToken);
+
+                _logger.LogWarning(ex, "Auto-post to SAP failed for order {OrderNumber}. Order saved locally as Approved.", order.OrderNumber);
+            }
+        }
+
         return MapToDto(order);
     }
 
@@ -244,6 +454,13 @@ public class SalesOrderService : ISalesOrderService
         if (order.Status != SalesOrderStatus.Draft)
             throw new InvalidOperationException("Only draft orders can be edited");
 
+        // Optimistic concurrency: set the original RowVersion so EF detects conflicts
+        if (!string.IsNullOrEmpty(request.RowVersion))
+        {
+            var originalRowVersion = Convert.FromBase64String(request.RowVersion);
+            _context.Entry(order).Property(o => o.RowVersion).OriginalValue = originalRowVersion;
+        }
+
         order.DeliveryDate = request.DeliveryDate.HasValue
             ? DateTime.SpecifyKind(request.DeliveryDate.Value, DateTimeKind.Utc)
             : null;
@@ -258,6 +475,7 @@ public class SalesOrderService : ISalesOrderService
         order.ShipToAddress = request.ShipToAddress;
         order.BillToAddress = request.BillToAddress;
         order.WarehouseCode = request.WarehouseCode;
+        order.MerchandiserNotes = request.MerchandiserNotes ?? order.MerchandiserNotes;
         order.UpdatedAt = DateTime.UtcNow;
 
         // Remove existing lines and add new ones
@@ -455,6 +673,43 @@ public class SalesOrderService : ISalesOrderService
         return MapToDto(order);
     }
 
+    private static (DateTime? FromDate, DateTime? ToDate) ResolveSapDateRange(string? cardCode, DateTime? fromDate, DateTime? toDate)
+    {
+        if (!string.IsNullOrWhiteSpace(cardCode) || fromDate.HasValue || toDate.HasValue)
+        {
+            return (fromDate, toDate);
+        }
+
+        var today = DateTime.UtcNow.Date;
+        var startOfMonth = new DateTime(today.Year, today.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        return (startOfMonth, today);
+    }
+
+    private static bool TryMapSapStatusFilter(SalesOrderStatus? status, out string? documentStatus, out string? cancelled)
+    {
+        documentStatus = null;
+        cancelled = null;
+
+        switch (status)
+        {
+            case null:
+                return true;
+            case SalesOrderStatus.Approved:
+                documentStatus = "bost_Open";
+                cancelled = "tNO";
+                return true;
+            case SalesOrderStatus.Fulfilled:
+                documentStatus = "bost_Close";
+                cancelled = "tNO";
+                return true;
+            case SalesOrderStatus.Cancelled:
+                cancelled = "tYES";
+                return true;
+            default:
+                return false;
+        }
+    }
+
     public async Task<string> GenerateOrderNumberAsync(CancellationToken cancellationToken = default)
     {
         var today = DateTime.UtcNow.ToString("yyyyMMdd");
@@ -474,6 +729,51 @@ public class SalesOrderService : ISalesOrderService
         }
 
         return $"{prefix}{sequence:D4}";
+    }
+
+    public async Task<SalesOrderDto> PostToSAPAsync(int id, Guid userId, CancellationToken cancellationToken = default)
+    {
+        var order = await _context.SalesOrders
+            .Include(o => o.Lines)
+            .Include(o => o.CreatedByUser)
+            .Include(o => o.ApprovedByUser)
+            .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
+
+        if (order == null)
+            throw new InvalidOperationException($"Sales order with ID {id} not found");
+
+        if (order.Status != SalesOrderStatus.Approved)
+            throw new InvalidOperationException("Only approved orders can be posted to SAP");
+
+        if (order.IsSynced)
+            throw new InvalidOperationException("This order has already been posted to SAP");
+
+        try
+        {
+            var sapOrder = await _sapClient.CreateSalesOrderAsync(order, cancellationToken);
+
+            order.SAPDocEntry = sapOrder.DocEntry;
+            order.SAPDocNum = sapOrder.DocNum;
+            order.IsSynced = true;
+            order.SyncError = null;
+            order.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation("Posted sales order {OrderNumber} to SAP as DocEntry={DocEntry}, DocNum={DocNum}",
+                order.OrderNumber, sapOrder.DocEntry, sapOrder.DocNum);
+
+            return MapToDto(order);
+        }
+        catch (Exception ex)
+        {
+            order.SyncError = ex.Message.Length > 500 ? ex.Message[..500] : ex.Message;
+            order.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync(cancellationToken);
+
+            _logger.LogError(ex, "Failed to post sales order {OrderNumber} to SAP", order.OrderNumber);
+            throw;
+        }
     }
 
     #region Mapping Methods
@@ -572,6 +872,10 @@ public class SalesOrderService : ISalesOrderService
             UpdatedAt = entity.UpdatedAt,
             InvoiceId = entity.InvoiceId,
             IsSynced = entity.IsSynced,
+            Source = entity.Source,
+            MerchandiserNotes = entity.MerchandiserNotes,
+            DeviceInfo = entity.DeviceInfo,
+            RowVersion = entity.RowVersion != null ? Convert.ToBase64String(entity.RowVersion) : null,
             Lines = entity.Lines.Select(l => new SalesOrderLineDto
             {
                 Id = l.Id,

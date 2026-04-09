@@ -6,6 +6,7 @@
 @inject IMasterDataCacheService CacheService
 @inject ILogger<InventoryTransfers> Logger
 @inject IAppSettingsProvider AppSettings
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Inventory Transfers - Shop Inventory</PageTitle>
@@ -982,7 +983,7 @@
                 }
                 else if (transfers?.Any() == true)
                 {
-                    <MudTable @ref="@_transfersTable" Items="@transfers" RowsPerPage="10" Hover="true" Dense="true"
+                    <MudTable @ref="@_transfersTable" Items="@transfers" RowsPerPage="@_pageSize" Hover="true" Dense="true"
                               Breakpoint="Breakpoint.Sm" LoadingProgressColor="Color.Info"
                               Filter="new Func<InventoryTransferDto, bool>(_transferQuickFilter)" Elevation="0"
                               Style="border: 1px solid #e5e7eb; border-radius: 10px;">
@@ -1021,9 +1022,21 @@
                             </MudTd>
                         </RowTemplate>
                         <PagerContent>
-                            <MudPagination SelectedChanged="TransferPageChanged"
-                                           Count="@((_transfersTable.GetFilteredItemsCount() + _transfersTable.RowsPerPage - 1) / _transfersTable.RowsPerPage)"
-                                           Class="pa-4" />
+                            <div class="pager-row">
+                                <div class="page-size-wrap">
+                                    <span>Show</span>
+                                    <select @bind="_pageSize">
+                                        <option value="10">10</option>
+                                        <option value="25">25</option>
+                                        <option value="50">50</option>
+                                        <option value="100">100</option>
+                                    </select>
+                                    <span>per page</span>
+                                </div>
+                                <MudPagination SelectedChanged="TransferPageChanged"
+                                               Count="@((_transfersTable.GetFilteredItemsCount() + _transfersTable.RowsPerPage - 1) / _transfersTable.RowsPerPage)"
+                                               Class="pa-4" />
+                            </div>
                         </PagerContent>
                     </MudTable>
                 }
@@ -1075,8 +1088,8 @@
                 }
                 else if (transferRequests?.Any() == true)
                 {
-                    <MudTable @ref="@_requestsTable" Items="@transferRequests" RowsPerPage="10" Hover="true" Dense="true"
-                              Breakpoint="Breakpoint.Sm" LoadingProgressColor="Color.Info"
+                    <MudTable @ref="@_requestsTable" Items="@transferRequests" RowsPerPage="@_pageSize" Hover="true"
+                              Dense="true" Breakpoint="Breakpoint.Sm" LoadingProgressColor="Color.Info"
                               Filter="new Func<InventoryTransferRequestDto, bool>(_requestQuickFilter)" Elevation="0"
                               Style="border: 1px solid #e5e7eb; border-radius: 10px;">
                         <ToolBarContent>
@@ -1126,9 +1139,21 @@
                             </MudTd>
                         </RowTemplate>
                         <PagerContent>
-                            <MudPagination SelectedChanged="RequestPageChanged"
-                                           Count="@((_requestsTable.GetFilteredItemsCount() + _requestsTable.RowsPerPage - 1) / _requestsTable.RowsPerPage)"
-                                           Class="pa-4" />
+                            <div class="pager-row">
+                                <div class="page-size-wrap">
+                                    <span>Show</span>
+                                    <select @bind="_pageSize">
+                                        <option value="10">10</option>
+                                        <option value="25">25</option>
+                                        <option value="50">50</option>
+                                        <option value="100">100</option>
+                                    </select>
+                                    <span>per page</span>
+                                </div>
+                                <MudPagination SelectedChanged="RequestPageChanged"
+                                               Count="@((_requestsTable.GetFilteredItemsCount() + _requestsTable.RowsPerPage - 1) / _requestsTable.RowsPerPage)"
+                                               Class="pa-4" />
+                            </div>
                         </PagerContent>
                     </MudTable>
                 }
@@ -1238,7 +1263,7 @@
                             <tr style="background:#f8fafc;">
                                 <td colspan="4" style="text-align:right;font-weight:600;color:#6b7280;">Total</td>
                                 <td style="text-align:right;font-weight:700;color:#2563eb;">@selectedTransfer.Lines.Sum(l =>
-                                                                l.Quantity)</td>
+                                                                                                    l.Quantity)</td>
                                     <td></td>
                                 </tr>
                             </tfoot>
@@ -1355,7 +1380,7 @@
                                 <tr style="background:#f8fafc;">
                                     <td colspan="4" style="text-align:right;font-weight:600;color:#6b7280;">Total</td>
                                     <td style="text-align:right;font-weight:700;color:#7c3aed;">@selectedTransferRequest.Lines.Sum(l
-                                                                    => l.Quantity)</td>
+                                                                                                            => l.Quantity)</td>
                                         <td></td>
                                     </tr>
                                 </tfoot>
@@ -1392,6 +1417,7 @@
     // ── MudTable refs ───────────────────────────────────
     private MudTable<InventoryTransferDto> _transfersTable = null!;
     private MudTable<InventoryTransferRequestDto> _requestsTable = null!;
+    private int _pageSize = 10;
 
     // ── Completed transfers ─────────────────────────────
     private List<InventoryTransferDto>? transfers;
@@ -1474,6 +1500,7 @@
             // Only load warehouses on first render (fast, cached).
             // Transfer requests are deferred until the user switches to that tab.
             await LoadWarehousesAsync();
+            await AuditService.LogAsync(AuditActions.ViewTransfers, "InventoryTransfer", null);
             StateHasChanged();
         }
     }
@@ -1543,11 +1570,11 @@
 
             if (fromDate.HasValue && toDate.HasValue)
             {
-                var response = await TransferService.GetTransfersByDateRangeAsync(warehouseCode, fromDate.Value, toDate.Value);
+                var response = await TransferService.GetTransfersByDateRangeAsync(warehouseCode, fromDate.Value, toDate.Value, currentPage, pageSize);
                 transfers = response?.Transfers;
-                totalCount = response?.Count ?? transfers?.Count ?? 0;
-                hasMore = false;
-                totalPages = 1;
+                totalCount = response?.TotalCount ?? response?.Count ?? transfers?.Count ?? 0;
+                hasMore = response?.HasMore ?? false;
+                totalPages = response?.TotalPages ?? (pageSize > 0 ? (int)Math.Ceiling((double)totalCount / pageSize) : 1);
             }
             else if (fromDate.HasValue)
             {
@@ -1564,8 +1591,8 @@
                 {
                     transfers = response.Transfers;
                     hasMore = response.HasMore;
-                    totalCount = response.Count;
-                    totalPages = pageSize > 0 ? (int)Math.Ceiling((double)totalCount / pageSize) : 1;
+                    totalCount = response.TotalCount > 0 ? response.TotalCount : response.Count;
+                    totalPages = response.TotalPages > 0 ? response.TotalPages : (pageSize > 0 ? (int)Math.Ceiling((double)totalCount / pageSize) : 1);
                 }
                 else
                 {

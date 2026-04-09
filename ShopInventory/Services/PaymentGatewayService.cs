@@ -4,6 +4,7 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -131,34 +132,57 @@ public class PaymentGatewayService : IPaymentGatewayService
     {
         try
         {
+            var normalizedProvider = NormalizeProvider(provider);
+            if (string.IsNullOrEmpty(normalizedProvider))
+            {
+                _logger.LogWarning("Callback received for unsupported provider {Provider}", provider);
+                return false;
+            }
+
+            if (!IsProviderEnabled(normalizedProvider))
+            {
+                _logger.LogWarning("Callback rejected because provider {Provider} is disabled", normalizedProvider);
+                return false;
+            }
+
             PaymentTransaction? transaction = null;
 
             // Find transaction by external ID or internal ID
             if (!string.IsNullOrEmpty(payload.ExternalTransactionId))
             {
                 transaction = await _context.PaymentTransactions
-                    .FirstOrDefaultAsync(t => t.ExternalTransactionId == payload.ExternalTransactionId);
+                    .FirstOrDefaultAsync(t => t.Provider == normalizedProvider && t.ExternalTransactionId == payload.ExternalTransactionId);
             }
-            else if (!string.IsNullOrEmpty(payload.TransactionId) && int.TryParse(payload.TransactionId, out var id))
+
+            if (transaction == null && !string.IsNullOrEmpty(payload.Reference))
             {
-                transaction = await _context.PaymentTransactions.FindAsync(id);
+                transaction = await _context.PaymentTransactions
+                    .FirstOrDefaultAsync(t => t.Provider == normalizedProvider && t.Reference == payload.Reference);
+            }
+
+            if (transaction == null && !string.IsNullOrEmpty(payload.TransactionId) && int.TryParse(payload.TransactionId, out var id))
+            {
+                transaction = await _context.PaymentTransactions
+                    .FirstOrDefaultAsync(t => t.Provider == normalizedProvider && t.Id == id);
             }
 
             if (transaction == null)
             {
-                _logger.LogWarning("Callback received for unknown transaction: {ExternalId}", payload.ExternalTransactionId);
+                _logger.LogWarning("Callback received for unknown transaction. Provider: {Provider}, ExternalId: {ExternalId}, Reference: {Reference}",
+                    normalizedProvider, payload.ExternalTransactionId, payload.Reference);
                 return false;
             }
 
-            // Verify signature if provided
-            if (!string.IsNullOrEmpty(payload.Signature))
+            if (!VerifyCallbackSignature(normalizedProvider, payload))
             {
-                var isValid = VerifyCallbackSignature(provider, payload);
-                if (!isValid)
-                {
-                    _logger.LogWarning("Invalid callback signature for transaction {Id}", transaction.Id);
-                    return false;
-                }
+                _logger.LogWarning("Invalid callback signature for transaction {Id}", transaction.Id);
+                return false;
+            }
+
+            if (!CallbackMatchesTransaction(transaction, payload))
+            {
+                _logger.LogWarning("Callback payload did not match transaction {Id}", transaction.Id);
+                return false;
             }
 
             // Update transaction status
@@ -569,8 +593,19 @@ public class PaymentGatewayService : IPaymentGatewayService
 
     private bool VerifyCallbackSignature(string provider, PaymentCallbackPayload payload)
     {
-        // TODO: Implement provider-specific signature verification
-        return true;
+        if (string.IsNullOrWhiteSpace(payload.Signature))
+        {
+            _logger.LogWarning("Missing callback signature for provider {Provider}", provider);
+            return false;
+        }
+
+        return provider switch
+        {
+            PaymentProviders.PayNow => VerifyPayNowCallbackHash(payload),
+            PaymentProviders.Innbucks => VerifyHmacCallback(payload, _settings.Innbucks.ApiSecret),
+            PaymentProviders.Ecocash => VerifyHmacCallback(payload, _settings.Ecocash.ApiSecret),
+            _ => false
+        };
     }
 
     private static string ComputeSha512Hash(string input)
@@ -578,6 +613,147 @@ public class PaymentGatewayService : IPaymentGatewayService
         using var sha512 = SHA512.Create();
         var bytes = sha512.ComputeHash(Encoding.UTF8.GetBytes(input));
         return Convert.ToHexString(bytes).ToUpperInvariant();
+    }
+
+    private static string ComputeHmacSha256(string input, string secret)
+    {
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        var bytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(bytes).ToUpperInvariant();
+    }
+
+    private static string NormalizeProvider(string provider)
+    {
+        return provider.Trim() switch
+        {
+            var value when value.Equals(PaymentProviders.PayNow, StringComparison.OrdinalIgnoreCase) => PaymentProviders.PayNow,
+            var value when value.Equals(PaymentProviders.Innbucks, StringComparison.OrdinalIgnoreCase) => PaymentProviders.Innbucks,
+            var value when value.Equals(PaymentProviders.Ecocash, StringComparison.OrdinalIgnoreCase) => PaymentProviders.Ecocash,
+            _ => string.Empty
+        };
+    }
+
+    private bool IsProviderEnabled(string provider)
+    {
+        return provider switch
+        {
+            PaymentProviders.PayNow => _settings.PayNow.IsEnabled,
+            PaymentProviders.Innbucks => _settings.Innbucks.IsEnabled,
+            PaymentProviders.Ecocash => _settings.Ecocash.IsEnabled,
+            _ => false
+        };
+    }
+
+    private bool VerifyPayNowCallbackHash(PaymentCallbackPayload payload)
+    {
+        if (payload.RawData == null || payload.RawData.Count == 0)
+        {
+            _logger.LogWarning("PayNow callback rejected because raw callback fields were not captured");
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_settings.PayNow.IntegrationKey))
+        {
+            _logger.LogWarning("PayNow callback rejected because IntegrationKey is not configured");
+            return false;
+        }
+
+        var builder = new StringBuilder();
+        foreach (var pair in payload.RawData)
+        {
+            if (pair.Key.Equals("hash", StringComparison.OrdinalIgnoreCase) || pair.Value == null)
+            {
+                continue;
+            }
+
+            builder.Append(pair.Value.ToString());
+        }
+
+        var expectedHash = ComputeSha512Hash(builder + _settings.PayNow.IntegrationKey);
+        return FixedTimeEquals(expectedHash, payload.Signature);
+    }
+
+    private bool VerifyHmacCallback(PaymentCallbackPayload payload, string secret)
+    {
+        if (string.IsNullOrWhiteSpace(secret))
+        {
+            _logger.LogWarning("Callback rejected because the provider secret is not configured");
+            return false;
+        }
+
+        var amount = payload.Amount.HasValue
+            ? payload.Amount.Value.ToString("0.00", CultureInfo.InvariantCulture)
+            : string.Empty;
+
+        var canonicalPayload = string.Join("|",
+            payload.TransactionId ?? string.Empty,
+            payload.ExternalTransactionId ?? string.Empty,
+            payload.Reference ?? string.Empty,
+            amount,
+            payload.Currency ?? string.Empty,
+            payload.Status ?? string.Empty,
+            payload.StatusMessage ?? string.Empty);
+
+        var expectedHash = ComputeHmacSha256(canonicalPayload, secret);
+        return FixedTimeEquals(expectedHash, payload.Signature);
+    }
+
+    private static bool FixedTimeEquals(string expected, string? provided)
+    {
+        if (string.IsNullOrWhiteSpace(provided))
+        {
+            return false;
+        }
+
+        var normalizedExpected = NormalizeSignature(expected);
+        var normalizedProvided = NormalizeSignature(provided);
+
+        if (normalizedExpected.Length != normalizedProvided.Length)
+        {
+            return false;
+        }
+
+        return CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(normalizedExpected),
+            Encoding.UTF8.GetBytes(normalizedProvided));
+    }
+
+    private static string NormalizeSignature(string signature)
+    {
+        var normalized = signature.Trim();
+        if (normalized.StartsWith("sha256=", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized[7..];
+        }
+
+        return normalized.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant();
+    }
+
+    private static bool CallbackMatchesTransaction(PaymentTransaction transaction, PaymentCallbackPayload payload)
+    {
+        if (!string.IsNullOrWhiteSpace(payload.Reference) && !string.Equals(transaction.Reference, payload.Reference, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(payload.ExternalTransactionId) &&
+            !string.Equals(transaction.ExternalTransactionId, payload.ExternalTransactionId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (payload.Amount.HasValue && payload.Amount.Value != transaction.Amount)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(payload.Currency) &&
+            !string.Equals(transaction.Currency, payload.Currency, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private static PaymentStatusResponse MapToStatusResponse(PaymentTransaction transaction)

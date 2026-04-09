@@ -5,8 +5,11 @@
 @inject IMasterDataCacheService CacheService
 @inject NavigationManager NavigationManager
 @inject IAppSettingsProvider AppSettings
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Services
 @inject ISnackbar Snackbar
 @inject ILogger<CreateCreditNote> Logger
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Create Credit Note - Shop Inventory</PageTitle>
@@ -512,203 +515,212 @@
                         {
                             <div class="cn-selected-customer">
                                 <div>
-                                    <span style="font-weight:700;color:#065f46;"><i class="bi bi-check-circle-fill" style="color:#059669;margin-right:.3rem;"></i>@selectedBusinessPartner.CardCode</span>
-                                    <span style="color:#6b7280;margin-left:.5rem;">@selectedBusinessPartner.CardName</span>
-                                </div>
-                                <button type="button" class="cn-bp-clear" @onclick="ClearSelectedBP"><i class="bi bi-x"></i></button>
-                            </div>
-                        }
+                                    <span style="font-weight:700;color:#065f46;"><i class="bi bi-check-circle-fill"
+                                                                                        style="color:#059669;margin-right:.3rem;"></i>@selectedBusinessPartner.CardCode</span>
+                                        <span style="color:#6b7280;margin-left:.5rem;">@selectedBusinessPartner.CardName</span>
+                                    </div>
+                                    <button type="button" class="cn-bp-clear" @onclick="ClearSelectedBP"><i
+                                        class="bi bi-x"></i></button>
+                                    </div>
+                                }
                         else
-                        {
-                            <div style="position:relative;">
-                                <input type="text" value="@bpSearchTerm" @oninput="OnBPSearchInput"
-                                       @onfocus="() => showBPDropdown = true" @onblur="OnBPSearchBlur"
-                                       placeholder="Search by code or name…" autocomplete="off" />
-                                @if (showBPDropdown && filteredBusinessPartners.Any())
                                 {
-                                    <div class="cn-dropdown" @onmousedown:preventDefault>
-                                        @foreach (var bp in filteredBusinessPartners.Take(15))
+                                    <div style="position:relative;">
+                                        <input type="text" value="@bpSearchTerm" @oninput="OnBPSearchInput"
+                                               @onfocus="() => showBPDropdown = true" @onblur="OnBPSearchBlur"
+                                               placeholder="Search by code or name…" autocomplete="off" />
+                                        @if (showBPDropdown && filteredBusinessPartners.Any())
                                         {
-                                            <div class="cn-dropdown-item" @onmousedown="() => SelectBusinessPartner(bp)">
-                                                <strong>@bp.CardCode</strong> — <span style="color:#6b7280;">@bp.CardName</span>
-                                            </div>
-                                        }
-                                        @if (filteredBusinessPartners.Count() > 15)
-                                        {
-                                            <div class="cn-dropdown-item" style="color:#9ca3af;text-align:center;font-size:.82rem;">
-                                                @filteredBusinessPartners.Count() total — type more to filter
+                                            <div class="cn-dropdown" @onmousedown:preventDefault>
+                                                @foreach (var bp in filteredBusinessPartners.Take(15))
+                                                {
+                                                    <div class="cn-dropdown-item" @onmousedown="() => SelectBusinessPartner(bp)">
+                                                        <strong>@bp.CardCode</strong> — <span style="color:#6b7280;">@bp.CardName</span>
+                                                    </div>
+                                                }
+                                                @if (filteredBusinessPartners.Count() > 15)
+                                                {
+                                                    <div class="cn-dropdown-item" style="color:#9ca3af;text-align:center;font-size:.82rem;">
+                                                        @filteredBusinessPartners.Count() total — type more to filter
+                                                    </div>
+                                                }
                                             </div>
                                         }
                                     </div>
                                 }
                             </div>
+                            <div class="form-field">
+                                <label>Type</label>
+                                <select @bind="newCreditNote.Type">
+                                    @foreach (CreditNoteType type in Enum.GetValues(typeof(CreditNoteType)))
+                                    {
+                                        <option value="@type">@type</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="form-field">
+                                <label>Currency</label>
+                                <select @bind="newCreditNote.Currency">
+                                    <option value="USD">USD</option>
+                                    <option value="ZIG">ZIG</option>
+                                </select>
+                            </div>
+                            <div class="form-field full">
+                                <label>Reason *</label>
+                                <textarea @bind="newCreditNote.Reason" rows="2" placeholder="Reason for credit note"></textarea>
+                            </div>
+                            <div class="form-field">
+                                <label>Options</label>
+                                <div class="checkbox-row">
+                                    <input type="checkbox" @bind="newCreditNote.RestockItems" id="restockCheck" />
+                                    <label for="restockCheck" style="text-transform:none;font-size:.88rem;color:#374151;">Restock
+                                        Items</label>
+                                    </div>
+                                </div>
+                                <div class="form-field">
+                                    <label>Restock Warehouse</label>
+                                    <select @bind="newCreditNote.RestockWarehouseCode">
+                                        <option value="">— Select —</option>
+                                        @foreach (var wh in cachedWarehouses)
+                                        {
+                                            <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Line Items -->
+                        <div class="form-card">
+                            <div class="line-items-section">
+                                <div class="line-items-header">
+                                    <label>Line Items *</label>
+                                    <button type="button" class="btn-add-line" @onclick="AddLine">
+                                        <i class="bi bi-plus-lg"></i> Add Item
+                                    </button>
+                                </div>
+                                @if (newCreditNote.Lines.Count > 0)
+                                {
+                                    <div style="overflow-x:auto;">
+                                        <table class="line-items-table">
+                                            <thead>
+                                                <tr>
+                                                    <th style="min-width:120px;">Item Code</th>
+                                                    <th style="min-width:150px;">Description</th>
+                                                    <th style="min-width:75px;">Qty</th>
+                                                    <th style="min-width:90px;">Unit Price</th>
+                                                    <th style="min-width:70px;">Disc %</th>
+                                                    <th style="min-width:70px;">Tax %</th>
+                                                    <th style="min-width:100px;">Warehouse</th>
+                                                    <th style="min-width:80px; text-align:right;">Line Total</th>
+                                                    <th style="width:36px;"></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @for (int i = 0; i < newCreditNote.Lines.Count; i++)
+                                                {
+                                                    var idx = i;
+                                                    var line = newCreditNote.Lines[idx];
+                                                    var lineState = GetCnLineState(idx);
+                                                    <tr>
+                                                        <td style="position:relative;">
+                                                            <input type="text" value="@line.ItemCode"
+                                                                   @oninput="(e) => OnCnItemCodeInput(idx, e.Value?.ToString())"
+                                                                   @onfocus="() => OnCnItemCodeFocus(idx)" @onblur="() => OnCnItemCodeBlur(idx)"
+                                                                   placeholder="Search item…" autocomplete="off" />
+                                                            @if (lineState.ShowDropdown && lineState.FilteredProducts.Any())
+                                                            {
+                                                                <div class="cn-dropdown" style="top:100%;left:0;min-width:260px;"
+                                                                     @onmousedown:preventDefault>
+                                                                    @foreach (var product in lineState.FilteredProducts.Take(10))
+                                                                    {
+                                                                        <div class="cn-dropdown-item"
+                                                                             @onmousedown="() => SelectCnProduct(idx, product)">
+                                                                            <div style="font-weight:600;font-size:.82rem;">@product.ItemCode</div>
+                                                                            <small style="color:#6b7280;">@TruncateText(product.ItemName, 30)</small>
+                                                                            <span
+                                                                            style="float:right;font-size:.75rem;font-weight:600;color:#2563eb;">@product.Price.ToString("N2")</span>
+                                                                        </div>
+                                                                    }
+                                                                    @if (lineState.FilteredProducts.Count > 10)
+                                                                    {
+                                                                        <div class="cn-dropdown-item"
+                                                                             style="color:#9ca3af;text-align:center;font-size:.8rem;">
+                                                                            +@(lineState.FilteredProducts.Count - 10) more…
+                                                                        </div>
+                                                                    }
+                                                                </div>
+                                                            }
+                                                        </td>
+                                                        <td>
+                                                            @if (!string.IsNullOrEmpty(line.ItemDescription))
+                                                            {
+                                                                <span style="font-size:.82rem;color:#374151;">@TruncateText(line.ItemDescription,
+                                                                                                            25)</span>
+                                                                }
+                                                else
+                                                                {
+                                                                    <span style="font-size:.8rem;color:#9ca3af;">—</span>
+                                                                }
+                                                            </td>
+                                                            <td><input type="number" @bind="line.Quantity" min="0.0001" step="1" /></td>
+                                                            <td><input type="number" @bind="line.UnitPrice" min="0" step="0.01" /></td>
+                                                            <td><input type="number" @bind="line.DiscountPercent" min="0" max="100" step="0.01" />
+                                                            </td>
+                                                            <td><input type="number" @bind="line.TaxPercent" min="0" max="100" step="0.01" /></td>
+                                                            <td>
+                                                                <select @bind="line.WarehouseCode">
+                                                                    <option value="">—</option>
+                                                                    @foreach (var wh in cachedWarehouses)
+                                                                    {
+                                                                        <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
+                                                                    }
+                                                                </select>
+                                                            </td>
+                                                            <td class="line-total-cell">@CalculateLineTotal(line).ToString("N2")</td>
+                                                            <td>
+                                                                <button type="button" class="btn-remove-line" @onclick="() => RemoveLine(idx)">
+                                                                    <i class="bi bi-trash"></i>
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div class="line-items-summary">
+                                            <span class="summary-label">Grand Total:</span>
+                                            <span class="summary-value">@CalculateGrandTotal().ToString("N2")</span>
+                                        </div>
+                                    }
+                    else
+                                    {
+                                        <div class="line-items-empty">
+                                            <i class="bi bi-box"></i> No items added yet. Click <strong>Add Item</strong> to begin.
+                                        </div>
+                                    }
+                                    @if (showLineItemsError)
+                                    {
+                                        <div class="validation-hint">At least one line item with a valid item code and quantity is required.
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+
+                            <!-- Footer Actions -->
+                            <div class="form-footer">
+                                <a href="/credit-notes" class="btn-secondary-action">Cancel</a>
+                                <MudButton Class="btn-create" OnClick="CreateCreditNoteAsync" Disabled="@isCreating">
+                                    @if (isCreating)
+                                    {
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                    }
+                                    <span>Create Credit Note</span>
+                                </MudButton>
+                            </div>
                         }
                     </div>
-                    <div class="form-field">
-                        <label>Type</label>
-                        <select @bind="newCreditNote.Type">
-                            @foreach (CreditNoteType type in Enum.GetValues(typeof(CreditNoteType)))
-                            {
-                                <option value="@type">@type</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="form-field">
-                        <label>Currency</label>
-                        <select @bind="newCreditNote.Currency">
-                            <option value="USD">USD</option>
-                            <option value="ZIG">ZIG</option>
-                        </select>
-                    </div>
-                    <div class="form-field full">
-                        <label>Reason *</label>
-                        <textarea @bind="newCreditNote.Reason" rows="2" placeholder="Reason for credit note"></textarea>
-                    </div>
-                    <div class="form-field">
-                        <label>Options</label>
-                        <div class="checkbox-row">
-                            <input type="checkbox" @bind="newCreditNote.RestockItems" id="restockCheck" />
-                            <label for="restockCheck" style="text-transform:none;font-size:.88rem;color:#374151;">Restock Items</label>
-                        </div>
-                    </div>
-                    <div class="form-field">
-                        <label>Restock Warehouse</label>
-                        <select @bind="newCreditNote.RestockWarehouseCode">
-                            <option value="">— Select —</option>
-                            @foreach (var wh in cachedWarehouses)
-                            {
-                                <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                            }
-                        </select>
-                    </div>
                 </div>
-            </div>
-
-            <!-- Line Items -->
-            <div class="form-card">
-                <div class="line-items-section">
-                    <div class="line-items-header">
-                        <label>Line Items *</label>
-                        <button type="button" class="btn-add-line" @onclick="AddLine">
-                            <i class="bi bi-plus-lg"></i> Add Item
-                        </button>
-                    </div>
-                    @if (newCreditNote.Lines.Count > 0)
-                    {
-                        <div style="overflow-x:auto;">
-                            <table class="line-items-table">
-                                <thead>
-                                    <tr>
-                                        <th style="min-width:120px;">Item Code</th>
-                                        <th style="min-width:150px;">Description</th>
-                                        <th style="min-width:75px;">Qty</th>
-                                        <th style="min-width:90px;">Unit Price</th>
-                                        <th style="min-width:70px;">Disc %</th>
-                                        <th style="min-width:70px;">Tax %</th>
-                                        <th style="min-width:100px;">Warehouse</th>
-                                        <th style="min-width:80px; text-align:right;">Line Total</th>
-                                        <th style="width:36px;"></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @for (int i = 0; i < newCreditNote.Lines.Count; i++)
-                                    {
-                                        var idx = i;
-                                        var line = newCreditNote.Lines[idx];
-                                        var lineState = GetCnLineState(idx);
-                                        <tr>
-                                            <td style="position:relative;">
-                                                <input type="text" value="@line.ItemCode"
-                                                       @oninput="(e) => OnCnItemCodeInput(idx, e.Value?.ToString())"
-                                                       @onfocus="() => OnCnItemCodeFocus(idx)"
-                                                       @onblur="() => OnCnItemCodeBlur(idx)"
-                                                       placeholder="Search item…" autocomplete="off" />
-                                                @if (lineState.ShowDropdown && lineState.FilteredProducts.Any())
-                                                {
-                                                    <div class="cn-dropdown" style="top:100%;left:0;min-width:260px;" @onmousedown:preventDefault>
-                                                        @foreach (var product in lineState.FilteredProducts.Take(10))
-                                                        {
-                                                            <div class="cn-dropdown-item" @onmousedown="() => SelectCnProduct(idx, product)">
-                                                                <div style="font-weight:600;font-size:.82rem;">@product.ItemCode</div>
-                                                                <small style="color:#6b7280;">@TruncateText(product.ItemName, 30)</small>
-                                                                <span style="float:right;font-size:.75rem;font-weight:600;color:#2563eb;">@product.Price.ToString("N2")</span>
-                                                            </div>
-                                                        }
-                                                        @if (lineState.FilteredProducts.Count > 10)
-                                                        {
-                                                            <div class="cn-dropdown-item" style="color:#9ca3af;text-align:center;font-size:.8rem;">
-                                                                +@(lineState.FilteredProducts.Count - 10) more…
-                                                            </div>
-                                                        }
-                                                    </div>
-                                                }
-                                            </td>
-                                            <td>
-                                                @if (!string.IsNullOrEmpty(line.ItemDescription))
-                                                {
-                                                    <span style="font-size:.82rem;color:#374151;">@TruncateText(line.ItemDescription, 25)</span>
-                                                }
-                                                else
-                                                {
-                                                    <span style="font-size:.8rem;color:#9ca3af;">—</span>
-                                                }
-                                            </td>
-                                            <td><input type="number" @bind="line.Quantity" min="0.0001" step="1" /></td>
-                                            <td><input type="number" @bind="line.UnitPrice" min="0" step="0.01" /></td>
-                                            <td><input type="number" @bind="line.DiscountPercent" min="0" max="100" step="0.01" /></td>
-                                            <td><input type="number" @bind="line.TaxPercent" min="0" max="100" step="0.01" /></td>
-                                            <td>
-                                                <select @bind="line.WarehouseCode">
-                                                    <option value="">—</option>
-                                                    @foreach (var wh in cachedWarehouses)
-                                                    {
-                                                        <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                                                    }
-                                                </select>
-                                            </td>
-                                            <td class="line-total-cell">@CalculateLineTotal(line).ToString("N2")</td>
-                                            <td>
-                                                <button type="button" class="btn-remove-line" @onclick="() => RemoveLine(idx)">
-                                                    <i class="bi bi-trash"></i>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                        <div class="line-items-summary">
-                            <span class="summary-label">Grand Total:</span>
-                            <span class="summary-value">@CalculateGrandTotal().ToString("N2")</span>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="line-items-empty">
-                            <i class="bi bi-box"></i> No items added yet. Click <strong>Add Item</strong> to begin.
-                        </div>
-                    }
-                    @if (showLineItemsError)
-                    {
-                        <div class="validation-hint">At least one line item with a valid item code and quantity is required.</div>
-                    }
-                </div>
-            </div>
-
-            <!-- Footer Actions -->
-            <div class="form-footer">
-                <a href="/credit-notes" class="btn-secondary-action">Cancel</a>
-                <MudButton Class="btn-create" OnClick="CreateCreditNoteAsync" Disabled="@isCreating">
-                    @if (isCreating)
-                    {
-                        <span class="spinner-border spinner-border-sm"></span>
-                    }
-                    <span>Create Credit Note</span>
-                </MudButton>
-            </div>
-        }
-    </div>
-</div>
 
 @code {
     private CreateCreditNoteRequest newCreditNote = new();
@@ -919,7 +931,8 @@
             return;
         }
 
-        if (newCreditNote.Lines.Count == 0 || !newCreditNote.Lines.Any(l => !string.IsNullOrWhiteSpace(l.ItemCode) && l.Quantity > 0))
+        if (newCreditNote.Lines.Count == 0 || !newCreditNote.Lines.Any(l => !string.IsNullOrWhiteSpace(l.ItemCode) && l.Quantity
+> 0))
         {
             showLineItemsError = true;
             return;
@@ -933,11 +946,13 @@
             if (result != null)
             {
                 Snackbar.Add($"Credit note {result.CreditNoteNumber} created successfully!", Severity.Success);
+                await AuditService.LogAsync(AuditActions.CreateCreditNote, "CreditNote", result.CreditNoteNumber);
                 NavigationManager.NavigateTo("/credit-notes");
             }
             else
             {
                 Snackbar.Add("Failed to create credit note.", Severity.Error);
+                await AuditService.LogAsync(AuditActions.CreateCreditNote, "CreditNote", newCreditNote.CardCode, null, false, "Failed to create credit note");
             }
         }
         catch (Exception ex)

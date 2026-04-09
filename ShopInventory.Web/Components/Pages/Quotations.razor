@@ -11,6 +11,7 @@
 @inject IDialogService DialogService
 @inject ILogger<Quotations> Logger
 @inject IAppSettingsProvider AppSettings
+@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Quotations - Shop Inventory</PageTitle>
@@ -277,7 +278,7 @@
                             style="font-size:.75rem;font-weight:500;color:#6b7280;margin-left:.5rem;">(@(dataSource == "sap" ? "SAP" : "Local"))</span></h6>
                     <span class="qt-count-badge">@totalCount total</span>
                 </div>
-                <MudTable @ref="@_table" Items="@quotations" RowsPerPage="10" Hover="true" Striped="true" Dense="true"
+                <MudTable @ref="@_table" Items="@quotations" RowsPerPage="@_pageSize" Hover="true" Striped="true" Dense="true"
                           Breakpoint="Breakpoint.Sm" Loading="@isLoading" LoadingProgressColor="Color.Warning" T="QuotationDto"
                           Elevation="0" Style="background:transparent;">
                     <HeaderContent>
@@ -351,9 +352,21 @@
                         </MudTd>
                     </RowTemplate>
                     <PagerContent>
-                        <MudPagination SelectedChanged="PageChanged"
-                                       Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
-                                       Class="pa-4" />
+                        <div class="pager-row">
+                            <div class="page-size-wrap">
+                                <span>Show</span>
+                                <select @bind="_pageSize">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                                <span>per page</span>
+                            </div>
+                            <MudPagination SelectedChanged="PageChanged"
+                                           Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
+                                           Class="pa-4" />
+                        </div>
                     </PagerContent>
                 </MudTable>
             </div>
@@ -692,6 +705,7 @@
 
 @code {
     private MudTable<QuotationDto>? _table;
+    private int _pageSize = 10;
     private List<QuotationDto>? quotations;
     private QuotationDto? selectedQuotation;
     private bool isLoading = true;
@@ -744,6 +758,7 @@
     {
         pageSize = AppSettings.PageSize;
         await LoadQuotations();
+        await AuditService.LogAsync(AuditActions.ViewQuotations, "Quotation", null);
     }
 
     private void PageChanged(int i)
@@ -843,6 +858,7 @@
         if (result != null)
         {
             Snackbar.Add("Quotation approved successfully!", Severity.Success);
+            await AuditService.LogAsync(AuditActions.ApproveQuotation, "Quotation", id.ToString());
             await LoadQuotations();
         }
         else
@@ -870,6 +886,7 @@
             if (salesOrder != null)
             {
                 Snackbar.Add($"Quotation converted to Sales Order {salesOrder.OrderNumber} successfully!", Severity.Success);
+                await AuditService.LogAsync(AuditActions.ConvertQuotationToOrder, "Quotation", quotation.Id.ToString(), $"Converted to Sales Order {salesOrder.OrderNumber}", true);
                 selectedQuotation = null;
                 await LoadQuotations();
             }
@@ -903,6 +920,7 @@
         if (success)
         {
             Snackbar.Add("Quotation deleted successfully.", Severity.Success);
+            await AuditService.LogAsync(AuditActions.DeleteQuotation, "Quotation", id.ToString());
             await LoadQuotations();
         }
         else

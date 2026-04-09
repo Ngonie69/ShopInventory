@@ -196,7 +196,7 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
         _cachedToken = loginResponse.AccessToken;
         _cachedUserInfo = loginResponse.User;
         _cachedExpiresAt = loginResponse.ExpiresAt;
-        _logger.LogDebug("In-memory cache updated. Token length: {TokenLength}, ExpiresAt: {ExpiresAt}", loginResponse.AccessToken?.Length ?? 0, loginResponse.ExpiresAt);
+        _logger.LogDebug("In-memory auth cache updated. ExpiresAt: {ExpiresAt}", loginResponse.ExpiresAt);
 
         try
         {

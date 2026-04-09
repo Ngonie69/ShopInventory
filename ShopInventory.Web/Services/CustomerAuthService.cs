@@ -42,6 +42,9 @@ public class CustomerAuthService : ICustomerAuthService
     private readonly IEmailService _emailService;
     private readonly ILogger<CustomerAuthService> _logger;
     private readonly IConfiguration _configuration;
+    private readonly byte[] _jwtSigningKey;
+    private readonly string _jwtIssuer;
+    private readonly string _jwtAudience;
 
     // Security constants following OWASP guidelines
     private const int MaxFailedAttempts = 5;
@@ -67,6 +70,9 @@ public class CustomerAuthService : ICustomerAuthService
         _emailService = emailService;
         _logger = logger;
         _configuration = configuration;
+        _jwtSigningKey = Encoding.UTF8.GetBytes(GetRequiredCustomerPortalJwtSecret(configuration));
+        _jwtIssuer = configuration["CustomerPortal:JwtIssuer"] ?? "ShopInventory.CustomerPortal";
+        _jwtAudience = configuration["CustomerPortal:JwtAudience"] ?? "ShopInventory.Customers";
     }
 
     /// <summary>
@@ -144,12 +150,8 @@ public class CustomerAuthService : ICustomerAuthService
             }
 
             // Verify password using BCrypt
-            _logger.LogInformation("Attempting password verification. Hash starts with: {HashStart}, length: {HashLen}",
-                user.PasswordHash?.Substring(0, Math.Min(10, user.PasswordHash?.Length ?? 0)),
-                user.PasswordHash?.Length);
-
+            _logger.LogDebug("Attempting password verification for customer {CardCode}", user.CardCode);
             var passwordValid = VerifyPassword(password, user.PasswordHash);
-            _logger.LogInformation("Password verification result: {Result}", passwordValid);
 
             if (!passwordValid)
             {
@@ -707,18 +709,15 @@ public class CustomerAuthService : ICustomerAuthService
     {
         try
         {
-            var key = Encoding.UTF8.GetBytes(_configuration["CustomerPortal:JwtSecret"] ??
-                _configuration["Jwt:Secret"] ?? "DefaultSecretKey123456789012345678901234567890");
-
             var tokenHandler = new JwtSecurityTokenHandler();
             var validationParameters = new TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(key),
+                IssuerSigningKey = new SymmetricSecurityKey(_jwtSigningKey),
                 ValidateIssuer = true,
-                ValidIssuer = _configuration["CustomerPortal:JwtIssuer"] ?? "ShopInventory.CustomerPortal",
+                ValidIssuer = _jwtIssuer,
                 ValidateAudience = true,
-                ValidAudience = _configuration["CustomerPortal:JwtAudience"] ?? "ShopInventory.Customers",
+                ValidAudience = _jwtAudience,
                 ValidateLifetime = true,
                 ClockSkew = TimeSpan.Zero
             };
@@ -835,9 +834,6 @@ public class CustomerAuthService : ICustomerAuthService
 
     private string GenerateJwtToken(CustomerPortalUser user)
     {
-        var key = Encoding.UTF8.GetBytes(_configuration["CustomerPortal:JwtSecret"] ??
-            _configuration["Jwt:Secret"] ?? "DefaultSecretKey123456789012345678901234567890");
-
         var tokenHandler = new JwtSecurityTokenHandler();
         var tokenDescriptor = new SecurityTokenDescriptor
         {
@@ -852,15 +848,29 @@ public class CustomerAuthService : ICustomerAuthService
                 new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString())
             }),
             Expires = DateTime.UtcNow.AddMinutes(TokenExpirationMinutes),
-            Issuer = _configuration["CustomerPortal:JwtIssuer"] ?? "ShopInventory.CustomerPortal",
-            Audience = _configuration["CustomerPortal:JwtAudience"] ?? "ShopInventory.Customers",
+            Issuer = _jwtIssuer,
+            Audience = _jwtAudience,
             SigningCredentials = new SigningCredentials(
-                new SymmetricSecurityKey(key),
+                new SymmetricSecurityKey(_jwtSigningKey),
                 SecurityAlgorithms.HmacSha256Signature)
         };
 
         var token = tokenHandler.CreateToken(tokenDescriptor);
         return tokenHandler.WriteToken(token);
+    }
+
+    private static string GetRequiredCustomerPortalJwtSecret(IConfiguration configuration)
+    {
+        var secret = configuration["CustomerPortal:JwtSecret"] ?? configuration["Jwt:SecretKey"];
+        if (string.IsNullOrWhiteSpace(secret) ||
+            secret.StartsWith("${", StringComparison.Ordinal) ||
+            secret.Length < 32)
+        {
+            throw new InvalidOperationException(
+                "Customer portal JWT secret is missing or invalid. Configure CustomerPortal:JwtSecret with a secret of at least 32 characters.");
+        }
+
+        return secret;
     }
 
     private static string GenerateSecureToken()

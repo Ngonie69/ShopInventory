@@ -55,9 +55,17 @@ Edit `.env` with your production values:
 | `SAP_COMPANY_DB` | SAP company database name | ? |
 | `SAP_USERNAME` | SAP username | ? |
 | `SAP_PASSWORD` | SAP password | ? |
+| `SAP_CERT_THUMBPRINT` | SAP TLS cert thumbprint for private/self-signed certs | Optional |
+| `SAP_WEBHOOK_SECRET` | Shared secret for SAP webhook validation | Required if webhooks are enabled |
 | `WEB_APP_URL` | Public URL of web app | ? |
+| `CUSTOMER_PORTAL_JWT_SECRET` | Customer portal JWT signing key (32+ chars) | ? |
 | `SMTP_*` | Email configuration | Optional |
+| `PAYNOW_*` | PayNow credentials for hosted payments and callback verification | Optional |
+| `INNBUCKS_*` | InnBucks credentials for payments and callback verification | Optional |
+| `ECOCASH_*` | EcoCash credentials for payments and callback verification | Optional |
 | `OPENAI_API_KEY` | For AI features | Optional |
+
+`CUSTOMER_PORTAL_JWT_SECRET` is now required in production. If your SAP Service Layer uses a private or self-signed certificate, set `SAP_CERT_THUMBPRINT` to the trusted server certificate thumbprint with spaces removed.
 
 ### 3. Build and Deploy
 
@@ -250,7 +258,9 @@ Before going live, ensure:
 - [ ] Strong passwords in `.env`
 - [ ] JWT secret is 64+ characters
 - [ ] API key is unique and secure
+- [ ] Customer portal JWT secret is configured and at least 32 characters long
 - [ ] SSL/HTTPS is configured
+- [ ] SAP certificate thumbprint is configured if SAP TLS is not publicly trusted
 - [ ] Database is not exposed externally (remove port mapping in production)
 - [ ] Firewall rules are configured
 - [ ] `Security.AllowedOrigins` contains only your domain
@@ -268,6 +278,7 @@ docker-compose logs shopinventory-api
 # Common issues:
 # - Database not ready: wait for postgres health check
 # - Missing environment variables: check .env file
+# - Customer portal secret missing: set CUSTOMER_PORTAL_JWT_SECRET
 ```
 
 ### API returns 500 errors
@@ -277,7 +288,7 @@ docker-compose logs shopinventory-api
 docker-compose logs shopinventory-api | grep -i error
 
 # Common issues:
-# - SAP connection failed: verify SAP_* variables
+# - SAP connection failed: verify SAP_* variables and SAP_CERT_THUMBPRINT when using a private cert
 # - Database connection: verify POSTGRES_* variables
 ```
 

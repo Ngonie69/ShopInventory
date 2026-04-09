@@ -60,6 +60,9 @@ public class Invoice
     [JsonPropertyName("ContactPersonCode")]
     public int? ContactPersonCode { get; set; }
 
+    [JsonPropertyName("AttachmentEntry")]
+    public int? AttachmentEntry { get; set; }
+
     [JsonPropertyName("U_Van_saleorder")]
     public string? U_Van_saleorder { get; set; }
 

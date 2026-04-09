@@ -73,7 +73,8 @@ public class UserController : ControllerBase
                 LockoutEnd = u.LockoutEnd,
                 CreatedAt = u.CreatedAt,
                 LastLoginAt = u.LastLoginAt,
-                AssignedWarehouseCodes = u.GetWarehouseCodes()
+                AssignedWarehouseCodes = u.GetWarehouseCodes(),
+                AssignedSection = u.AssignedSection
             })
             .ToListAsync(cancellationToken);
 
@@ -115,7 +116,9 @@ public class UserController : ControllerBase
             LockoutEnd = user.LockoutEnd,
             CreatedAt = user.CreatedAt,
             LastLoginAt = user.LastLoginAt,
-            AssignedWarehouseCodes = user.GetWarehouseCodes()
+            AssignedWarehouseCodes = user.GetWarehouseCodes(),
+            AssignedCustomerCodes = user.GetCustomerCodes(),
+            AssignedSection = user.AssignedSection
         });
     }
 
@@ -146,7 +149,7 @@ public class UserController : ControllerBase
         }
 
         // Validate role
-        var validRoles = new[] { "Admin", "Cashier", "StockController", "DepotController", "PodOperator" };
+        var validRoles = new[] { "Admin", "Cashier", "StockController", "DepotController", "PodOperator", "Driver", "Merchandiser", "SalesRep" };
         if (!validRoles.Contains(request.Role))
         {
             return BadRequest(new ErrorResponseDto { Message = $"Invalid role. Valid roles are: {string.Join(", ", validRoles)}" });
@@ -156,6 +159,18 @@ public class UserController : ControllerBase
         if ((request.Role == "StockController" || request.Role == "DepotController") && (request.AssignedWarehouseCodes == null || request.AssignedWarehouseCodes.Count == 0))
         {
             return BadRequest(new ErrorResponseDto { Message = $"At least one assigned warehouse code is required for {request.Role} role" });
+        }
+
+        // Validate customer assignment for Merchandiser
+        if (request.Role == "Merchandiser" && (request.AssignedCustomerCodes == null || request.AssignedCustomerCodes.Count == 0))
+        {
+            return BadRequest(new ErrorResponseDto { Message = "At least one assigned customer code is required for Merchandiser role" });
+        }
+
+        // Validate section assignment for Driver
+        if (request.Role == "Driver" && string.IsNullOrWhiteSpace(request.AssignedSection))
+        {
+            return BadRequest(new ErrorResponseDto { Message = "An assigned section is required for Driver role" });
         }
 
         var user = new User
@@ -173,6 +188,12 @@ public class UserController : ControllerBase
 
         if (request.Role == "StockController" || request.Role == "DepotController")
             user.SetWarehouseCodes(request.AssignedWarehouseCodes);
+
+        if (request.Role == "Merchandiser")
+            user.SetCustomerCodes(request.AssignedCustomerCodes);
+
+        if (request.Role == "Driver")
+            user.AssignedSection = request.AssignedSection;
 
         _context.Users.Add(user);
         await _context.SaveChangesAsync(cancellationToken);
@@ -192,7 +213,9 @@ public class UserController : ControllerBase
                 LastName = user.LastName,
                 IsActive = user.IsActive,
                 CreatedAt = user.CreatedAt,
-                AssignedWarehouseCodes = user.GetWarehouseCodes()
+                AssignedWarehouseCodes = user.GetWarehouseCodes(),
+                AssignedCustomerCodes = user.GetCustomerCodes(),
+                AssignedSection = user.AssignedSection
             }
         });
     }
@@ -226,7 +249,7 @@ public class UserController : ControllerBase
         // Validate role
         if (!string.IsNullOrEmpty(request.Role))
         {
-            var validRoles = new[] { "Admin", "Cashier", "StockController", "DepotController", "PodOperator" };
+            var validRoles = new[] { "Admin", "Cashier", "StockController", "DepotController", "PodOperator", "Driver", "Merchandiser", "SalesRep" };
             if (!validRoles.Contains(request.Role))
             {
                 return BadRequest(new ErrorResponseDto { Message = $"Invalid role. Valid roles are: {string.Join(", ", validRoles)}" });
@@ -246,10 +269,38 @@ public class UserController : ControllerBase
             else
                 user.SetWarehouseCodes(null);
         }
+
+        // Update assigned customers
+        if (request.AssignedCustomerCodes != null)
+        {
+            if (user.Role == "Merchandiser")
+                user.SetCustomerCodes(request.AssignedCustomerCodes);
+            else
+                user.SetCustomerCodes(null);
+        }
+
+        // Update assigned section
+        if (user.Role == "Driver")
+            user.AssignedSection = request.AssignedSection;
+        else
+            user.AssignedSection = null;
+
         // Validate warehouses are set for warehouse-dependent roles
         if ((user.Role == "StockController" || user.Role == "DepotController") && user.GetWarehouseCodes().Count == 0)
         {
             return BadRequest(new ErrorResponseDto { Message = $"At least one assigned warehouse code is required for {user.Role} role" });
+        }
+
+        // Validate customers are set for Merchandiser
+        if (user.Role == "Merchandiser" && user.GetCustomerCodes().Count == 0)
+        {
+            return BadRequest(new ErrorResponseDto { Message = "At least one assigned customer code is required for Merchandiser role" });
+        }
+
+        // Validate section is set for Driver
+        if (user.Role == "Driver" && string.IsNullOrWhiteSpace(user.AssignedSection))
+        {
+            return BadRequest(new ErrorResponseDto { Message = "An assigned section is required for Driver role" });
         }
 
         user.UpdatedAt = DateTime.UtcNow;
@@ -272,7 +323,9 @@ public class UserController : ControllerBase
             LockoutEnd = user.LockoutEnd,
             CreatedAt = user.CreatedAt,
             LastLoginAt = user.LastLoginAt,
-            AssignedWarehouseCodes = user.GetWarehouseCodes()
+            AssignedWarehouseCodes = user.GetWarehouseCodes(),
+            AssignedCustomerCodes = user.GetCustomerCodes(),
+            AssignedSection = user.AssignedSection
         });
     }
 

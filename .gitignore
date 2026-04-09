@@ -70,6 +70,16 @@ ehthumbs.db
 Desktop.ini
 
 # Application-specific
+uploads/
+
+# Published output
+publish-api/
+publish-api-new/
+publish-web/
+publish-web-new/
+
+# Temp check project
+_temp_check/
 appsettings.*.json
 !appsettings.json
 !appsettings.Development.json
