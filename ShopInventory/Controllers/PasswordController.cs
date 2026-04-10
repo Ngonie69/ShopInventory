@@ -97,6 +97,13 @@ public class PasswordController : ControllerBase
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
     {
         var userId = GetCurrentUserId();
+
+        // If no user ID from JWT, try resolving by username (API key auth from web app)
+        if (userId == null && !string.IsNullOrWhiteSpace(request.Username))
+        {
+            userId = await _passwordResetService.GetUserIdByUsernameAsync(request.Username);
+        }
+
         if (userId == null)
         {
             return Unauthorized();

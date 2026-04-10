@@ -1564,7 +1564,8 @@
         successMessage = null;
         try
         {
-            var (success, message) = await TwoFactorService.ChangePasswordAsync(currentPassword, newPassword, confirmPassword);
+            var (success, message) = await TwoFactorService.ChangePasswordAsync(credUsername, currentPassword, newPassword,
+confirmPassword);
             if (success)
             {
                 successMessage = "Password changed successfully!";

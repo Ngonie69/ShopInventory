@@ -32,6 +32,11 @@ public interface IPasswordResetService
     Task<ServiceResult> ChangePasswordAsync(Guid userId, string currentPassword, string newPassword);
 
     /// <summary>
+    /// Get user ID by username
+    /// </summary>
+    Task<Guid?> GetUserIdByUsernameAsync(string username);
+
+    /// <summary>
     /// Update login credentials (username/email) for logged-in user
     /// </summary>
     Task<ServiceResult<UpdateCredentialsResponse>> UpdateCredentialsAsync(Guid userId, UpdateCredentialsRequest request);
@@ -263,6 +268,13 @@ public class PasswordResetService : IPasswordResetService
         _logger.LogInformation("Password changed for user {UserId}", userId);
 
         return ServiceResult.Success("Password changed successfully");
+    }
+
+    public async Task<Guid?> GetUserIdByUsernameAsync(string username)
+    {
+        var user = await _context.Users.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Username == username);
+        return user?.Id;
     }
 
     public async Task<UpdateCredentialsResponse?> GetCredentialsAsync(Guid userId)

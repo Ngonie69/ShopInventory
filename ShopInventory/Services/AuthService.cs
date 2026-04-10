@@ -196,7 +196,8 @@ public class AuthService : IAuthService
                 Email = user.Email,
                 AssignedWarehouseCode = user.AssignedWarehouseCode,
                 AssignedWarehouseCodes = user.GetWarehouseCodes(),
-                AllowedPaymentMethods = user.GetAllowedPaymentMethods()
+                AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
+                AssignedCustomerCodes = user.GetCustomerCodes()
             }
         };
     }
@@ -270,7 +271,8 @@ public class AuthService : IAuthService
                 Email = user.Email,
                 AssignedWarehouseCode = user.AssignedWarehouseCode,
                 AssignedWarehouseCodes = user.GetWarehouseCodes(),
-                AllowedPaymentMethods = user.GetAllowedPaymentMethods()
+                AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
+                AssignedCustomerCodes = user.GetCustomerCodes()
             }
         };
     }

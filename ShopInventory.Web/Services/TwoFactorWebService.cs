@@ -36,7 +36,7 @@ public interface ITwoFactorWebService
     /// <summary>
     /// Change password for current user
     /// </summary>
-    Task<(bool Success, string Message)> ChangePasswordAsync(string currentPassword, string newPassword, string confirmPassword);
+    Task<(bool Success, string Message)> ChangePasswordAsync(string username, string currentPassword, string newPassword, string confirmPassword);
 
     /// <summary>
     /// Get recent login activity for the current user
@@ -199,11 +199,11 @@ public class TwoFactorWebService : ITwoFactorWebService
         }
     }
 
-    public async Task<(bool Success, string Message)> ChangePasswordAsync(string currentPassword, string newPassword, string confirmPassword)
+    public async Task<(bool Success, string Message)> ChangePasswordAsync(string username, string currentPassword, string newPassword, string confirmPassword)
     {
         try
         {
-            var request = new { CurrentPassword = currentPassword, NewPassword = newPassword, ConfirmPassword = confirmPassword };
+            var request = new { Username = username, CurrentPassword = currentPassword, NewPassword = newPassword, ConfirmPassword = confirmPassword };
             var response = await _httpClient.PostAsJsonAsync("api/password/change", request);
 
             if (response.IsSuccessStatusCode)

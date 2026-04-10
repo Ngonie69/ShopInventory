@@ -58,6 +58,7 @@ public class UserInfo
     public string? AssignedWarehouseCode { get; set; }
     public List<string> AssignedWarehouseCodes { get; set; } = new();
     public List<string> AllowedPaymentMethods { get; set; } = new();
+    public List<string> AssignedCustomerCodes { get; set; } = new();
 }
 
 /// <summary>

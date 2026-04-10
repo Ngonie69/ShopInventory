@@ -590,8 +590,8 @@ public class SalesOrderService : ISalesOrderService
         if (order == null)
             throw new InvalidOperationException($"Sales order with ID {id} not found");
 
-        if (order.Status != SalesOrderStatus.Pending)
-            throw new InvalidOperationException("Only pending orders can be approved");
+        if (order.Status != SalesOrderStatus.Draft && order.Status != SalesOrderStatus.Pending)
+            throw new InvalidOperationException("Only draft or pending orders can be approved");
 
         order.Status = SalesOrderStatus.Approved;
         order.ApprovedByUserId = userId;

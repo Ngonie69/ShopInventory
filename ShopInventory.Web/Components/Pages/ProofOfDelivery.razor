@@ -209,12 +209,13 @@
                                     <th>Existing PODs</th>
                                     <th>Size</th>
                                     <th>Status</th>
+                                    <th style="width: 40px;"></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach (var (map, idx) in bulkMappings.Select((m, i) => (m, i)))
                                 {
-                                    <tr class="pod-row @(map.Status == BulkFileStatus.Error ? "table-danger" : map.Status == BulkFileStatus.Uploaded ? "table-success" : "")">
+                                    <tr class="pod-row @(map.Status == BulkFileStatus.Error ? "table-danger" : map.Status == BulkFileStatus.Uploaded ? "table-success" : map.Status == BulkFileStatus.Skipped ? "table-secondary" : "")">
                                         <td>@(idx + 1)</td>
                                         <td>
                                             <div class="pod-file-name">@map.FileName</div>
@@ -259,6 +260,9 @@
                                                 case BulkFileStatus.ValidWithWarning:
                                                     <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle me-1"></i>Ready (has POD)</span>
                                                     break;
+                                                case BulkFileStatus.Skipped:
+                                                    <span class="badge bg-secondary" title="@map.ErrorMessage"><i class="bi bi-skip-forward me-1"></i>Skipped</span>
+                                                    break;
                                                 case BulkFileStatus.Uploading:
                                                     <span class="badge bg-primary"><MudProgressCircular Size="Size.Small" Indeterminate="true" Style="width:14px;height:14px;" Class="me-1" />Uploading</span>
                                                     break;
@@ -268,6 +272,14 @@
                                                 case BulkFileStatus.Error:
                                                     <span class="badge bg-danger" title="@map.ErrorMessage"><i class="bi bi-x-circle me-1"></i>@map.ErrorMessage</span>
                                                     break;
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (map.Status != BulkFileStatus.Uploading && map.Status != BulkFileStatus.Uploaded && !isBulkUploading)
+                                            {
+                                                <button class="btn btn-sm btn-outline-danger border-0 p-1" title="Remove" @onclick="() => RemoveBulkMapping(map)">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
                                             }
                                         </td>
                                     </tr>
@@ -280,6 +292,10 @@
                         <div>
                             <span class="text-muted small">
                                 @bulkMappings.Count(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning) of @bulkMappings.Count ready to upload
+                                @if (bulkMappings.Any(m => m.Status == BulkFileStatus.Skipped))
+                                {
+                                    <text> &mdash; <span class="text-secondary">@bulkMappings.Count(m => m.Status == BulkFileStatus.Skipped) skipped</span></text>
+                                }
                                 @if (bulkMappings.Any(m => m.Status == BulkFileStatus.Error))
                                 {
                                     <text> &mdash; <span class="text-danger">@bulkMappings.Count(m => m.Status == BulkFileStatus.Error) with errors</span></text>
@@ -287,6 +303,21 @@
                             </span>
                         </div>
                         <div class="d-flex gap-2">
+                            @if (bulkMappings.Any(m => m.Status == BulkFileStatus.Error))
+                            {
+                                <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="RetryBulkValidation"
+                                           Disabled="@(isBulkValidating || isBulkUploading)">
+                                    @if (isBulkValidating)
+                                    {
+                                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                        <text>Retrying @bulkValidationProgress</text>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-arrow-clockwise me-1"></i><text>Retry @bulkMappings.Count(m => m.Status == BulkFileStatus.Error) Errors</text>
+                                    }
+                                </MudButton>
+                            }
                             <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ClearBulkUpload"
                                        Disabled="@isBulkUploading">
                                 <i class="bi bi-x-circle me-1"></i> Clear
@@ -1301,7 +1332,7 @@
 
     private enum UploadMode { Single, Bulk }
 
-    private enum BulkFileStatus { Pending, Valid, ValidWithWarning, Uploading, Uploaded, Error }
+    private enum BulkFileStatus { Pending, Valid, ValidWithWarning, Uploading, Uploaded, Skipped, Error }
 
     private class BulkFileMapping
     {
@@ -1646,7 +1677,7 @@
     // ── Bulk Upload Methods ─────────────────────────────────
     private void OnBulkFilesSelected(InputFileChangeEventArgs e)
     {
-        bulkFiles = e.GetMultipleFiles(500).ToList();
+        bulkFiles = e.GetMultipleFiles(1500).ToList();
         bulkMessage = null;
         bulkMappings = bulkFiles.Select(f => new BulkFileMapping
         {
@@ -1684,6 +1715,7 @@
                 .ToList();
 
             var invoiceCache = new System.Collections.Concurrent.ConcurrentDictionary<int, InvoiceDto?>();
+            var podCountCache = new System.Collections.Concurrent.ConcurrentDictionary<int, int>();
 
             // Validate in parallel (20 concurrent SAP lookups — these are lightweight GETs)
             var validationSemaphore = new SemaphoreSlim(20, 20);
@@ -1700,6 +1732,20 @@
                     {
                         var inv = await InvoiceService.GetInvoiceByDocNumAsync(docNum);
                         invoiceCache[docNum] = inv;
+
+                        // Check existing PODs for this invoice
+                        if (inv != null)
+                        {
+                            try
+                            {
+                                var existing = await PodService.GetInvoicePodsAsync(inv.DocEntry);
+                                podCountCache[docNum] = existing?.TotalCount ?? 0;
+                            }
+                            catch
+                            {
+                                podCountCache[docNum] = 0;
+                            }
+                        }
                     }
                     catch
                     {
@@ -1750,7 +1796,16 @@
                     {
                         map.DocEntry = invoice.DocEntry;
                         map.CardName = invoice.CardName;
-                        map.Status = BulkFileStatus.Valid;
+                        map.ExistingPodCount = podCountCache.GetValueOrDefault(map.DocNum.Value, 0);
+                        if (map.ExistingPodCount > 0)
+                        {
+                            map.Status = BulkFileStatus.Skipped;
+                            map.ErrorMessage = $"Already uploaded ({map.ExistingPodCount} existing POD{(map.ExistingPodCount > 1 ? "s" : "")})";
+                        }
+                        else
+                        {
+                            map.Status = BulkFileStatus.Valid;
+                        }
                     }
                 }
                 else
@@ -1760,18 +1815,24 @@
                 }
             }
 
-            var readyCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Valid);
+            var readyCount = bulkMappings.Count(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning);
+            var skippedCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Skipped);
             var errorCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Error);
 
-            if (readyCount > 0 && errorCount > 0)
+            var parts = new List<string>();
+            if (readyCount > 0) parts.Add($"{readyCount} ready");
+            if (skippedCount > 0) parts.Add($"{skippedCount} skipped (already uploaded)");
+            if (errorCount > 0) parts.Add($"{errorCount} with errors");
+
+            if (readyCount > 0)
             {
-                bulkMessage = $"{readyCount} files ready, {errorCount} with errors. You can still upload the valid ones.";
+                bulkMessage = string.Join(", ", parts) + ". You can upload the valid ones.";
                 bulkSuccess = true;
             }
-            else if (readyCount > 0)
+            else if (skippedCount > 0 && errorCount == 0)
             {
-                bulkMessage = $"All {readyCount} files validated successfully.";
-                bulkSuccess = true;
+                bulkMessage = $"All {skippedCount} files already have PODs uploaded. Nothing to upload.";
+                bulkSuccess = false;
             }
             else
             {
@@ -1782,6 +1843,166 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error validating bulk files");
+            bulkMessage = "Validation error. Please try again.";
+            bulkSuccess = false;
+        }
+        finally
+        {
+            isBulkValidating = false;
+        }
+    }
+
+    private async Task RetryBulkValidation()
+    {
+        // Reset error items back to Pending and re-validate only those
+        var errorMappings = bulkMappings.Where(m => m.Status == BulkFileStatus.Error).ToList();
+        if (errorMappings.Count == 0 || isBulkValidating) return;
+
+        isBulkValidating = true;
+        bulkMessage = null;
+
+        try
+        {
+            foreach (var m in errorMappings)
+            {
+                m.Status = BulkFileStatus.Pending;
+                m.ErrorMessage = null;
+                m.ExistingPodCount = 0;
+            }
+
+            var docNums = errorMappings
+                .Where(m => m.DocNum.HasValue)
+                .Select(m => m.DocNum!.Value)
+                .Distinct()
+                .ToList();
+
+            var invoiceCache = new System.Collections.Concurrent.ConcurrentDictionary<int, InvoiceDto?>();
+            var podCountCache = new System.Collections.Concurrent.ConcurrentDictionary<int, int>();
+
+            var validationSemaphore = new SemaphoreSlim(20, 20);
+            var validated = 0;
+            var totalToValidate = docNums.Count;
+            bulkValidationProgress = $"(0/{totalToValidate})";
+
+            var validationTasks = docNums.Select(async docNum =>
+            {
+                await validationSemaphore.WaitAsync();
+                try
+                {
+                    try
+                    {
+                        var inv = await InvoiceService.GetInvoiceByDocNumAsync(docNum);
+                        invoiceCache[docNum] = inv;
+
+                        if (inv != null)
+                        {
+                            try
+                            {
+                                var existing = await PodService.GetInvoicePodsAsync(inv.DocEntry);
+                                podCountCache[docNum] = existing?.TotalCount ?? 0;
+                            }
+                            catch
+                            {
+                                podCountCache[docNum] = 0;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        invoiceCache[docNum] = null;
+                    }
+
+                    var done = Interlocked.Increment(ref validated);
+                    if (done % 10 == 0 || done == totalToValidate)
+                    {
+                        bulkValidationProgress = $"({done}/{totalToValidate})";
+                        await InvokeAsync(StateHasChanged);
+                    }
+                }
+                finally
+                {
+                    validationSemaphore.Release();
+                }
+            }).ToArray();
+
+            await Task.WhenAll(validationTasks);
+
+            foreach (var map in errorMappings)
+            {
+                if (!map.DocNum.HasValue)
+                {
+                    map.Status = BulkFileStatus.Error;
+                    map.ErrorMessage = "No invoice number in filename";
+                    continue;
+                }
+
+                if (map.FileSize > 20 * 1024 * 1024)
+                {
+                    map.Status = BulkFileStatus.Error;
+                    map.ErrorMessage = "File exceeds 20MB limit";
+                    continue;
+                }
+
+                if (invoiceCache.TryGetValue(map.DocNum.Value, out var invoice) && invoice != null)
+                {
+                    if (ExcludedCardCodes.Contains(invoice.CardCode ?? ""))
+                    {
+                        map.DocEntry = invoice.DocEntry;
+                        map.CardName = invoice.CardName;
+                        map.Status = BulkFileStatus.Error;
+                        map.ErrorMessage = $"Excluded BP ({invoice.CardCode})";
+                    }
+                    else
+                    {
+                        map.DocEntry = invoice.DocEntry;
+                        map.CardName = invoice.CardName;
+                        map.ExistingPodCount = podCountCache.GetValueOrDefault(map.DocNum.Value, 0);
+                        if (map.ExistingPodCount > 0)
+                        {
+                            map.Status = BulkFileStatus.Skipped;
+                            map.ErrorMessage = $"Already uploaded ({map.ExistingPodCount} existing POD{(map.ExistingPodCount > 1 ? "s" : "")})";
+                        }
+                        else
+                        {
+                            map.Status = BulkFileStatus.Valid;
+                        }
+                    }
+                }
+                else
+                {
+                    map.Status = BulkFileStatus.Error;
+                    map.ErrorMessage = $"Invoice #{map.DocNum} not found in SAP";
+                }
+            }
+
+            var readyCount = bulkMappings.Count(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning);
+            var skippedCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Skipped);
+            var errorCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Error);
+
+            var parts = new List<string>();
+            if (readyCount > 0) parts.Add($"{readyCount} ready");
+            if (skippedCount > 0) parts.Add($"{skippedCount} skipped (already uploaded)");
+            if (errorCount > 0) parts.Add($"{errorCount} with errors");
+
+            if (readyCount > 0)
+            {
+                bulkMessage = string.Join(", ", parts) + ".";
+                bulkSuccess = true;
+            }
+            else if (skippedCount > 0 && errorCount == 0)
+            {
+                bulkMessage = $"All {skippedCount} files already have PODs uploaded. Nothing to upload.";
+                bulkSuccess = false;
+            }
+            else
+            {
+                bulkMessage = string.Join(", ", parts) + ".";
+                bulkSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error retrying bulk validation");
             bulkMessage = "Validation error. Please try again.";
             bulkSuccess = false;
         }
@@ -1860,15 +2081,24 @@
                 bulkMessage = $"All {successCount} PODs uploaded successfully!";
                 // Audit log: bulk POD upload
                 await AuditService.LogAsync(AuditActions.BulkUploadPod, "POD", null, $"{successCount} files uploaded", true);
+                // Clear all since everything uploaded
+                bulkMappings.Clear();
+                bulkFiles.Clear();
+                bulkInputFileKey++;
                 currentPage = 1;
                 await LoadPods();
             }
             else
             {
                 bulkSuccess = successCount > 0;
-                bulkMessage = $"{successCount} uploaded, {failCount} failed. Check the status column for details.";
+                bulkMessage = $"{successCount} uploaded, {failCount} failed. You can retry the failed ones.";
                 if (successCount > 0)
+                {
+                    // Remove successfully uploaded items, keep only errors
+                    bulkMappings.RemoveAll(m => m.Status == BulkFileStatus.Uploaded);
+                    await AuditService.LogAsync(AuditActions.BulkUploadPod, "POD", null, $"{successCount} of {successCount + failCount} files uploaded", true);
                     await LoadPods();
+                }
             }
         }
         catch (Exception ex)
@@ -1890,5 +2120,11 @@
         bulkDescription = null;
         bulkMessage = null;
         bulkInputFileKey++;
+    }
+
+    private void RemoveBulkMapping(BulkFileMapping mapping)
+    {
+        bulkMappings.Remove(mapping);
+        bulkFiles.Remove(mapping.File);
     }
 }

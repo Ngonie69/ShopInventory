@@ -733,12 +733,16 @@
                                 </AuthorizeView>
                                 @if (!context.IsSynced)
                                 {
-                                    @if (context.Status == SalesOrderStatus.Pending)
-                                    {
-                                        <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small"
-                                                       Variant="Variant.Outlined" Color="Color.Success" Title="Approve"
-                                                       OnClick="() => ApproveOrder(context.Id)" />
-                                    }
+                                    <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="approveAccess">
+                                        <Authorized>
+                                            @if (context.Status == SalesOrderStatus.Draft || context.Status == SalesOrderStatus.Pending)
+                                            {
+                                                <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small"
+                                                               Variant="Variant.Outlined" Color="Color.Success" Title="Approve"
+                                                               OnClick="() => ApproveOrder(context.Id)" />
+                                            }
+                                        </Authorized>
+                                    </AuthorizeView>
                                     @if (context.Status == SalesOrderStatus.Draft || context.Status == SalesOrderStatus.Cancelled)
                                     {
                                         <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
@@ -885,18 +889,30 @@
                            OnClick="() => NavigateToEdit(selectedOrder.Id)">
                     <i class="bi bi-pencil-square me-1"></i> Edit
                 </MudButton>
+                <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="sidebarApproveAccess">
+                    <Authorized>
+                        <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#059669,#047857);"
+                                   OnClick="() => ApproveOrder(selectedOrder.Id)">
+                            <i class="bi bi-check-circle me-1"></i> Approve
+                        </MudButton>
+                    </Authorized>
+                </AuthorizeView>
             }
             @if (selectedOrder.Status == SalesOrderStatus.Approved && !selectedOrder.IsSynced)
             {
-                <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#059669,#047857);"
-                           Disabled="@isPostingToSAP"
-                           OnClick="() => PostOrderToSAP(selectedOrder.Id)">
-                    @if (isPostingToSAP)
-                    {
-                        <span class="spinner-border spinner-border-sm me-1"></span>
-                    }
-                    <i class="bi bi-cloud-upload me-1"></i> Post to SAP
-                </MudButton>
+                <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="sidebarPostAccess">
+                    <Authorized>
+                        <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#059669,#047857);"
+                                   Disabled="@isPostingToSAP"
+                                   OnClick="() => PostOrderToSAP(selectedOrder.Id)">
+                            @if (isPostingToSAP)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            <i class="bi bi-cloud-upload me-1"></i> Post to SAP
+                        </MudButton>
+                    </Authorized>
+                </AuthorizeView>
             }
             <MudButton Class="btn-secondary-action" OnClick="() => selectedOrder = null">Close</MudButton>
         </div>
