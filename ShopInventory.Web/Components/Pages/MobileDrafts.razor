@@ -719,14 +719,18 @@
                                                    Variant="Variant.Outlined" Color="Color.Warning" Title="Edit"
                                                    OnClick="() => NavigateToEdit(context.Id)" />
                                 }
-                                @if (context.Status == SalesOrderStatus.Approved && context.InvoiceId == null)
-                                {
-                                    <MudIconButton
-                                        Icon="@(convertingOrderId == context.Id ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Receipt)"
-                                        Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
-                                        Title="Convert to Invoice" Disabled="@(convertingOrderId == context.Id)"
-                                        OnClick="() => ConvertToInvoice(context)" />
-                                }
+                                <AuthorizeView Roles="Admin,Cashier" Context="invoiceAccess">
+                                    <Authorized>
+                                        @if (context.Status == SalesOrderStatus.Approved && context.InvoiceId == null)
+                                        {
+                                            <MudIconButton
+                                                Icon="@(convertingOrderId == context.Id ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Receipt)"
+                                                Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
+                                                Title="Convert to Invoice" Disabled="@(convertingOrderId == context.Id)"
+                                                OnClick="() => ConvertToInvoice(context)" />
+                                        }
+                                    </Authorized>
+                                </AuthorizeView>
                                 @if (!context.IsSynced)
                                 {
                                     @if (context.Status == SalesOrderStatus.Pending)

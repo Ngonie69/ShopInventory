@@ -6,6 +6,7 @@
 @inject ILocalizationService L
 @inject IJSRuntime JS
 @inject INotificationClientService NotificationClient
+@inject INotificationHubService NotificationHub
 @inject ISnackbar Snackbar
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IAppSettingsProvider AppSettings
@@ -232,7 +233,25 @@
             if (_isAuthenticated)
             {
                 await LoadNotifications();
-                _pollTimer = new System.Threading.Timer(PollNotifications, null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+
+                // Connect to SignalR hub for real-time push notifications
+                try
+                {
+                    var token = await JS.InvokeAsync<string>("localStorage.getItem", "authToken");
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        NotificationHub.OnNotificationReceived += OnRealTimeNotification;
+                        await NotificationHub.StartAsync(token);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Fall back to polling if SignalR connection fails
+                    System.Diagnostics.Debug.WriteLine($"SignalR connection failed: {ex.Message}");
+                }
+
+                // Polling as fallback (longer interval since SignalR handles real-time)
+                _pollTimer = new System.Threading.Timer(PollNotifications, null, TimeSpan.FromSeconds(120), TimeSpan.FromSeconds(120));
             }
 
             StateHasChanged();
@@ -250,8 +269,9 @@
             var response = await NotificationClient.GetNotificationsAsync(1, 5, false);
             if (response != null)
             {
+                // Only show toast if NOT connected to SignalR (to avoid duplicates)
                 var newUnread = response.UnreadCount;
-                if (newUnread > previousUnread)
+                if (!NotificationHub.IsConnected && newUnread > previousUnread)
                 {
                     // Show toast for new notifications
                     var newNotifs = response.Notifications.Where(n => !n.IsRead).Take(newUnread - previousUnread).ToList();
@@ -321,6 +341,36 @@
     private void ToggleNotificationPopover()
     {
         _notifPopoverOpen = !_notifPopoverOpen;
+    }
+
+    private async void OnRealTimeNotification(NotificationModel notification)
+    {
+        try
+        {
+            await InvokeAsync(() =>
+            {
+                _unreadCount++;
+                _recentNotifications.Insert(0, notification);
+                if (_recentNotifications.Count > 5)
+                    _recentNotifications.RemoveAt(5);
+
+                Snackbar.Add(
+                    $"{notification.Title}: {TruncateMessage(notification.Message, 80)}",
+                    MapSeverity(notification.Type),
+                    config =>
+                    {
+                        config.VisibleStateDuration = 5000;
+                        config.ShowCloseIcon = true;
+                        config.SnackbarVariant = Variant.Filled;
+                    });
+
+                StateHasChanged();
+            });
+        }
+        catch
+        {
+            // Silently ignore UI update errors
+        }
     }
 
     private async Task OnNotificationClick(NotificationModel notification)
@@ -404,6 +454,8 @@
     {
         _pollTimer?.Dispose();
         _pollTimer = null;
+        NotificationHub.OnNotificationReceived -= OnRealTimeNotification;
+        await NotificationHub.StopAsync();
         // Audit log: logout (capture user before logout clears state)
         await AuditService.LogAsync(AuditActions.Logout, "Auth");
         await AuthService.LogoutAsync();
@@ -419,6 +471,7 @@
     {
         ThemeService.OnThemeChanged -= OnThemeChanged;
         L.OnLanguageChanged -= OnLanguageChanged;
+        NotificationHub.OnNotificationReceived -= OnRealTimeNotification;
         _pollTimer?.Dispose();
     }
 }

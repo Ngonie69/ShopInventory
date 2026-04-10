@@ -288,6 +288,11 @@ public static class Permissions
                 ViewDashboard, ViewProducts, ViewCustomers,
                 ViewSalesOrders, CreateSalesOrders
             },
+            "SalesRep" => new List<string>
+            {
+                ViewDashboard,
+                ViewSalesOrders, EditSalesOrders, ApproveSalesOrders, PostSalesOrdersToSAP
+            },
             _ => new List<string> { ViewDashboard }
         };
     }

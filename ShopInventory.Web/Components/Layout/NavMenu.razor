@@ -229,7 +229,7 @@
     <AuthorizeView>
         <Authorized>
             @* ── Overview ── *@
-            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="dashboardCtx">
+            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager,SalesRep" Context="dashboardCtx">
                 <Authorized>
                     <div class="nav-section-label">Overview</div>
                     <NavLink class="snav-link" href="/dashboard" Match="NavLinkMatch.All">
@@ -272,7 +272,25 @@
                 </Authorized>
             </AuthorizeView>
 
-            <AuthorizeView Roles="Admin,Cashier,Merchandiser,SalesRep" Context="mobileDraftsCtx">
+            <AuthorizeView Roles="SalesRep" Context="salesRepSalesCtx">
+                <Authorized>
+                    <div class="nav-section-label">Sales</div>
+                    <NavLink class="snav-link" href="/sales-orders" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.ShoppingCartCheckout" />
+                        </span>
+                        <span class="snav-text">Sales Orders</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/mobile-drafts" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.PhoneAndroid" />
+                        </span>
+                        <span class="snav-text">Mobile Drafts</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
+
+            <AuthorizeView Roles="Admin,Cashier,Merchandiser" Context="mobileDraftsCtx">
                 <Authorized>
                     <NavLink class="snav-link" href="/mobile-drafts" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
@@ -406,7 +424,32 @@
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
-            <AuthorizeView Roles="Admin,Cashier,PodOperator,Driver,SalesRep" Context="podCtx">
+
+            <AuthorizeView Roles="SalesRep" Context="salesRepDeliveryCtx">
+                <Authorized>
+                    <div class="nav-section-label">Delivery</div>
+                    <NavLink class="snav-link" href="/pod-dashboard" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Speed" />
+                        </span>
+                        <span class="snav-text">POD Dashboard</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/pods" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
+                        </span>
+                        <span class="snav-text">Proof of Delivery</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/pod-report" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Assessment" />
+                        </span>
+                        <span class="snav-text">POD Report</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
+
+            <AuthorizeView Roles="Admin,Cashier,PodOperator,Driver" Context="podCtx">
                 <Authorized>
                     <AuthorizeView Roles="PodOperator,Driver" Context="podLabelCtx">
                         <Authorized>

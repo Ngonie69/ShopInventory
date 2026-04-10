@@ -1049,61 +1049,196 @@
                                 }
 
                                 <!-- Add New Linked Account -->
-                                <h6 class="mb-3">Add Linked Account</h6>
-                                <div class="row g-3 align-items-end">
-                                    <div class="col-md-3">
-                                        <label class="form-label">Select BP</label>
-                                        <MudAutocomplete T="CachedBusinessPartner" Label="Search BP" @bind-Value="linkedAccountBP"
-                                                         SearchFunc="@SearchCustomersFromDbAsync"
-                                                         ToStringFunc="@(bp => bp == null ? string.Empty : $"{bp.CardCode} - {bp.CardName}")"
-                                                         ShowProgressIndicator="true" MinCharacters="1" Dense="true" Variant="Variant.Outlined"
-                                                         Margin="Margin.Dense" Clearable="true" />
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label">Account Type</label>
-                                        <select class="form-select form-select-sm" @bind="newLinkedAccountType">
-                                            <option value="Main">Main</option>
-                                            <option value="Sub">Sub</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label">Currency</label>
-                                        <select class="form-select form-select-sm" @bind="newLinkedAccountCurrency">
-                                            <option value="">-- Select --</option>
-                                            <option value="USD">USD</option>
-                                            <option value="ZiG">ZiG</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label">Parent (for Sub)</label>
-                                        <select class="form-select form-select-sm" @bind="newLinkedAccountParent">
-                                            <option value="">-- None --</option>
-                                            @if (linkedAccounts != null)
-                                            {
-                                                @foreach (var main in linkedAccounts.Where(a => a.AccountType == "Main"))
-                                                {
-                                                    <option value="@main.CardCode">@main.CardCode (@main.Currency)</option>
-                                                }
-                                            }
-                                            @if (selectedCustomer != null && (linkedAccounts == null || !linkedAccounts.Any(a => a.AccountType == "Main" && a.CardCode == selectedCustomer.CardCode)))
-                                            {
-                                                <option value="@selectedCustomer.CardCode">@selectedCustomer.CardCode (Portal Account)</option>
-                                            }
-                                        </select>
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label">Description</label>
-                                        <input type="text" class="form-control form-control-sm" @bind="newLinkedAccountDesc"
-                                               placeholder="e.g. ZiG Main" />
-                                    </div>
-                                    <div class="col-md-1">
-                                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Class="w-100"
-                                                   OnClick="AddLinkedAccount" Disabled="@isSaving"
-                                                   Style="background: #6366f1; border-color: #6366f1;">
-                                            <i class="bi bi-plus"></i> Add
-                                        </MudButton>
-                                    </div>
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="mb-0">Add Linked Account</h6>
+                                    <MudButton Variant="@(showBulkAddMode ? Variant.Filled : Variant.Outlined)"
+                                               Color="Color.Secondary" Size="Size.Small"
+                                               OnClick="@(() => { showBulkAddMode = !showBulkAddMode; bulkSearchResults = null; bulkSelectedCardCodes.Clear(); bulkSearchTerm = null; })">
+                                        <i class="bi bi-list-check me-1"></i>@(showBulkAddMode ? "Single Add" : "Bulk Add Sub Accounts")
+                                    </MudButton>
                                 </div>
+
+                                @if (!showBulkAddMode)
+                                {
+                                    <!-- Single Add Mode -->
+                                    <div class="row g-3 align-items-end">
+                                        <div class="col-md-3">
+                                            <label class="form-label">Select BP</label>
+                                            <MudAutocomplete T="CachedBusinessPartner" Label="Search BP" @bind-Value="linkedAccountBP"
+                                                             SearchFunc="@SearchCustomersFromDbAsync"
+                                                             ToStringFunc="@(bp => bp == null ? string.Empty : $"{bp.CardCode} - {bp.CardName}")"
+                                                             ShowProgressIndicator="true" MinCharacters="1" Dense="true" Variant="Variant.Outlined"
+                                                             Margin="Margin.Dense" Clearable="true" />
+                                        </div>
+                                        <div class="col-md-2">
+                                            <label class="form-label">Account Type</label>
+                                            <select class="form-select form-select-sm" @bind="newLinkedAccountType">
+                                                <option value="Main">Main</option>
+                                                <option value="Sub">Sub</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-2">
+                                            <label class="form-label">Currency</label>
+                                            <select class="form-select form-select-sm" @bind="newLinkedAccountCurrency">
+                                                <option value="">-- Select --</option>
+                                                <option value="USD">USD</option>
+                                                <option value="ZiG">ZiG</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-2">
+                                            <label class="form-label">Parent (for Sub)</label>
+                                            <select class="form-select form-select-sm" @bind="newLinkedAccountParent">
+                                                <option value="">-- None --</option>
+                                                @if (linkedAccounts != null)
+                                                {
+                                                    @foreach (var main in linkedAccounts.Where(a => a.AccountType == "Main"))
+                                                    {
+                                                        <option value="@main.CardCode">@main.CardCode (@main.Currency)</option>
+                                                    }
+                                                }
+                                                @if (selectedCustomer != null && (linkedAccounts == null || !linkedAccounts.Any(a => a.AccountType == "Main" && a.CardCode == selectedCustomer.CardCode)))
+                                                {
+                                                    <option value="@selectedCustomer.CardCode">@selectedCustomer.CardCode (Portal Account)</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div class="col-md-2">
+                                            <label class="form-label">Description</label>
+                                            <input type="text" class="form-control form-control-sm" @bind="newLinkedAccountDesc"
+                                                   placeholder="e.g. ZiG Main" />
+                                        </div>
+                                        <div class="col-md-1">
+                                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Class="w-100"
+                                                       OnClick="AddLinkedAccount" Disabled="@isSaving"
+                                                       Style="background: #6366f1; border-color: #6366f1;">
+                                                <i class="bi bi-plus"></i> Add
+                                            </MudButton>
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <!-- Bulk Add Sub Accounts Mode -->
+                                    <div class="card border-secondary mb-3">
+                                        <div class="card-body">
+                                            <div class="row g-3 mb-3">
+                                                <div class="col-md-3">
+                                                    <label class="form-label">Currency</label>
+                                                    <select class="form-select form-select-sm" @bind="bulkCurrency">
+                                                        <option value="">-- Select --</option>
+                                                        <option value="USD">USD</option>
+                                                        <option value="ZiG">ZiG</option>
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label">Parent (Main Account)</label>
+                                                    <select class="form-select form-select-sm" @bind="bulkParent">
+                                                        <option value="">-- Select Parent --</option>
+                                                        @if (linkedAccounts != null)
+                                                        {
+                                                            @foreach (var main in linkedAccounts.Where(a => a.AccountType == "Main"))
+                                                            {
+                                                                <option value="@main.CardCode">@main.CardCode (@main.Currency)</option>
+                                                            }
+                                                        }
+                                                        @if (selectedCustomer != null && (linkedAccounts == null || !linkedAccounts.Any(a => a.AccountType == "Main" && a.CardCode == selectedCustomer.CardCode)))
+                                                        {
+                                                            <option value="@selectedCustomer.CardCode">@selectedCustomer.CardCode (Portal Account)</option>
+                                                        }
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label">Description</label>
+                                                    <input type="text" class="form-control form-control-sm" @bind="bulkDesc"
+                                                           placeholder="e.g. Sub Account - USD" />
+                                                </div>
+                                            </div>
+
+                                            <div class="row g-3 align-items-end mb-3">
+                                                <div class="col-md-5">
+                                                    <label class="form-label">Search Business Partners</label>
+                                                    <input type="text" class="form-control form-control-sm" @bind="bulkSearchTerm"
+                                                           @bind:event="oninput" placeholder="Type to search BPs..." />
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                                               OnClick="BulkSearchBPs" Disabled="@isBulkSearching"
+                                                               Style="background: #6366f1; border-color: #6366f1;">
+                                                        @if (isBulkSearching)
+                                                        {
+                                                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                                        }
+                                                        <i class="bi bi-search me-1"></i> Search
+                                                    </MudButton>
+                                                </div>
+                                                <div class="col-md-5 text-end">
+                                                    @if (bulkSelectedCardCodes.Any())
+                                                    {
+                                                        <span class="badge bg-info me-2">@bulkSelectedCardCodes.Count selected</span>
+                                                    }
+                                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                                               OnClick="BulkAddLinkedAccounts" Disabled="@(isBulkAdding || !bulkSelectedCardCodes.Any())"
+                                                               Style="background: #6366f1; border-color: #6366f1;">
+                                                        @if (isBulkAdding)
+                                                        {
+                                                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                                        }
+                                                        <i class="bi bi-plus-lg me-1"></i> Add @bulkSelectedCardCodes.Count Selected
+                                                    </MudButton>
+                                                </div>
+                                            </div>
+
+                                            @if (bulkSearchResults != null)
+                                            {
+                                                <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                                                    <table class="table table-sm table-bordered table-hover">
+                                                        <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
+                                                            <tr>
+                                                                <th style="width: 40px;">
+                                                                    <input type="checkbox" class="form-check-input"
+                                                                           checked="@(bulkSearchResults.Any() && bulkSearchResults.All(bp => bulkSelectedCardCodes.Contains(bp.CardCode)))"
+                                                                           @onchange="ToggleSelectAllBulk" />
+                                                                </th>
+                                                                <th>Card Code</th>
+                                                                <th>Name</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            @if (!bulkSearchResults.Any())
+                                                            {
+                                                                <tr>
+                                                                    <td colspan="3" class="text-center text-muted py-3">No results found</td>
+                                                                </tr>
+                                                            }
+                                                            @foreach (var bp in bulkSearchResults)
+                                                            {
+                                                                var isAlreadyLinked = linkedAccounts?.Any(a => a.CardCode == bp.CardCode) ?? false;
+                                                                <tr class="@(isAlreadyLinked ? "table-secondary" : "")" style="cursor: @(isAlreadyLinked ? "not-allowed" : "pointer");"
+                                                                    @onclick="@(() => { if (!isAlreadyLinked) ToggleBulkSelect(bp.CardCode); })">
+                                                                    <td>
+                                                                        <input type="checkbox" class="form-check-input"
+                                                                               checked="@bulkSelectedCardCodes.Contains(bp.CardCode)"
+                                                                               disabled="@isAlreadyLinked"
+                                                                               @onchange="@(() => ToggleBulkSelect(bp.CardCode))"
+                                                                               @onclick:stopPropagation="true" />
+                                                                    </td>
+                                                                    <td>
+                                                                        <code>@bp.CardCode</code>
+                                                                        @if (isAlreadyLinked)
+                                                                        {
+                                                                            <span class="badge bg-secondary ms-1">Already linked</span>
+                                                                        }
+                                                                    </td>
+                                                                    <td>@bp.CardName</td>
+                                                                </tr>
+                                                            }
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
                             </div>
                             <div class="modal-footer">
                                 <MudButton Variant="Variant.Filled" Color="Color.Default" OnClick="CloseLinkedAccountsModal">Close
@@ -1177,6 +1312,17 @@
     private string? newLinkedAccountDesc;
     private string? linkedAccountMessage;
     private bool linkedAccountMessageIsError;
+
+    // Bulk add sub accounts state
+    private bool showBulkAddMode;
+    private string? bulkSearchTerm;
+    private List<CachedBusinessPartner>? bulkSearchResults;
+    private HashSet<string> bulkSelectedCardCodes = new();
+    private string? bulkCurrency;
+    private string? bulkParent;
+    private string? bulkDesc;
+    private bool isBulkSearching;
+    private bool isBulkAdding;
 
     protected override async Task OnInitializedAsync()
     {
@@ -1657,6 +1803,12 @@
         newLinkedAccountCurrency = null;
         newLinkedAccountParent = null;
         newLinkedAccountDesc = null;
+        showBulkAddMode = false;
+        bulkSearchResults = null;
+        bulkSelectedCardCodes.Clear();
+        bulkCurrency = null;
+        bulkParent = null;
+        bulkDesc = null;
         showLinkedAccountsModal = true;
 
         await LoadLinkedAccounts();
@@ -1818,6 +1970,148 @@
         finally
         {
             isSaving = false;
+        }
+    }
+
+    private async Task BulkSearchBPs()
+    {
+        if (string.IsNullOrWhiteSpace(bulkSearchTerm)) return;
+
+        isBulkSearching = true;
+        try
+        {
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+            var term = bulkSearchTerm.ToLower();
+
+            bulkSearchResults = await dbContext.CachedBusinessPartners
+                .Where(bp => bp.CardCode.ToLower().Contains(term) ||
+                    (bp.CardName != null && bp.CardName.ToLower().Contains(term)))
+                .OrderBy(bp => bp.CardCode)
+                .Take(50)
+                .ToListAsync();
+
+            // Remove any selections that are no longer in results
+            var resultCodes = bulkSearchResults.Select(r => r.CardCode).ToHashSet();
+            bulkSelectedCardCodes.RemoveWhere(c => !resultCodes.Contains(c));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error searching BPs for bulk add");
+            linkedAccountMessage = "Failed to search business partners.";
+            linkedAccountMessageIsError = true;
+        }
+        finally
+        {
+            isBulkSearching = false;
+        }
+    }
+
+    private void ToggleBulkSelect(string cardCode)
+    {
+        if (!bulkSelectedCardCodes.Remove(cardCode))
+            bulkSelectedCardCodes.Add(cardCode);
+    }
+
+    private void ToggleSelectAllBulk(ChangeEventArgs e)
+    {
+        if (bulkSearchResults == null) return;
+
+        var alreadyLinkedCodes = linkedAccounts?.Select(a => a.CardCode).ToHashSet() ?? new HashSet<string>();
+        var selectableCodes = bulkSearchResults
+            .Where(bp => !alreadyLinkedCodes.Contains(bp.CardCode))
+            .Select(bp => bp.CardCode)
+            .ToList();
+
+        if (selectableCodes.All(c => bulkSelectedCardCodes.Contains(c)))
+            bulkSelectedCardCodes.ExceptWith(selectableCodes);
+        else
+            bulkSelectedCardCodes.UnionWith(selectableCodes);
+    }
+
+    private async Task BulkAddLinkedAccounts()
+    {
+        if (selectedCustomer == null || !bulkSelectedCardCodes.Any())
+            return;
+
+        if (string.IsNullOrEmpty(bulkParent))
+        {
+            linkedAccountMessage = "Please select a parent Main account for the sub accounts.";
+            linkedAccountMessageIsError = true;
+            return;
+        }
+
+        isBulkAdding = true;
+        var added = 0;
+        var failed = 0;
+        string? lastError = null;
+
+        try
+        {
+            var bpsToAdd = bulkSearchResults?
+                .Where(bp => bulkSelectedCardCodes.Contains(bp.CardCode))
+                .ToList() ?? new();
+
+            foreach (var bp in bpsToAdd)
+            {
+                try
+                {
+                    var request = new LinkedAccountRequest
+                    {
+                        CardCode = bp.CardCode,
+                        CardName = bp.CardName ?? "",
+                        AccountType = "Sub",
+                        Currency = bulkCurrency,
+                        ParentCardCode = bulkParent,
+                        Description = bulkDesc
+                    };
+
+                    var result = await LinkedAccountService.AddLinkedAccountAsync(selectedCustomer.CardCode, request);
+
+                    if (result.Success)
+                    {
+                        added++;
+                        linkedAccounts = result.LinkedAccounts;
+                        selectedCustomer.AccountStructure = result.AccountStructure;
+                    }
+                    else
+                    {
+                        failed++;
+                        lastError = result.Message;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    lastError = ex.Message;
+                    Logger.LogError(ex, "Error adding linked account {CardCode} in bulk", bp.CardCode);
+                }
+            }
+
+            if (failed == 0)
+            {
+                linkedAccountMessage = $"Successfully added {added} sub account(s).";
+                linkedAccountMessageIsError = false;
+            }
+            else
+            {
+                linkedAccountMessage = $"Added {added}, failed {failed}. Last error: {lastError}";
+                linkedAccountMessageIsError = failed > 0;
+            }
+
+            // Reset bulk state
+            bulkSelectedCardCodes.Clear();
+            bulkSearchResults = null;
+            bulkSearchTerm = null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error in bulk add linked accounts");
+            linkedAccountMessage = "Bulk add failed.";
+            linkedAccountMessageIsError = true;
+        }
+        finally
+        {
+            isBulkAdding = false;
         }
     }
 

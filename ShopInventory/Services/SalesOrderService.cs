@@ -14,15 +14,18 @@ public class SalesOrderService : ISalesOrderService
     private readonly ApplicationDbContext _context;
     private readonly ISAPServiceLayerClient _sapClient;
     private readonly ILogger<SalesOrderService> _logger;
+    private readonly INotificationService _notificationService;
 
     public SalesOrderService(
         ApplicationDbContext context,
         ISAPServiceLayerClient sapClient,
-        ILogger<SalesOrderService> logger)
+        ILogger<SalesOrderService> logger,
+        INotificationService notificationService)
     {
         _context = context;
         _sapClient = sapClient;
         _logger = logger;
+        _notificationService = notificationService;
     }
 
     public async Task<SalesOrderDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
@@ -68,7 +71,7 @@ public class SalesOrderService : ISalesOrderService
         SalesOrderSource? source = null, CancellationToken cancellationToken = default)
     {
         page = Math.Max(page, 1);
-        pageSize = Math.Clamp(pageSize, 1, 100);
+        pageSize = Math.Clamp(pageSize, 1, 10000);
 
         // Normalize dates to UTC for Npgsql timestamptz compatibility
         if (fromDate.HasValue && fromDate.Value.Kind == DateTimeKind.Unspecified)
@@ -109,15 +112,23 @@ public class SalesOrderService : ISalesOrderService
 
                 if (remainingSlots > 0)
                 {
-                    sapOrders = await _sapClient.GetSalesOrderHeadersAsync(
-                        cardCode,
-                        sapFromDate,
-                        sapToDate,
-                        sapOffset,
-                        remainingSlots,
-                        documentStatus,
-                        cancelled,
-                        cancellationToken);
+                    int fetched = 0;
+                    while (fetched < remainingSlots)
+                    {
+                        var batch = await _sapClient.GetSalesOrderHeadersAsync(
+                            cardCode,
+                            sapFromDate,
+                            sapToDate,
+                            sapOffset + fetched,
+                            Math.Min(remainingSlots - fetched, 500),
+                            documentStatus,
+                            cancelled,
+                            cancellationToken);
+
+                        if (batch.Count == 0) break;
+                        sapOrders.AddRange(batch);
+                        fetched += batch.Count;
+                    }
                 }
             }
 
@@ -407,6 +418,23 @@ public class SalesOrderService : ISalesOrderService
         await _context.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Created sales order {OrderNumber} for customer {CardCode}", orderNumber, request.CardCode);
+
+        // Send push notification for the new sales order
+        try
+        {
+            var username = await _context.Users
+                .Where(u => u.Id == userId)
+                .Select(u => u.Username)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            var source = request.Source == SalesOrderSource.Mobile ? "Mobile" : "Web";
+            await _notificationService.CreateSalesOrderNotificationAsync(
+                orderNumber, request.CardName ?? request.CardCode, order.DocTotal, source, username, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send notification for sales order {OrderNumber}", orderNumber);
+        }
 
         // Auto-post web orders to SAP immediately
         if (request.Source == SalesOrderSource.Web || request.Source == null)

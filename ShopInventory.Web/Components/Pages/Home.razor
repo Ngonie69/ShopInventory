@@ -7,12 +7,17 @@
 @inject IPaymentService PaymentService
 @inject IInventoryTransferService TransferService
 @inject NavigationManager Navigation
-@inject AuthenticationStateProvider AuthStateProvider
 @inject IAuditService AuditService
 @rendermode InteractiveServer
 
-<PageTitle>Dashboard - Shop Inventory</PageTitle>
+<PageTitle>@(isSalesRep ? "Sales Dashboard - Shop Inventory" : "Dashboard - Shop Inventory")</PageTitle>
 
+@if (isSalesRep)
+{
+    <SalesRepDashboard Username="@currentUsername" />
+}
+else
+{
 <div class="container-fluid fade-in staff-dashboard">
     <div class="dashboard-hero">
         <div class="page-header staff-dashboard-header">
@@ -344,8 +349,12 @@
                         </div>
                     </div>
                 </div>
+}
 
 @code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthTask { get; set; }
+
     private int todayInvoiceCount = 0;
     private int todayPaymentCount = 0;
     private int transferCount = 0;
@@ -353,20 +362,42 @@
     private List<IncomingPaymentDto>? recentPayments;
     private bool isLoadingInvoices = true;
     private bool isLoadingPayments = true;
+    private bool isSalesRep = false;
+    private string currentUsername = "Sales Rep";
+    private bool _initialized = false;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        // Redirect PodOperator users to POD page — they have no dashboard access
-        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (AuthTask == null) return;
+
+        var authState = await AuthTask;
         var user = authState.User;
+
+        // Skip if not authenticated yet (waiting for localStorage to load)
+        if (user.Identity?.IsAuthenticated != true) return;
+
+        currentUsername = user.Identity?.Name ?? currentUsername;
+
+        // Redirect PodOperator users to POD page — they have no dashboard access
         if (user.IsInRole("PodOperator"))
         {
             Navigation.NavigateTo("/pods", replace: true);
             return;
         }
 
-        await LoadDashboardData();
-        await AuditService.LogAsync(AuditActions.ViewDashboard, "Dashboard", null);
+        isSalesRep = user.IsInRole("SalesRep");
+
+        if (!_initialized)
+        {
+            _initialized = true;
+
+            if (!isSalesRep)
+            {
+                await LoadDashboardData();
+            }
+
+            await AuditService.LogAsync(AuditActions.ViewDashboard, isSalesRep ? "SalesRepDashboard" : "Dashboard", null);
+        }
     }
 
     private async Task LoadDashboardData()

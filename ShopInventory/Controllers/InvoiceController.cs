@@ -33,8 +33,9 @@ public class InvoiceController : ControllerBase
         "CIS006", "MAC009", "MAC006", "COR007", "COR006", "COR008",
         "VAN008", "VAN009", "VAN010", "VAN011", "VAN012", "VAN013",
         "VAN014", "VAN015", "VAN016", "VAN017", "VAN018", "VAN019", "VAN020",
-        "STA040", "PRO033", "CAS004", "DON004", "PRO035",
-        "TEA006", "PRO031", "PRO032", "PRO034", "PRO036", "TEA007"
+        "STA040", "STA041", "STA042", "STA043", "STA044", "STA045", "STA046", "STA047", "STA048",
+        "PRO030", "PRO031", "PRO032", "PRO033", "PRO034", "PRO035", "PRO036",
+        "CAS004(FCA)", "DON004", "TEA006", "TEA007"
     };
 
     public InvoiceController(
@@ -580,7 +581,7 @@ public class InvoiceController : ControllerBase
     /// <param name="docNum">The document number</param>
     /// <returns>The invoice details</returns>
     [HttpGet("by-docnum/{docNum:int}")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
     [ProducesResponseType(typeof(InvoiceDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
@@ -821,7 +822,7 @@ public class InvoiceController : ControllerBase
     /// <param name="docEntry">The invoice document entry</param>
     /// <returns>List of attachments</returns>
     [HttpGet("{docEntry:int}/attachments")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
     [ProducesResponseType(typeof(DocumentAttachmentListResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetInvoiceAttachments(
         int docEntry,
@@ -837,7 +838,7 @@ public class InvoiceController : ControllerBase
     /// <param name="docEntry">The invoice document entry</param>
     /// <param name="attachmentId">The attachment ID</param>
     [HttpGet("{docEntry:int}/attachments/{attachmentId:int}/download")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
     [ProducesResponseType(typeof(FileStreamResult), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DownloadInvoiceAttachment(
@@ -868,7 +869,7 @@ public class InvoiceController : ControllerBase
     /// <param name="file">The POD file (image or PDF)</param>
     /// <param name="description">Optional description</param>
     [HttpPost("{docEntry:int}/pod")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
     [ProducesResponseType(typeof(DocumentAttachmentDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
@@ -1008,7 +1009,7 @@ public class InvoiceController : ControllerBase
     /// Optionally filter by customer code and date range.
     /// </summary>
     [HttpGet("pods")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
     [ProducesResponseType(typeof(PodAttachmentListResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAllPods(
         [FromQuery] int page = 1,
@@ -1039,7 +1040,7 @@ public class InvoiceController : ControllerBase
     /// Excludes internal/intercompany card codes.
     /// </summary>
     [HttpGet("pod-upload-status")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
     [ProducesResponseType(typeof(PodUploadStatusReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetPodUploadStatus(
@@ -1112,7 +1113,7 @@ public class InvoiceController : ControllerBase
     /// Get personal POD dashboard stats for the current user
     /// </summary>
     [HttpGet("pod-dashboard")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
     [ProducesResponseType(typeof(PodDashboardDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetPodDashboard(CancellationToken cancellationToken = default)

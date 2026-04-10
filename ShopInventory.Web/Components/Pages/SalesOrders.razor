@@ -901,9 +901,13 @@
                     <p>Track order status and fulfillment</p>
                 </div>
             </div>
-            <MudButton Class="btn-so-gradient" Href="/sales-orders/create">
-                <i class="bi bi-plus-lg"></i> New Sales Order
-            </MudButton>
+            <AuthorizeView Roles="Admin,Cashier">
+                <Authorized>
+                    <MudButton Class="btn-so-gradient" Href="/sales-orders/create">
+                        <i class="bi bi-plus-lg"></i> New Sales Order
+                    </MudButton>
+                </Authorized>
+            </AuthorizeView>
         </div>
 
         <!-- ━━━ Alerts ━━━ -->

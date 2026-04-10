@@ -1570,11 +1570,12 @@
 
             if (fromDate.HasValue && toDate.HasValue)
             {
-                var response = await TransferService.GetTransfersByDateRangeAsync(warehouseCode, fromDate.Value, toDate.Value, currentPage, pageSize);
+                // Fetch ALL records for the date range; MudTable handles client-side pagination
+                var response = await TransferService.GetTransfersByDateRangeAsync(warehouseCode, fromDate.Value, toDate.Value);
                 transfers = response?.Transfers;
-                totalCount = response?.TotalCount ?? response?.Count ?? transfers?.Count ?? 0;
-                hasMore = response?.HasMore ?? false;
-                totalPages = response?.TotalPages ?? (pageSize > 0 ? (int)Math.Ceiling((double)totalCount / pageSize) : 1);
+                totalCount = response?.Count ?? transfers?.Count ?? 0;
+                hasMore = false;
+                totalPages = 1;
             }
             else if (fromDate.HasValue)
             {

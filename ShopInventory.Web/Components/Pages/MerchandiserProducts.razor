@@ -107,26 +107,44 @@
     .mp-select-all label { font-size: .82rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: .5rem; }
 
     /* Dark mode */
-    :global(.dark-theme) .mp-header h1 { color: #e2e8f0; }
-    :global(.dark-theme) .mp-stat-card, :global(.dark-theme) .mp-sidebar, :global(.dark-theme) .mp-main { background: #1e293b; border-color: #334155; }
-    :global(.dark-theme) .mp-stat-value { color: #e2e8f0; }
-    :global(.dark-theme) .mp-stat-label { color: #94a3b8; }
-    :global(.dark-theme) .mp-sidebar-header, :global(.dark-theme) .mp-main-title, :global(.dark-theme) .mp-merch-name, :global(.dark-theme) .mp-product-code { color: #e2e8f0; }
-    :global(.dark-theme) .mp-merch-item:hover { background: #334155; }
-    :global(.dark-theme) .mp-merch-item.active { background: rgba(99,102,241,.2); }
-    :global(.dark-theme) .mp-product-row:hover { background: #334155; }
-    :global(.dark-theme) .mp-product-name { color: #cbd5e1; }
-    :global(.dark-theme) .mp-toolbar { background: #1e293b; border-color: #334155; }
-    :global(.dark-theme) .mp-search { background: #0f172a; border-color: #475569; color: #e2e8f0; }
-    :global(.dark-theme) .mp-filter-btn { background: #0f172a; border-color: #475569; color: #94a3b8; }
-    :global(.dark-theme) .mp-filter-btn:hover { background: #334155; }
-    :global(.dark-theme) .mp-btn-ghost { border-color: #475569; color: #94a3b8; }
-    :global(.dark-theme) .mp-btn-ghost:hover { background: #334155; }
-    :global(.dark-theme) .mp-modal { background: #1e293b; }
-    :global(.dark-theme) .mp-modal-header h2 { color: #e2e8f0; }
-    :global(.dark-theme) .mp-assign-list { border-color: #475569; }
-    :global(.dark-theme) .mp-assign-item { border-color: #334155; }
-    :global(.dark-theme) .mp-select-all { background: #0f172a; border-color: #475569; }
+    .dark-theme .mp-container { color: #e2e8f0; }
+    .dark-theme .mp-header h1 { color: #e2e8f0; }
+    .dark-theme .mp-stat-card { background: #1e293b; border-color: #334155; }
+    .dark-theme .mp-stat-value { color: #e2e8f0; }
+    .dark-theme .mp-stat-label { color: #94a3b8; }
+    .dark-theme .mp-sidebar { background: #1e293b; border-color: #334155; }
+    .dark-theme .mp-sidebar-header { color: #e2e8f0; border-color: #334155; }
+    .dark-theme .mp-main { background: #1e293b; border-color: #334155; }
+    .dark-theme .mp-main-header { border-color: #334155; }
+    .dark-theme .mp-main-title { color: #e2e8f0; }
+    .dark-theme .mp-merch-name { color: #e2e8f0; }
+    .dark-theme .mp-merch-item { border-color: #334155; }
+    .dark-theme .mp-merch-item:hover { background: #334155; }
+    .dark-theme .mp-merch-item.active { background: rgba(99,102,241,.2); border-color: #334155; }
+    .dark-theme .mp-merch-badge.gray { background: #334155; color: #94a3b8; }
+    .dark-theme .mp-product-row { border-color: #334155; }
+    .dark-theme .mp-product-row:hover { background: #334155; }
+    .dark-theme .mp-product-code { color: #e2e8f0; }
+    .dark-theme .mp-product-name { color: #cbd5e1; }
+    .dark-theme .mp-toolbar { background: #0f172a; border-color: #334155; }
+    .dark-theme .mp-search { background: #0f172a; border-color: #475569; color: #e2e8f0; }
+    .dark-theme .mp-search::placeholder { color: #64748b; }
+    .dark-theme .mp-filter-btn { background: #0f172a; border-color: #475569; color: #94a3b8; }
+    .dark-theme .mp-filter-btn:hover { background: #334155; }
+    .dark-theme .mp-filter-btn.active { background: #6366f1; color: #fff; border-color: #6366f1; }
+    .dark-theme .mp-btn-ghost { border-color: #475569; color: #94a3b8; }
+    .dark-theme .mp-btn-ghost:hover { background: #334155; }
+    .dark-theme .mp-empty { color: #64748b; }
+    .dark-theme .mp-modal { background: #1e293b; }
+    .dark-theme .mp-modal-header { border-color: #334155; }
+    .dark-theme .mp-modal-header h2 { color: #e2e8f0; }
+    .dark-theme .mp-modal-footer { border-color: #334155; }
+    .dark-theme .mp-modal-body { color: #e2e8f0; }
+    .dark-theme .mp-assign-list { border-color: #475569; }
+    .dark-theme .mp-assign-item { border-color: #334155; color: #e2e8f0; }
+    .dark-theme .mp-assign-item label { color: #e2e8f0; }
+    .dark-theme .mp-select-all { background: #0f172a; border-color: #475569; color: #e2e8f0; }
+    .dark-theme .mp-overlay { background: rgba(0,0,0,.6); }
 
     @@media (max-width: 768px) {
         .mp-layout { grid-template-columns: 1fr; }
@@ -324,38 +342,54 @@
                 <button class="mp-modal-close" @onclick="CloseAssignModal"><i class="bi bi-x-lg"></i></button>
             </div>
             <div class="mp-modal-body">
-                <input type="text" class="mp-search" style="width: 100%; margin-bottom: .75rem;"
-                       placeholder="Search by item code or name..."
-                       @bind="assignSearchTerm" @bind:event="oninput" />
-                <div class="mp-select-all">
-                    <label>
-                        <input type="checkbox"
-                               checked="@(assignSelectedCodes.Count == FilteredAssignableProducts.Count() && FilteredAssignableProducts.Any())"
-                               @onchange="ToggleSelectAllAssign"
-                               style="accent-color: #6366f1;" />
-                        Select All (@FilteredAssignableProducts.Count())
-                    </label>
-                </div>
-                <div class="mp-assign-list">
-                    @foreach (var product in FilteredAssignableProducts)
+                @if (isLoadingAssignProducts)
+                {
+                    <div class="mp-loading">
+                        <div class="mp-spinner"></div>
+                        <p style="margin-top: .75rem; color: #94a3b8;">Loading products...</p>
+                    </div>
+                }
+                else
+                {
+                    @if (!string.IsNullOrEmpty(assignLoadError))
                     {
-                        var isChecked = assignSelectedCodes.Contains(product.ItemCode!);
-                        <div class="mp-assign-item">
-                            <label>
-                                <input type="checkbox" checked="@isChecked"
-                                       @onchange="(e) => ToggleAssignProduct(product.ItemCode!, (bool)(e.Value ?? false))"
-                                       style="accent-color: #6366f1;" />
-                                <strong>@product.ItemCode</strong> - @product.ItemName
-                            </label>
+                        <div style="padding: .75rem; margin-bottom: .75rem; background: #fef2f2; color: #991b1b; border-radius: 8px; font-size: .85rem;">
+                            <i class="bi bi-exclamation-triangle me-1"></i>@assignLoadError
                         </div>
                     }
-                    @if (!FilteredAssignableProducts.Any())
-                    {
-                        <div style="padding: 1.5rem; text-align: center; color: #94a3b8; font-size: .85rem;">
-                            No products available to assign
-                        </div>
-                    }
-                </div>
+                    <input type="text" class="mp-search" style="width: 100%; margin-bottom: .75rem;"
+                           placeholder="Search by item code or name..."
+                           @bind="assignSearchTerm" @bind:event="oninput" />
+                    <div class="mp-select-all">
+                        <label>
+                            <input type="checkbox"
+                                   checked="@(assignSelectedCodes.Count == FilteredAssignableProducts.Count() && FilteredAssignableProducts.Any())"
+                                   @onchange="ToggleSelectAllAssign"
+                                   style="accent-color: #6366f1;" />
+                            Select All (@FilteredAssignableProducts.Count())
+                        </label>
+                    </div>
+                    <div class="mp-assign-list">
+                        @foreach (var product in FilteredAssignableProducts)
+                        {
+                            var isChecked = assignSelectedCodes.Contains(product.ItemCode!);
+                            <div class="mp-assign-item">
+                                <label>
+                                    <input type="checkbox" checked="@isChecked"
+                                           @onchange="(e) => ToggleAssignProduct(product.ItemCode!, (bool)(e.Value ?? false))"
+                                           style="accent-color: #6366f1;" />
+                                    <strong>@product.ItemCode</strong> - @product.ItemName
+                                </label>
+                            </div>
+                        }
+                        @if (!FilteredAssignableProducts.Any() && string.IsNullOrEmpty(assignLoadError))
+                        {
+                            <div style="padding: 1.5rem; text-align: center; color: #94a3b8; font-size: .85rem;">
+                                No products available to assign
+                            </div>
+                        }
+                    </div>
+                }
             </div>
             <div class="mp-modal-footer">
                 <button class="mp-btn mp-btn-ghost" @onclick="CloseAssignModal">Cancel</button>
@@ -383,9 +417,11 @@
 
     // Assign modal
     private bool showAssignModal = false;
+    private bool isLoadingAssignProducts = false;
     private string assignSearchTerm = string.Empty;
     private HashSet<string> assignSelectedCodes = new();
     private List<ProductDto> allProducts = new();
+    private string assignLoadError = string.Empty;
 
     // Toast
     private string toastMessage = string.Empty;
@@ -555,18 +591,36 @@
     {
         assignSearchTerm = string.Empty;
         assignSelectedCodes.Clear();
+        assignLoadError = string.Empty;
+        isLoadingAssignProducts = true;
+        showAssignModal = true;
+        StateHasChanged();
 
         // Load all products from cache
         try
         {
             allProducts = await MasterDataCache.GetProductsAsync();
+
+            // If cache is empty, force a refresh from API
+            if (allProducts.Count == 0)
+            {
+                allProducts = await MasterDataCache.GetProductsAsync(forceRefresh: true);
+            }
+
+            if (allProducts.Count == 0)
+            {
+                assignLoadError = "No products found in the system. Please sync products first.";
+            }
         }
-        catch
+        catch (Exception ex)
         {
             allProducts = new();
+            assignLoadError = $"Failed to load products: {ex.Message}";
         }
-
-        showAssignModal = true;
+        finally
+        {
+            isLoadingAssignProducts = false;
+        }
     }
 
     private void CloseAssignModal()
@@ -578,10 +632,12 @@
     {
         get
         {
-            // Exclude already assigned products
+            // Exclude already assigned products and show only sales items (itItems)
             var assignedCodes = productResponse?.Products.Select(p => p.ItemCode).ToHashSet() ?? new();
 
-            var products = allProducts.Where(p => !assignedCodes.Contains(p.ItemCode ?? ""));
+            var products = allProducts
+                .Where(p => !assignedCodes.Contains(p.ItemCode ?? ""))
+                .Where(p => string.IsNullOrEmpty(p.ItemType) || p.ItemType == "itItems");
 
             if (!string.IsNullOrWhiteSpace(assignSearchTerm))
             {

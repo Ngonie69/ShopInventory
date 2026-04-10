@@ -14,14 +14,37 @@ using System.IO.Compression;
 
 // Configure Serilog
 Log.Logger = new LoggerConfiguration()
-    .MinimumLevel.Debug()
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.EntityFrameworkCore", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("System", Serilog.Events.LogEventLevel.Warning)
     .WriteTo.Console()
-    .WriteTo.File("logs/shopinventory-web-.log", rollingInterval: RollingInterval.Day)
+    .WriteTo.File("logs/shopinventory-web-.log", rollingInterval: RollingInterval.Day, retainedFileCountLimit: 31)
     .CreateLogger();
 
 try
 {
     Log.Information("Starting ShopInventory Web Application");
+
+    // Clean up old IIS stdout log files (older than 31 days)
+    try
+    {
+        var logsDir = Path.Combine(AppContext.BaseDirectory, "logs");
+        if (Directory.Exists(logsDir))
+        {
+            var cutoff = DateTime.UtcNow.AddDays(-31);
+            foreach (var file in Directory.GetFiles(logsDir, "stdout_*"))
+            {
+                if (File.GetLastWriteTimeUtc(file) < cutoff)
+                    File.Delete(file);
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        Log.Warning(ex, "Failed to clean up old stdout log files");
+    }
 
     var builder = WebApplication.CreateBuilder(args);
 
@@ -34,8 +57,17 @@ try
             "Customer portal JWT secret is missing or invalid. Configure CustomerPortal:JwtSecret with a secret of at least 32 characters.");
     }
 
-    // Use Serilog
-    builder.Host.UseSerilog();
+    // Use Serilog — read overrides from appsettings so production can further tune levels
+    builder.Host.UseSerilog((context, services, configuration) => configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .MinimumLevel.Information()
+        .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
+        .MinimumLevel.Override("Microsoft.EntityFrameworkCore", Serilog.Events.LogEventLevel.Warning)
+        .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
+        .MinimumLevel.Override("System", Serilog.Events.LogEventLevel.Warning)
+        .Enrich.FromLogContext()
+        .WriteTo.Console()
+        .WriteTo.File("logs/shopinventory-web-.log", rollingInterval: RollingInterval.Day, retainedFileCountLimit: 31));
 
     // Add services to the container.
     builder.Services.AddRazorComponents()
@@ -149,6 +181,7 @@ try
     builder.Services.AddScoped<IReportExportService, ReportExportService>();
     builder.Services.AddScoped<IUserManagementService, UserManagementService>();
     builder.Services.AddScoped<INotificationClientService, NotificationClientService>();
+    builder.Services.AddScoped<INotificationHubService, NotificationHubService>();
     builder.Services.AddScoped<ISyncStatusClientService, SyncStatusClientService>();
 
     // Add Sales Order, Purchase Order, Credit Note, and Quotation services

@@ -1,6 +1,8 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Hubs;
 using ShopInventory.Models;
 
 namespace ShopInventory.Services;
@@ -18,6 +20,7 @@ public interface INotificationService
     Task CleanupExpiredNotificationsAsync(CancellationToken cancellationToken = default);
     Task CreateLowStockAlertAsync(string itemCode, string itemName, decimal currentStock, decimal reorderLevel, CancellationToken cancellationToken = default);
     Task CreateSystemAlertAsync(string title, string message, string type = "Info", CancellationToken cancellationToken = default);
+    Task CreateSalesOrderNotificationAsync(string orderNumber, string customerName, decimal docTotal, string source, string? createdByUsername, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -27,11 +30,13 @@ public class NotificationService : INotificationService
 {
     private readonly ApplicationDbContext _context;
     private readonly ILogger<NotificationService> _logger;
+    private readonly IHubContext<NotificationHub> _hubContext;
 
-    public NotificationService(ApplicationDbContext context, ILogger<NotificationService> logger)
+    public NotificationService(ApplicationDbContext context, ILogger<NotificationService> logger, IHubContext<NotificationHub> hubContext)
     {
         _context = context;
         _logger = logger;
+        _hubContext = hubContext;
     }
 
     /// <summary>
@@ -60,7 +65,24 @@ public class NotificationService : INotificationService
 
         _logger.LogInformation("Created notification: {Title} for {Target}", request.Title, request.TargetUsername ?? request.TargetRole ?? "all");
 
-        return MapToDto(notification);
+        var dto = MapToDto(notification);
+
+        // Broadcast via SignalR
+        try
+        {
+            if (!string.IsNullOrEmpty(request.TargetUsername))
+                await _hubContext.Clients.Group($"user:{request.TargetUsername}").SendAsync("ReceiveNotification", dto);
+            else if (!string.IsNullOrEmpty(request.TargetRole))
+                await _hubContext.Clients.Group($"role:{request.TargetRole}").SendAsync("ReceiveNotification", dto);
+            else
+                await _hubContext.Clients.Group("all").SendAsync("ReceiveNotification", dto);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to broadcast notification via SignalR");
+        }
+
+        return dto;
     }
 
     /// <summary>
@@ -212,6 +234,41 @@ public class NotificationService : INotificationService
             Message = message,
             Type = type,
             Category = "System"
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Create a notification when a sales order is successfully posted
+    /// </summary>
+    public async Task CreateSalesOrderNotificationAsync(string orderNumber, string customerName, decimal docTotal, string source, string? createdByUsername, CancellationToken cancellationToken = default)
+    {
+        var sourceLabel = source == "Mobile" ? "Mobile App" : "Web";
+
+        await CreateNotificationAsync(new CreateNotificationRequest
+        {
+            Title = $"New Sales Order: {orderNumber}",
+            Message = $"Order {orderNumber} for {customerName} (${docTotal:N2}) submitted from {sourceLabel}" +
+                      (createdByUsername != null ? $" by {createdByUsername}" : ""),
+            Type = "Success",
+            Category = "SalesOrder",
+            EntityType = "SalesOrder",
+            EntityId = orderNumber,
+            ActionUrl = $"/sales-orders",
+            TargetRole = "Admin"
+        }, cancellationToken);
+
+        // Also notify Cashier role
+        await CreateNotificationAsync(new CreateNotificationRequest
+        {
+            Title = $"New Sales Order: {orderNumber}",
+            Message = $"Order {orderNumber} for {customerName} (${docTotal:N2}) submitted from {sourceLabel}" +
+                      (createdByUsername != null ? $" by {createdByUsername}" : ""),
+            Type = "Success",
+            Category = "SalesOrder",
+            EntityType = "SalesOrder",
+            EntityId = orderNumber,
+            ActionUrl = source == "Mobile" ? "/mobile-drafts" : "/sales-orders",
+            TargetRole = "Cashier"
         }, cancellationToken);
     }
 
