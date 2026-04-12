@@ -9,6 +9,7 @@
 @inject IMasterDataCacheService MasterDataCache
 @inject IJSRuntime JS
 @inject IAppSettingsProvider AppSettings
+@inject ISnackbar Snackbar
 @rendermode InteractiveServer
 
 <PageTitle>User Management - Shop Inventory</PageTitle>
@@ -495,21 +496,17 @@
                                                 <input type="text" class="um-input" placeholder="Search customers..."
                                                        @bind="customerSearchTerm" @bind:event="oninput" style="font-size:.85rem;" />
                                             </div>
-                                            <div
-                                                style="max-height:200px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:8px; padding:.5rem;">
+                                            <div class="um-customer-list">
                                                 @foreach (var bp in FilteredCustomers)
                                                 {
                                                     var code = bp.CardCode!;
                                                     var isChecked = userModel.AssignedCustomerCodes.Contains(code);
-                                                    <label
-                                                        style="display:flex; align-items:center; gap:.5rem; padding:.3rem .5rem; cursor:pointer; border-radius:6px; font-size:.85rem; @(isChecked ? "background:#dcfce7;" : "")"
-                                                        @onmouseover:stopPropagation>
+                                                    <label class="um-customer-item @(isChecked ? "checked" : "")" @onmouseover:stopPropagation>
                                                         <input type="checkbox" checked="@isChecked"
                                                                @onchange="(e) => ToggleCustomer(code, (bool)(e.Value ?? false))"
                                                                style="accent-color:#16a34a;" />
-                                                        <span
-                                                        style="font-weight:@(isChecked ? "600" : "400"); color:#1a1a2e;">@bp.CardCode</span>
-                                                        <span style="color:#6b7280; font-size:.8rem;">- @bp.CardName</span>
+                                                        <span class="um-customer-code">@bp.CardCode</span>
+                                                        <span class="um-customer-name">– @bp.CardName</span>
                                                     </label>
                                                 }
                                                 @if (!FilteredCustomers.Any())
@@ -525,11 +522,9 @@
                                                     @foreach (var custCode in userModel.AssignedCustomerCodes)
                                                     {
                                                         var custName = availableCustomers.FirstOrDefault(c => c.CardCode == custCode)?.CardName ?? custCode;
-                                                        <span
-                                                            style="background:#dcfce7; color:#166534; padding:.15rem .5rem; border-radius:12px; font-size:.78rem; font-weight:500; display:inline-flex; align-items:center; gap:.3rem;">
-                                                            @custCode - @custName
-                                                            <button type="button" @onclick="() => ToggleCustomer(custCode, false)"
-                                                                    style="background:none; border:none; color:#166534; cursor:pointer; padding:0; font-size:.7rem;">x</button>
+                                                        <span class="um-customer-tag">
+                                                            @custCode – @custName
+                                                            <button type="button" class="um-customer-tag-remove" @onclick="() => ToggleCustomer(custCode, false)">×</button>
                                                         </span>
                                                     }
                                                 </div>
@@ -742,15 +737,6 @@
                     </div>
                 }
 
-                <!-- Toast -->
-                @if (!string.IsNullOrEmpty(toastMessage))
-                {
-                    <div class="um-toast @(toastIsError ? "um-toast-error" : "um-toast-success")">
-                        <i class="bi @(toastIsError ? "bi-exclamation-circle-fill" : "bi-check-circle-fill")"></i>
-                        <span>@toastMessage</span>
-                        <button @onclick="() => toastMessage = string.Empty"><i class="bi bi-x"></i></button>
-                    </div>
-                }
 
                 <style>
                     /* ── Base ─────────────────────────────── */
@@ -1878,54 +1864,7 @@
                         font-size: .85rem;
                     }
 
-                    /* ── Toast ────────────────────────────── */
-                    .um-toast {
-                        position: fixed;
-                        bottom: 1.5rem;
-                        right: 1.5rem;
-                        display: flex;
-                        align-items: center;
-                        gap: .6rem;
-                        padding: .75rem 1.25rem;
-                        border-radius: 12px;
-                        font-size: .85rem;
-                        font-weight: 500;
-                        z-index: 1200;
-                        box-shadow: 0 8px 30px rgba(0, 0, 0, .15);
-                        animation: um-slide-in .3s ease;
-                    }
 
-                    .um-toast button {
-                        background: none;
-                        border: none;
-                        color: inherit;
-                        opacity: .6;
-                        cursor: pointer;
-                        font-size: 1rem;
-                        padding: 0 0 0 .5rem;
-                    }
-
-                    .um-toast-success {
-                        background: #059669;
-                        color: white;
-                    }
-
-                    .um-toast-error {
-                        background: #dc2626;
-                        color: white;
-                    }
-
-                    @@keyframes um-slide-in {
-                        from {
-                            transform: translateY(20px);
-                            opacity: 0;
-                        }
-
-                        to {
-                            transform: translateY(0);
-                            opacity: 1;
-                        }
-                    }
 
                     /* ── Responsive ───────────────────────── */
                     @@media (max-width: 768px) {
@@ -2078,6 +2017,97 @@
 
                     :global(.dark-theme) .um-modal [style*="background:#fef3c7"] {
                         background: rgba(217, 119, 6, .2) !important;
+                    }
+
+                    /* ── Customer List ────────────────────── */
+                    .um-customer-list {
+                        max-height: 200px;
+                        overflow-y: auto;
+                        border: 1px solid #e5e7eb;
+                        border-radius: 8px;
+                        padding: .5rem;
+                    }
+
+                    .um-customer-item {
+                        display: flex;
+                        align-items: center;
+                        gap: .5rem;
+                        padding: .3rem .5rem;
+                        cursor: pointer;
+                        border-radius: 6px;
+                        font-size: .85rem;
+                    }
+
+                    .um-customer-item.checked {
+                        background: #dcfce7;
+                    }
+
+                    .um-customer-code {
+                        font-weight: 400;
+                        color: #1a1a2e;
+                    }
+
+                    .um-customer-item.checked .um-customer-code {
+                        font-weight: 600;
+                    }
+
+                    .um-customer-name {
+                        color: #6b7280;
+                        font-size: .8rem;
+                    }
+
+                    .um-customer-tag {
+                        background: #dcfce7;
+                        color: #166534;
+                        padding: .15rem .5rem;
+                        border-radius: 12px;
+                        font-size: .78rem;
+                        font-weight: 500;
+                        display: inline-flex;
+                        align-items: center;
+                        gap: .3rem;
+                    }
+
+                    .um-customer-tag-remove {
+                        background: none;
+                        border: none;
+                        color: #166534;
+                        cursor: pointer;
+                        padding: 0;
+                        font-size: .85rem;
+                        line-height: 1;
+                    }
+
+                    /* ── Dark Mode: Customer List ─────────── */
+                    :global(.dark-theme) .um-customer-list {
+                        border-color: #475569;
+                    }
+
+                    :global(.dark-theme) .um-customer-item.checked {
+                        background: rgba(22, 163, 106, .15);
+                    }
+
+                    :global(.dark-theme) .um-customer-code {
+                        color: #e2e8f0;
+                    }
+
+                    :global(.dark-theme) .um-customer-name {
+                        color: #94a3b8;
+                    }
+
+                    :global(.dark-theme) .um-customer-tag {
+                        background: rgba(22, 163, 106, .2);
+                        color: #4ade80;
+                    }
+
+                    :global(.dark-theme) .um-customer-tag-remove {
+                        color: #4ade80;
+                    }
+
+                    :global(.dark-theme) .um-customer-item input[type="checkbox"] {
+                        outline: 1px solid #64748b;
+                        outline-offset: -1px;
+                        border-radius: 3px;
                     }
 
                     /* ── Dark Mode: Page ──────────────────── */
@@ -2261,9 +2291,7 @@
     private int lockedUsers = 0;
     private List<SecurityEvent> securityEvents = new();
 
-    // Toast
-    private string toastMessage = string.Empty;
-    private bool toastIsError = false;
+
 
     // Action menu state
     private Guid? openMenuUserId = null;
@@ -2367,12 +2395,21 @@
         }
     }
 
-    private IEnumerable<BusinessPartnerDto> FilteredCustomers =>
-        string.IsNullOrWhiteSpace(customerSearchTerm)
-            ? availableCustomers
-            : availableCustomers.Where(c =>
-                (c.CardCode?.Contains(customerSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (c.CardName?.Contains(customerSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+    private IEnumerable<BusinessPartnerDto> FilteredCustomers
+    {
+        get
+        {
+            var source = string.IsNullOrWhiteSpace(customerSearchTerm)
+                ? availableCustomers
+                : availableCustomers.Where(c =>
+                    (c.CardCode?.Contains(customerSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (c.CardName?.Contains(customerSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+
+            // Sort assigned customers to the top
+            return source.OrderByDescending(c => userModel.AssignedCustomerCodes.Contains(c.CardCode!))
+                         .ThenBy(c => c.CardCode);
+        }
+    }
 
     private void ToggleCustomer(string cardCode, bool isChecked)
     {
@@ -2411,6 +2448,8 @@
                 Id = u.Id,
                 Username = u.Username,
                 Email = u.Email,
+                FirstName = u.FirstName,
+                LastName = u.LastName,
                 Role = u.Role,
                 IsActive = u.IsActive,
                 IsLocked = u.IsLocked,
@@ -2426,7 +2465,7 @@
         }
         catch (Exception ex)
         {
-            ShowToast($"Error loading users: {ex.Message}", true);
+            Snackbar.Add($"Error loading users: {ex.Message}", Severity.Error);
         }
         finally
         {
@@ -2442,7 +2481,7 @@
         }
         catch (Exception ex)
         {
-            ShowToast($"Error loading permissions: {ex.Message}", true);
+            Snackbar.Add($"Error loading permissions: {ex.Message}", Severity.Error);
         }
     }
 
@@ -2547,12 +2586,12 @@
             if (editingUser == null)
             {
                 await UserService.CreateUserAsync(userModel);
-                ShowToast("User created successfully");
+                Snackbar.Add("User created successfully", Severity.Success);
             }
             else
             {
                 await UserService.UpdateUserAsync(editingUser.Id, userModel);
-                ShowToast("User updated successfully");
+                Snackbar.Add("User updated successfully", Severity.Success);
             }
             CloseModal();
             await LoadUsers();
@@ -2560,7 +2599,7 @@
         }
         catch (Exception ex)
         {
-            ShowToast(ex.Message, true);
+            Snackbar.Add(ex.Message, Severity.Error);
         }
         finally
         {
@@ -2624,14 +2663,14 @@
         {
             var permissions = useRoleDefaults ? new List<string>() : selectedPermissions.ToList();
             await UserService.UpdateUserPermissionsAsync(selectedUserForPermissions.Id, permissions);
-            ShowToast("Permissions updated successfully");
+            Snackbar.Add("Permissions updated successfully", Severity.Success);
             ClosePermissionsModal();
             await LoadUsers();
             await AuditService.LogAsync("UpdatePermissions", "User", selectedUserForPermissions.Username);
         }
         catch (Exception ex)
         {
-            ShowToast(ex.Message, true);
+            Snackbar.Add(ex.Message, Severity.Error);
         }
         finally
         {
@@ -2644,14 +2683,14 @@
         try
         {
             await UserService.UnlockUserAsync(user.Id);
-            ShowToast($"User {user.Username} unlocked successfully");
+            Snackbar.Add($"User {user.Username} unlocked successfully", Severity.Success);
             await LoadUsers();
             await LoadSecurityStats();
             await AuditService.LogAsync("UnlockUser", "User", user.Username);
         }
         catch (Exception ex)
         {
-            ShowToast(ex.Message, true);
+            Snackbar.Add(ex.Message, Severity.Error);
         }
     }
 
@@ -2663,14 +2702,14 @@
         try
         {
             await UserService.ResetTwoFactorAsync(user.Id);
-            ShowToast($"Two-factor authentication reset for {user.Username}");
+            Snackbar.Add($"Two-factor authentication reset for {user.Username}", Severity.Success);
             await LoadUsers();
             await LoadSecurityStats();
             await AuditService.LogAsync("ResetTwoFactor", "User", user.Username);
         }
         catch (Exception ex)
         {
-            ShowToast(ex.Message, true);
+            Snackbar.Add(ex.Message, Severity.Error);
         }
     }
 
@@ -2682,13 +2721,13 @@
         try
         {
             await UserService.DeactivateUserAsync(user.Id);
-            ShowToast($"User {user.Username} deactivated successfully");
+            Snackbar.Add($"User {user.Username} deactivated successfully", Severity.Success);
             await LoadUsers();
             await AuditService.LogAsync("DeactivateUser", "User", user.Username);
         }
         catch (Exception ex)
         {
-            ShowToast(ex.Message, true);
+            Snackbar.Add(ex.Message, Severity.Error);
         }
     }
 
@@ -2714,13 +2753,13 @@
         {
             var username = resetPasswordUser.Username;
             await UserService.ChangePasswordAsync(resetPasswordUser.Id, resetPasswordModel.NewPassword!);
-            ShowToast($"Password reset for {username}");
+            Snackbar.Add($"Password reset for {username}", Severity.Success);
             CloseResetPasswordModal();
             await AuditService.LogAsync("ResetPassword", "User", username);
         }
         catch (Exception ex)
         {
-            ShowToast(ex.Message, true);
+            Snackbar.Add(ex.Message, Severity.Error);
         }
         finally
         {
@@ -2748,7 +2787,7 @@
         try
         {
             await UserService.DeleteUserAsync(deleteTargetUser.Id);
-            ShowToast($"User {deleteTargetUser.Username} deleted permanently");
+            Snackbar.Add($"User {deleteTargetUser.Username} deleted permanently", Severity.Success);
             CloseDeleteConfirmModal();
             await LoadUsers();
             await LoadSecurityStats();
@@ -2756,7 +2795,7 @@
         }
         catch (Exception ex)
         {
-            ShowToast(ex.Message, true);
+            Snackbar.Add(ex.Message, Severity.Error);
         }
         finally
         {
@@ -2779,29 +2818,17 @@
                 AssignedCustomerCodes = new List<string>(user.AssignedCustomerCodes)
             };
             await UserService.UpdateUserAsync(user.Id, form);
-            ShowToast($"User {user.Username} activated successfully");
+            Snackbar.Add($"User {user.Username} activated successfully", Severity.Success);
             await LoadUsers();
             await AuditService.LogAsync("ActivateUser", "User", user.Username);
         }
         catch (Exception ex)
         {
-            ShowToast(ex.Message, true);
+            Snackbar.Add(ex.Message, Severity.Error);
         }
     }
 
-    private void ShowToast(string message, bool isError = false)
-    {
-        toastMessage = message;
-        toastIsError = isError;
-        StateHasChanged();
 
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(5000);
-            toastMessage = string.Empty;
-            await InvokeAsync(StateHasChanged);
-        });
-    }
 
     private string GetRoleBadgeClass(string role) => role switch
     {

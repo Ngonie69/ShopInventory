@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Controllers;
 
@@ -19,11 +20,13 @@ public class MerchandiserController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
     private readonly ILogger<MerchandiserController> _logger;
+    private readonly ISAPServiceLayerClient _sapClient;
 
-    public MerchandiserController(ApplicationDbContext context, ILogger<MerchandiserController> logger)
+    public MerchandiserController(ApplicationDbContext context, ILogger<MerchandiserController> logger, ISAPServiceLayerClient sapClient)
     {
         _context = context;
         _logger = logger;
+        _sapClient = sapClient;
     }
 
     /// <summary>
@@ -106,7 +109,178 @@ public class MerchandiserController : ControllerBase
     }
 
     /// <summary>
-    /// Assign products to a merchandiser
+    /// Get global merchandiser products (uniform across all merchandisers)
+    /// </summary>
+    [HttpGet("products")]
+    [ProducesResponseType(typeof(MerchandiserProductListResponseDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetGlobalProducts(CancellationToken cancellationToken)
+    {
+        // Backfill any missing item names from SAP
+        var missingNames = await _context.MerchandiserProducts
+            .Where(mp => mp.ItemName == null || mp.ItemName == "")
+            .Select(mp => mp.ItemCode)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        if (missingNames.Count > 0)
+        {
+            try
+            {
+                // Build IN clause for specific missing items - query ALL items, not just U_SalesItem='Yes'
+                var inClause = string.Join(",", missingNames.Select(c => $"'{c.Replace("'", "''")}'"));
+                var sqlText = $"SELECT T0.\"ItemCode\", T0.\"ItemName\" FROM OITM T0 WHERE T0.\"ItemCode\" IN ({inClause}) ORDER BY T0.\"ItemCode\"";
+                var rows = await _sapClient.ExecuteRawSqlQueryAsync("MerchBackfill", "Backfill Item Names", sqlText, cancellationToken);
+                var nameMap = rows
+                    .Where(r => r.GetValueOrDefault("ItemCode") != null)
+                    .ToDictionary(
+                        r => r["ItemCode"]!.ToString()!,
+                        r => r.GetValueOrDefault("ItemName")?.ToString() ?? "",
+                        StringComparer.OrdinalIgnoreCase);
+
+                var toUpdate = await _context.MerchandiserProducts
+                    .Where(mp => mp.ItemName == null || mp.ItemName == "")
+                    .ToListAsync(cancellationToken);
+
+                foreach (var mp in toUpdate)
+                {
+                    if (nameMap.TryGetValue(mp.ItemCode, out var name))
+                    {
+                        mp.ItemName = name;
+                    }
+                }
+                await _context.SaveChangesAsync(cancellationToken);
+                _logger.LogInformation("Backfilled {Count} merchandiser product names from SAP", toUpdate.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to backfill item names from SAP");
+            }
+        }
+
+        // Get distinct products across all merchandisers (they are uniform)
+        var allProducts = await _context.MerchandiserProducts
+            .AsNoTracking()
+            .OrderBy(mp => mp.ItemCode)
+            .ToListAsync(cancellationToken);
+
+        var products = allProducts
+            .GroupBy(mp => mp.ItemCode)
+            .Select(g => g.OrderByDescending(mp => mp.UpdatedAt ?? mp.CreatedAt).First())
+            .OrderBy(mp => mp.ItemCode)
+            .Select(mp => new MerchandiserProductDto
+            {
+                Id = mp.Id,
+                ItemCode = mp.ItemCode,
+                ItemName = mp.ItemName,
+                IsActive = mp.IsActive,
+                CreatedAt = mp.CreatedAt,
+                UpdatedAt = mp.UpdatedAt,
+                UpdatedBy = mp.UpdatedBy
+            })
+            .ToList();
+
+        return Ok(new MerchandiserProductListResponseDto
+        {
+            MerchandiserName = "All Merchandisers",
+            TotalCount = products.Count,
+            ActiveCount = products.Count(p => p.IsActive),
+            Products = products
+        });
+    }
+
+    /// <summary>
+    /// Get sales items from SAP for assignment
+    /// </summary>
+    [HttpGet("sap-sales-items")]
+    [ProducesResponseType(typeof(List<SapSalesItemDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetSapSalesItems(CancellationToken cancellationToken)
+    {
+        var sqlText = "SELECT T0.\"ItemCode\", T0.\"ItemName\", T0.\"U_SalesItem\" FROM OITM T0 WHERE T0.\"U_SalesItem\" ='Yes' ORDER BY T0.\"ItemCode\"";
+
+        var rows = await _sapClient.ExecuteRawSqlQueryAsync(
+            "MerchSalesItems",
+            "Merchandiser Sales Items",
+            sqlText,
+            cancellationToken);
+
+        var items = rows.Select(r => new SapSalesItemDto
+        {
+            ItemCode = r.GetValueOrDefault("ItemCode")?.ToString() ?? "",
+            ItemName = r.GetValueOrDefault("ItemName")?.ToString() ?? ""
+        }).ToList();
+
+        return Ok(items);
+    }
+
+    /// <summary>
+    /// Assign products to all merchandisers (uniform assignment)
+    /// </summary>
+    [HttpPost("products")]
+    [ProducesResponseType(typeof(MerchandiserProductListResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> AssignProductsGlobal([FromBody] AssignMerchandiserProductsRequest request, CancellationToken cancellationToken)
+    {
+        if (request.ItemCodes == null || request.ItemCodes.Count == 0)
+        {
+            return BadRequest(new { message = "At least one item code is required" });
+        }
+
+        var currentUsername = User.FindFirst(ClaimTypes.Name)?.Value ?? "system";
+
+        // Get all active merchandisers
+        var merchandiserIds = await _context.Users
+            .AsNoTracking()
+            .Where(u => u.Role == "Merchandiser" && u.IsActive)
+            .Select(u => u.Id)
+            .ToListAsync(cancellationToken);
+
+        // Use item names from request if provided, otherwise look up from local DB
+        var productNames = request.ItemNames ?? new Dictionary<string, string>();
+        if (productNames.Count == 0)
+        {
+            try
+            {
+                productNames = await _context.Products
+                    .AsNoTracking()
+                    .Where(p => request.ItemCodes.Contains(p.ItemCode))
+                    .ToDictionaryAsync(p => p.ItemCode, p => p.ItemName ?? "", cancellationToken);
+            }
+            catch { /* proceed without names */ }
+        }
+
+        int totalAdded = 0;
+        foreach (var merchandiserId in merchandiserIds)
+        {
+            var existing = await _context.MerchandiserProducts
+                .Where(mp => mp.MerchandiserUserId == merchandiserId)
+                .Select(mp => mp.ItemCode)
+                .ToListAsync(cancellationToken);
+
+            var newCodes = request.ItemCodes.Except(existing).ToList();
+
+            var newEntities = newCodes.Select(code => new MerchandiserProductEntity
+            {
+                MerchandiserUserId = merchandiserId,
+                ItemCode = code,
+                ItemName = productNames.GetValueOrDefault(code),
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedBy = currentUsername
+            }).ToList();
+
+            _context.MerchandiserProducts.AddRange(newEntities);
+            totalAdded += newEntities.Count;
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Assigned {Count} products to {MerchCount} merchandisers", request.ItemCodes.Count, merchandiserIds.Count);
+
+        return await GetGlobalProducts(cancellationToken);
+    }
+
+    /// <summary>
+    /// Assign products to a specific merchandiser (legacy)
     /// </summary>
     [HttpPost("{userId:guid}/products")]
     [ProducesResponseType(typeof(MerchandiserProductListResponseDto), StatusCodes.Status200OK)]
@@ -163,7 +337,54 @@ public class MerchandiserController : ControllerBase
     }
 
     /// <summary>
-    /// Update product active/inactive status for a merchandiser
+    /// Remove products from all merchandisers globally
+    /// </summary>
+    [HttpDelete("products")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> RemoveProductsGlobal([FromBody] AssignMerchandiserProductsRequest request, CancellationToken cancellationToken)
+    {
+        var products = await _context.MerchandiserProducts
+            .Where(mp => request.ItemCodes.Contains(mp.ItemCode))
+            .ToListAsync(cancellationToken);
+
+        _context.MerchandiserProducts.RemoveRange(products);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Removed {Count} product records globally for {ItemCount} items", products.Count, request.ItemCodes.Count);
+
+        return Ok(new { message = $"{request.ItemCodes.Count} products removed from all merchandisers" });
+    }
+
+    /// <summary>
+    /// Update product active/inactive status globally for all merchandisers
+    /// </summary>
+    [HttpPut("products/status")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> UpdateProductStatusGlobal([FromBody] UpdateMerchandiserProductStatusRequest request, CancellationToken cancellationToken)
+    {
+        var currentUsername = User.FindFirst(ClaimTypes.Name)?.Value ?? "system";
+
+        var products = await _context.MerchandiserProducts
+            .Where(mp => request.ItemCodes.Contains(mp.ItemCode))
+            .ToListAsync(cancellationToken);
+
+        foreach (var product in products)
+        {
+            product.IsActive = request.IsActive;
+            product.UpdatedAt = DateTime.UtcNow;
+            product.UpdatedBy = currentUsername;
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Updated {Count} product records to {Status} globally",
+            products.Count, request.IsActive ? "active" : "inactive");
+
+        return Ok(new { message = $"{request.ItemCodes.Count} products updated to {(request.IsActive ? "active" : "inactive")} for all merchandisers" });
+    }
+
+    /// <summary>
+    /// Update product active/inactive status for a specific merchandiser (legacy)
     /// </summary>
     [HttpPut("{userId:guid}/products/status")]
     [ProducesResponseType(StatusCodes.Status200OK)]

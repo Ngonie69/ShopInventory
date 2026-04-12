@@ -117,12 +117,18 @@ public class UserManagementService : IUserManagementService
 
         var totalCount = await query.CountAsync();
 
-        var users = await query
+        var entities = await query
             .OrderBy(u => u.Username)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(u => MapToUserDetailDto(u))
             .ToListAsync();
+
+        foreach (var e in entities.Where(u => u.Role == "Merchandiser"))
+        {
+            _logger.LogInformation("GetUsersAsync - {User} raw AssignedCustomerCodes: {Raw}", e.Username, e.AssignedCustomerCodes ?? "NULL");
+        }
+
+        var users = entities.Select(u => MapToUserDetailDto(u)).ToList();
 
         return new PagedResult<UserDetailDto>
         {
@@ -283,7 +289,11 @@ public class UserManagementService : IUserManagementService
         if (request.AssignedCustomerCodes != null)
         {
             if (user.Role == "Merchandiser")
+            {
+                _logger.LogInformation("Setting customer codes for {User}: {Codes}", user.Username, string.Join(",", request.AssignedCustomerCodes));
                 user.SetCustomerCodes(request.AssignedCustomerCodes);
+                _logger.LogInformation("After SetCustomerCodes, raw value: {Raw}", user.AssignedCustomerCodes ?? "NULL");
+            }
             else
                 user.SetCustomerCodes(null);
         }
@@ -339,7 +349,13 @@ public class UserManagementService : IUserManagementService
         }
 
         user.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
+
+        // Explicitly mark AssignedCustomerCodes as modified to ensure EF Core includes it in the UPDATE
+        _context.Entry(user).Property(u => u.AssignedCustomerCodes).IsModified = true;
+
+        var saved = await _context.SaveChangesAsync();
+        _logger.LogInformation("SaveChangesAsync returned {Count} for user {User}. AssignedCustomerCodes after save: {Raw}",
+            saved, user.Username, user.AssignedCustomerCodes ?? "NULL");
         InvalidateEffectivePermissionsCache(userId);
 
         _logger.LogInformation("User {UserId} updated", userId);

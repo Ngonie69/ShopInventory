@@ -36,6 +36,11 @@ public class AssignMerchandiserProductsRequest
     /// List of item codes to assign
     /// </summary>
     public List<string> ItemCodes { get; set; } = new();
+
+    /// <summary>
+    /// Optional dictionary of item code to item name for bulk assignment
+    /// </summary>
+    public Dictionary<string, string>? ItemNames { get; set; }
 }
 
 /// <summary>
@@ -80,4 +85,13 @@ public class MerchandiserActiveProductDto
     public decimal Price { get; set; }
     public string? UoM { get; set; }
     public decimal QuantityOnStock { get; set; }
+}
+
+/// <summary>
+/// Sales item from SAP for merchandiser assignment
+/// </summary>
+public class SapSalesItemDto
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public string ItemName { get; set; } = string.Empty;
 }

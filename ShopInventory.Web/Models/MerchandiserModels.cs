@@ -75,4 +75,13 @@ public class MerchandiserSummaryDto
     public string FullName => $"{FirstName} {LastName}".Trim();
 }
 
+public class SapSalesItemDto
+{
+    [JsonPropertyName("itemCode")]
+    public string ItemCode { get; set; } = string.Empty;
+
+    [JsonPropertyName("itemName")]
+    public string ItemName { get; set; } = string.Empty;
+}
+
 #endregion

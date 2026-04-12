@@ -29,7 +29,7 @@ Write-Host ""
 # Get credentials for production server if not provided
 if (-not $Credential) {
     # Use hardcoded credentials for production server
-    $securePassword = ConvertTo-SecureString "C@llofduty69?!" -AsPlainText -Force
+    $securePassword = ConvertTo-SecureString "P@ssword1#" -AsPlainText -Force
     $Credential = New-Object System.Management.Automation.PSCredential("KEFALOS\Ngoni.Mutambirwa", $securePassword)
     Write-Host "Using stored credentials for KEFALOS\Ngoni.Mutambirwa" -ForegroundColor Green
     Write-Host ""

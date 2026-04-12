@@ -1,9 +1,9 @@
 @page "/merchandiser-products"
 @attribute [Authorize(Roles = "Admin")]
 @inject IMerchandiserService MerchandiserService
-@inject IMasterDataCacheService MasterDataCache
 @inject IAuditService AuditService
 @inject AuthenticationStateProvider AuthStateProvider
+@inject ISnackbar Snackbar
 
 <PageTitle>Merchandiser Products</PageTitle>
 
@@ -84,10 +84,7 @@
     .mp-spinner { display: inline-block; width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top-color: #6366f1; border-radius: 50%; animation: mp-spin .6s linear infinite; }
     @@keyframes mp-spin { to { transform: rotate(360deg); } }
 
-    .mp-toast { position: fixed; top: 1.5rem; right: 1.5rem; padding: .75rem 1.25rem; border-radius: 10px; font-size: .85rem; font-weight: 500; z-index: 9999; box-shadow: 0 4px 12px rgba(0,0,0,.15); animation: mp-slideIn .3s ease; }
-    .mp-toast.success { background: #059669; color: #fff; }
-    .mp-toast.error { background: #dc2626; color: #fff; }
-    @@keyframes mp-slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
 
     /* Assign modal */
     .mp-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 1000; display: flex; align-items: center; justify-content: center; }
@@ -124,6 +121,7 @@
     .dark-theme .mp-merch-badge.gray { background: #334155; color: #94a3b8; }
     .dark-theme .mp-product-row { border-color: #334155; }
     .dark-theme .mp-product-row:hover { background: #334155; }
+    .dark-theme .mp-product-check { outline: 1px solid #64748b; outline-offset: -1px; border-radius: 3px; }
     .dark-theme .mp-product-code { color: #e2e8f0; }
     .dark-theme .mp-product-name { color: #cbd5e1; }
     .dark-theme .mp-toolbar { background: #0f172a; border-color: #334155; }
@@ -151,11 +149,6 @@
     }
 </style>
 
-@if (!string.IsNullOrEmpty(toastMessage))
-{
-    <div class="mp-toast @(toastIsError ? "error" : "success")">@toastMessage</div>
-}
-
 <div class="mp-container">
     <div class="mp-header">
         <h1><i class="bi bi-person-badge"></i> Merchandiser Products</h1>
@@ -181,14 +174,14 @@
             <div class="mp-stat-card">
                 <div class="mp-stat-icon blue"><i class="bi bi-box-seam-fill"></i></div>
                 <div>
-                    <div class="mp-stat-value">@merchandisers.Sum(m => m.TotalProducts)</div>
+                    <div class="mp-stat-value">@(productResponse?.TotalCount ?? 0)</div>
                     <div class="mp-stat-label">Total Assigned Products</div>
                 </div>
             </div>
             <div class="mp-stat-card">
                 <div class="mp-stat-icon green"><i class="bi bi-check-circle-fill"></i></div>
                 <div>
-                    <div class="mp-stat-value">@merchandisers.Sum(m => m.ActiveProducts)</div>
+                    <div class="mp-stat-value">@(productResponse?.ActiveCount ?? 0)</div>
                     <div class="mp-stat-label">Active Products</div>
                 </div>
             </div>
@@ -220,8 +213,7 @@
                         @foreach (var m in merchandisers)
                         {
                             var initials = GetInitials(m);
-                            <div class="mp-merch-item @(selectedMerchandiser?.UserId == m.UserId ? "active" : "")"
-                                 @onclick="() => SelectMerchandiser(m)">
+                            <div class="mp-merch-item">
                                 <div class="mp-merch-avatar">@initials</div>
                                 <div class="mp-merch-info">
                                     <div class="mp-merch-name">@(string.IsNullOrEmpty(m.FullName) ? m.Username : m.FullName)</div>
@@ -236,96 +228,92 @@
                 </div>
             </div>
 
-            <!-- Product Management Area -->
+            <!-- Product Management Area (Global) -->
             <div class="mp-main">
-                @if (selectedMerchandiser == null)
+                <div class="mp-main-header">
+                    <div class="mp-main-title">
+                        <i class="bi bi-box-seam me-1"></i>
+                        Products for All Merchandisers
+                        <span style="font-weight: 400; color: #94a3b8; font-size: .82rem; margin-left: .5rem;">
+                            (@(productResponse?.ActiveCount ?? 0) / @(productResponse?.TotalCount ?? 0) active)
+                        </span>
+                    </div>
+                    <div class="mp-main-actions">
+                        <button class="mp-btn mp-btn-primary" @onclick="ShowAssignModal" disabled="@isLoadingProducts">
+                            <i class="bi bi-plus-lg"></i> Assign Products
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mp-toolbar">
+                    <input type="text" class="mp-search" placeholder="Search products..."
+                           @bind="productSearchTerm" @bind:event="oninput" />
+                    <button class="mp-filter-btn @(statusFilter == "" ? "active" : "")" @onclick='() => statusFilter = ""'>All</button>
+                    <button class="mp-filter-btn @(statusFilter == "active" ? "active" : "")" @onclick='() => statusFilter = "active"'>Active</button>
+                    <button class="mp-filter-btn @(statusFilter == "inactive" ? "active" : "")" @onclick='() => statusFilter = "inactive"'>Inactive</button>
+
+                    @if (selectedProductCodes.Count > 0)
+                    {
+                        <span style="margin-left: auto; font-size: .8rem; color: #6366f1; font-weight: 500;">@selectedProductCodes.Count selected</span>
+                        <button class="mp-btn mp-btn-success" @onclick="ActivateSelected" disabled="@isSaving">
+                            <i class="bi bi-check-lg"></i> Activate
+                        </button>
+                        <button class="mp-btn mp-btn-danger" @onclick="DeactivateSelected" disabled="@isSaving">
+                            <i class="bi bi-x-lg"></i> Deactivate
+                        </button>
+                        <button class="mp-btn mp-btn-ghost" style="color: #dc2626; border-color: #fca5a5;" @onclick="RemoveSelected" disabled="@isSaving">
+                            <i class="bi bi-trash"></i> Remove
+                        </button>
+                    }
+                </div>
+
+                @if (isLoadingProducts)
                 {
-                    <div class="mp-empty" style="padding: 4rem;">
-                        <i class="bi bi-hand-index"></i>
-                        <p>Select a merchandiser to manage their products</p>
+                    <div class="mp-loading">
+                        <div class="mp-spinner"></div>
+                    </div>
+                }
+                else if (productResponse == null || productResponse.Products.Count == 0)
+                {
+                    <div class="mp-empty">
+                        <i class="bi bi-inbox"></i>
+                        <p>No products assigned yet. Click "Assign Products" to add products.</p>
                     </div>
                 }
                 else
                 {
-                    <div class="mp-main-header">
-                        <div class="mp-main-title">
-                            <i class="bi bi-box-seam me-1"></i>
-                            Products for @(string.IsNullOrEmpty(selectedMerchandiser.FullName) ? selectedMerchandiser.Username : selectedMerchandiser.FullName)
-                            <span style="font-weight: 400; color: #94a3b8; font-size: .82rem; margin-left: .5rem;">
-                                (@productResponse?.ActiveCount / @productResponse?.TotalCount active)
-                            </span>
-                        </div>
-                        <div class="mp-main-actions">
-                            <button class="mp-btn mp-btn-primary" @onclick="ShowAssignModal" disabled="@isLoadingProducts">
-                                <i class="bi bi-plus-lg"></i> Assign Products
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="mp-toolbar">
-                        <input type="text" class="mp-search" placeholder="Search products..."
-                               @bind="productSearchTerm" @bind:event="oninput" />
-                        <button class="mp-filter-btn @(statusFilter == "" ? "active" : "")" @onclick='() => statusFilter = ""'>All</button>
-                        <button class="mp-filter-btn @(statusFilter == "active" ? "active" : "")" @onclick='() => statusFilter = "active"'>Active</button>
-                        <button class="mp-filter-btn @(statusFilter == "inactive" ? "active" : "")" @onclick='() => statusFilter = "inactive"'>Inactive</button>
-
-                        @if (selectedProductCodes.Count > 0)
+                    <div class="mp-product-list">
+                        @foreach (var product in FilteredProducts)
                         {
-                            <span style="margin-left: auto; font-size: .8rem; color: #6366f1; font-weight: 500;">@selectedProductCodes.Count selected</span>
-                            <button class="mp-btn mp-btn-success" @onclick="ActivateSelected" disabled="@isSaving">
-                                <i class="bi bi-check-lg"></i> Activate
-                            </button>
-                            <button class="mp-btn mp-btn-danger" @onclick="DeactivateSelected" disabled="@isSaving">
-                                <i class="bi bi-x-lg"></i> Deactivate
-                            </button>
+                            var isSelected = selectedProductCodes.Contains(product.ItemCode);
+                            <div class="mp-product-row">
+                                <input type="checkbox" class="mp-product-check"
+                                       checked="@isSelected"
+                                       @onchange="(e) => ToggleProductSelection(product.ItemCode, (bool)(e.Value ?? false))" />
+                                <span class="mp-product-code">@product.ItemCode</span>
+                                <span class="mp-product-name">@product.ItemName</span>
+                                <span class="mp-product-status @(product.IsActive ? "active" : "inactive")">
+                                    <i class="bi @(product.IsActive ? "bi-check-circle-fill" : "bi-x-circle-fill")"></i>
+                                    @(product.IsActive ? "Active" : "Inactive")
+                                </span>
+                                @if (product.IsActive)
+                                {
+                                    <button class="mp-product-action deactivate" @onclick="() => ToggleSingleProduct(product.ItemCode, false)">
+                                        Deactivate
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button class="mp-product-action activate" @onclick="() => ToggleSingleProduct(product.ItemCode, true)">
+                                        Activate
+                                    </button>
+                                }
+                                <button class="mp-product-action deactivate" style="font-size: .7rem; padding: .2rem .4rem;" @onclick="() => RemoveSingleProduct(product.ItemCode)" title="Remove">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
                         }
                     </div>
-
-                    @if (isLoadingProducts)
-                    {
-                        <div class="mp-loading">
-                            <div class="mp-spinner"></div>
-                        </div>
-                    }
-                    else if (productResponse == null || productResponse.Products.Count == 0)
-                    {
-                        <div class="mp-empty">
-                            <i class="bi bi-inbox"></i>
-                            <p>No products assigned yet. Click "Assign Products" to add products.</p>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="mp-product-list">
-                            @foreach (var product in FilteredProducts)
-                            {
-                                var isSelected = selectedProductCodes.Contains(product.ItemCode);
-                                <div class="mp-product-row">
-                                    <input type="checkbox" class="mp-product-check"
-                                           checked="@isSelected"
-                                           @onchange="(e) => ToggleProductSelection(product.ItemCode, (bool)(e.Value ?? false))" />
-                                    <span class="mp-product-code">@product.ItemCode</span>
-                                    <span class="mp-product-name">@product.ItemName</span>
-                                    <span class="mp-product-status @(product.IsActive ? "active" : "inactive")">
-                                        <i class="bi @(product.IsActive ? "bi-check-circle-fill" : "bi-x-circle-fill")"></i>
-                                        @(product.IsActive ? "Active" : "Inactive")
-                                    </span>
-                                    @if (product.IsActive)
-                                    {
-                                        <button class="mp-product-action deactivate" @onclick="() => ToggleSingleProduct(product.ItemCode, false)">
-                                            Deactivate
-                                        </button>
-                                    }
-                                    else
-                                    {
-                                        <button class="mp-product-action activate" @onclick="() => ToggleSingleProduct(product.ItemCode, true)">
-                                            Activate
-                                        </button>
-                                    }
-                                </div>
-                            }
-                        </div>
-                    }
                 }
             </div>
         </div>
@@ -372,11 +360,11 @@
                     <div class="mp-assign-list">
                         @foreach (var product in FilteredAssignableProducts)
                         {
-                            var isChecked = assignSelectedCodes.Contains(product.ItemCode!);
+                            var isChecked = assignSelectedCodes.Contains(product.ItemCode);
                             <div class="mp-assign-item">
                                 <label>
                                     <input type="checkbox" checked="@isChecked"
-                                           @onchange="(e) => ToggleAssignProduct(product.ItemCode!, (bool)(e.Value ?? false))"
+                                           @onchange="(e) => ToggleAssignProduct(product.ItemCode, (bool)(e.Value ?? false))"
                                            style="accent-color: #6366f1;" />
                                     <strong>@product.ItemCode</strong> - @product.ItemName
                                 </label>
@@ -405,7 +393,6 @@
 
 @code {
     private List<MerchandiserSummaryDto> merchandisers = new();
-    private MerchandiserSummaryDto? selectedMerchandiser;
     private MerchandiserProductListResponse? productResponse;
 
     private bool isLoading = true;
@@ -420,12 +407,8 @@
     private bool isLoadingAssignProducts = false;
     private string assignSearchTerm = string.Empty;
     private HashSet<string> assignSelectedCodes = new();
-    private List<ProductDto> allProducts = new();
+    private List<SapSalesItemDto> allSalesItems = new();
     private string assignLoadError = string.Empty;
-
-    // Toast
-    private string toastMessage = string.Empty;
-    private bool toastIsError = false;
 
     private bool _hasLoadedData = false;
 
@@ -436,6 +419,7 @@
             _hasLoadedData = true;
             await AuthStateProvider.GetAuthenticationStateAsync();
             await LoadMerchandisers();
+            await LoadGlobalProducts();
             StateHasChanged();
         }
     }
@@ -449,7 +433,7 @@
         }
         catch (Exception ex)
         {
-            ShowToast($"Error loading merchandisers: {ex.Message}", true);
+            Snackbar.Add($"Error loading merchandisers: {ex.Message}", Severity.Error);
         }
         finally
         {
@@ -457,27 +441,16 @@
         }
     }
 
-    private async Task SelectMerchandiser(MerchandiserSummaryDto merchandiser)
+    private async Task LoadGlobalProducts()
     {
-        selectedMerchandiser = merchandiser;
-        selectedProductCodes.Clear();
-        productSearchTerm = string.Empty;
-        statusFilter = string.Empty;
-        await LoadMerchandiserProducts();
-    }
-
-    private async Task LoadMerchandiserProducts()
-    {
-        if (selectedMerchandiser == null) return;
-
         isLoadingProducts = true;
         try
         {
-            productResponse = await MerchandiserService.GetMerchandiserProductsAsync(selectedMerchandiser.UserId);
+            productResponse = await MerchandiserService.GetGlobalProductsAsync();
         }
         catch (Exception ex)
         {
-            ShowToast($"Error loading products: {ex.Message}", true);
+            Snackbar.Add($"Error loading products: {ex.Message}", Severity.Error);
         }
         finally
         {
@@ -519,20 +492,72 @@
 
     private async Task ToggleSingleProduct(string itemCode, bool isActive)
     {
-        if (selectedMerchandiser == null) return;
+        isSaving = true;
+        try
+        {
+            await MerchandiserService.UpdateProductStatusGlobalAsync(new List<string> { itemCode }, isActive);
+            // Update local state without reloading
+            var p = productResponse?.Products.FirstOrDefault(x => x.ItemCode == itemCode);
+            if (p != null) p.IsActive = isActive;
+            RecalculateCounts();
+            Snackbar.Add($"{itemCode} {(isActive ? "activated" : "deactivated")}", Severity.Success);
+            await RefreshMerchandiserSummary();
+            await AuditService.LogAsync(isActive ? "ActivateMerchandiserProduct" : "DeactivateMerchandiserProduct", "MerchandiserProduct", $"Global: {itemCode}");
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task RemoveSingleProduct(string itemCode)
+    {
+        isSaving = true;
+        try
+        {
+            await MerchandiserService.RemoveProductsGlobalAsync(new List<string> { itemCode });
+            // Remove from local state without reloading
+            productResponse?.Products.RemoveAll(x => x.ItemCode == itemCode);
+            RecalculateCounts();
+            selectedProductCodes.Remove(itemCode);
+            Snackbar.Add($"{itemCode} removed", Severity.Success);
+            await RefreshMerchandiserSummary();
+            await AuditService.LogAsync("RemoveMerchandiserProduct", "MerchandiserProduct", $"Global: {itemCode}");
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task RemoveSelected()
+    {
+        if (selectedProductCodes.Count == 0) return;
 
         isSaving = true;
         try
         {
-            await MerchandiserService.UpdateProductStatusAsync(selectedMerchandiser.UserId, new List<string> { itemCode }, isActive);
-            ShowToast($"{itemCode} {(isActive ? "activated" : "deactivated")}");
-            await LoadMerchandiserProducts();
+            var codesToRemove = selectedProductCodes.ToList();
+            await MerchandiserService.RemoveProductsGlobalAsync(codesToRemove);
+            // Remove from local state without reloading
+            productResponse?.Products.RemoveAll(x => codesToRemove.Contains(x.ItemCode));
+            RecalculateCounts();
+            Snackbar.Add($"{codesToRemove.Count} products removed", Severity.Success);
+            await AuditService.LogAsync("RemoveMerchandiserProducts", "MerchandiserProduct", $"Global: {codesToRemove.Count} products");
+            selectedProductCodes.Clear();
             await RefreshMerchandiserSummary();
-            await AuditService.LogAsync(isActive ? "ActivateMerchandiserProduct" : "DeactivateMerchandiserProduct", "MerchandiserProduct", $"{selectedMerchandiser.Username}: {itemCode}");
         }
         catch (Exception ex)
         {
-            ShowToast(ex.Message, true);
+            Snackbar.Add(ex.Message, Severity.Error);
         }
         finally
         {
@@ -542,20 +567,27 @@
 
     private async Task ActivateSelected()
     {
-        if (selectedMerchandiser == null || selectedProductCodes.Count == 0) return;
+        if (selectedProductCodes.Count == 0) return;
 
         isSaving = true;
         try
         {
-            await MerchandiserService.UpdateProductStatusAsync(selectedMerchandiser.UserId, selectedProductCodes.ToList(), true);
-            ShowToast($"{selectedProductCodes.Count} products activated");
+            var activateCodes = selectedProductCodes.ToList();
+            await MerchandiserService.UpdateProductStatusGlobalAsync(activateCodes, true);
+            // Update local state without reloading
+            foreach (var code in activateCodes)
+            {
+                var prod = productResponse?.Products.FirstOrDefault(x => x.ItemCode == code);
+                if (prod != null) prod.IsActive = true;
+            }
+            RecalculateCounts();
+            Snackbar.Add($"{activateCodes.Count} products activated", Severity.Success);
             selectedProductCodes.Clear();
-            await LoadMerchandiserProducts();
             await RefreshMerchandiserSummary();
         }
         catch (Exception ex)
         {
-            ShowToast(ex.Message, true);
+            Snackbar.Add(ex.Message, Severity.Error);
         }
         finally
         {
@@ -565,20 +597,27 @@
 
     private async Task DeactivateSelected()
     {
-        if (selectedMerchandiser == null || selectedProductCodes.Count == 0) return;
+        if (selectedProductCodes.Count == 0) return;
 
         isSaving = true;
         try
         {
-            await MerchandiserService.UpdateProductStatusAsync(selectedMerchandiser.UserId, selectedProductCodes.ToList(), false);
-            ShowToast($"{selectedProductCodes.Count} products deactivated");
+            var deactivateCodes = selectedProductCodes.ToList();
+            await MerchandiserService.UpdateProductStatusGlobalAsync(deactivateCodes, false);
+            // Update local state without reloading
+            foreach (var code in deactivateCodes)
+            {
+                var prod = productResponse?.Products.FirstOrDefault(x => x.ItemCode == code);
+                if (prod != null) prod.IsActive = false;
+            }
+            RecalculateCounts();
+            Snackbar.Add($"{deactivateCodes.Count} products deactivated", Severity.Success);
             selectedProductCodes.Clear();
-            await LoadMerchandiserProducts();
             await RefreshMerchandiserSummary();
         }
         catch (Exception ex)
         {
-            ShowToast(ex.Message, true);
+            Snackbar.Add(ex.Message, Severity.Error);
         }
         finally
         {
@@ -596,26 +635,20 @@
         showAssignModal = true;
         StateHasChanged();
 
-        // Load all products from cache
+        // Load sales items from SAP
         try
         {
-            allProducts = await MasterDataCache.GetProductsAsync();
+            allSalesItems = await MerchandiserService.GetSapSalesItemsAsync();
 
-            // If cache is empty, force a refresh from API
-            if (allProducts.Count == 0)
+            if (allSalesItems.Count == 0)
             {
-                allProducts = await MasterDataCache.GetProductsAsync(forceRefresh: true);
-            }
-
-            if (allProducts.Count == 0)
-            {
-                assignLoadError = "No products found in the system. Please sync products first.";
+                assignLoadError = "No sales items found in SAP.";
             }
         }
         catch (Exception ex)
         {
-            allProducts = new();
-            assignLoadError = $"Failed to load products: {ex.Message}";
+            allSalesItems = new();
+            assignLoadError = $"Failed to load sales items from SAP: {ex.Message}";
         }
         finally
         {
@@ -628,22 +661,21 @@
         showAssignModal = false;
     }
 
-    private IEnumerable<ProductDto> FilteredAssignableProducts
+    private IEnumerable<SapSalesItemDto> FilteredAssignableProducts
     {
         get
         {
-            // Exclude already assigned products and show only sales items (itItems)
+            // Exclude already assigned products
             var assignedCodes = productResponse?.Products.Select(p => p.ItemCode).ToHashSet() ?? new();
 
-            var products = allProducts
-                .Where(p => !assignedCodes.Contains(p.ItemCode ?? ""))
-                .Where(p => string.IsNullOrEmpty(p.ItemType) || p.ItemType == "itItems");
+            var products = allSalesItems
+                .Where(p => !assignedCodes.Contains(p.ItemCode));
 
             if (!string.IsNullOrWhiteSpace(assignSearchTerm))
             {
                 products = products.Where(p =>
-                    (p.ItemCode?.Contains(assignSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                    (p.ItemName?.Contains(assignSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+                    p.ItemCode.Contains(assignSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                    p.ItemName.Contains(assignSearchTerm, StringComparison.OrdinalIgnoreCase));
             }
 
             return products;
@@ -664,8 +696,7 @@
         {
             foreach (var p in FilteredAssignableProducts)
             {
-                if (p.ItemCode != null)
-                    assignSelectedCodes.Add(p.ItemCode);
+                assignSelectedCodes.Add(p.ItemCode);
             }
         }
         else
@@ -676,21 +707,26 @@
 
     private async Task AssignSelectedProducts()
     {
-        if (selectedMerchandiser == null || assignSelectedCodes.Count == 0) return;
+        if (assignSelectedCodes.Count == 0) return;
 
         isSaving = true;
         try
         {
-            await MerchandiserService.AssignProductsAsync(selectedMerchandiser.UserId, assignSelectedCodes.ToList());
-            ShowToast($"{assignSelectedCodes.Count} products assigned");
+            // Build item names dictionary from loaded sales items
+            var itemNames = allSalesItems
+                .Where(p => assignSelectedCodes.Contains(p.ItemCode))
+                .ToDictionary(p => p.ItemCode, p => p.ItemName);
+
+            await MerchandiserService.AssignProductsGlobalAsync(assignSelectedCodes.ToList(), itemNames);
+            Snackbar.Add($"{assignSelectedCodes.Count} products assigned to all merchandisers", Severity.Success);
             CloseAssignModal();
-            await LoadMerchandiserProducts();
+            await LoadGlobalProducts();
             await RefreshMerchandiserSummary();
-            await AuditService.LogAsync("AssignMerchandiserProducts", "MerchandiserProduct", $"{selectedMerchandiser.Username}: {assignSelectedCodes.Count} products");
+            await AuditService.LogAsync("AssignMerchandiserProducts", "MerchandiserProduct", $"Global: {assignSelectedCodes.Count} products");
         }
         catch (Exception ex)
         {
-            ShowToast(ex.Message, true);
+            Snackbar.Add(ex.Message, Severity.Error);
         }
         finally
         {
@@ -703,12 +739,15 @@
         try
         {
             merchandisers = await MerchandiserService.GetMerchandisersAsync();
-            if (selectedMerchandiser != null)
-            {
-                selectedMerchandiser = merchandisers.FirstOrDefault(m => m.UserId == selectedMerchandiser.UserId);
-            }
         }
         catch { }
+    }
+
+    private void RecalculateCounts()
+    {
+        if (productResponse == null) return;
+        productResponse.TotalCount = productResponse.Products.Count;
+        productResponse.ActiveCount = productResponse.Products.Count(p => p.IsActive);
     }
 
     private string GetInitials(MerchandiserSummaryDto m)
@@ -716,19 +755,5 @@
         var first = m.FirstName?.FirstOrDefault().ToString().ToUpper() ?? "";
         var last = m.LastName?.FirstOrDefault().ToString().ToUpper() ?? "";
         return string.IsNullOrEmpty(first + last) ? m.Username[..1].ToUpper() : first + last;
-    }
-
-    private void ShowToast(string message, bool isError = false)
-    {
-        toastMessage = message;
-        toastIsError = isError;
-        StateHasChanged();
-
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(4000);
-            toastMessage = string.Empty;
-            await InvokeAsync(StateHasChanged);
-        });
     }
 }
