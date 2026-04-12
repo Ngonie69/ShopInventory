@@ -107,20 +107,30 @@ public class AuthController : ControllerBase
     [Authorize]
     [ProducesResponseType(typeof(UserInfo), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public IActionResult GetCurrentUser()
+    public async Task<IActionResult> GetCurrentUser()
     {
         var username = User.Identity?.Name;
-        var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
 
         if (string.IsNullOrEmpty(username))
         {
             return Unauthorized();
         }
 
+        var user = await _authService.GetUserByUsernameAsync(username);
+        if (user == null)
+        {
+            return Unauthorized();
+        }
+
         return Ok(new UserInfo
         {
-            Username = username,
-            Role = role ?? "Cashier"
+            Username = user.Username,
+            Role = user.Role,
+            Email = user.Email,
+            AssignedWarehouseCode = user.AssignedWarehouseCode,
+            AssignedWarehouseCodes = user.GetWarehouseCodes(),
+            AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
+            AssignedCustomerCodes = user.GetCustomerCodes()
         });
     }
 
