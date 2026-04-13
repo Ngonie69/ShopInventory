@@ -330,6 +330,229 @@
             grid-column: span 1;
         }
     }
+
+    /* ── Dark Mode ───────────────────────────────────── */
+    .dark-theme .soe-page {
+        background: #0f172a;
+    }
+
+    .dark-theme .soe-breadcrumb {
+        color: #94a3b8;
+    }
+
+    .dark-theme .soe-breadcrumb .sep {
+        color: #475569;
+    }
+
+    .dark-theme .soe-header h2 {
+        color: #e2e8f0;
+    }
+
+    .dark-theme .soe-header p {
+        color: #94a3b8;
+    }
+
+    .dark-theme .btn-back {
+        background: #1e293b;
+        color: #e2e8f0;
+        border-color: #334155;
+    }
+
+    .dark-theme .btn-back:hover {
+        background: #334155;
+        border-color: #475569;
+        color: #e2e8f0;
+    }
+
+    .dark-theme .form-card {
+        background: #1e293b;
+        border-color: #334155;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .2);
+    }
+
+    .dark-theme .form-card-title {
+        color: #e2e8f0;
+    }
+
+    .dark-theme .form-field label {
+        color: #94a3b8;
+    }
+
+    .dark-theme .form-field input,
+    .dark-theme .form-field select,
+    .dark-theme .form-field textarea {
+        background: #0f172a;
+        border-color: #334155;
+        color: #e2e8f0;
+    }
+
+    .dark-theme .form-field input::placeholder,
+    .dark-theme .form-field textarea::placeholder {
+        color: #64748b;
+    }
+
+    .dark-theme .form-field input:focus,
+    .dark-theme .form-field select:focus,
+    .dark-theme .form-field textarea:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, .2);
+    }
+
+    .dark-theme .dropdown-autocomplete {
+        background: #1e293b;
+        border-color: #334155;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, .4);
+    }
+
+    .dark-theme .dropdown-item {
+        border-color: #334155;
+        color: #e2e8f0;
+    }
+
+    .dark-theme .dropdown-item:hover,
+    .dark-theme .dropdown-item.selected {
+        background: #334155;
+    }
+
+    .dark-theme .btn-secondary-action {
+        background: #1e293b;
+        color: #e2e8f0;
+        border-color: #334155;
+    }
+
+    .dark-theme .btn-secondary-action:hover {
+        background: #334155;
+        border-color: #475569;
+    }
+
+    .dark-theme .mobile-badge {
+        background: #1e3a5f;
+        color: #93c5fd;
+    }
+
+    .dark-theme .loading-state {
+        color: #94a3b8;
+    }
+
+    .dark-theme .line-items-scroll {
+        scrollbar-color: #475569 transparent;
+    }
+
+    .dark-theme .line-items-scroll::-webkit-scrollbar-thumb {
+        background: #475569;
+    }
+
+    /* Dark: inline-styled labels inside line items */
+    .dark-theme .soe-page label[style*="color:#6b7280"] {
+        color: #94a3b8 !important;
+    }
+
+    /* Dark: inline-styled inputs/selects in line items */
+    .dark-theme .soe-page input[style*="border:1px solid"],
+    .dark-theme .soe-page select[style*="border:1px solid"] {
+        background: #0f172a !important;
+        border-color: #334155 !important;
+        color: #e2e8f0 !important;
+    }
+
+    .dark-theme .soe-page input[style*="background:#f3f4f6"] {
+        background: #1e293b !important;
+        color: #94a3b8 !important;
+    }
+
+    /* Dark: line item cards */
+    .dark-theme .soe-page div[style*="background:#f8fafc"] {
+        background: #0f172a !important;
+        border-color: #334155 !important;
+    }
+
+    /* Dark: item description box */
+    .dark-theme .soe-page div[style*="background:#f0f9ff"] {
+        background: #172554 !important;
+        border-color: #1e3a5f !important;
+        color: #93c5fd !important;
+    }
+
+    /* Dark: customer box */
+    .dark-theme .soe-page div[style*="background:#f0fdf4"] {
+        background: #052e16 !important;
+        border-color: #166534 !important;
+    }
+
+    .dark-theme .soe-page div[style*="background:#f0fdf4"] div[style*="color:#065f46"],
+    .dark-theme .soe-page div[style*="background:#f0fdf4"] div[style*="color:#065f46"] * {
+        color: #86efac !important;
+    }
+
+    .dark-theme .soe-page span[style*="background:#d1fae5"] {
+        background: #166534 !important;
+        color: #86efac !important;
+    }
+
+    /* Dark: merchandiser notes */
+    .dark-theme .soe-page div[style*="background:#eff6ff"] {
+        background: #172554 !important;
+        border-color: #1e3a5f !important;
+    }
+
+    .dark-theme .soe-page div[style*="background:#eff6ff"] .form-card-title,
+    .dark-theme .soe-page div[style*="background:#eff6ff"] p[style*="color:#1e40af"] {
+        color: #93c5fd !important;
+    }
+
+    /* Dark: inline text colors */
+    .dark-theme .soe-page span[style*="color:#1a1a2e"],
+    .dark-theme .soe-page div[style*="color:#1a1a2e"] {
+        color: #e2e8f0 !important;
+    }
+
+    .dark-theme .soe-page span[style*="color:#6b7280"],
+    .dark-theme .soe-page div[style*="color:#6b7280"],
+    .dark-theme .soe-page p[style*="color:#6b7280"] {
+        color: #94a3b8 !important;
+    }
+
+    .dark-theme .soe-page span[style*="color:#9ca3af"],
+    .dark-theme .soe-page div[style*="color:#9ca3af"],
+    .dark-theme .soe-page p[style*="color:#9ca3af"] {
+        color: #64748b !important;
+    }
+
+    .dark-theme .soe-page span[style*="color:#d1d5db"] {
+        color: #475569 !important;
+    }
+
+    .dark-theme .soe-page p[style*="color:#374151"] {
+        color: #e2e8f0 !important;
+    }
+
+    /* Dark: empty state */
+    .dark-theme .soe-page div[style*="background:#f9fafb"] {
+        background: #0f172a !important;
+        border-color: #334155 !important;
+    }
+
+    /* Dark: dashed add button */
+    .dark-theme .soe-page button[style*="border:1px dashed"] {
+        border-color: #475569 !important;
+        color: #94a3b8 !important;
+    }
+
+    /* Dark: dropdown price badge */
+    .dark-theme .soe-page span[style*="background:#dbeafe"] {
+        background: #1e3a5f !important;
+        color: #93c5fd !important;
+    }
+
+    /* Dark: product dropdown item text */
+    .dark-theme .dropdown-item small[style*="color:#6b7280"] {
+        color: #94a3b8 !important;
+    }
+
+    /* Dark: loading text */
+    .dark-theme .soe-page p[style*="color:#6b7280"][style*="font-weight:500"] {
+        color: #94a3b8 !important;
+    }
 </style>
 
 <div class="soe-page">
@@ -776,9 +999,6 @@
 
             // Map SalesOrderDto to CreateSalesOrderRequest for editing
             MapOrderToEditRequest();
-
-            // Load customer price list if available
-            await LoadCustomerPriceList();
         }
         catch (Exception ex)
         {
@@ -788,6 +1008,12 @@
         finally
         {
             isLoading = false;
+        }
+
+        // Load customer prices in the background (non-blocking)
+        if (isEditable && originalOrder != null)
+        {
+            _ = LoadCustomerPriceList();
         }
     }
 
@@ -852,7 +1078,7 @@
             if (bp?.PriceListNum != null && bp.PriceListNum.Value > 0)
             {
                 isLoadingCustomerPrices = true;
-                StateHasChanged();
+                await InvokeAsync(StateHasChanged);
 
                 var response = await PriceService.GetPricesByPriceListAsync(bp.PriceListNum.Value);
                 if (response?.Prices != null && response.Prices.Any())
@@ -869,13 +1095,14 @@
                 }
 
                 isLoadingCustomerPrices = false;
-                StateHasChanged();
+                await InvokeAsync(StateHasChanged);
             }
         }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Error loading customer price list for {CardCode}", originalOrder.CardCode);
             isLoadingCustomerPrices = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 
