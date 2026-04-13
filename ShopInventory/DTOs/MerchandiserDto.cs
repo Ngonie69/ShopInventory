@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace ShopInventory.DTOs;
 
 /// <summary>
@@ -84,7 +86,6 @@ public class MerchandiserActiveProductDto
     public string? BarCode { get; set; }
     public decimal Price { get; set; }
     public string? UoM { get; set; }
-    public decimal QuantityOnStock { get; set; }
 }
 
 /// <summary>
@@ -94,4 +95,41 @@ public class SapSalesItemDto
 {
     public string ItemCode { get; set; } = string.Empty;
     public string ItemName { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Mobile request to submit a merchandiser order (customer quantities)
+/// </summary>
+public class MerchandiserOrderRequest
+{
+    [Required(ErrorMessage = "Customer code is required")]
+    public string CardCode { get; set; } = null!;
+
+    public string? CardName { get; set; }
+
+    public string? Notes { get; set; }
+
+    public string? DeviceInfo { get; set; }
+
+    public DateTime? DeliveryDate { get; set; }
+
+    [Required(ErrorMessage = "At least one item is required")]
+    [MinLength(1, ErrorMessage = "At least one item is required")]
+    public List<MerchandiserOrderLineRequest> Items { get; set; } = new();
+}
+
+/// <summary>
+/// Line item in a merchandiser order
+/// </summary>
+public class MerchandiserOrderLineRequest
+{
+    [Required(ErrorMessage = "Item code is required")]
+    public string ItemCode { get; set; } = null!;
+
+    public string? ItemName { get; set; }
+
+    [Range(0.0001, double.MaxValue, ErrorMessage = "Quantity must be greater than zero")]
+    public decimal Quantity { get; set; }
+
+    public decimal UnitPrice { get; set; }
 }

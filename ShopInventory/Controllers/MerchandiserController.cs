@@ -2,8 +2,10 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Authentication;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -21,12 +23,14 @@ public class MerchandiserController : ControllerBase
     private readonly ApplicationDbContext _context;
     private readonly ILogger<MerchandiserController> _logger;
     private readonly ISAPServiceLayerClient _sapClient;
+    private readonly ISalesOrderService _salesOrderService;
 
-    public MerchandiserController(ApplicationDbContext context, ILogger<MerchandiserController> logger, ISAPServiceLayerClient sapClient)
+    public MerchandiserController(ApplicationDbContext context, ILogger<MerchandiserController> logger, ISAPServiceLayerClient sapClient, ISalesOrderService salesOrderService)
     {
         _context = context;
         _logger = logger;
         _sapClient = sapClient;
+        _salesOrderService = salesOrderService;
     }
 
     /// <summary>
@@ -441,12 +445,68 @@ public class MerchandiserController : ControllerBase
     }
 
     /// <summary>
+    /// Mobile endpoint: Get distinct item categories (U_ItemGroup) for the merchandiser's assigned products
+    /// </summary>
+    [HttpGet("mobile/categories")]
+    [ProducesResponseType(typeof(List<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetProductCategories(CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Forbid();
+        }
+
+        var activeItemCodes = await _context.MerchandiserProducts
+            .AsNoTracking()
+            .Where(mp => mp.MerchandiserUserId == userId && mp.IsActive)
+            .Select(mp => mp.ItemCode)
+            .ToListAsync(cancellationToken);
+
+        if (activeItemCodes.Count == 0)
+        {
+            return Ok(new List<string>());
+        }
+
+        try
+        {
+            var inClause = string.Join(",", activeItemCodes.Select(c => $"'{c.Replace("'", "''")}'"));
+            var sqlText = $@"
+                SELECT DISTINCT T0.""U_ItemGroup""
+                FROM OITM T0
+                WHERE T0.""ItemCode"" IN ({inClause})
+                  AND T0.""U_ItemGroup"" IS NOT NULL
+                  AND T0.""U_ItemGroup"" <> ''
+                ORDER BY T0.""U_ItemGroup""";
+
+            var rows = await _sapClient.ExecuteRawSqlQueryAsync(
+                "MerchCategories", "Merchandiser Product Categories", sqlText, cancellationToken);
+
+            var categories = rows
+                .Select(r => r.GetValueOrDefault("U_ItemGroup")?.ToString())
+                .Where(c => !string.IsNullOrEmpty(c))
+                .ToList();
+
+            return Ok(categories);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch product categories from SAP");
+            return Ok(new List<string>());
+        }
+    }
+
+    /// <summary>
     /// Mobile endpoint: Get active products for the authenticated merchandiser
     /// </summary>
     [HttpGet("mobile/active-products")]
     [ProducesResponseType(typeof(List<MerchandiserActiveProductDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> GetActiveProductsForMobile(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetActiveProductsForMobile(
+        [FromQuery] string? search = null,
+        [FromQuery] string? category = null,
+        CancellationToken cancellationToken = default)
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
@@ -469,22 +529,12 @@ public class MerchandiserController : ControllerBase
             .Select(mp => mp.ItemCode)
             .ToListAsync(cancellationToken);
 
-        // Join with product data for full details
-        var products = await _context.Products
-            .AsNoTracking()
-            .Where(p => activeItemCodes.Contains(p.ItemCode) && p.IsActive)
-            .Select(p => new MerchandiserActiveProductDto
-            {
-                ItemCode = p.ItemCode,
-                ItemName = p.ItemName,
-                BarCode = p.BarCode,
-                UoM = p.SalesUnit ?? p.InventoryUOM,
-                QuantityOnStock = p.QuantityOnStock,
-                Price = p.Prices.Where(pr => pr.PriceList == 1).Select(pr => pr.Price).FirstOrDefault()
-            })
-            .OrderBy(p => p.ItemName)
-            .ToListAsync(cancellationToken);
+        if (activeItemCodes.Count == 0)
+        {
+            return Ok(new List<MerchandiserActiveProductDto>());
+        }
 
+        var products = await GetProductDetailsFromSAP(activeItemCodes, search: search, category: category, cancellationToken: cancellationToken);
         return Ok(products);
     }
 
@@ -494,7 +544,11 @@ public class MerchandiserController : ControllerBase
     [HttpGet("{userId:guid}/active-products")]
     [ProducesResponseType(typeof(List<MerchandiserActiveProductDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetActiveProductsForMerchandiser(Guid userId, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetActiveProductsForMerchandiser(
+        Guid userId,
+        [FromQuery] string? search = null,
+        [FromQuery] string? category = null,
+        CancellationToken cancellationToken = default)
     {
         var user = await _context.Users.AsNoTracking()
             .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
@@ -511,22 +565,289 @@ public class MerchandiserController : ControllerBase
             .Select(mp => mp.ItemCode)
             .ToListAsync(cancellationToken);
 
-        // Join with product data for full details
-        var products = await _context.Products
+        if (activeItemCodes.Count == 0)
+        {
+            return Ok(new List<MerchandiserActiveProductDto>());
+        }
+
+        var products = await GetProductDetailsFromSAP(activeItemCodes, search: search, category: category, cancellationToken: cancellationToken);
+        return Ok(products);
+    }
+
+    /// <summary>
+    /// Mobile endpoint: Get active products for the authenticated merchandiser, filtered for a specific customer.
+    /// Returns only the merchandiser's assigned products with customer-specific pricing.
+    /// Supports optional search by name or code.
+    /// </summary>
+    [HttpGet("mobile/customer/{cardCode}/products")]
+    [ProducesResponseType(typeof(List<MerchandiserActiveProductDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetActiveProductsForCustomer(
+        string cardCode,
+        [FromQuery] string? search = null,
+        [FromQuery] string? category = null,
+        CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Forbid();
+        }
+
+        var user = await _context.Users.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+
+        if (user == null)
+        {
+            return Forbid();
+        }
+
+        // Get active merchandiser products from local DB
+        var activeItemCodes = await _context.MerchandiserProducts
             .AsNoTracking()
-            .Where(p => activeItemCodes.Contains(p.ItemCode) && p.IsActive)
-            .Select(p => new MerchandiserActiveProductDto
-            {
-                ItemCode = p.ItemCode,
-                ItemName = p.ItemName,
-                BarCode = p.BarCode,
-                UoM = p.SalesUnit ?? p.InventoryUOM,
-                QuantityOnStock = p.QuantityOnStock,
-                Price = p.Prices.Where(pr => pr.PriceList == 1).Select(pr => pr.Price).FirstOrDefault()
-            })
-            .OrderBy(p => p.ItemName)
+            .Where(mp => mp.MerchandiserUserId == userId && mp.IsActive)
+            .Select(mp => mp.ItemCode)
             .ToListAsync(cancellationToken);
 
+        if (activeItemCodes.Count == 0)
+        {
+            return Ok(new List<MerchandiserActiveProductDto>());
+        }
+
+        var products = await GetProductDetailsFromSAP(activeItemCodes, cardCode, search, category, cancellationToken);
         return Ok(products);
+    }
+
+    /// <summary>
+    /// Mobile endpoint: Submit a merchandiser order (customer requested quantities).
+    /// Creates a sales order with Source = Mobile. Only items assigned to the merchandiser are allowed.
+    /// </summary>
+    [HttpPost("mobile/order")]
+    [RequirePermission(Permission.CreateSalesOrders)]
+    [ProducesResponseType(typeof(SalesOrderDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> SubmitMobileOrder([FromBody] MerchandiserOrderRequest request, CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Forbid();
+        }
+
+        // Validate that all items are in the merchandiser's assigned products
+        var assignedItemCodes = await _context.MerchandiserProducts
+            .AsNoTracking()
+            .Where(mp => mp.MerchandiserUserId == userId && mp.IsActive)
+            .Select(mp => mp.ItemCode)
+            .ToListAsync(cancellationToken);
+
+        var requestedItemCodes = request.Items.Select(i => i.ItemCode).ToList();
+        var unassigned = requestedItemCodes.Except(assignedItemCodes, StringComparer.OrdinalIgnoreCase).ToList();
+        if (unassigned.Count > 0)
+        {
+            return BadRequest(new { message = $"The following items are not assigned to you: {string.Join(", ", unassigned)}" });
+        }
+
+        // Map to CreateSalesOrderRequest
+        var salesOrderRequest = new CreateSalesOrderRequest
+        {
+            CardCode = request.CardCode,
+            CardName = request.CardName,
+            DeliveryDate = request.DeliveryDate,
+            Comments = request.Notes,
+            Source = SalesOrderSource.Mobile,
+            MerchandiserNotes = request.Notes,
+            DeviceInfo = request.DeviceInfo,
+            Lines = request.Items.Select(item => new CreateSalesOrderLineRequest
+            {
+                ItemCode = item.ItemCode,
+                ItemDescription = item.ItemName,
+                Quantity = item.Quantity,
+                UnitPrice = item.UnitPrice
+            }).ToList()
+        };
+
+        try
+        {
+            var order = await _salesOrderService.CreateAsync(salesOrderRequest, userId, cancellationToken);
+            _logger.LogInformation("Merchandiser {UserId} submitted mobile order {OrderNumber} for customer {CardCode} with {LineCount} items",
+                userId, order.OrderNumber, request.CardCode, request.Items.Count);
+            return CreatedAtAction(nameof(GetMobileOrders), new { }, order);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating merchandiser mobile order for customer {CardCode}", request.CardCode);
+            return BadRequest(new { message = ex.InnerException?.Message ?? ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Mobile endpoint: Get orders submitted by the authenticated merchandiser
+    /// </summary>
+    [HttpGet("mobile/orders")]
+    [ProducesResponseType(typeof(SalesOrderListResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetMobileOrders(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] SalesOrderStatus? status = null,
+        CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Forbid();
+        }
+
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 50);
+
+        var query = _context.SalesOrders
+            .AsNoTracking()
+            .Where(o => o.Source == SalesOrderSource.Mobile && o.CreatedByUserId == userId);
+
+        if (status.HasValue)
+            query = query.Where(o => o.Status == status.Value);
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var orders = await query
+            .OrderByDescending(o => o.OrderDate)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Include(o => o.Lines)
+            .Select(o => new SalesOrderDto
+            {
+                Id = o.Id,
+                OrderNumber = o.OrderNumber,
+                OrderDate = o.OrderDate,
+                DeliveryDate = o.DeliveryDate,
+                CardCode = o.CardCode,
+                CardName = o.CardName,
+                Status = o.Status,
+                Comments = o.Comments,
+                Currency = o.Currency,
+                SubTotal = o.SubTotal,
+                TaxAmount = o.TaxAmount,
+                DocTotal = o.DocTotal,
+                CreatedAt = o.CreatedAt,
+                Source = o.Source,
+                MerchandiserNotes = o.MerchandiserNotes,
+                Lines = o.Lines.Select(l => new SalesOrderLineDto
+                {
+                    Id = l.Id,
+                    LineNum = l.LineNum,
+                    ItemCode = l.ItemCode,
+                    ItemDescription = l.ItemDescription,
+                    Quantity = l.Quantity,
+                    UnitPrice = l.UnitPrice,
+                    LineTotal = l.LineTotal,
+                    UoMCode = l.UoMCode
+                }).ToList()
+            })
+            .ToListAsync(cancellationToken);
+
+        return Ok(new SalesOrderListResponseDto
+        {
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = totalCount,
+            TotalPages = (int)Math.Ceiling((double)totalCount / pageSize),
+            Orders = orders
+        });
+    }
+
+    /// <summary>
+    /// Fetch product details from SAP for the given item codes.
+    /// Optionally resolves customer-specific pricing via their price list.
+    /// Supports search filtering by item name or code.
+    /// </summary>
+    private async Task<List<MerchandiserActiveProductDto>> GetProductDetailsFromSAP(
+        List<string> itemCodes,
+        string? cardCode = null,
+        string? search = null,
+        string? category = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var inClause = string.Join(",", itemCodes.Select(c => $"'{c.Replace("'", "''")}'"));
+
+            // Resolve customer price list if cardCode provided
+            var priceListJoin = "LEFT JOIN ITM1 T1 ON T0.\"ItemCode\" = T1.\"ItemCode\" AND T1.\"PriceList\" = 1";
+            if (!string.IsNullOrEmpty(cardCode))
+            {
+                var safeCardCode = cardCode.Replace("'", "''");
+                priceListJoin = $@"LEFT JOIN OCRD T2 ON T2.""CardCode"" = '{safeCardCode}'
+                LEFT JOIN ITM1 T1 ON T0.""ItemCode"" = T1.""ItemCode"" AND T1.""PriceList"" = COALESCE(T2.""ListNum"", 1)";
+            }
+
+            // Build optional search filter
+            var searchFilter = "";
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var safeSearch = search.Replace("'", "''");
+                searchFilter = $@" AND (LOWER(T0.""ItemCode"") LIKE LOWER('%{safeSearch}%') OR LOWER(T0.""ItemName"") LIKE LOWER('%{safeSearch}%') OR T0.""CodeBars"" LIKE '%{safeSearch}%')";
+            }
+
+            // Filter by U_ItemGroup (Item Category)
+            var categoryFilter = "";
+            if (!string.IsNullOrWhiteSpace(category))
+            {
+                var safeCategory = category.Replace("'", "''");
+                categoryFilter = $@" AND T0.""U_ItemGroup"" = '{safeCategory}'";
+            }
+
+            var sqlText = $@"
+                SELECT T0.""ItemCode"", T0.""ItemName"", T0.""CodeBars"" AS ""BarCode"",
+                       T0.""SalUnitMsr"" AS ""UoM"",
+                       T0.""InvntryUom"" AS ""InventoryUOM"",
+                       T1.""Price""
+                FROM OITM T0
+                {priceListJoin}
+                WHERE T0.""ItemCode"" IN ({inClause}){searchFilter}{categoryFilter}
+                ORDER BY T0.""ItemName""";
+
+            var rows = await _sapClient.ExecuteRawSqlQueryAsync(
+                "MerchActiveProducts", "Merchandiser Active Products", sqlText, cancellationToken);
+
+            return rows.Select(r => new MerchandiserActiveProductDto
+            {
+                ItemCode = r.GetValueOrDefault("ItemCode")?.ToString() ?? "",
+                ItemName = r.GetValueOrDefault("ItemName")?.ToString(),
+                BarCode = r.GetValueOrDefault("BarCode")?.ToString(),
+                UoM = r.GetValueOrDefault("UoM")?.ToString() ?? r.GetValueOrDefault("InventoryUOM")?.ToString(),
+                Price = decimal.TryParse(r.GetValueOrDefault("Price")?.ToString(), out var price) ? price : 0
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch merchandiser products from SAP, falling back to local DB");
+
+            // Fallback: return item codes + names from MerchandiserProducts table
+            var query = _context.MerchandiserProducts
+                .AsNoTracking()
+                .Where(mp => itemCodes.Contains(mp.ItemCode) && mp.IsActive);
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var s = search.ToLower();
+                query = query.Where(mp =>
+                    mp.ItemCode.ToLower().Contains(s) ||
+                    (mp.ItemName != null && mp.ItemName.ToLower().Contains(s)));
+            }
+
+            return await query
+                .OrderBy(mp => mp.ItemName ?? mp.ItemCode)
+                .Select(mp => new MerchandiserActiveProductDto
+                {
+                    ItemCode = mp.ItemCode,
+                    ItemName = mp.ItemName
+                })
+                .ToListAsync(cancellationToken);
+        }
     }
 }
