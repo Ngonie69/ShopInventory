@@ -22,6 +22,7 @@ public class InvoiceController : ControllerBase
     private readonly IDocumentService _documentService;
     private readonly IInvoicePdfService _invoicePdfService;
     private readonly IAuthService _authService;
+    private readonly IAuditService _auditService;
     private readonly SAPSettings _settings;
     private readonly ILogger<InvoiceController> _logger;
 
@@ -47,6 +48,7 @@ public class InvoiceController : ControllerBase
         IDocumentService documentService,
         IInvoicePdfService invoicePdfService,
         IAuthService authService,
+        IAuditService auditService,
         IOptions<SAPSettings> settings,
         ILogger<InvoiceController> logger)
     {
@@ -58,6 +60,7 @@ public class InvoiceController : ControllerBase
         _documentService = documentService;
         _invoicePdfService = invoicePdfService;
         _authService = authService;
+        _auditService = auditService;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -288,6 +291,7 @@ public class InvoiceController : ControllerBase
             FiscalizationResult? fiscalizationResult = null;
             try
             {
+                try { await _auditService.LogAsync(AuditActions.CreateInvoice, "Invoice", invoice.DocEntry.ToString(), $"Invoice #{invoice.DocNum} created for {invoice.CardCode}", true); } catch { }
                 fiscalizationResult = await _fiscalizationService.FiscalizeInvoiceAsync(
                     invoice.ToDto(),
                     new CustomerFiscalDetails
@@ -341,6 +345,7 @@ public class InvoiceController : ControllerBase
         catch (ArgumentException ex)
         {
             _logger.LogWarning(ex, "Validation error creating invoice");
+            try { await _auditService.LogAsync(AuditActions.CreateInvoice, "Invoice", null, $"Validation error: {ex.Message}", false, ex.Message); } catch { }
             return BadRequest(new ErrorResponseDto { Message = "Validation error", Errors = ex.Message.Split("; ").ToList() });
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)

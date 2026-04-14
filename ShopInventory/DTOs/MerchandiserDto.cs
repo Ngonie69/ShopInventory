@@ -86,6 +86,7 @@ public class MerchandiserActiveProductDto
     public string? BarCode { get; set; }
     public decimal Price { get; set; }
     public string? UoM { get; set; }
+    public string? Category { get; set; }
 }
 
 /// <summary>
@@ -95,6 +96,7 @@ public class SapSalesItemDto
 {
     public string ItemCode { get; set; } = string.Empty;
     public string ItemName { get; set; } = string.Empty;
+    public string? ItemGroup { get; set; }
 }
 
 /// <summary>

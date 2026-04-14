@@ -219,7 +219,7 @@ public class UserManagementService : IUserManagementService
             CreatedAt = DateTime.UtcNow
         };
 
-        if (request.Role == "StockController" || request.Role == "DepotController")
+        if (request.Role == "StockController" || request.Role == "DepotController" || request.Role == "Merchandiser")
             user.SetWarehouseCodes(request.AssignedWarehouseCodes);
 
         if (request.Role == "Merchandiser")
@@ -279,7 +279,7 @@ public class UserManagementService : IUserManagementService
         // Update assigned warehouses
         if (request.AssignedWarehouseCodes != null)
         {
-            if (user.Role == "StockController" || user.Role == "DepotController")
+            if (user.Role == "StockController" || user.Role == "DepotController" || user.Role == "Merchandiser")
                 user.SetWarehouseCodes(request.AssignedWarehouseCodes);
             else
                 user.SetWarehouseCodes(null);

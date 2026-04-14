@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
+using ShopInventory.Services;
 using BC = BCrypt.Net.BCrypt;
 
 namespace ShopInventory.Controllers;
@@ -17,11 +18,13 @@ namespace ShopInventory.Controllers;
 public class UserController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
+    private readonly IAuditService _auditService;
     private readonly ILogger<UserController> _logger;
 
-    public UserController(ApplicationDbContext context, ILogger<UserController> logger)
+    public UserController(ApplicationDbContext context, IAuditService auditService, ILogger<UserController> logger)
     {
         _context = context;
+        _auditService = auditService;
         _logger = logger;
     }
 
@@ -200,6 +203,8 @@ public class UserController : ControllerBase
 
         _logger.LogInformation("User {Username} created by admin", user.Username);
 
+        try { await _auditService.LogAsync(AuditActions.CreateUser, "User", user.Id.ToString(), $"User {user.Username} created with role {user.Role}", true); } catch { }
+
         return CreatedAtAction(nameof(GetUser), new { id = user.Id }, new UserCreatedResponseDto
         {
             Message = "User created successfully",
@@ -309,6 +314,8 @@ public class UserController : ControllerBase
 
         _logger.LogInformation("User {Username} updated by admin", user.Username);
 
+        try { await _auditService.LogAsync(AuditActions.UpdateUser, "User", id.ToString(), $"User {user.Username} updated", true); } catch { }
+
         return Ok(new UserDto
         {
             Id = user.Id,
@@ -360,6 +367,8 @@ public class UserController : ControllerBase
 
         _logger.LogInformation("User {Username} deleted by admin", user.Username);
 
+        try { await _auditService.LogAsync(AuditActions.DeleteUser, "User", id.ToString(), $"User {user.Username} deleted", true); } catch { }
+
         return NoContent();
     }
 
@@ -391,6 +400,8 @@ public class UserController : ControllerBase
 
         _logger.LogInformation("Password changed for user {Username} by admin", user.Username);
 
+        try { await _auditService.LogAsync(AuditActions.ChangePassword, "User", id.ToString(), $"Password changed for user {user.Username}", true); } catch { }
+
         return Ok(new { Message = "Password changed successfully" });
     }
 
@@ -420,6 +431,8 @@ public class UserController : ControllerBase
 
         _logger.LogInformation("User {Username} unlocked by admin", user.Username);
 
+        try { await _auditService.LogAsync(AuditActions.UnlockUser, "User", id.ToString(), $"User {user.Username} unlocked", true); } catch { }
+
         return Ok(new { Message = "User account unlocked successfully" });
     }
 
@@ -445,6 +458,8 @@ public class UserController : ControllerBase
 
         _logger.LogInformation("User {Username} deactivated by admin", user.Username);
 
+        try { await _auditService.LogAsync(AuditActions.DeactivateUser, "User", id.ToString(), $"User {user.Username} deactivated", true); } catch { }
+
         return Ok(new { Message = "User account deactivated successfully" });
     }
 
@@ -469,6 +484,8 @@ public class UserController : ControllerBase
         await _context.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("User {Username} activated by admin", user.Username);
+
+        try { await _auditService.LogAsync(AuditActions.ActivateUser, "User", id.ToString(), $"User {user.Username} activated", true); } catch { }
 
         return Ok(new { Message = "User account activated successfully" });
     }

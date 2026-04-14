@@ -48,13 +48,30 @@ try
 
     var builder = WebApplication.CreateBuilder(args);
 
-    var customerPortalJwtSecret = builder.Configuration["CustomerPortal:JwtSecret"] ?? builder.Configuration["Jwt:SecretKey"];
+    // Validate customer portal JWT secret at startup — NO fallback to Jwt:SecretKey
+    var customerPortalJwtSecret = builder.Configuration["CustomerPortal:JwtSecret"];
     if (string.IsNullOrWhiteSpace(customerPortalJwtSecret) ||
         customerPortalJwtSecret.StartsWith("${", StringComparison.Ordinal) ||
         customerPortalJwtSecret.Length < 32)
     {
         throw new InvalidOperationException(
-            "Customer portal JWT secret is missing or invalid. Configure CustomerPortal:JwtSecret with a secret of at least 32 characters.");
+            "CustomerPortal:JwtSecret is missing, a placeholder, or shorter than 32 characters. " +
+            "This secret MUST be configured independently from Jwt:SecretKey. " +
+            "Set it via: dotnet user-secrets set \"CustomerPortal:JwtSecret\" \"<your-secret>\" or the CUSTOMER_PORTAL_JWT_SECRET environment variable.");
+    }
+
+    // Warn if customer portal secret is identical to staff JWT secret (compare hashes)
+    var staffJwtSecret = builder.Configuration["Jwt:SecretKey"];
+    if (!string.IsNullOrEmpty(staffJwtSecret) &&
+        string.Equals(customerPortalJwtSecret, staffJwtSecret, StringComparison.Ordinal))
+    {
+        Log.Warning("SECURITY: CustomerPortal:JwtSecret and Jwt:SecretKey are identical. " +
+            "Staff and customer portal tokens MUST use different signing keys. " +
+            "Generate a separate secret for CustomerPortal:JwtSecret.");
+    }
+    else
+    {
+        Log.Information("Customer portal JWT secret validation passed (independently configured, length {Length})", customerPortalJwtSecret.Length);
     }
 
     // Use Serilog — read overrides from appsettings so production can further tune levels

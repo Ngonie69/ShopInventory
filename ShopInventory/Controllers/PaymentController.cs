@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Services;
 using Swashbuckle.AspNetCore.Annotations;
 using System.Globalization;
@@ -17,11 +18,13 @@ namespace ShopInventory.Controllers;
 public class PaymentController : ControllerBase
 {
     private readonly IPaymentGatewayService _paymentService;
+    private readonly IAuditService _auditService;
     private readonly ILogger<PaymentController> _logger;
 
-    public PaymentController(IPaymentGatewayService paymentService, ILogger<PaymentController> logger)
+    public PaymentController(IPaymentGatewayService paymentService, IAuditService auditService, ILogger<PaymentController> logger)
     {
         _paymentService = paymentService;
+        _auditService = auditService;
         _logger = logger;
     }
 
@@ -52,6 +55,7 @@ public class PaymentController : ControllerBase
         {
             var username = User.FindFirstValue(ClaimTypes.Name);
             var response = await _paymentService.InitiatePaymentAsync(request, username);
+            try { await _auditService.LogAsync(AuditActions.InitiatePayment, "Payment", null, $"Payment initiated via {request.Provider} for {request.Amount} {request.Currency}", true); } catch { }
             return Ok(response);
         }
         catch (ArgumentException ex)
@@ -123,6 +127,7 @@ public class PaymentController : ControllerBase
         {
             return BadRequest(new { message = "Cannot cancel this payment. It may have already been processed." });
         }
+        try { await _auditService.LogAsync(AuditActions.CancelPayment, "Payment", id.ToString(), $"Payment {id} cancelled", true); } catch { }
         return Ok(new { message = "Payment cancelled successfully" });
     }
 
@@ -144,6 +149,7 @@ public class PaymentController : ControllerBase
         {
             return BadRequest(new { message = "Cannot refund this payment. It may not have been completed." });
         }
+        try { await _auditService.LogAsync(AuditActions.RefundPayment, "Payment", id.ToString(), $"Payment {id} refunded{(amount.HasValue ? $" (amount: {amount.Value})" : "")}", true); } catch { }
         return Ok(new { message = "Payment refunded successfully" });
     }
 

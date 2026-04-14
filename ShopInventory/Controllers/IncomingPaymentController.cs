@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Mappings;
+using ShopInventory.Models;
 using ShopInventory.Services;
 
 namespace ShopInventory.Controllers;
@@ -15,17 +16,20 @@ public class IncomingPaymentController : ControllerBase
 {
     private readonly ISAPServiceLayerClient _sapClient;
     private readonly IDocumentService _documentService;
+    private readonly IAuditService _auditService;
     private readonly SAPSettings _settings;
     private readonly ILogger<IncomingPaymentController> _logger;
 
     public IncomingPaymentController(
         ISAPServiceLayerClient sapClient,
         IDocumentService documentService,
+        IAuditService auditService,
         IOptions<SAPSettings> settings,
         ILogger<IncomingPaymentController> logger)
     {
         _sapClient = sapClient;
         _documentService = documentService;
+        _auditService = auditService;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -79,6 +83,8 @@ public class IncomingPaymentController : ControllerBase
 
             _logger.LogInformation("Incoming payment created successfully. DocEntry: {DocEntry}, DocNum: {DocNum}, Customer: {CardCode}, Total: {Total}",
                 payment.DocEntry, payment.DocNum, payment.CardCode, payment.DocTotal);
+
+            try { await _auditService.LogAsync(AuditActions.CreatePayment, "IncomingPayment", payment.DocEntry.ToString(), $"Payment #{payment.DocNum} created for {payment.CardCode}, Total: {payment.DocTotal}", true); } catch { }
 
             return CreatedAtAction(
                 nameof(GetIncomingPaymentByDocEntry),

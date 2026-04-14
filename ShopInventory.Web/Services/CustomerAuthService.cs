@@ -861,13 +861,15 @@ public class CustomerAuthService : ICustomerAuthService
 
     private static string GetRequiredCustomerPortalJwtSecret(IConfiguration configuration)
     {
-        var secret = configuration["CustomerPortal:JwtSecret"] ?? configuration["Jwt:SecretKey"];
+        var secret = configuration["CustomerPortal:JwtSecret"];
         if (string.IsNullOrWhiteSpace(secret) ||
             secret.StartsWith("${", StringComparison.Ordinal) ||
             secret.Length < 32)
         {
             throw new InvalidOperationException(
-                "Customer portal JWT secret is missing or invalid. Configure CustomerPortal:JwtSecret with a secret of at least 32 characters.");
+                "CustomerPortal:JwtSecret is missing, a placeholder, or shorter than 32 characters. " +
+                "This secret MUST be configured independently from Jwt:SecretKey. " +
+                "Set it via: dotnet user-secrets set \"CustomerPortal:JwtSecret\" \"<your-secret>\" or the CUSTOMER_PORTAL_JWT_SECRET environment variable.");
         }
 
         return secret;

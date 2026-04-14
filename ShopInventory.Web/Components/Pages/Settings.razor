@@ -188,7 +188,7 @@
                                     </MudAutocomplete>
                                     @if (!cachedGLAccounts.Any())
                                     {
-                                        <small style="color:#d97706; font-size:.75rem; display:block; margin-top:.25rem;">
+                                        <small class="gl-warning" style="font-size:.75rem; display:block; margin-top:.25rem;">
                                             <i class="bi bi-exclamation-triangle me-1"></i>No G/L accounts found. Please sync G/L
                                             accounts from the Data Sync tab first.
                                         </small>
@@ -231,22 +231,20 @@
                                 </div>
 
                                 <!-- Search and filter -->
-                                <div
-                                    style="margin-bottom: .75rem; display: flex; gap: .75rem; align-items: center; flex-wrap: wrap;">
-                                    <div style="flex: 1; min-width: 250px; position: relative;">
+                                <div class="bp-search-wrap">
+                                    <div class="bp-search-field">
                                         <input type="text" class="field-input field-input-sm"
                                                placeholder="Search business partners..." @oninput="OnPaymentBPSearchInput"
-                                               value="@paymentBPSearchTerm" />
+                                               value="@paymentBPSearchTerm" style="max-width:100%;" />
                                         @if (!string.IsNullOrEmpty(paymentBPSearchTerm))
                                         {
-                                            <button type="button"
-                                                    style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:#9ca3af; cursor:pointer; font-size:.85rem;"
+                                            <button type="button" class="bp-search-clear"
                                                     @onclick="() => { paymentBPSearchTerm = string.Empty; }">
                                                 <i class="bi bi-x-circle"></i>
                                             </button>
                                         }
                                     </div>
-                                    <span style="font-size: .82rem; color: #6b7280;">
+                                    <span class="bp-count">
                                         <strong>@allowedPaymentBPs.Count</strong> selected out of @cachedBusinessPartners.Count
                                     </span>
                                 </div>
@@ -254,16 +252,13 @@
                                 <!-- Selected BPs chips -->
                                 @if (allowedPaymentBPs.Any())
                                 {
-                                    <div
-                                        style="display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .75rem; max-height: 120px; overflow-y: auto; padding: .5rem; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
+                                    <div class="bp-selected-chips">
                                         @foreach (var bpCode in allowedPaymentBPs)
                                         {
                                             var bp = cachedBusinessPartners.FirstOrDefault(b => b.CardCode == bpCode);
-                                            <span
-                                                style="display:inline-flex; align-items:center; gap:.3rem; background:#d1fae5; color:#065f46; font-size:.78rem; font-weight:500; padding:.2rem .5rem .2rem .6rem; border-radius:5px;">
+                                            <span class="bp-chip">
                                                 @bpCode @(bp != null ? $"- {bp.CardName}" : "")
-                                                <button type="button"
-                                                        style="background:none; border:none; color:#065f46; cursor:pointer; padding:0; font-size:.7rem; line-height:1; opacity:.7;"
+                                                <button type="button" class="bp-chip-close"
                                                         @onclick="() => TogglePaymentBP(bpCode)">
                                                     <i class="bi bi-x-lg"></i>
                                                 </button>
@@ -273,8 +268,7 @@
                                 }
 
                                 <!-- BP list with checkboxes -->
-                                <div
-                                    style="max-height: 350px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff;">
+                                <div class="bp-list-container">
                                     @{
                                         var filteredBPs = string.IsNullOrWhiteSpace(paymentBPSearchTerm)
                                         ? cachedBusinessPartners
@@ -285,8 +279,8 @@
                                     }
                                     @if (!filteredBPs.Any())
                                     {
-                                        <div style="text-align:center; padding:2rem; color:#9ca3af; font-size:.85rem;">
-                                            <i class="bi bi-search" style="font-size:1.5rem; display:block; margin-bottom:.5rem;"></i>
+                                        <div class="bp-empty-state">
+                                            <i class="bi bi-search"></i>
                                             @if (!cachedBusinessPartners.Any())
                                             {
                                                 <span>No business partners found. Please sync from the Data Sync tab.</span>
@@ -302,21 +296,15 @@
                                         @foreach (var bp in filteredBPs)
                                         {
                                             var isSelected = allowedPaymentBPs.Contains(bp.CardCode);
-                                            <label
-                                                style="display:flex; align-items:center; gap:.6rem; padding:.55rem .85rem; cursor:pointer; border-bottom:1px solid #f3f4f6; transition:background .12s; @(isSelected ? "background:#f0fdf4;" : "")"
-                                                class="bp-check-row">
-                                                <input type="checkbox" checked="@isSelected" @onchange="() => TogglePaymentBP(bp.CardCode)"
-                                                       style="accent-color:#059669; width:16px; height:16px;" />
+                                            <label class="bp-check-row @(isSelected ? "selected" : "")">
+                                                <input type="checkbox" checked="@isSelected" @onchange="() => TogglePaymentBP(bp.CardCode)" />
                                                 <div style="flex:1; min-width:0;">
-                                                    <div style="font-size:.88rem; font-weight:600; color:#1a1a2e;">@bp.CardCode</div>
-                                                    <div
-                                                        style="font-size:.78rem; color:#6b7280; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                                                        @bp.CardName</div>
+                                                    <div class="bp-code">@bp.CardCode</div>
+                                                    <div class="bp-name">@bp.CardName</div>
                                                     </div>
                                                     @if (bp.Balance > 0)
                                                     {
-                                                        <span
-                                                            style="font-size:.72rem; background:#fef3c7; color:#92400e; padding:.1rem .4rem; border-radius:4px; font-weight:500; white-space:nowrap;">
+                                                        <span class="bp-balance-badge">
                                                             Bal: @bp.Balance?.ToString("N2")
                                                         </span>
                                                     }
@@ -328,8 +316,7 @@
                                     @if (allowedPaymentBPs.Any())
                                     {
                                         <div style="margin-top:.5rem; display:flex; justify-content:flex-end;">
-                                            <button type="button"
-                                                    style="background:none; border:1px solid #fecaca; color:#dc2626; font-size:.78rem; padding:.3rem .7rem; border-radius:6px; cursor:pointer;"
+                                            <button type="button" class="btn-clear-all"
                                                     @onclick="ClearAllPaymentBPs">
                                                 <i class="bi bi-x-circle me-1"></i>Clear All
                                             </button>
@@ -453,8 +440,7 @@
                                         </div>
 
                                         <!-- Action Buttons -->
-                                        <div
-                                            style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #e5e7eb;">
+                                        <div class="section-actions">
                                             <MudButton OnClick="TestSAPConnection" Variant="Variant.Outlined" Color="Color.Primary"
                                                        Disabled="@isSAPTesting" StartIcon="@Icons.Material.Filled.NetworkCheck">
                                                 @if (isSAPTesting)
@@ -479,23 +465,22 @@
         else if (selectedCategory == DangerZoneCategory)
                             {
                                 <!-- Danger Zone Section -->
-                                <div class="settings-section" style="animation-delay: 0.05s; border: 1px solid #dc3545; border-radius: 8px;">
+                                <div class="settings-section danger-section" style="animation-delay: 0.05s;">
                                     <div class="section-header">
-                                        <div class="section-icon" style="background: linear-gradient(135deg, #dc3545, #c82333);">
+                                        <div class="section-icon" style="background: linear-gradient(135deg, #ef4444, #dc2626);">
                                             <i class="bi bi-exclamation-triangle-fill" style="color: white;"></i>
                                         </div>
                                         <div>
-                                            <h5 class="section-title" style="color: #dc3545;">Danger Zone</h5>
+                                            <h5 class="section-title danger-label">Danger Zone</h5>
                                             <p class="section-desc">Irreversible actions that affect your entire database. Proceed with extreme
                                                 caution.</p>
                                             </div>
                                         </div>
 
                                         <div class="setting-items">
-                                            <div class="setting-item"
-                                                 style="border: 1px solid #dc354544; border-radius: 8px; padding: 1.5rem; background: #dc354508;">
+                                            <div class="setting-item danger-card">
                                                 <div class="setting-info" style="flex: 1;">
-                                                    <label class="setting-label" style="color: #dc3545; font-weight: 600; font-size: 1rem;">
+                                                    <label class="setting-label danger-label">
                                                         <i class="bi bi-database-x me-2"></i>Reset Database
                                                     </label>
                                                     <span class="setting-desc" style="margin-top: 0.5rem; display: block;">
@@ -506,7 +491,6 @@
                                                 </div>
                                                 <div class="setting-control">
                                                     <MudButton Class="btn-danger-action"
-                                                               Style="background: #dc3545; color: white; border: none; padding: 0.5rem 1.25rem; border-radius: 6px; font-weight: 600;"
                                                                OnClick="ShowResetConfirmation" Disabled="@isResettingDatabase">
                                                         @if (isResettingDatabase)
                                                         {

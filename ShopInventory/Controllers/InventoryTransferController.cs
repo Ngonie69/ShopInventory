@@ -16,17 +16,20 @@ public class InventoryTransferController : ControllerBase
 {
     private readonly ISAPServiceLayerClient _sapClient;
     private readonly IStockValidationService _stockValidation;
+    private readonly IAuditService _auditService;
     private readonly SAPSettings _settings;
     private readonly ILogger<InventoryTransferController> _logger;
 
     public InventoryTransferController(
         ISAPServiceLayerClient sapClient,
         IStockValidationService stockValidation,
+        IAuditService auditService,
         IOptions<SAPSettings> settings,
         ILogger<InventoryTransferController> logger)
     {
         _sapClient = sapClient;
         _stockValidation = stockValidation;
+        _auditService = auditService;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -128,6 +131,8 @@ public class InventoryTransferController : ControllerBase
 
             _logger.LogInformation("Inventory transfer created successfully. DocEntry: {DocEntry}, DocNum: {DocNum}, From: {FromWarehouse}, To: {ToWarehouse}",
                 transfer.DocEntry, transfer.DocNum, request.FromWarehouse, request.ToWarehouse);
+
+            try { await _auditService.LogAsync(AuditActions.CreateTransfer, "InventoryTransfer", transfer.DocEntry.ToString(), $"Transfer #{transfer.DocNum} from {request.FromWarehouse} to {request.ToWarehouse}", true); } catch { }
 
             return CreatedAtAction(
                 nameof(GetInventoryTransferByDocEntry),
@@ -740,6 +745,8 @@ public class InventoryTransferController : ControllerBase
             _logger.LogInformation("Transfer request created successfully. DocEntry: {DocEntry}, DocNum: {DocNum}, From: {FromWarehouse}, To: {ToWarehouse}",
                 transferRequest.DocEntry, transferRequest.DocNum, request.FromWarehouse, request.ToWarehouse);
 
+            try { await _auditService.LogAsync(AuditActions.CreateTransferRequest, "TransferRequest", transferRequest.DocEntry.ToString(), $"Transfer request #{transferRequest.DocNum} from {request.FromWarehouse} to {request.ToWarehouse}", true); } catch { }
+
             return CreatedAtAction(
                 nameof(GetTransferRequestByDocEntry),
                 new { docEntry = transferRequest.DocEntry },
@@ -803,6 +810,8 @@ public class InventoryTransferController : ControllerBase
             _logger.LogInformation("Transfer request {DocEntry} converted successfully to transfer {TransferDocEntry}",
                 docEntry, transfer.DocEntry);
 
+            try { await _auditService.LogAsync(AuditActions.ConvertTransferRequest, "TransferRequest", docEntry.ToString(), $"Transfer request {docEntry} converted to transfer {transfer.DocEntry}", true); } catch { }
+
             return CreatedAtAction(
                 nameof(GetInventoryTransferByDocEntry),
                 new { docEntry = transfer.DocEntry },
@@ -865,6 +874,7 @@ public class InventoryTransferController : ControllerBase
 
             await _sapClient.CloseInventoryTransferRequestAsync(docEntry, cancellationToken);
 
+            try { await _auditService.LogAsync(AuditActions.CloseTransferRequest, "TransferRequest", docEntry.ToString(), $"Transfer request {docEntry} closed", true); } catch { }
             return Ok(new { Message = $"Transfer request {docEntry} closed successfully" });
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

@@ -189,6 +189,18 @@ try
     var jwtSettings = builder.Configuration.GetSection("Jwt").Get<JwtSettings>()
         ?? throw new InvalidOperationException("JWT settings are not configured");
 
+    // Validate staff JWT secret at startup
+    if (string.IsNullOrWhiteSpace(jwtSettings.SecretKey) ||
+        jwtSettings.SecretKey.StartsWith("${", StringComparison.Ordinal) ||
+        jwtSettings.SecretKey.Length < 32)
+    {
+        throw new InvalidOperationException(
+            "Jwt:SecretKey is missing, a placeholder, or shorter than 32 characters. " +
+            "Set it via: dotnet user-secrets set \"Jwt:SecretKey\" \"<your-secret>\" or the JWT__SecretKey environment variable.");
+    }
+
+    Log.Information("Staff JWT secret validation passed (Jwt:SecretKey configured, length {Length})", jwtSettings.SecretKey.Length);
+
     // Configure JWT Authentication
     builder.Services.AddAuthentication(options =>
     {
@@ -323,6 +335,12 @@ try
             }
         });
     });
+
+    // Register IHttpContextAccessor for audit service
+    builder.Services.AddHttpContextAccessor();
+
+    // Register audit service
+    builder.Services.AddScoped<IAuditService, AuditService>();
 
     // Register authentication service
     builder.Services.AddScoped<IAuthService, AuthService>();

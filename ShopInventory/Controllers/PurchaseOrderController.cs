@@ -20,12 +20,14 @@ public class PurchaseOrderController : ControllerBase
 {
     private readonly IPurchaseOrderService _purchaseOrderService;
     private readonly ISAPServiceLayerClient _sapClient;
+    private readonly IAuditService _auditService;
     private readonly ILogger<PurchaseOrderController> _logger;
 
-    public PurchaseOrderController(IPurchaseOrderService purchaseOrderService, ISAPServiceLayerClient sapClient, ILogger<PurchaseOrderController> logger)
+    public PurchaseOrderController(IPurchaseOrderService purchaseOrderService, ISAPServiceLayerClient sapClient, IAuditService auditService, ILogger<PurchaseOrderController> logger)
     {
         _purchaseOrderService = purchaseOrderService;
         _sapClient = sapClient;
+        _auditService = auditService;
         _logger = logger;
     }
 
@@ -189,6 +191,7 @@ public class PurchaseOrderController : ControllerBase
         try
         {
             var order = await _purchaseOrderService.CreateAsync(request, userId, cancellationToken);
+            try { await _auditService.LogAsync(AuditActions.CreatePurchaseOrder, "PurchaseOrder", order.Id.ToString(), $"Purchase order created for {request.CardCode}", true); } catch { }
             return CreatedAtAction(nameof(GetById), new { id = order.Id }, order);
         }
         catch (Exception ex)
@@ -258,6 +261,7 @@ public class PurchaseOrderController : ControllerBase
         try
         {
             var order = await _purchaseOrderService.ApproveAsync(id, userId, cancellationToken);
+            try { await _auditService.LogAsync(AuditActions.ApprovePurchaseOrder, "PurchaseOrder", id.ToString(), $"Purchase order {id} approved", true); } catch { }
             return Ok(order);
         }
         catch (InvalidOperationException ex)
@@ -283,6 +287,7 @@ public class PurchaseOrderController : ControllerBase
         try
         {
             var order = await _purchaseOrderService.ReceiveItemsAsync(id, request, userId, cancellationToken);
+            try { await _auditService.LogAsync(AuditActions.ReceiveGoods, "PurchaseOrder", id.ToString(), $"Goods received for purchase order {id}", true); } catch { }
             return Ok(order);
         }
         catch (InvalidOperationException ex)
@@ -307,6 +312,7 @@ public class PurchaseOrderController : ControllerBase
             if (!deleted)
                 return NotFound();
 
+            try { await _auditService.LogAsync(AuditActions.DeletePurchaseOrder, "PurchaseOrder", id.ToString(), $"Purchase order {id} deleted", true); } catch { }
             return NoContent();
         }
         catch (InvalidOperationException ex)

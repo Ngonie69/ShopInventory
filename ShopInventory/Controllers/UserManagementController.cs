@@ -18,13 +18,16 @@ namespace ShopInventory.Controllers;
 public class UserManagementController : ControllerBase
 {
     private readonly IUserManagementService _userManagementService;
+    private readonly IAuditService _auditService;
     private readonly ILogger<UserManagementController> _logger;
 
     public UserManagementController(
         IUserManagementService userManagementService,
+        IAuditService auditService,
         ILogger<UserManagementController> logger)
     {
         _userManagementService = userManagementService;
+        _auditService = auditService;
         _logger = logger;
     }
 
@@ -87,6 +90,7 @@ public class UserManagementController : ControllerBase
             return BadRequest(new { message = result.Message, errors = result.Errors });
         }
 
+        try { await _auditService.LogAsync(AuditActions.CreateUser, "User", result.Data!.Id.ToString(), $"User {request.Username} created with role {request.Role}", true); } catch { }
         return CreatedAtAction(nameof(GetUser), new { id = result.Data!.Id }, result.Data);
     }
 
@@ -109,6 +113,7 @@ public class UserManagementController : ControllerBase
             return BadRequest(new { message = result.Message, errors = result.Errors });
         }
 
+        try { await _auditService.LogAsync(AuditActions.UpdateUser, "User", id.ToString(), $"User {id} updated", true); } catch { }
         return Ok(new { message = result.Message });
     }
 
@@ -129,6 +134,7 @@ public class UserManagementController : ControllerBase
             return NotFound(new { message = result.Message });
         }
 
+        try { await _auditService.LogAsync(AuditActions.DeleteUser, "User", id.ToString(), $"User {id} deleted", true); } catch { }
         return Ok(new { message = result.Message });
     }
 
@@ -171,6 +177,7 @@ public class UserManagementController : ControllerBase
             return BadRequest(new { message = result.Message, errors = result.Errors });
         }
 
+        try { await _auditService.LogAsync(AuditActions.UpdatePermissions, "User", id.ToString(), $"Permissions updated for user {id}", true); } catch { }
         return Ok(new { message = result.Message });
     }
 
@@ -204,6 +211,7 @@ public class UserManagementController : ControllerBase
             return NotFound(new { message = result.Message });
         }
 
+        try { await _auditService.LogAsync(AuditActions.UnlockUser, "User", id.ToString(), $"User {id} unlocked", true); } catch { }
         return Ok(new { message = result.Message });
     }
 
@@ -224,6 +232,7 @@ public class UserManagementController : ControllerBase
             return NotFound(new { message = result.Message });
         }
 
+        try { await _auditService.LogAsync(AuditActions.ResetTwoFactor, "User", id.ToString(), $"2FA reset for user {id}", true); } catch { }
         return Ok(new { message = result.Message });
     }
 

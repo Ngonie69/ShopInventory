@@ -36,6 +36,7 @@ dotnet user-secrets set "SAP:Password" "YOUR_SAP_PASSWORD"
 # dotnet user-secrets set "SAP:AttachmentsDomain" "KEFALOS"
 
 # JWT Token Signing (must be >= 32 characters for HS256)
+# Env var: JWT__SecretKey (or JWT_SECRET_KEY in .env)
 dotnet user-secrets set "Jwt:SecretKey" "YOUR_JWT_SECRET_KEY_MIN_32_CHARS_LONG!"
 
 # API Keys (must match what Web project sends)
@@ -57,7 +58,10 @@ dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Po
 # API Key (must match Security:ApiKeys:0:Key in API project)
 dotnet user-secrets set "ApiSettings:ApiKey" "YOUR_MAIN_API_KEY"
 
-# Customer portal JWT secret (required outside Development)
+# Customer portal JWT secret (required — NO fallback to Jwt:SecretKey)
+# Env var: CustomerPortal__JwtSecret (or CUSTOMER_PORTAL_JWT_SECRET in .env)
+# ⚠️ MUST be a DIFFERENT value from Jwt:SecretKey — staff and customer tokens
+#    use independent signing keys. The app will warn at startup if they match.
 dotnet user-secrets set "CustomerPortal:JwtSecret" "YOUR_CUSTOMER_PORTAL_JWT_SECRET_MIN_32_CHARS"
 
 # Email (optional, for statement emails)

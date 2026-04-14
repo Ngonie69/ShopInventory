@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Services;
 
 namespace ShopInventory.Controllers;
@@ -19,17 +20,20 @@ public class SAPSettingsController : ControllerBase
     private readonly IOptionsMonitor<SAPSettings> _sapSettings;
     private readonly IConfiguration _configuration;
     private readonly ISAPServiceLayerClient _sapClient;
+    private readonly IAuditService _auditService;
     private readonly ILogger<SAPSettingsController> _logger;
 
     public SAPSettingsController(
         IOptionsMonitor<SAPSettings> sapSettings,
         IConfiguration configuration,
         ISAPServiceLayerClient sapClient,
+        IAuditService auditService,
         ILogger<SAPSettingsController> logger)
     {
         _sapSettings = sapSettings;
         _configuration = configuration;
         _sapClient = sapClient;
+        _auditService = auditService;
         _logger = logger;
     }
 
@@ -89,6 +93,8 @@ public class SAPSettingsController : ControllerBase
             xml.Save(webConfigPath);
 
             _logger.LogInformation("SAP settings updated in web.config by {User}", User.Identity?.Name ?? "Unknown");
+
+            try { await _auditService.LogAsync(AuditActions.UpdateSAPSettings, "SAPSettings", null, $"SAP settings updated by {User.Identity?.Name ?? "Unknown"}", true); } catch { }
 
             // Test connection if requested
             if (request.TestConnection)

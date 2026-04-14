@@ -399,7 +399,7 @@
     private bool isLoadingProducts = false;
     private bool isSaving = false;
     private string productSearchTerm = string.Empty;
-    private string statusFilter = string.Empty;
+    private string statusFilter = "active";
     private HashSet<string> selectedProductCodes = new();
 
     // Assign modal
@@ -496,11 +496,9 @@
         try
         {
             await MerchandiserService.UpdateProductStatusGlobalAsync(new List<string> { itemCode }, isActive);
-            // Update local state without reloading
-            var p = productResponse?.Products.FirstOrDefault(x => x.ItemCode == itemCode);
-            if (p != null) p.IsActive = isActive;
-            RecalculateCounts();
             Snackbar.Add($"{itemCode} {(isActive ? "activated" : "deactivated")}", Severity.Success);
+            // Reload from API to ensure we show the actual persisted state
+            await LoadGlobalProducts();
             await RefreshMerchandiserSummary();
             await AuditService.LogAsync(isActive ? "ActivateMerchandiserProduct" : "DeactivateMerchandiserProduct", "MerchandiserProduct", $"Global: {itemCode}");
         }
@@ -574,15 +572,9 @@
         {
             var activateCodes = selectedProductCodes.ToList();
             await MerchandiserService.UpdateProductStatusGlobalAsync(activateCodes, true);
-            // Update local state without reloading
-            foreach (var code in activateCodes)
-            {
-                var prod = productResponse?.Products.FirstOrDefault(x => x.ItemCode == code);
-                if (prod != null) prod.IsActive = true;
-            }
-            RecalculateCounts();
             Snackbar.Add($"{activateCodes.Count} products activated", Severity.Success);
             selectedProductCodes.Clear();
+            await LoadGlobalProducts();
             await RefreshMerchandiserSummary();
         }
         catch (Exception ex)
@@ -604,15 +596,9 @@
         {
             var deactivateCodes = selectedProductCodes.ToList();
             await MerchandiserService.UpdateProductStatusGlobalAsync(deactivateCodes, false);
-            // Update local state without reloading
-            foreach (var code in deactivateCodes)
-            {
-                var prod = productResponse?.Products.FirstOrDefault(x => x.ItemCode == code);
-                if (prod != null) prod.IsActive = false;
-            }
-            RecalculateCounts();
             Snackbar.Add($"{deactivateCodes.Count} products deactivated", Severity.Success);
             selectedProductCodes.Clear();
+            await LoadGlobalProducts();
             await RefreshMerchandiserSummary();
         }
         catch (Exception ex)

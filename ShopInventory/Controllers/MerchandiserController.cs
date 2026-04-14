@@ -169,7 +169,14 @@ public class MerchandiserController : ControllerBase
 
         var products = allProducts
             .GroupBy(mp => mp.ItemCode)
-            .Select(g => g.OrderByDescending(mp => mp.UpdatedAt ?? mp.CreatedAt).First())
+            .Select(g =>
+            {
+                // Prefer the most recently explicitly updated row (status change) over newly created rows
+                var representative = g.Where(mp => mp.UpdatedAt != null)
+                    .OrderByDescending(mp => mp.UpdatedAt)
+                    .FirstOrDefault() ?? g.OrderByDescending(mp => mp.CreatedAt).First();
+                return representative;
+            })
             .OrderBy(mp => mp.ItemCode)
             .Select(mp => new MerchandiserProductDto
             {
@@ -199,7 +206,7 @@ public class MerchandiserController : ControllerBase
     [ProducesResponseType(typeof(List<SapSalesItemDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetSapSalesItems(CancellationToken cancellationToken)
     {
-        var sqlText = "SELECT T0.\"ItemCode\", T0.\"ItemName\", T0.\"U_SalesItem\" FROM OITM T0 WHERE T0.\"U_SalesItem\" ='Yes' ORDER BY T0.\"ItemCode\"";
+        var sqlText = "SELECT T0.\"ItemCode\", T0.\"ItemName\", T0.\"U_ItemGroup\" FROM OITM T0 WHERE T0.\"U_Active\" ='Yes' ORDER BY T0.\"ItemCode\"";
 
         var rows = await _sapClient.ExecuteRawSqlQueryAsync(
             "MerchSalesItems",
@@ -210,7 +217,8 @@ public class MerchandiserController : ControllerBase
         var items = rows.Select(r => new SapSalesItemDto
         {
             ItemCode = r.GetValueOrDefault("ItemCode")?.ToString() ?? "",
-            ItemName = r.GetValueOrDefault("ItemName")?.ToString() ?? ""
+            ItemName = r.GetValueOrDefault("ItemName")?.ToString() ?? "",
+            ItemGroup = r.GetValueOrDefault("U_ItemGroup")?.ToString()
         }).ToList();
 
         return Ok(items);
@@ -253,6 +261,15 @@ public class MerchandiserController : ControllerBase
         }
 
         int totalAdded = 0;
+
+        // Determine global active status for each item (from any existing merchandiser row)
+        var globalStatus = await _context.MerchandiserProducts
+            .AsNoTracking()
+            .Where(mp => request.ItemCodes.Contains(mp.ItemCode) && mp.UpdatedAt != null)
+            .GroupBy(mp => mp.ItemCode)
+            .Select(g => new { ItemCode = g.Key, IsActive = g.OrderByDescending(mp => mp.UpdatedAt).First().IsActive })
+            .ToDictionaryAsync(x => x.ItemCode, x => x.IsActive, cancellationToken);
+
         foreach (var merchandiserId in merchandiserIds)
         {
             var existing = await _context.MerchandiserProducts
@@ -267,7 +284,7 @@ public class MerchandiserController : ControllerBase
                 MerchandiserUserId = merchandiserId,
                 ItemCode = code,
                 ItemName = productNames.GetValueOrDefault(code),
-                IsActive = true,
+                IsActive = globalStatus.GetValueOrDefault(code, true),
                 CreatedAt = DateTime.UtcNow,
                 UpdatedBy = currentUsername
             }).ToList();
@@ -366,25 +383,27 @@ public class MerchandiserController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> UpdateProductStatusGlobal([FromBody] UpdateMerchandiserProductStatusRequest request, CancellationToken cancellationToken)
     {
-        var currentUsername = User.FindFirst(ClaimTypes.Name)?.Value ?? "system";
-
-        var products = await _context.MerchandiserProducts
-            .Where(mp => request.ItemCodes.Contains(mp.ItemCode))
-            .ToListAsync(cancellationToken);
-
-        foreach (var product in products)
+        if (request.ItemCodes.Count == 0)
         {
-            product.IsActive = request.IsActive;
-            product.UpdatedAt = DateTime.UtcNow;
-            product.UpdatedBy = currentUsername;
+            return BadRequest(new { message = "No item codes provided" });
         }
 
-        await _context.SaveChangesAsync(cancellationToken);
+        var currentUsername = User.FindFirst(ClaimTypes.Name)?.Value ?? "system";
+        var now = DateTime.UtcNow;
 
-        _logger.LogInformation("Updated {Count} product records to {Status} globally",
-            products.Count, request.IsActive ? "active" : "inactive");
+        // Use ExecuteUpdateAsync for direct SQL UPDATE — bypasses EF change tracker
+        var rowsAffected = await _context.MerchandiserProducts
+            .Where(mp => request.ItemCodes.Contains(mp.ItemCode))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(mp => mp.IsActive, request.IsActive)
+                .SetProperty(mp => mp.UpdatedAt, now)
+                .SetProperty(mp => mp.UpdatedBy, currentUsername),
+                cancellationToken);
 
-        return Ok(new { message = $"{request.ItemCodes.Count} products updated to {(request.IsActive ? "active" : "inactive")} for all merchandisers" });
+        _logger.LogInformation("Updated {RowsAffected} product records to {Status} globally for item codes [{Codes}]",
+            rowsAffected, request.IsActive ? "active" : "inactive", string.Join(", ", request.ItemCodes));
+
+        return Ok(new { message = $"{rowsAffected} products updated to {(request.IsActive ? "active" : "inactive")} for all merchandisers", rowsAffected });
     }
 
     /// <summary>
@@ -404,24 +423,21 @@ public class MerchandiserController : ControllerBase
         }
 
         var currentUsername = User.FindFirst(ClaimTypes.Name)?.Value ?? "system";
+        var now = DateTime.UtcNow;
 
-        var products = await _context.MerchandiserProducts
+        // Use ExecuteUpdateAsync for direct SQL UPDATE — bypasses EF change tracker
+        var rowsAffected = await _context.MerchandiserProducts
             .Where(mp => mp.MerchandiserUserId == userId && request.ItemCodes.Contains(mp.ItemCode))
-            .ToListAsync(cancellationToken);
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(mp => mp.IsActive, request.IsActive)
+                .SetProperty(mp => mp.UpdatedAt, now)
+                .SetProperty(mp => mp.UpdatedBy, currentUsername),
+                cancellationToken);
 
-        foreach (var product in products)
-        {
-            product.IsActive = request.IsActive;
-            product.UpdatedAt = DateTime.UtcNow;
-            product.UpdatedBy = currentUsername;
-        }
+        _logger.LogInformation("Updated {RowsAffected} products to {Status} for merchandiser {UserId}",
+            rowsAffected, request.IsActive ? "active" : "inactive", userId);
 
-        await _context.SaveChangesAsync(cancellationToken);
-
-        _logger.LogInformation("Updated {Count} products to {Status} for merchandiser {UserId}",
-            products.Count, request.IsActive ? "active" : "inactive", userId);
-
-        return Ok(new { message = $"{products.Count} products updated to {(request.IsActive ? "active" : "inactive")}" });
+        return Ok(new { message = $"{rowsAffected} products updated to {(request.IsActive ? "active" : "inactive")}" });
     }
 
     /// <summary>
@@ -805,6 +821,7 @@ public class MerchandiserController : ControllerBase
                 SELECT T0.""ItemCode"", T0.""ItemName"", T0.""CodeBars"" AS ""BarCode"",
                        T0.""SalUnitMsr"" AS ""UoM"",
                        T0.""InvntryUom"" AS ""InventoryUOM"",
+                       T0.""U_ItemGroup"" AS ""Category"",
                        T1.""Price""
                 FROM OITM T0
                 {priceListJoin}
@@ -820,7 +837,8 @@ public class MerchandiserController : ControllerBase
                 ItemName = r.GetValueOrDefault("ItemName")?.ToString(),
                 BarCode = r.GetValueOrDefault("BarCode")?.ToString(),
                 UoM = r.GetValueOrDefault("UoM")?.ToString() ?? r.GetValueOrDefault("InventoryUOM")?.ToString(),
-                Price = decimal.TryParse(r.GetValueOrDefault("Price")?.ToString(), out var price) ? price : 0
+                Price = decimal.TryParse(r.GetValueOrDefault("Price")?.ToString(), out var price) ? price : 0,
+                Category = r.GetValueOrDefault("Category")?.ToString()
             }).ToList();
         }
         catch (Exception ex)

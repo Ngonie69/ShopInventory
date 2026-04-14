@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ShopInventory.Models;
+using ShopInventory.Services;
 using System.ComponentModel.DataAnnotations;
 
 namespace ShopInventory.Controllers;
@@ -15,15 +17,18 @@ public class CustomerPortalController : ControllerBase
     private readonly ILogger<CustomerPortalController> _logger;
     private readonly HttpClient _httpClient;
     private readonly IWebHostEnvironment _environment;
+    private readonly IAuditService _auditService;
 
     public CustomerPortalController(
         ILogger<CustomerPortalController> logger,
         IHttpClientFactory httpClientFactory,
-        IWebHostEnvironment environment)
+        IWebHostEnvironment environment,
+        IAuditService auditService)
     {
         _logger = logger;
         _httpClient = httpClientFactory.CreateClient();
         _environment = environment;
+        _auditService = auditService;
     }
 
     /// <summary>
@@ -59,6 +64,8 @@ public class CustomerPortalController : ControllerBase
             };
 
             _logger.LogInformation("Generated registration for customer {CardCode}", request.CardCode);
+
+            try { await _auditService.LogAsync(AuditActions.RegisterCustomer, "CustomerPortalUser", request.CardCode, $"Customer {request.CardCode} registered with email {request.Email}", true); } catch { }
 
             return Ok(response);
         }

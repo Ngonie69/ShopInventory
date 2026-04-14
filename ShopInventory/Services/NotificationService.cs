@@ -154,7 +154,7 @@ public class NotificationService : INotificationService
     /// </summary>
     public async Task MarkAsReadAsync(string? username, List<int>? notificationIds, CancellationToken cancellationToken = default)
     {
-        var query = _context.Notifications.Where(n => !n.IsRead);
+        var query = _context.Notifications.AsTracking().Where(n => !n.IsRead);
 
         if (notificationIds != null && notificationIds.Any())
         {
@@ -193,6 +193,7 @@ public class NotificationService : INotificationService
     public async Task CleanupExpiredNotificationsAsync(CancellationToken cancellationToken = default)
     {
         var expired = await _context.Notifications
+            .AsTracking()
             .Where(n => n.ExpiresAt != null && n.ExpiresAt < DateTime.UtcNow)
             .ToListAsync(cancellationToken);
 

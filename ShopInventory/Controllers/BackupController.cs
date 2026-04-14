@@ -18,13 +18,16 @@ namespace ShopInventory.Controllers;
 public class BackupController : ControllerBase
 {
     private readonly IBackupService _backupService;
+    private readonly IAuditService _auditService;
     private readonly ILogger<BackupController> _logger;
 
     public BackupController(
         IBackupService backupService,
+        IAuditService auditService,
         ILogger<BackupController> logger)
     {
         _backupService = backupService;
+        _auditService = auditService;
         _logger = logger;
     }
 
@@ -97,6 +100,7 @@ public class BackupController : ControllerBase
         try
         {
             var backup = await _backupService.CreateBackupAsync(request, userId.Value, cancellationToken);
+            try { await _auditService.LogAsync(AuditActions.CreateBackup, "Backup", backup.Id.ToString(), $"Backup '{backup.FileName}' created", true); } catch { }
             return CreatedAtAction(nameof(GetById), new { id = backup.Id }, backup);
         }
         catch (Exception ex)
@@ -128,7 +132,10 @@ public class BackupController : ControllerBase
         {
             var result = await _backupService.RestoreBackupAsync(id, userId.Value, cancellationToken);
             if (result)
+            {
+                try { await _auditService.LogAsync(AuditActions.RestoreBackup, "Backup", id.ToString(), $"Backup {id} restored", true); } catch { }
                 return Ok(new { message = "Backup restored successfully" });
+            }
 
             return BadRequest(new { message = "Failed to restore backup" });
         }
@@ -176,6 +183,7 @@ public class BackupController : ControllerBase
         if (!result)
             return BadRequest(new { message = "Failed to delete backup" });
 
+        try { await _auditService.LogAsync(AuditActions.DeleteBackup, "Backup", id.ToString(), $"Backup {id} deleted", true); } catch { }
         return NoContent();
     }
 
@@ -197,6 +205,7 @@ public class BackupController : ControllerBase
         {
             _logger.LogWarning("Database reset requested by {Caller}", caller);
             await _backupService.ResetDatabaseAsync(userId ?? Guid.Empty, cancellationToken);
+            try { await _auditService.LogAsync(AuditActions.ResetDatabase, "Database", null, $"Database reset by {caller}", true); } catch { }
             return Ok(new { message = "Database has been reset successfully. All transactional data has been deleted." });
         }
         catch (Exception ex)

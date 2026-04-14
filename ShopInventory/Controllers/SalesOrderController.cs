@@ -19,11 +19,13 @@ namespace ShopInventory.Controllers;
 public class SalesOrderController : ControllerBase
 {
     private readonly ISalesOrderService _salesOrderService;
+    private readonly IAuditService _auditService;
     private readonly ILogger<SalesOrderController> _logger;
 
-    public SalesOrderController(ISalesOrderService salesOrderService, ILogger<SalesOrderController> logger)
+    public SalesOrderController(ISalesOrderService salesOrderService, IAuditService auditService, ILogger<SalesOrderController> logger)
     {
         _salesOrderService = salesOrderService;
+        _auditService = auditService;
         _logger = logger;
     }
 
@@ -98,6 +100,7 @@ public class SalesOrderController : ControllerBase
         try
         {
             var order = await _salesOrderService.CreateAsync(request, userId.Value, cancellationToken);
+            try { await _auditService.LogAsync(AuditActions.CreateSalesOrder, "SalesOrder", order.Id.ToString(), $"Sales order created for {request.CardCode}", true); } catch { }
             return CreatedAtAction(nameof(GetById), new { id = order.Id }, order);
         }
         catch (Exception ex)
@@ -177,6 +180,7 @@ public class SalesOrderController : ControllerBase
         try
         {
             var order = await _salesOrderService.ApproveAsync(id, userId.Value, cancellationToken);
+            try { await _auditService.LogAsync(AuditActions.ApproveSalesOrder, "SalesOrder", id.ToString(), $"Sales order {id} approved", true); } catch { }
             return Ok(order);
         }
         catch (InvalidOperationException ex)
@@ -201,6 +205,7 @@ public class SalesOrderController : ControllerBase
         try
         {
             var invoice = await _salesOrderService.ConvertToInvoiceAsync(id, userId.Value, cancellationToken);
+            try { await _auditService.LogAsync(AuditActions.ConvertOrderToInvoice, "SalesOrder", id.ToString(), $"Sales order {id} converted to invoice", true); } catch { }
             return Ok(invoice);
         }
         catch (InvalidOperationException ex)
@@ -227,6 +232,7 @@ public class SalesOrderController : ControllerBase
         try
         {
             var order = await _salesOrderService.PostToSAPAsync(id, userId.Value, cancellationToken);
+            try { await _auditService.LogAsync(AuditActions.PostSalesOrderToSAP, "SalesOrder", id.ToString(), $"Sales order {id} posted to SAP", true); } catch { }
             return Ok(order);
         }
         catch (InvalidOperationException ex)
@@ -256,6 +262,7 @@ public class SalesOrderController : ControllerBase
             if (!deleted)
                 return NotFound();
 
+            try { await _auditService.LogAsync(AuditActions.DeleteSalesOrder, "SalesOrder", id.ToString(), $"Sales order {id} deleted", true); } catch { }
             return NoContent();
         }
         catch (InvalidOperationException ex)

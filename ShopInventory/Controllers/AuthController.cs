@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Services;
 
 namespace ShopInventory.Controllers;
@@ -14,11 +15,13 @@ namespace ShopInventory.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IAuditService _auditService;
     private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IAuthService authService, ILogger<AuthController> logger)
+    public AuthController(IAuthService authService, IAuditService auditService, ILogger<AuthController> logger)
     {
         _authService = authService;
+        _auditService = auditService;
         _logger = logger;
     }
 
@@ -51,12 +54,14 @@ public class AuthController : ControllerBase
 
         if (result == null)
         {
+            try { await _auditService.LogAsync(AuditActions.LoginFailed, request.Username, "Unknown", "User", null, $"Failed login attempt for {request.Username}", null, false, "Invalid username or password"); } catch { }
             return Unauthorized(new ErrorResponseDto
             {
                 Message = "Invalid username or password"
             });
         }
 
+        try { await _auditService.LogAsync(AuditActions.Login, result.User?.Username ?? request.Username, result.User?.Role ?? "Unknown", "User", null, $"User {result.User?.Username ?? request.Username} logged in"); } catch { }
         return Ok(result);
     }
 
@@ -83,6 +88,7 @@ public class AuthController : ControllerBase
             });
         }
 
+        try { await _auditService.LogAsync(AuditActions.RefreshToken, "User"); } catch { }
         return Ok(result);
     }
 
@@ -97,6 +103,7 @@ public class AuthController : ControllerBase
     {
         var ipAddress = GetClientIpAddress();
         await _authService.RevokeTokenAsync(request.RefreshToken, ipAddress);
+        try { await _auditService.LogAsync(AuditActions.Logout, "User"); } catch { }
         return NoContent();
     }
 
@@ -177,6 +184,8 @@ public class AuthController : ControllerBase
 
         _logger.LogInformation("Admin {Admin} successfully registered new user: {Username} with role {Role}",
             User.Identity?.Name, user.Username, user.Role);
+
+        try { await _auditService.LogAsync(AuditActions.RegisterUser, "User", user.Username, $"Registered user {user.Username} with role {user.Role}", true); } catch { }
 
         return CreatedAtAction(nameof(GetCurrentUser), new UserInfo
         {

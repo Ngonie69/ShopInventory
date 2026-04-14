@@ -19,11 +19,13 @@ namespace ShopInventory.Controllers;
 public class CreditNoteController : ControllerBase
 {
     private readonly ICreditNoteService _creditNoteService;
+    private readonly IAuditService _auditService;
     private readonly ILogger<CreditNoteController> _logger;
 
-    public CreditNoteController(ICreditNoteService creditNoteService, ILogger<CreditNoteController> logger)
+    public CreditNoteController(ICreditNoteService creditNoteService, IAuditService auditService, ILogger<CreditNoteController> logger)
     {
         _creditNoteService = creditNoteService;
+        _auditService = auditService;
         _logger = logger;
     }
 
@@ -116,6 +118,7 @@ public class CreditNoteController : ControllerBase
         try
         {
             var creditNote = await _creditNoteService.CreateAsync(request, userId.Value, cancellationToken);
+            try { await _auditService.LogAsync(AuditActions.CreateCreditNote, "CreditNote", creditNote.Id.ToString(), $"Credit note created for {request.CardCode}", true); } catch { }
             return CreatedAtAction(nameof(GetById), new { id = creditNote.Id }, creditNote);
         }
         catch (Exception ex)
@@ -157,6 +160,7 @@ public class CreditNoteController : ControllerBase
             }).ToList() ?? new List<CreateCreditNoteLineRequest>();
 
             var creditNote = await _creditNoteService.CreateFromInvoiceAsync(invoiceId, lines, request.Reason ?? "", userId.Value, cancellationToken);
+            try { await _auditService.LogAsync(AuditActions.CreateCreditNote, "CreditNote", creditNote.Id.ToString(), $"Credit note created from invoice {invoiceId}", true); } catch { }
             return CreatedAtAction(nameof(GetById), new { id = creditNote.Id }, creditNote);
         }
         catch (InvalidOperationException ex)
@@ -210,6 +214,7 @@ public class CreditNoteController : ControllerBase
         try
         {
             var creditNote = await _creditNoteService.ApproveAsync(id, userId.Value, cancellationToken);
+            try { await _auditService.LogAsync(AuditActions.ApproveCreditNote, "CreditNote", id.ToString(), $"Credit note {id} approved", true); } catch { }
             return Ok(creditNote);
         }
         catch (InvalidOperationException ex)
@@ -234,6 +239,7 @@ public class CreditNoteController : ControllerBase
             if (!deleted)
                 return NotFound();
 
+            try { await _auditService.LogAsync(AuditActions.DeleteCreditNote, "CreditNote", id.ToString(), $"Credit note {id} deleted", true); } catch { }
             return NoContent();
         }
         catch (InvalidOperationException ex)

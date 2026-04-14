@@ -15,17 +15,20 @@ public class SalesOrderService : ISalesOrderService
     private readonly ISAPServiceLayerClient _sapClient;
     private readonly ILogger<SalesOrderService> _logger;
     private readonly INotificationService _notificationService;
+    private readonly IBusinessPartnerService _businessPartnerService;
 
     public SalesOrderService(
         ApplicationDbContext context,
         ISAPServiceLayerClient sapClient,
         ILogger<SalesOrderService> logger,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        IBusinessPartnerService businessPartnerService)
     {
         _context = context;
         _sapClient = sapClient;
         _logger = logger;
         _notificationService = notificationService;
+        _businessPartnerService = businessPartnerService;
     }
 
     public async Task<SalesOrderDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
@@ -436,6 +439,12 @@ public class SalesOrderService : ISalesOrderService
             _logger.LogWarning(ex, "Failed to send notification for sales order {OrderNumber}", orderNumber);
         }
 
+        // Resolve SAP prices for mobile orders (submitted with UnitPrice=0)
+        if (request.Source == SalesOrderSource.Mobile)
+        {
+            await ResolveMobileOrderPricesAsync(order, cancellationToken);
+        }
+
         // Auto-post web orders to SAP immediately
         if (request.Source == SalesOrderSource.Web || request.Source == null)
         {
@@ -468,6 +477,61 @@ public class SalesOrderService : ISalesOrderService
         }
 
         return MapToDto(order);
+    }
+
+    private async Task ResolveMobileOrderPricesAsync(SalesOrderEntity order, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var bp = await _businessPartnerService.GetBusinessPartnerByCodeAsync(order.CardCode, cancellationToken);
+            if (bp?.PriceListNum == null || bp.PriceListNum <= 0)
+            {
+                _logger.LogWarning("No price list found for customer {CardCode} on mobile order {OrderNumber}", order.CardCode, order.OrderNumber);
+                return;
+            }
+
+            var prices = await _sapClient.GetPricesByPriceListAsync(bp.PriceListNum.Value, cancellationToken);
+            if (prices == null || prices.Count == 0)
+            {
+                _logger.LogWarning("No prices returned from price list {PriceListNum} for mobile order {OrderNumber}", bp.PriceListNum, order.OrderNumber);
+                return;
+            }
+
+            var priceLookup = prices.ToDictionary(p => p.ItemCode ?? "", p => p.Price, StringComparer.OrdinalIgnoreCase);
+
+            decimal subTotal = 0;
+            decimal taxAmount = 0;
+            int updatedLines = 0;
+
+            foreach (var line in order.Lines)
+            {
+                if (priceLookup.TryGetValue(line.ItemCode, out var price) && price > 0)
+                {
+                    line.UnitPrice = price;
+                    line.LineTotal = line.Quantity * price * (1 - line.DiscountPercent / 100);
+                    updatedLines++;
+                }
+
+                var lineTax = line.LineTotal * line.TaxPercent / 100;
+                subTotal += line.LineTotal;
+                taxAmount += lineTax;
+            }
+
+            order.SubTotal = subTotal;
+            order.TaxAmount = taxAmount;
+            order.DiscountAmount = subTotal * order.DiscountPercent / 100;
+            order.DocTotal = subTotal - order.DiscountAmount + taxAmount;
+            order.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation("Resolved prices for mobile order {OrderNumber}: {UpdatedLines}/{TotalLines} lines updated from price list {PriceListNum}",
+                order.OrderNumber, updatedLines, order.Lines.Count, bp.PriceListNum);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve prices for mobile order {OrderNumber}. Order saved with submitted prices.", order.OrderNumber);
+        }
     }
 
     public async Task<SalesOrderDto> UpdateAsync(int id, CreateSalesOrderRequest request, CancellationToken cancellationToken = default)

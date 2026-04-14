@@ -82,6 +82,9 @@ public class SapSalesItemDto
 
     [JsonPropertyName("itemName")]
     public string ItemName { get; set; } = string.Empty;
+
+    [JsonPropertyName("itemGroup")]
+    public string? ItemGroup { get; set; }
 }
 
 #endregion
