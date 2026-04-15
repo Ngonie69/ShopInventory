@@ -649,6 +649,7 @@ public class SalesOrderService : ISalesOrderService
     {
         var order = await _context.SalesOrders
             .Include(o => o.Lines)
+            .Include(o => o.CreatedByUser)
             .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
 
         if (order == null)
@@ -657,12 +658,41 @@ public class SalesOrderService : ISalesOrderService
         if (order.Status != SalesOrderStatus.Draft && order.Status != SalesOrderStatus.Pending)
             throw new InvalidOperationException("Only draft or pending orders can be approved");
 
+        // Look up approver name
+        var approver = await _context.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new { u.FirstName, u.LastName, u.Username })
+            .FirstOrDefaultAsync(cancellationToken);
+        var approverName = approver != null
+            ? $"{approver.FirstName} {approver.LastName}".Trim()
+            : "Unknown";
+        if (string.IsNullOrEmpty(approverName)) approverName = approver?.Username ?? "Unknown";
+
+        // Build approval remarks with origin and approver info
+        var catTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow,
+            TimeZoneInfo.FindSystemTimeZoneById("South Africa Standard Time"));
+        var createdBy = order.CreatedByUser != null
+            ? $"{order.CreatedByUser.FirstName} {order.CreatedByUser.LastName}".Trim()
+            : null;
+        if (string.IsNullOrEmpty(createdBy)) createdBy = order.CreatedByUser?.Username;
+
+        var approvalRemark = $"Approved by {approverName} on {catTime:dd MMM yyyy HH:mm}. " +
+            $"Origin: {order.Source} order{(createdBy != null ? $" created by {createdBy}" : "")}.";
+
+        order.Comments = string.IsNullOrWhiteSpace(order.Comments)
+            ? approvalRemark
+            : $"{order.Comments}\n{approvalRemark}";
+
         order.Status = SalesOrderStatus.Approved;
         order.ApprovedByUserId = userId;
         order.ApprovedDate = DateTime.UtcNow;
         order.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync(cancellationToken);
+
+        // Reload with approver navigation for DTO mapping
+        await _context.Entry(order).Reference(o => o.ApprovedByUser).LoadAsync(cancellationToken);
+
         return MapToDto(order);
     }
 

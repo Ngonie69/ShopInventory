@@ -1329,6 +1329,9 @@
     private string? bulkUploadProgress;
     private string? bulkMessage;
     private bool bulkSuccess;
+    private int bulkAutoRetryRound;
+    private int bulkMaxAutoRetries = 3;
+    private CancellationTokenSource? bulkValidationCts;
 
     private enum UploadMode { Single, Bulk }
 
@@ -1699,146 +1702,98 @@
         return null;
     }
 
+    private async Task<(InvoiceDto? Invoice, bool Success)> LookupInvoiceWithRetryAsync(int docNum, CancellationToken ct)
+    {
+        const int maxRetries = 3;
+        for (var attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+                var inv = await InvoiceService.GetInvoiceByDocNumAsync(docNum);
+                return (inv, true);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw; // User cancelled — propagate
+            }
+            catch (Exception ex)
+            {
+                if (attempt < maxRetries)
+                {
+                    Logger.LogWarning(ex, "Invoice lookup for #{DocNum} failed (attempt {Attempt}/{Max}), retrying...", docNum, attempt, maxRetries);
+                    await Task.Delay(attempt * 500, ct); // Backoff: 500ms, 1s, 1.5s
+                }
+                else
+                {
+                    Logger.LogWarning(ex, "Invoice lookup for #{DocNum} failed after {Max} attempts", docNum, maxRetries);
+                }
+            }
+        }
+        return (null, false);
+    }
+
     private async Task ValidateBulkFiles()
     {
         if (isBulkValidating || bulkMappings.Count == 0) return;
         isBulkValidating = true;
         bulkMessage = null;
+        bulkAutoRetryRound = 0;
+        bulkValidationCts?.Cancel();
+        bulkValidationCts = new CancellationTokenSource();
+        var ct = bulkValidationCts.Token;
 
         try
         {
-            // Group by DocNum to avoid duplicate lookups
-            var docNums = bulkMappings
-                .Where(m => m.DocNum.HasValue)
-                .Select(m => m.DocNum!.Value)
-                .Distinct()
-                .ToList();
+            await ValidateBulkFilesCore(bulkMappings, ct);
 
-            var invoiceCache = new System.Collections.Concurrent.ConcurrentDictionary<int, InvoiceDto?>();
-            var podCountCache = new System.Collections.Concurrent.ConcurrentDictionary<int, int>();
+            // Auto-retry failed items up to bulkMaxAutoRetries times
+            var errorCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Error
+                && m.ErrorMessage != null
+                && !m.ErrorMessage.StartsWith("Excluded BP")
+                && m.ErrorMessage != "No invoice number in filename"
+                && m.ErrorMessage != "File exceeds 20MB limit");
 
-            // Validate in parallel (20 concurrent SAP lookups — these are lightweight GETs)
-            var validationSemaphore = new SemaphoreSlim(20, 20);
-            var validated = 0;
-            var totalToValidate = docNums.Count;
-            bulkValidationProgress = $"(0/{totalToValidate})";
-
-            var validationTasks = docNums.Select(async docNum =>
+            while (errorCount > 0 && bulkAutoRetryRound < bulkMaxAutoRetries && !ct.IsCancellationRequested)
             {
-                await validationSemaphore.WaitAsync();
-                try
-                {
-                    try
-                    {
-                        var inv = await InvoiceService.GetInvoiceByDocNumAsync(docNum);
-                        invoiceCache[docNum] = inv;
-
-                        // Check existing PODs for this invoice
-                        if (inv != null)
-                        {
-                            try
-                            {
-                                var existing = await PodService.GetInvoicePodsAsync(inv.DocEntry);
-                                podCountCache[docNum] = existing?.TotalCount ?? 0;
-                            }
-                            catch
-                            {
-                                podCountCache[docNum] = 0;
-                            }
-                        }
-                    }
-                    catch
-                    {
-                        invoiceCache[docNum] = null;
-                    }
-
-                    var done = Interlocked.Increment(ref validated);
-                    if (done % 10 == 0 || done == totalToValidate)
-                    {
-                        bulkValidationProgress = $"({done}/{totalToValidate})";
-                        await InvokeAsync(StateHasChanged);
-                    }
-                }
-                finally
-                {
-                    validationSemaphore.Release();
-                }
-            }).ToArray();
-
-            await Task.WhenAll(validationTasks);
-
-            foreach (var map in bulkMappings)
-            {
-                if (!map.DocNum.HasValue)
-                {
-                    map.Status = BulkFileStatus.Error;
-                    map.ErrorMessage = "No invoice number in filename";
-                    continue;
-                }
-
-                if (map.FileSize > 20 * 1024 * 1024)
-                {
-                    map.Status = BulkFileStatus.Error;
-                    map.ErrorMessage = "File exceeds 20MB limit";
-                    continue;
-                }
-
-                if (invoiceCache.TryGetValue(map.DocNum.Value, out var invoice) && invoice != null)
-                {
-                    if (ExcludedCardCodes.Contains(invoice.CardCode ?? ""))
-                    {
-                        map.DocEntry = invoice.DocEntry;
-                        map.CardName = invoice.CardName;
-                        map.Status = BulkFileStatus.Error;
-                        map.ErrorMessage = $"Excluded BP ({invoice.CardCode})";
-                    }
-                    else
-                    {
-                        map.DocEntry = invoice.DocEntry;
-                        map.CardName = invoice.CardName;
-                        map.ExistingPodCount = podCountCache.GetValueOrDefault(map.DocNum.Value, 0);
-                        if (map.ExistingPodCount > 0)
-                        {
-                            map.Status = BulkFileStatus.Skipped;
-                            map.ErrorMessage = $"Already uploaded ({map.ExistingPodCount} existing POD{(map.ExistingPodCount > 1 ? "s" : "")})";
-                        }
-                        else
-                        {
-                            map.Status = BulkFileStatus.Valid;
-                        }
-                    }
-                }
-                else
-                {
-                    map.Status = BulkFileStatus.Error;
-                    map.ErrorMessage = $"Invoice #{map.DocNum} not found in SAP";
-                }
-            }
-
-            var readyCount = bulkMappings.Count(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning);
-            var skippedCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Skipped);
-            var errorCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Error);
-
-            var parts = new List<string>();
-            if (readyCount > 0) parts.Add($"{readyCount} ready");
-            if (skippedCount > 0) parts.Add($"{skippedCount} skipped (already uploaded)");
-            if (errorCount > 0) parts.Add($"{errorCount} with errors");
-
-            if (readyCount > 0)
-            {
-                bulkMessage = string.Join(", ", parts) + ". You can upload the valid ones.";
-                bulkSuccess = true;
-            }
-            else if (skippedCount > 0 && errorCount == 0)
-            {
-                bulkMessage = $"All {skippedCount} files already have PODs uploaded. Nothing to upload.";
+                bulkAutoRetryRound++;
+                bulkMessage = $"Auto-retrying {errorCount} failed items (round {bulkAutoRetryRound}/{bulkMaxAutoRetries})...";
                 bulkSuccess = false;
+                await InvokeAsync(StateHasChanged);
+
+                // Brief pause before retry round
+                await Task.Delay(1000 * bulkAutoRetryRound, ct);
+
+                var retryMappings = bulkMappings.Where(m => m.Status == BulkFileStatus.Error
+                    && m.ErrorMessage != null
+                    && !m.ErrorMessage.StartsWith("Excluded BP")
+                    && m.ErrorMessage != "No invoice number in filename"
+                    && m.ErrorMessage != "File exceeds 20MB limit").ToList();
+
+                foreach (var m in retryMappings)
+                {
+                    m.Status = BulkFileStatus.Pending;
+                    m.ErrorMessage = null;
+                    m.ExistingPodCount = 0;
+                }
+
+                await ValidateBulkFilesCore(retryMappings, ct);
+
+                errorCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Error
+                    && m.ErrorMessage != null
+                    && !m.ErrorMessage.StartsWith("Excluded BP")
+                    && m.ErrorMessage != "No invoice number in filename"
+                    && m.ErrorMessage != "File exceeds 20MB limit");
             }
-            else
-            {
-                bulkMessage = "No valid files found. Check filenames start with invoice numbers.";
-                bulkSuccess = false;
-            }
+
+            UpdateBulkValidationSummary();
+        }
+        catch (OperationCanceledException)
+        {
+            bulkMessage = "Validation cancelled.";
+            bulkSuccess = false;
         }
         catch (Exception ex)
         {
@@ -1852,14 +1807,163 @@
         }
     }
 
+    private async Task ValidateBulkFilesCore(List<BulkFileMapping> mappings, CancellationToken ct)
+    {
+        var docNums = mappings
+            .Where(m => m.DocNum.HasValue)
+            .Select(m => m.DocNum!.Value)
+            .Distinct()
+            .ToList();
+
+        var invoiceCache = new System.Collections.Concurrent.ConcurrentDictionary<int, InvoiceDto?>();
+        var podCountCache = new System.Collections.Concurrent.ConcurrentDictionary<int, int>();
+        var failedLookups = new System.Collections.Concurrent.ConcurrentBag<int>();
+
+        var validationSemaphore = new SemaphoreSlim(20, 20);
+        var validated = 0;
+        var totalToValidate = docNums.Count;
+        bulkValidationProgress = $"(0/{totalToValidate})";
+
+        var validationTasks = docNums.Select(async docNum =>
+        {
+            await validationSemaphore.WaitAsync(ct);
+            try
+            {
+                var (inv, success) = await LookupInvoiceWithRetryAsync(docNum, ct);
+                if (success)
+                {
+                    invoiceCache[docNum] = inv;
+                    if (inv != null)
+                    {
+                        try
+                        {
+                            var existing = await PodService.GetInvoicePodsAsync(inv.DocEntry);
+                            podCountCache[docNum] = existing?.TotalCount ?? 0;
+                        }
+                        catch
+                        {
+                            podCountCache[docNum] = 0;
+                        }
+                    }
+                }
+                else
+                {
+                    failedLookups.Add(docNum);
+                }
+
+                var done = Interlocked.Increment(ref validated);
+                if (done % 10 == 0 || done == totalToValidate)
+                {
+                    bulkValidationProgress = $"({done}/{totalToValidate})";
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            finally
+            {
+                validationSemaphore.Release();
+            }
+        }).ToArray();
+
+        await Task.WhenAll(validationTasks);
+
+        foreach (var map in mappings)
+        {
+            if (!map.DocNum.HasValue)
+            {
+                map.Status = BulkFileStatus.Error;
+                map.ErrorMessage = "No invoice number in filename";
+                continue;
+            }
+
+            if (map.FileSize > 20 * 1024 * 1024)
+            {
+                map.Status = BulkFileStatus.Error;
+                map.ErrorMessage = "File exceeds 20MB limit";
+                continue;
+            }
+
+            if (failedLookups.Contains(map.DocNum.Value))
+            {
+                map.Status = BulkFileStatus.Error;
+                map.ErrorMessage = $"Invoice #{map.DocNum} lookup failed (SAP timeout)";
+                continue;
+            }
+
+            if (invoiceCache.TryGetValue(map.DocNum.Value, out var invoice) && invoice != null)
+            {
+                if (ExcludedCardCodes.Contains(invoice.CardCode ?? ""))
+                {
+                    map.DocEntry = invoice.DocEntry;
+                    map.CardName = invoice.CardName;
+                    map.Status = BulkFileStatus.Error;
+                    map.ErrorMessage = $"Excluded BP ({invoice.CardCode})";
+                }
+                else
+                {
+                    map.DocEntry = invoice.DocEntry;
+                    map.CardName = invoice.CardName;
+                    map.ExistingPodCount = podCountCache.GetValueOrDefault(map.DocNum.Value, 0);
+                    if (map.ExistingPodCount > 0)
+                    {
+                        map.Status = BulkFileStatus.Skipped;
+                        map.ErrorMessage = $"Already uploaded ({map.ExistingPodCount} existing POD{(map.ExistingPodCount > 1 ? "s" : "")})";
+                    }
+                    else
+                    {
+                        map.Status = BulkFileStatus.Valid;
+                    }
+                }
+            }
+            else
+            {
+                map.Status = BulkFileStatus.Error;
+                map.ErrorMessage = $"Invoice #{map.DocNum} not found in SAP";
+            }
+        }
+    }
+
+    private void UpdateBulkValidationSummary()
+    {
+        var readyCount = bulkMappings.Count(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning);
+        var skippedCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Skipped);
+        var errorCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Error);
+
+        var parts = new List<string>();
+        if (readyCount > 0) parts.Add($"{readyCount} ready");
+        if (skippedCount > 0) parts.Add($"{skippedCount} skipped (already uploaded)");
+        if (errorCount > 0) parts.Add($"{errorCount} with errors");
+
+        var suffix = bulkAutoRetryRound > 0 ? $" (after {bulkAutoRetryRound} auto-retry round{(bulkAutoRetryRound > 1 ? "s" : "")})" : "";
+
+        if (readyCount > 0)
+        {
+            bulkMessage = string.Join(", ", parts) + suffix + ". You can upload the valid ones.";
+            bulkSuccess = true;
+        }
+        else if (skippedCount > 0 && errorCount == 0)
+        {
+            bulkMessage = $"All {skippedCount} files already have PODs uploaded. Nothing to upload.";
+            bulkSuccess = false;
+        }
+        else
+        {
+            bulkMessage = "No valid files found. Check filenames start with invoice numbers." + suffix;
+            bulkSuccess = false;
+        }
+    }
+
     private async Task RetryBulkValidation()
     {
-        // Reset error items back to Pending and re-validate only those
+        // Reset retryable error items back to Pending and re-validate with auto-retry
         var errorMappings = bulkMappings.Where(m => m.Status == BulkFileStatus.Error).ToList();
         if (errorMappings.Count == 0 || isBulkValidating) return;
 
         isBulkValidating = true;
         bulkMessage = null;
+        bulkAutoRetryRound = 0;
+        bulkValidationCts?.Cancel();
+        bulkValidationCts = new CancellationTokenSource();
+        var ct = bulkValidationCts.Token;
 
         try
         {
@@ -1870,135 +1974,52 @@
                 m.ExistingPodCount = 0;
             }
 
-            var docNums = errorMappings
-                .Where(m => m.DocNum.HasValue)
-                .Select(m => m.DocNum!.Value)
-                .Distinct()
-                .ToList();
+            await ValidateBulkFilesCore(errorMappings, ct);
 
-            var invoiceCache = new System.Collections.Concurrent.ConcurrentDictionary<int, InvoiceDto?>();
-            var podCountCache = new System.Collections.Concurrent.ConcurrentDictionary<int, int>();
+            // Auto-retry remaining retryable errors
+            var retryableCount = errorMappings.Count(m => m.Status == BulkFileStatus.Error
+                && m.ErrorMessage != null
+                && !m.ErrorMessage.StartsWith("Excluded BP")
+                && m.ErrorMessage != "No invoice number in filename"
+                && m.ErrorMessage != "File exceeds 20MB limit");
 
-            var validationSemaphore = new SemaphoreSlim(20, 20);
-            var validated = 0;
-            var totalToValidate = docNums.Count;
-            bulkValidationProgress = $"(0/{totalToValidate})";
-
-            var validationTasks = docNums.Select(async docNum =>
+            while (retryableCount > 0 && bulkAutoRetryRound < bulkMaxAutoRetries && !ct.IsCancellationRequested)
             {
-                await validationSemaphore.WaitAsync();
-                try
-                {
-                    try
-                    {
-                        var inv = await InvoiceService.GetInvoiceByDocNumAsync(docNum);
-                        invoiceCache[docNum] = inv;
-
-                        if (inv != null)
-                        {
-                            try
-                            {
-                                var existing = await PodService.GetInvoicePodsAsync(inv.DocEntry);
-                                podCountCache[docNum] = existing?.TotalCount ?? 0;
-                            }
-                            catch
-                            {
-                                podCountCache[docNum] = 0;
-                            }
-                        }
-                    }
-                    catch
-                    {
-                        invoiceCache[docNum] = null;
-                    }
-
-                    var done = Interlocked.Increment(ref validated);
-                    if (done % 10 == 0 || done == totalToValidate)
-                    {
-                        bulkValidationProgress = $"({done}/{totalToValidate})";
-                        await InvokeAsync(StateHasChanged);
-                    }
-                }
-                finally
-                {
-                    validationSemaphore.Release();
-                }
-            }).ToArray();
-
-            await Task.WhenAll(validationTasks);
-
-            foreach (var map in errorMappings)
-            {
-                if (!map.DocNum.HasValue)
-                {
-                    map.Status = BulkFileStatus.Error;
-                    map.ErrorMessage = "No invoice number in filename";
-                    continue;
-                }
-
-                if (map.FileSize > 20 * 1024 * 1024)
-                {
-                    map.Status = BulkFileStatus.Error;
-                    map.ErrorMessage = "File exceeds 20MB limit";
-                    continue;
-                }
-
-                if (invoiceCache.TryGetValue(map.DocNum.Value, out var invoice) && invoice != null)
-                {
-                    if (ExcludedCardCodes.Contains(invoice.CardCode ?? ""))
-                    {
-                        map.DocEntry = invoice.DocEntry;
-                        map.CardName = invoice.CardName;
-                        map.Status = BulkFileStatus.Error;
-                        map.ErrorMessage = $"Excluded BP ({invoice.CardCode})";
-                    }
-                    else
-                    {
-                        map.DocEntry = invoice.DocEntry;
-                        map.CardName = invoice.CardName;
-                        map.ExistingPodCount = podCountCache.GetValueOrDefault(map.DocNum.Value, 0);
-                        if (map.ExistingPodCount > 0)
-                        {
-                            map.Status = BulkFileStatus.Skipped;
-                            map.ErrorMessage = $"Already uploaded ({map.ExistingPodCount} existing POD{(map.ExistingPodCount > 1 ? "s" : "")})";
-                        }
-                        else
-                        {
-                            map.Status = BulkFileStatus.Valid;
-                        }
-                    }
-                }
-                else
-                {
-                    map.Status = BulkFileStatus.Error;
-                    map.ErrorMessage = $"Invoice #{map.DocNum} not found in SAP";
-                }
-            }
-
-            var readyCount = bulkMappings.Count(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning);
-            var skippedCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Skipped);
-            var errorCount = bulkMappings.Count(m => m.Status == BulkFileStatus.Error);
-
-            var parts = new List<string>();
-            if (readyCount > 0) parts.Add($"{readyCount} ready");
-            if (skippedCount > 0) parts.Add($"{skippedCount} skipped (already uploaded)");
-            if (errorCount > 0) parts.Add($"{errorCount} with errors");
-
-            if (readyCount > 0)
-            {
-                bulkMessage = string.Join(", ", parts) + ".";
-                bulkSuccess = true;
-            }
-            else if (skippedCount > 0 && errorCount == 0)
-            {
-                bulkMessage = $"All {skippedCount} files already have PODs uploaded. Nothing to upload.";
+                bulkAutoRetryRound++;
+                bulkMessage = $"Auto-retrying {retryableCount} failed items (round {bulkAutoRetryRound}/{bulkMaxAutoRetries})...";
                 bulkSuccess = false;
+                await InvokeAsync(StateHasChanged);
+
+                await Task.Delay(1000 * bulkAutoRetryRound, ct);
+
+                var retryMappings = errorMappings.Where(m => m.Status == BulkFileStatus.Error
+                    && m.ErrorMessage != null
+                    && !m.ErrorMessage.StartsWith("Excluded BP")
+                    && m.ErrorMessage != "No invoice number in filename"
+                    && m.ErrorMessage != "File exceeds 20MB limit").ToList();
+
+                foreach (var m in retryMappings)
+                {
+                    m.Status = BulkFileStatus.Pending;
+                    m.ErrorMessage = null;
+                    m.ExistingPodCount = 0;
+                }
+
+                await ValidateBulkFilesCore(retryMappings, ct);
+
+                retryableCount = errorMappings.Count(m => m.Status == BulkFileStatus.Error
+                    && m.ErrorMessage != null
+                    && !m.ErrorMessage.StartsWith("Excluded BP")
+                    && m.ErrorMessage != "No invoice number in filename"
+                    && m.ErrorMessage != "File exceeds 20MB limit");
             }
-            else
-            {
-                bulkMessage = string.Join(", ", parts) + ".";
-                bulkSuccess = false;
-            }
+
+            UpdateBulkValidationSummary();
+        }
+        catch (OperationCanceledException)
+        {
+            bulkMessage = "Validation cancelled.";
+            bulkSuccess = false;
         }
         catch (Exception ex)
         {

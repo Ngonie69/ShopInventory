@@ -552,6 +552,17 @@ if ($DeployTarget -eq "Both" -or $DeployTarget -eq "API") {
         exit 1
     }
     Write-Host "  API published successfully!" -ForegroundColor Green
+
+    # Copy Firebase service account key to publish output
+    $firebaseKeySource = Join-Path $PSScriptRoot "ShopInventory\firebase-service-account.json"
+    if (Test-Path $firebaseKeySource) {
+        Copy-Item $firebaseKeySource "$PublishPath\api\firebase-service-account.json"
+        Write-Host "  Firebase service account key included." -ForegroundColor Green
+    }
+    else {
+        Write-Host "  WARNING: firebase-service-account.json not found - push notifications will be disabled on deploy." -ForegroundColor Yellow
+    }
+
     $publishedApps += "API"
 }
 
@@ -655,7 +666,7 @@ try {
         Write-Host "  Creating deployment package..." -ForegroundColor Gray
         Compress-Archive -Path "$sourcePath\*" -DestinationPath $zipPath -Force
         $zipSize = [math]::Round((Get-Item $zipPath).Length / 1MB, 2)
-        Write-Host "  Package created: $zipFileName ($zipSize MB)" -ForegroundColor Green
+        Write-Host "  Package created: $zipFileName - $zipSize MB" -ForegroundColor Green
         
         # Upload with progress
         Write-Host "  Uploading to production server..." -ForegroundColor Gray
@@ -674,7 +685,7 @@ try {
             $progressBar = "[" + ("=" * [math]::Floor($percentComplete / 2)) + (" " * (50 - [math]::Floor($percentComplete / 2))) + "]"
             $copiedMB = [math]::Round($copiedBytes / 1MB, 1)
             
-            Write-Host "`r    $progressBar $percentComplete% ($copiedMB MB / $zipSize MB)" -NoNewline -ForegroundColor Cyan
+            Write-Host "`r    $progressBar $percentComplete% - $copiedMB MB / $zipSize MB" -NoNewline -ForegroundColor Cyan
         }
         
         $sourceStream.Close()
@@ -814,8 +825,8 @@ Write-Host "  - Deploy Web only: .\Update-Production.ps1 -DeployTarget Web" -For
 Write-Host "  - Skip backup: .\Update-Production.ps1 -SkipBackup" -ForegroundColor White
 Write-Host ""
 Write-Host "Logs location:" -ForegroundColor Yellow
-Write-Host "  - API: \\$ProductionServer\C`$\inetpub\ShopInventory-API\logs\" -ForegroundColor White
-Write-Host "  - Web: \\$ProductionServer\C`$\inetpub\ShopInventory-Web\logs\" -ForegroundColor White
+Write-Host "  - API: \\$ProductionServer\C`$\inetpub\ShopInventory-API\logs" -ForegroundColor White
+Write-Host "  - Web: \\$ProductionServer\C`$\inetpub\ShopInventory-Web\logs" -ForegroundColor White
 Write-Host ""
 
 Read-Host "Press Enter to exit"

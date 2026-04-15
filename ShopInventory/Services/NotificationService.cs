@@ -31,12 +31,14 @@ public class NotificationService : INotificationService
     private readonly ApplicationDbContext _context;
     private readonly ILogger<NotificationService> _logger;
     private readonly IHubContext<NotificationHub> _hubContext;
+    private readonly IPushNotificationService _pushService;
 
-    public NotificationService(ApplicationDbContext context, ILogger<NotificationService> logger, IHubContext<NotificationHub> hubContext)
+    public NotificationService(ApplicationDbContext context, ILogger<NotificationService> logger, IHubContext<NotificationHub> hubContext, IPushNotificationService pushService)
     {
         _context = context;
         _logger = logger;
         _hubContext = hubContext;
+        _pushService = pushService;
     }
 
     /// <summary>
@@ -80,6 +82,34 @@ public class NotificationService : INotificationService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to broadcast notification via SignalR");
+        }
+
+        // Send mobile push notification
+        try
+        {
+            var pushData = new Dictionary<string, string>
+            {
+                ["notificationId"] = notification.Id.ToString(),
+                ["type"] = request.Type,
+                ["category"] = request.Category
+            };
+            if (!string.IsNullOrEmpty(request.ActionUrl))
+                pushData["actionUrl"] = request.ActionUrl;
+            if (!string.IsNullOrEmpty(request.EntityType))
+                pushData["entityType"] = request.EntityType;
+            if (!string.IsNullOrEmpty(request.EntityId))
+                pushData["entityId"] = request.EntityId;
+
+            if (!string.IsNullOrEmpty(request.TargetUsername))
+                await _pushService.SendToUsernameAsync(request.TargetUsername, request.Title, request.Message, pushData, cancellationToken);
+            else if (!string.IsNullOrEmpty(request.TargetRole))
+                await _pushService.SendToRoleAsync(request.TargetRole, request.Title, request.Message, pushData, cancellationToken);
+            else
+                await _pushService.SendToAllAsync(request.Title, request.Message, pushData, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send mobile push notification");
         }
 
         return dto;

@@ -1,10 +1,19 @@
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Authentication;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
+using ShopInventory.Features.CreditNotes.Commands.ApproveCreditNote;
+using ShopInventory.Features.CreditNotes.Commands.CreateCreditNote;
+using ShopInventory.Features.CreditNotes.Commands.CreateCreditNoteFromInvoice;
+using ShopInventory.Features.CreditNotes.Commands.DeleteCreditNote;
+using ShopInventory.Features.CreditNotes.Commands.UpdateCreditNoteStatus;
+using ShopInventory.Features.CreditNotes.Queries.GetAllCreditNotes;
+using ShopInventory.Features.CreditNotes.Queries.GetCreditNoteById;
+using ShopInventory.Features.CreditNotes.Queries.GetCreditNoteByNumber;
+using ShopInventory.Features.CreditNotes.Queries.GetCreditNotesByInvoice;
 using ShopInventory.Models.Entities;
-using ShopInventory.Services;
 using System.Security.Claims;
 
 namespace ShopInventory.Controllers;
@@ -12,23 +21,11 @@ namespace ShopInventory.Controllers;
 /// <summary>
 /// Controller for Credit Note operations
 /// </summary>
-[ApiController]
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
 [Produces("application/json")]
-public class CreditNoteController : ControllerBase
+public class CreditNoteController(IMediator mediator) : ApiControllerBase
 {
-    private readonly ICreditNoteService _creditNoteService;
-    private readonly IAuditService _auditService;
-    private readonly ILogger<CreditNoteController> _logger;
-
-    public CreditNoteController(ICreditNoteService creditNoteService, IAuditService auditService, ILogger<CreditNoteController> logger)
-    {
-        _creditNoteService = creditNoteService;
-        _auditService = auditService;
-        _logger = logger;
-    }
-
     /// <summary>
     /// Get all credit notes with pagination and filtering
     /// </summary>
@@ -44,8 +41,10 @@ public class CreditNoteController : ControllerBase
         [FromQuery] DateTime? toDate = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await _creditNoteService.GetAllAsync(page, pageSize, status, cardCode, fromDate, toDate, cancellationToken);
-        return Ok(result);
+        var result = await mediator.Send(
+            new GetAllCreditNotesQuery(page, pageSize, status, cardCode, fromDate, toDate),
+            cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
@@ -57,11 +56,8 @@ public class CreditNoteController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
-        var creditNote = await _creditNoteService.GetByIdAsync(id, cancellationToken);
-        if (creditNote == null)
-            return NotFound(new { message = $"Credit note with ID {id} not found" });
-
-        return Ok(creditNote);
+        var result = await mediator.Send(new GetCreditNoteByIdQuery(id), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
@@ -73,11 +69,8 @@ public class CreditNoteController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetByCreditNoteNumber(string creditNoteNumber, CancellationToken cancellationToken)
     {
-        var creditNote = await _creditNoteService.GetByCreditNoteNumberAsync(creditNoteNumber, cancellationToken);
-        if (creditNote == null)
-            return NotFound(new { message = $"Credit note '{creditNoteNumber}' not found" });
-
-        return Ok(creditNote);
+        var result = await mediator.Send(new GetCreditNoteByNumberQuery(creditNoteNumber), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
@@ -88,15 +81,8 @@ public class CreditNoteController : ControllerBase
     [ProducesResponseType(typeof(CreditNotesByInvoiceResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetByInvoiceId(int invoiceId, CancellationToken cancellationToken)
     {
-        var creditNotes = await _creditNoteService.GetByInvoiceIdAsync(invoiceId, cancellationToken);
-        var response = new CreditNotesByInvoiceResponse
-        {
-            InvoiceId = invoiceId,
-            HasExistingCreditNotes = creditNotes.Any(),
-            TotalCreditedAmount = creditNotes.Sum(cn => cn.DocTotal),
-            CreditNotes = creditNotes
-        };
-        return Ok(response);
+        var result = await mediator.Send(new GetCreditNotesByInvoiceQuery(invoiceId), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
@@ -108,24 +94,14 @@ public class CreditNoteController : ControllerBase
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Create([FromBody] CreateCreditNoteRequest request, CancellationToken cancellationToken)
     {
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
-
         var userId = GetCurrentUserId();
         if (userId == null)
             return Unauthorized();
 
-        try
-        {
-            var creditNote = await _creditNoteService.CreateAsync(request, userId.Value, cancellationToken);
-            try { await _auditService.LogAsync(AuditActions.CreateCreditNote, "CreditNote", creditNote.Id.ToString(), $"Credit note created for {request.CardCode}", true); } catch { }
-            return CreatedAtAction(nameof(GetById), new { id = creditNote.Id }, creditNote);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error creating credit note");
-            return BadRequest(new ErrorResponseDto { Message = ex.Message });
-        }
+        var result = await mediator.Send(new CreateCreditNoteCommand(request, userId.Value), cancellationToken);
+        return result.Match(
+            value => CreatedAtAction(nameof(GetById), new { id = value.Id }, value),
+            errors => Problem(errors));
     }
 
     /// <summary>
@@ -144,34 +120,12 @@ public class CreditNoteController : ControllerBase
         if (userId == null)
             return Unauthorized();
 
-        try
-        {
-            var lines = request.Lines?.Select(l => new CreateCreditNoteLineRequest
-            {
-                ItemCode = l.ItemCode ?? "",
-                ItemDescription = l.ItemDescription,
-                Quantity = l.Quantity,
-                UnitPrice = l.UnitPrice,
-                DiscountPercent = l.DiscountPercent,
-                TaxPercent = l.TaxPercent,
-                WarehouseCode = l.WarehouseCode,
-                ReturnReason = l.ReturnReason,
-                OriginalInvoiceLineId = l.OriginalInvoiceLineId
-            }).ToList() ?? new List<CreateCreditNoteLineRequest>();
-
-            var creditNote = await _creditNoteService.CreateFromInvoiceAsync(invoiceId, lines, request.Reason ?? "", userId.Value, cancellationToken);
-            try { await _auditService.LogAsync(AuditActions.CreateCreditNote, "CreditNote", creditNote.Id.ToString(), $"Credit note created from invoice {invoiceId}", true); } catch { }
-            return CreatedAtAction(nameof(GetById), new { id = creditNote.Id }, creditNote);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new ErrorResponseDto { Message = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error creating credit note from invoice {InvoiceId}", invoiceId);
-            return BadRequest(new ErrorResponseDto { Message = ex.Message });
-        }
+        var result = await mediator.Send(
+            new CreateCreditNoteFromInvoiceCommand(invoiceId, request, userId.Value),
+            cancellationToken);
+        return result.Match(
+            value => CreatedAtAction(nameof(GetById), new { id = value.Id }, value),
+            errors => Problem(errors));
     }
 
     /// <summary>
@@ -187,15 +141,10 @@ public class CreditNoteController : ControllerBase
         if (userId == null)
             return Unauthorized();
 
-        try
-        {
-            var creditNote = await _creditNoteService.UpdateStatusAsync(id, request.Status, userId.Value, cancellationToken);
-            return Ok(creditNote);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new ErrorResponseDto { Message = ex.Message });
-        }
+        var result = await mediator.Send(
+            new UpdateCreditNoteStatusCommand(id, request.Status, userId.Value),
+            cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
@@ -211,16 +160,8 @@ public class CreditNoteController : ControllerBase
         if (userId == null)
             return Unauthorized();
 
-        try
-        {
-            var creditNote = await _creditNoteService.ApproveAsync(id, userId.Value, cancellationToken);
-            try { await _auditService.LogAsync(AuditActions.ApproveCreditNote, "CreditNote", id.ToString(), $"Credit note {id} approved", true); } catch { }
-            return Ok(creditNote);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new ErrorResponseDto { Message = ex.Message });
-        }
+        var result = await mediator.Send(new ApproveCreditNoteCommand(id, userId.Value), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
@@ -233,19 +174,8 @@ public class CreditNoteController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
-        try
-        {
-            var deleted = await _creditNoteService.DeleteAsync(id, cancellationToken);
-            if (!deleted)
-                return NotFound();
-
-            try { await _auditService.LogAsync(AuditActions.DeleteCreditNote, "CreditNote", id.ToString(), $"Credit note {id} deleted", true); } catch { }
-            return NoContent();
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new ErrorResponseDto { Message = ex.Message });
-        }
+        var result = await mediator.Send(new DeleteCreditNoteCommand(id), cancellationToken);
+        return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
     private Guid? GetCurrentUserId()

@@ -88,6 +88,9 @@ appsettings.*.json
 *.log
 logs/
 
+# Firebase service account key
+firebase-service-account.json
+
 # Database
 *.db
 *.sqlite

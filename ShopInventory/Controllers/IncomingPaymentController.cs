@@ -1,44 +1,26 @@
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
-using ShopInventory.Configuration;
 using ShopInventory.DTOs;
-using ShopInventory.Mappings;
-using ShopInventory.Models;
 using ShopInventory.Services;
+using ShopInventory.Features.IncomingPayments.Commands.CreateIncomingPayment;
+using ShopInventory.Features.IncomingPayments.Commands.UploadPaymentAttachment;
+using ShopInventory.Features.IncomingPayments.Queries.GetPagedPayments;
+using ShopInventory.Features.IncomingPayments.Queries.GetPaymentByDocEntry;
+using ShopInventory.Features.IncomingPayments.Queries.GetPaymentByDocNum;
+using ShopInventory.Features.IncomingPayments.Queries.GetPaymentsByCustomer;
+using ShopInventory.Features.IncomingPayments.Queries.GetPaymentsByDateRange;
+using ShopInventory.Features.IncomingPayments.Queries.GetTodaysPayments;
 
 namespace ShopInventory.Controllers;
 
-[ApiController]
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
-public class IncomingPaymentController : ControllerBase
+public class IncomingPaymentController(IMediator mediator) : ApiControllerBase
 {
-    private readonly ISAPServiceLayerClient _sapClient;
-    private readonly IDocumentService _documentService;
-    private readonly IAuditService _auditService;
-    private readonly SAPSettings _settings;
-    private readonly ILogger<IncomingPaymentController> _logger;
-
-    public IncomingPaymentController(
-        ISAPServiceLayerClient sapClient,
-        IDocumentService documentService,
-        IAuditService auditService,
-        IOptions<SAPSettings> settings,
-        ILogger<IncomingPaymentController> logger)
-    {
-        _sapClient = sapClient;
-        _documentService = documentService;
-        _auditService = auditService;
-        _settings = settings.Value;
-        _logger = logger;
-    }
-
     /// <summary>
     /// Creates a new incoming payment in SAP Business One
     /// </summary>
-    /// <param name="request">The payment creation request</param>
-    /// <returns>The created payment</returns>
     [HttpPost]
     [ProducesResponseType(typeof(IncomingPaymentCreatedResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
@@ -47,79 +29,10 @@ public class IncomingPaymentController : ControllerBase
         [FromBody] CreateIncomingPaymentRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            // Validate the model
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(new ErrorResponseDto
-                {
-                    Message = "Validation failed",
-                    Errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList()
-                });
-            }
-
-            // CRITICAL: Additional validation for negative amounts
-            var amountErrors = ValidatePaymentAmounts(request);
-            if (amountErrors.Count > 0)
-            {
-                _logger.LogWarning("Payment amount validation failed: {Errors}", string.Join(", ", amountErrors));
-                return BadRequest(new ErrorResponseDto
-                {
-                    Message = "Amount validation failed - negative amounts are not allowed",
-                    Errors = amountErrors
-                });
-            }
-
-            var payment = await _sapClient.CreateIncomingPaymentAsync(request, cancellationToken);
-
-            _logger.LogInformation("Incoming payment created successfully. DocEntry: {DocEntry}, DocNum: {DocNum}, Customer: {CardCode}, Total: {Total}",
-                payment.DocEntry, payment.DocNum, payment.CardCode, payment.DocTotal);
-
-            try { await _auditService.LogAsync(AuditActions.CreatePayment, "IncomingPayment", payment.DocEntry.ToString(), $"Payment #{payment.DocNum} created for {payment.CardCode}, Total: {payment.DocTotal}", true); } catch { }
-
-            return CreatedAtAction(
-                nameof(GetIncomingPaymentByDocEntry),
-                new { docEntry = payment.DocEntry },
-                new IncomingPaymentCreatedResponseDto
-                {
-                    Message = "Incoming payment created successfully",
-                    Payment = payment.ToDto()
-                });
-        }
-        catch (ArgumentException ex)
-        {
-            _logger.LogWarning(ex, "Validation error creating incoming payment");
-            return BadRequest(new ErrorResponseDto { Message = "Validation error", Errors = ex.Message.Split("; ").ToList() });
-        }
-        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning("Request was canceled by the client while creating incoming payment");
-            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogError(ex, "Timeout or connection abort while creating incoming payment in SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted" });
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer", Errors = new List<string> { ex.Message } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error creating incoming payment");
-            return StatusCode(500, new ErrorResponseDto { Message = "Error creating incoming payment", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new CreateIncomingPaymentCommand(request), cancellationToken);
+        return result.Match(
+            value => CreatedAtAction(nameof(GetIncomingPaymentByDocEntry), new { docEntry = value.Payment!.DocEntry }, value),
+            errors => Problem(errors));
     }
 
     /// <summary>
@@ -136,120 +49,27 @@ public class IncomingPaymentController : ControllerBase
         CancellationToken cancellationToken = default)
     {
         if (file == null || file.Length == 0)
-        {
             return BadRequest(new ErrorResponseDto { Message = "No file uploaded" });
-        }
 
         var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp", "application/pdf" };
         if (!allowedTypes.Contains(file.ContentType, StringComparer.OrdinalIgnoreCase))
-        {
-            return BadRequest(new ErrorResponseDto
-            {
-                Message = "Invalid file type. Only JPEG, PNG, WebP images and PDF files are allowed."
-            });
-        }
-
-        var request = new UploadAttachmentRequest
-        {
-            EntityType = "IncomingPayment",
-            EntityId = docEntry,
-            Description = description ?? "Payment Attachment",
-            IncludeInEmail = false
-        };
+            return BadRequest(new ErrorResponseDto { Message = "Invalid file type. Only JPEG, PNG, WebP images and PDF files are allowed." });
 
         var userId = Guid.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : Guid.Empty;
         using var stream = file.OpenReadStream();
 
-        var attachment = await _documentService.UploadAttachmentAsync(
-            request, stream, file.FileName, file.ContentType, userId, cancellationToken);
+        var result = await mediator.Send(
+            new UploadPaymentAttachmentCommand(docEntry, stream, file.FileName, file.ContentType, description, userId),
+            cancellationToken);
 
-        _logger.LogInformation("Attachment uploaded for incoming payment {DocEntry} by user {UserId}", docEntry, userId);
-
-        return Created($"api/incomingpayment/{docEntry}/attachment/{attachment.Id}", attachment);
-    }
-
-    /// <summary>
-    /// Validates that all payment amounts are non-negative
-    /// </summary>
-    private List<string> ValidatePaymentAmounts(CreateIncomingPaymentRequest request)
-    {
-        var errors = new List<string>();
-
-        if (request.CashSum < 0)
-        {
-            errors.Add($"Cash sum cannot be negative. Current value: {request.CashSum}");
-        }
-
-        if (request.TransferSum < 0)
-        {
-            errors.Add($"Transfer sum cannot be negative. Current value: {request.TransferSum}");
-        }
-
-        if (request.CheckSum < 0)
-        {
-            errors.Add($"Check sum cannot be negative. Current value: {request.CheckSum}");
-        }
-
-        if (request.CreditSum < 0)
-        {
-            errors.Add($"Credit sum cannot be negative. Current value: {request.CreditSum}");
-        }
-
-        // Validate total payment is positive
-        var totalPayment = request.CashSum + request.TransferSum + request.CheckSum + request.CreditSum;
-        if (totalPayment <= 0)
-        {
-            errors.Add("At least one payment amount must be greater than zero");
-        }
-
-        // Validate payment invoices
-        if (request.PaymentInvoices != null)
-        {
-            for (int i = 0; i < request.PaymentInvoices.Count; i++)
-            {
-                var inv = request.PaymentInvoices[i];
-                if (inv.SumApplied < 0)
-                {
-                    errors.Add($"Invoice {i + 1}: Sum applied cannot be negative. Current value: {inv.SumApplied}");
-                }
-            }
-        }
-
-        // Validate payment checks
-        if (request.PaymentChecks != null)
-        {
-            for (int i = 0; i < request.PaymentChecks.Count; i++)
-            {
-                var chk = request.PaymentChecks[i];
-                if (chk.CheckSum < 0)
-                {
-                    errors.Add($"Check {i + 1}: Check sum cannot be negative. Current value: {chk.CheckSum}");
-                }
-            }
-        }
-
-        // Validate payment credit cards
-        if (request.PaymentCreditCards != null)
-        {
-            for (int i = 0; i < request.PaymentCreditCards.Count; i++)
-            {
-                var cc = request.PaymentCreditCards[i];
-                if (cc.CreditSum < 0)
-                {
-                    errors.Add($"Credit card {i + 1}: Credit sum cannot be negative. Current value: {cc.CreditSum}");
-                }
-            }
-        }
-
-        return errors;
+        return result.Match(
+            value => Created($"api/incomingpayment/{docEntry}/attachment/{value.Id}", value),
+            errors => Problem(errors));
     }
 
     /// <summary>
     /// Gets all incoming payments with pagination
     /// </summary>
-    /// <param name="page">Page number (default: 1)</param>
-    /// <param name="pageSize">Number of items per page (default: 20)</param>
-    /// <returns>Paginated list of incoming payments</returns>
     [HttpGet]
     [ProducesResponseType(typeof(IncomingPaymentListResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
@@ -258,57 +78,13 @@ public class IncomingPaymentController : ControllerBase
         [FromQuery] int pageSize = 20,
         CancellationToken cancellationToken = default)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            if (page < 1) page = 1;
-            if (pageSize < 1) pageSize = 20;
-            if (pageSize > 100) pageSize = 100;
-
-            var payments = await _sapClient.GetPagedIncomingPaymentsAsync(page, pageSize, cancellationToken);
-
-            _logger.LogInformation("Retrieved {Count} incoming payments (page {Page})", payments.Count, page);
-
-            return Ok(new IncomingPaymentListResponseDto
-            {
-                Page = page,
-                PageSize = pageSize,
-                Count = payments.Count,
-                HasMore = payments.Count == pageSize,
-                Payments = payments.ToDto()
-            });
-        }
-        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning("Request was canceled by the client while retrieving incoming payments");
-            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogError(ex, "Timeout or connection abort while retrieving incoming payments from SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted" });
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer", Errors = new List<string> { ex.Message } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving incoming payments");
-            return StatusCode(500, new ErrorResponseDto { Message = "An error occurred while retrieving incoming payments", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new GetPagedPaymentsQuery(page, pageSize), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
     /// Gets a specific incoming payment by DocEntry
     /// </summary>
-    /// <param name="docEntry">The document entry number</param>
-    /// <returns>The incoming payment details</returns>
     [HttpGet("{docEntry:int}")]
     [ProducesResponseType(typeof(IncomingPaymentDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
@@ -317,51 +93,13 @@ public class IncomingPaymentController : ControllerBase
         int docEntry,
         CancellationToken cancellationToken = default)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            var payment = await _sapClient.GetIncomingPaymentByDocEntryAsync(docEntry, cancellationToken);
-
-            if (payment == null)
-            {
-                return NotFound(new ErrorResponseDto { Message = $"Incoming payment with DocEntry {docEntry} not found" });
-            }
-
-            _logger.LogInformation("Retrieved incoming payment DocEntry: {DocEntry}, DocNum: {DocNum}", payment.DocEntry, payment.DocNum);
-
-            return Ok(payment.ToDto());
-        }
-        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning("Request was canceled by the client while retrieving incoming payment {DocEntry}", docEntry);
-            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogError(ex, "Timeout or connection abort while retrieving incoming payment from SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted" });
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer", Errors = new List<string> { ex.Message } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving incoming payment {DocEntry}", docEntry);
-            return StatusCode(500, new ErrorResponseDto { Message = "An error occurred while retrieving the incoming payment", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new GetPaymentByDocEntryQuery(docEntry), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
     /// Gets an incoming payment by DocNum
     /// </summary>
-    /// <param name="docNum">The document number</param>
-    /// <returns>The incoming payment details</returns>
     [HttpGet("docnum/{docNum:int}")]
     [ProducesResponseType(typeof(IncomingPaymentDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
@@ -370,51 +108,13 @@ public class IncomingPaymentController : ControllerBase
         int docNum,
         CancellationToken cancellationToken = default)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            var payment = await _sapClient.GetIncomingPaymentByDocNumAsync(docNum, cancellationToken);
-
-            if (payment == null)
-            {
-                return NotFound(new ErrorResponseDto { Message = $"Incoming payment with DocNum {docNum} not found" });
-            }
-
-            _logger.LogInformation("Retrieved incoming payment by DocNum: {DocNum}, DocEntry: {DocEntry}", payment.DocNum, payment.DocEntry);
-
-            return Ok(payment.ToDto());
-        }
-        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning("Request was canceled by the client while retrieving incoming payment DocNum {DocNum}", docNum);
-            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogError(ex, "Timeout or connection abort while retrieving incoming payment from SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted" });
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer", Errors = new List<string> { ex.Message } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving incoming payment by DocNum {DocNum}", docNum);
-            return StatusCode(500, new ErrorResponseDto { Message = "An error occurred while retrieving the incoming payment", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new GetPaymentByDocNumQuery(docNum), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
     /// Gets incoming payments for a specific customer
     /// </summary>
-    /// <param name="cardCode">The customer card code</param>
-    /// <returns>List of incoming payments for the customer</returns>
     [HttpGet("customer/{cardCode}")]
     [ProducesResponseType(typeof(List<IncomingPaymentDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
@@ -423,57 +123,13 @@ public class IncomingPaymentController : ControllerBase
         string cardCode,
         CancellationToken cancellationToken = default)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            if (string.IsNullOrWhiteSpace(cardCode))
-            {
-                return BadRequest(new ErrorResponseDto { Message = "Customer code is required" });
-            }
-
-            var payments = await _sapClient.GetIncomingPaymentsByCustomerAsync(cardCode, cancellationToken);
-
-            _logger.LogInformation("Retrieved {Count} incoming payments for customer {CardCode}", payments.Count, cardCode);
-
-            return Ok(new
-            {
-                CardCode = cardCode,
-                Count = payments.Count,
-                Payments = payments.ToDto()
-            });
-        }
-        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning("Request was canceled by the client while retrieving payments for customer {CardCode}", cardCode);
-            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogError(ex, "Timeout or connection abort while retrieving customer payments from SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted" });
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer", Errors = new List<string> { ex.Message } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving incoming payments for customer {CardCode}", cardCode);
-            return StatusCode(500, new ErrorResponseDto { Message = "An error occurred while retrieving incoming payments", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new GetPaymentsByCustomerQuery(cardCode), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
     /// Gets incoming payments within a date range
     /// </summary>
-    /// <param name="fromDate">Start date (yyyy-MM-dd)</param>
-    /// <param name="toDate">End date (yyyy-MM-dd)</param>
-    /// <returns>List of incoming payments within the date range</returns>
     [HttpGet("daterange")]
     [ProducesResponseType(typeof(IncomingPaymentDateResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
@@ -483,95 +139,20 @@ public class IncomingPaymentController : ControllerBase
         [FromQuery] DateTime toDate,
         CancellationToken cancellationToken = default)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            if (fromDate > toDate)
-            {
-                return BadRequest(new ErrorResponseDto { Message = "From date must be less than or equal to To date" });
-            }
-
-            var payments = await _sapClient.GetIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
-
-            _logger.LogInformation("Retrieved {Count} incoming payments from {FromDate} to {ToDate}",
-                payments.Count, fromDate.ToString("yyyy-MM-dd"), toDate.ToString("yyyy-MM-dd"));
-
-            return Ok(new IncomingPaymentDateResponseDto
-            {
-                FromDate = fromDate.ToString("yyyy-MM-dd"),
-                ToDate = toDate.ToString("yyyy-MM-dd"),
-                Count = payments.Count,
-                Payments = payments.ToDto()
-            });
-        }
-        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning("Request was canceled by the client while retrieving payments by date range");
-            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogError(ex, "Timeout or connection abort while retrieving payments by date range from SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted" });
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer", Errors = new List<string> { ex.Message } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving incoming payments by date range");
-            return StatusCode(500, new ErrorResponseDto { Message = "An error occurred while retrieving incoming payments", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new GetPaymentsByDateRangeQuery(fromDate, toDate), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
     /// Gets today's incoming payments
     /// </summary>
-    /// <returns>List of today's incoming payments</returns>
     [HttpGet("today")]
     [ProducesResponseType(typeof(IncomingPaymentDateResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetTodaysIncomingPayments(CancellationToken cancellationToken = default)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            var today = DateTime.Today;
-            var payments = await _sapClient.GetIncomingPaymentsByDateRangeAsync(today, today, cancellationToken);
-
-            _logger.LogInformation("Retrieved {Count} incoming payments for today ({Date})", payments.Count, today.ToString("yyyy-MM-dd"));
-
-            return Ok(new IncomingPaymentDateResponseDto
-            {
-                Date = today.ToString("yyyy-MM-dd"),
-                Count = payments.Count,
-                Payments = payments.ToDto()
-            });
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogError("Timeout or connection abort while retrieving today's payments from SAP Service Layer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted" });
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer", Errors = new List<string> { ex.Message } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving today's incoming payments");
-            return StatusCode(500, new ErrorResponseDto { Message = "An error occurred while retrieving incoming payments", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new GetTodaysPaymentsQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 }
+    /// <param name="request">The payment creation request</param>

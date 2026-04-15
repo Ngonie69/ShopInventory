@@ -4403,6 +4403,81 @@ html.dark-theme {
     color: #94a3b8 !important;
     border-color: #334155 !important;
 }
+.dark-theme .stk-table-header h6 {
+    color: #f1f5f9 !important;
+}
+.dark-theme .stk-count-badge {
+    background: #1e3a5f !important;
+    color: #93c5fd !important;
+}
+.dark-theme .stk-table th {
+    background: #0f172a !important;
+    color: #94a3b8 !important;
+    border-bottom-color: #334155 !important;
+}
+.dark-theme .stk-table td {
+    color: #e2e8f0 !important;
+    border-bottom-color: rgba(51, 65, 85, 0.5) !important;
+}
+.dark-theme .stk-table tbody tr:hover {
+    background: rgba(51, 65, 85, 0.3) !important;
+}
+.dark-theme .stk-table tbody tr.row-danger {
+    background: rgba(220, 38, 38, 0.1) !important;
+}
+.dark-theme .stk-table tbody tr.row-danger:hover {
+    background: rgba(220, 38, 38, 0.18) !important;
+}
+.dark-theme .stk-table tbody tr.row-warning {
+    background: rgba(217, 119, 6, 0.1) !important;
+}
+.dark-theme .stk-table tbody tr.row-warning:hover {
+    background: rgba(217, 119, 6, 0.18) !important;
+}
+.dark-theme .stk-table .item-code {
+    color: #a5b4fc !important;
+}
+.dark-theme .stk-table .item-name {
+    color: #f1f5f9 !important;
+}
+.dark-theme .stk-table .qty-cell {
+    color: #e2e8f0 !important;
+}
+.dark-theme .stk-table .qty-warning {
+    color: #fbbf24 !important;
+}
+.dark-theme .stk-table .qty-info {
+    color: #60a5fa !important;
+}
+.dark-theme .stk-table .qty-danger {
+    color: #f87171 !important;
+}
+.dark-theme .stk-table .qty-success {
+    color: #6ee7b7 !important;
+}
+.dark-theme .stk-table .health-bar {
+    background: #334155 !important;
+}
+.dark-theme .stk-table .status-dot.green {
+    box-shadow: 0 0 0 3px rgba(110, 231, 183, 0.2);
+}
+.dark-theme .stk-table .status-dot.amber {
+    box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.2);
+}
+.dark-theme .stk-table .status-dot.red {
+    box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.2);
+}
+.dark-theme .stk-pagination button {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+    border-color: #475569 !important;
+}
+.dark-theme .stk-pagination button:hover {
+    background: #334155 !important;
+}
+.dark-theme .stk-table .uom-label {
+    color: #94a3b8 !important;
+}
 
 /* --- MobileDrafts page --- */
 .dark-theme .md-page {

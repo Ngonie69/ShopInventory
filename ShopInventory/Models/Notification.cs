@@ -327,6 +327,11 @@ public class UserNotificationSettings
     public bool EmailNotificationsEnabled { get; set; } = true;
 
     /// <summary>
+    /// Mobile push notifications enabled
+    /// </summary>
+    public bool PushNotificationsEnabled { get; set; } = true;
+
+    /// <summary>
     /// Low stock alerts enabled
     /// </summary>
     public bool LowStockAlerts { get; set; } = true;

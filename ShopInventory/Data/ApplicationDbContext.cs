@@ -49,6 +49,7 @@ public class ApplicationDbContext : DbContext
   public DbSet<EmailQueueItem> EmailQueueItems { get; set; }
   public DbSet<SapConnectionLog> SapConnectionLogs { get; set; }
   public DbSet<UserNotificationSettings> UserNotificationSettings { get; set; }
+  public DbSet<PushDeviceRegistration> PushDeviceRegistrations { get; set; }
 
   // Webhook tables
   public DbSet<Webhook> Webhooks { get; set; }
@@ -451,6 +452,22 @@ public class ApplicationDbContext : DbContext
       entity.HasOne(s => s.User)
                   .WithOne()
                   .HasForeignKey<UserNotificationSettings>(s => s.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    // Push Device Registration configuration
+    modelBuilder.Entity<PushDeviceRegistration>(entity =>
+    {
+      entity.ToTable("PushDeviceRegistrations");
+      entity.HasKey(d => d.Id);
+
+      entity.HasIndex(d => d.UserId);
+      entity.HasIndex(d => d.DeviceToken).IsUnique();
+      entity.HasIndex(d => d.IsRevoked);
+
+      entity.HasOne(d => d.User)
+                  .WithMany()
+                  .HasForeignKey(d => d.UserId)
                   .OnDelete(DeleteBehavior.Cascade);
     });
 

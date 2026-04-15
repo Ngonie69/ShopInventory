@@ -461,6 +461,11 @@
         color: #059669;
     }
 
+    .uom-label {
+        font-size: .82rem;
+        color: #6b7280;
+    }
+
     /* Health Bar */
     .health-bar {
         width: 56px;
@@ -991,7 +996,7 @@
                                                     @item.Available.ToString("N0")
                                                 </span>
                                             </td>
-                                            <td><span style="font-size:.82rem;color:#6b7280;">@item.UoM</span></td>
+                                            <td><span class="uom-label">@item.UoM</span></td>
                                             <td style="text-align:center;">
                                                 @{
                                                     var healthPercent = item.InStock > 0 ? Math.Min(100, (item.Available /

@@ -5,8 +5,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using FluentValidation;
+using MediatR;
 using Serilog;
 using ShopInventory.Authentication;
+using ShopInventory.Behaviors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Middleware;
@@ -339,6 +342,12 @@ try
     // Register IHttpContextAccessor for audit service
     builder.Services.AddHttpContextAccessor();
 
+    // Register MediatR + pipeline behaviors
+    builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
+    builder.Services.AddValidatorsFromAssembly(typeof(Program).Assembly);
+    builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
+    builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(LoggingBehavior<,>));
+
     // Register audit service
     builder.Services.AddScoped<IAuditService, AuditService>();
 
@@ -360,6 +369,8 @@ try
     builder.Services.AddScoped<IReportService, ReportService>();
 
     // Register notification services
+    builder.Services.Configure<FirebaseSettings>(builder.Configuration.GetSection("Firebase"));
+    builder.Services.AddScoped<IPushNotificationService, PushNotificationService>();
     builder.Services.AddScoped<INotificationService, NotificationService>();
 
     // Register email service

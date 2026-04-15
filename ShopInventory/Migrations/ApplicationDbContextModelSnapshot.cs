@@ -3387,6 +3387,56 @@ namespace ShopInventory.Migrations
                     b.ToTable("PaymentTransactions", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.PushDeviceRegistration", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AppVersion")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("DeviceName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("DeviceToken")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<bool>("IsRevoked")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastActiveAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Platform")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("RegisteredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceToken")
+                        .IsUnique();
+
+                    b.HasIndex("IsRevoked");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("PushDeviceRegistrations", (string)null);
+                });
+
             modelBuilder.Entity("ShopInventory.Models.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4130,6 +4180,17 @@ namespace ShopInventory.Migrations
                 {
                     b.HasOne("ShopInventory.Models.User", "User")
                         .WithMany("PasswordResetTokens")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.PushDeviceRegistration", b =>
+                {
+                    b.HasOne("ShopInventory.Models.User", "User")
+                        .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

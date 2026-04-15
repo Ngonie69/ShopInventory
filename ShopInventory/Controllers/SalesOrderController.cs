@@ -1,10 +1,20 @@
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Authentication;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
+using ShopInventory.Features.SalesOrders.Commands.ApproveSalesOrder;
+using ShopInventory.Features.SalesOrders.Commands.ConvertToInvoice;
+using ShopInventory.Features.SalesOrders.Commands.CreateSalesOrder;
+using ShopInventory.Features.SalesOrders.Commands.DeleteSalesOrder;
+using ShopInventory.Features.SalesOrders.Commands.PostToSAP;
+using ShopInventory.Features.SalesOrders.Commands.UpdateSalesOrder;
+using ShopInventory.Features.SalesOrders.Commands.UpdateSalesOrderStatus;
+using ShopInventory.Features.SalesOrders.Queries.GetAllSalesOrders;
+using ShopInventory.Features.SalesOrders.Queries.GetSalesOrderById;
+using ShopInventory.Features.SalesOrders.Queries.GetSalesOrderByNumber;
 using ShopInventory.Models.Entities;
-using ShopInventory.Services;
 using System.Security.Claims;
 
 namespace ShopInventory.Controllers;
@@ -12,23 +22,11 @@ namespace ShopInventory.Controllers;
 /// <summary>
 /// Controller for Sales Order operations
 /// </summary>
-[ApiController]
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
 [Produces("application/json")]
-public class SalesOrderController : ControllerBase
+public class SalesOrderController(IMediator mediator) : ApiControllerBase
 {
-    private readonly ISalesOrderService _salesOrderService;
-    private readonly IAuditService _auditService;
-    private readonly ILogger<SalesOrderController> _logger;
-
-    public SalesOrderController(ISalesOrderService salesOrderService, IAuditService auditService, ILogger<SalesOrderController> logger)
-    {
-        _salesOrderService = salesOrderService;
-        _auditService = auditService;
-        _logger = logger;
-    }
-
     /// <summary>
     /// Get all sales orders with pagination and filtering
     /// </summary>
@@ -45,8 +43,11 @@ public class SalesOrderController : ControllerBase
         [FromQuery] SalesOrderSource? source = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await _salesOrderService.GetAllAsync(page, pageSize, status, cardCode, fromDate, toDate, source, cancellationToken);
-        return Ok(result);
+        var result = await mediator.Send(
+            new GetAllSalesOrdersQuery(page, pageSize, status, cardCode, fromDate, toDate, source),
+            cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
@@ -58,11 +59,8 @@ public class SalesOrderController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
-        var order = await _salesOrderService.GetByIdAsync(id, cancellationToken);
-        if (order == null)
-            return NotFound(new { message = $"Sales order with ID {id} not found" });
-
-        return Ok(order);
+        var result = await mediator.Send(new GetSalesOrderByIdQuery(id), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
@@ -74,11 +72,8 @@ public class SalesOrderController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetByOrderNumber(string orderNumber, CancellationToken cancellationToken)
     {
-        var order = await _salesOrderService.GetByOrderNumberAsync(orderNumber, cancellationToken);
-        if (order == null)
-            return NotFound(new { message = $"Sales order '{orderNumber}' not found" });
-
-        return Ok(order);
+        var result = await mediator.Send(new GetSalesOrderByNumberQuery(orderNumber), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
@@ -90,25 +85,14 @@ public class SalesOrderController : ControllerBase
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Create([FromBody] CreateSalesOrderRequest request, CancellationToken cancellationToken)
     {
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
-
         var userId = GetCurrentUserId();
         if (userId == null)
             return Unauthorized();
 
-        try
-        {
-            var order = await _salesOrderService.CreateAsync(request, userId.Value, cancellationToken);
-            try { await _auditService.LogAsync(AuditActions.CreateSalesOrder, "SalesOrder", order.Id.ToString(), $"Sales order created for {request.CardCode}", true); } catch { }
-            return CreatedAtAction(nameof(GetById), new { id = order.Id }, order);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error creating sales order");
-            var message = ex.InnerException?.Message ?? ex.Message;
-            return BadRequest(new ErrorResponseDto { Message = message });
-        }
+        var result = await mediator.Send(new CreateSalesOrderCommand(request, userId.Value), cancellationToken);
+        return result.Match(
+            value => CreatedAtAction(nameof(GetById), new { id = value.Id }, value),
+            errors => Problem(errors));
     }
 
     /// <summary>
@@ -122,22 +106,8 @@ public class SalesOrderController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Update(int id, [FromBody] CreateSalesOrderRequest request, CancellationToken cancellationToken)
     {
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
-
-        try
-        {
-            var order = await _salesOrderService.UpdateAsync(id, request, cancellationToken);
-            return Ok(order);
-        }
-        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
-        {
-            return Conflict(new ErrorResponseDto { Message = "This order was modified by another user. Please reload and try again." });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new ErrorResponseDto { Message = ex.Message });
-        }
+        var result = await mediator.Send(new UpdateSalesOrderCommand(id, request), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
@@ -153,15 +123,10 @@ public class SalesOrderController : ControllerBase
         if (userId == null)
             return Unauthorized();
 
-        try
-        {
-            var order = await _salesOrderService.UpdateStatusAsync(id, request.Status, userId.Value, request.Comments, cancellationToken);
-            return Ok(order);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new ErrorResponseDto { Message = ex.Message });
-        }
+        var result = await mediator.Send(
+            new UpdateSalesOrderStatusCommand(id, request.Status, userId.Value, request.Comments),
+            cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
@@ -177,16 +142,8 @@ public class SalesOrderController : ControllerBase
         if (userId == null)
             return Unauthorized();
 
-        try
-        {
-            var order = await _salesOrderService.ApproveAsync(id, userId.Value, cancellationToken);
-            try { await _auditService.LogAsync(AuditActions.ApproveSalesOrder, "SalesOrder", id.ToString(), $"Sales order {id} approved", true); } catch { }
-            return Ok(order);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new ErrorResponseDto { Message = ex.Message });
-        }
+        var result = await mediator.Send(new ApproveSalesOrderCommand(id, userId.Value), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
@@ -202,16 +159,8 @@ public class SalesOrderController : ControllerBase
         if (userId == null)
             return Unauthorized();
 
-        try
-        {
-            var invoice = await _salesOrderService.ConvertToInvoiceAsync(id, userId.Value, cancellationToken);
-            try { await _auditService.LogAsync(AuditActions.ConvertOrderToInvoice, "SalesOrder", id.ToString(), $"Sales order {id} converted to invoice", true); } catch { }
-            return Ok(invoice);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new ErrorResponseDto { Message = ex.Message });
-        }
+        var result = await mediator.Send(new ConvertToInvoiceCommand(id, userId.Value), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
@@ -229,21 +178,8 @@ public class SalesOrderController : ControllerBase
         if (userId == null)
             return Unauthorized();
 
-        try
-        {
-            var order = await _salesOrderService.PostToSAPAsync(id, userId.Value, cancellationToken);
-            try { await _auditService.LogAsync(AuditActions.PostSalesOrderToSAP, "SalesOrder", id.ToString(), $"Sales order {id} posted to SAP", true); } catch { }
-            return Ok(order);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new ErrorResponseDto { Message = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error posting sales order {Id} to SAP", id);
-            return StatusCode(502, new ErrorResponseDto { Message = $"Failed to post to SAP: {ex.Message}" });
-        }
+        var result = await mediator.Send(new PostToSAPCommand(id, userId.Value), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
@@ -256,19 +192,8 @@ public class SalesOrderController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
-        try
-        {
-            var deleted = await _salesOrderService.DeleteAsync(id, cancellationToken);
-            if (!deleted)
-                return NotFound();
-
-            try { await _auditService.LogAsync(AuditActions.DeleteSalesOrder, "SalesOrder", id.ToString(), $"Sales order {id} deleted", true); } catch { }
-            return NoContent();
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new ErrorResponseDto { Message = ex.Message });
-        }
+        var result = await mediator.Send(new DeleteSalesOrderCommand(id), cancellationToken);
+        return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
     private Guid? GetCurrentUserId()

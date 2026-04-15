@@ -1,1077 +1,140 @@
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
-using ShopInventory.Configuration;
 using ShopInventory.DTOs;
-using ShopInventory.Mappings;
-using ShopInventory.Models;
 using ShopInventory.Services;
+using ShopInventory.Features.InventoryTransfers.Commands.CloseTransferRequest;
+using ShopInventory.Features.InventoryTransfers.Commands.ConvertTransferRequest;
+using ShopInventory.Features.InventoryTransfers.Commands.CreateInventoryTransfer;
+using ShopInventory.Features.InventoryTransfers.Commands.CreateTransferRequest;
+using ShopInventory.Features.InventoryTransfers.Queries.GetPagedTransferRequests;
+using ShopInventory.Features.InventoryTransfers.Queries.GetPagedTransfers;
+using ShopInventory.Features.InventoryTransfers.Queries.GetTransferByDocEntry;
+using ShopInventory.Features.InventoryTransfers.Queries.GetTransferRequestByDocEntry;
+using ShopInventory.Features.InventoryTransfers.Queries.GetTransferRequestsByWarehouse;
+using ShopInventory.Features.InventoryTransfers.Queries.GetTransfersByDate;
+using ShopInventory.Features.InventoryTransfers.Queries.GetTransfersByDateRange;
+using ShopInventory.Features.InventoryTransfers.Queries.GetTransfersByWarehouse;
 
 namespace ShopInventory.Controllers;
 
-[ApiController]
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
-public class InventoryTransferController : ControllerBase
+public class InventoryTransferController(IMediator mediator) : ApiControllerBase
 {
-    private readonly ISAPServiceLayerClient _sapClient;
-    private readonly IStockValidationService _stockValidation;
-    private readonly IAuditService _auditService;
-    private readonly SAPSettings _settings;
-    private readonly ILogger<InventoryTransferController> _logger;
-
-    public InventoryTransferController(
-        ISAPServiceLayerClient sapClient,
-        IStockValidationService stockValidation,
-        IAuditService auditService,
-        IOptions<SAPSettings> settings,
-        ILogger<InventoryTransferController> logger)
-    {
-        _sapClient = sapClient;
-        _stockValidation = stockValidation;
-        _auditService = auditService;
-        _settings = settings.Value;
-        _logger = logger;
-    }
-
-    /// <summary>
-    /// Creates a new inventory transfer in SAP Business One
-    /// </summary>
-    /// <param name="request">The inventory transfer creation request</param>
-    /// <returns>The created inventory transfer</returns>
     [HttpPost]
     [ProducesResponseType(typeof(InventoryTransferCreatedResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> CreateInventoryTransfer(
         [FromBody] CreateInventoryTransferRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            // Validate the model
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(new ErrorResponseDto
-                {
-                    Message = "Validation failed",
-                    Errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList()
-                });
-            }
-
-            // CRITICAL: Validate positive quantities
-            var quantityErrors = ValidateTransferQuantities(request);
-            if (quantityErrors.Count > 0)
-            {
-                _logger.LogWarning("Transfer quantity validation failed: {Errors}", string.Join(", ", quantityErrors));
-                return BadRequest(new ErrorResponseDto
-                {
-                    Message = "Quantity validation failed - negative or zero quantities are not allowed",
-                    Errors = quantityErrors
-                });
-            }
-
-            // Run warehouse validation and stock validation in parallel to reduce total wait time
-            _logger.LogInformation("Validating stock availability for transfer with {LineCount} lines from {FromWarehouse} to {ToWarehouse}",
-                request.Lines?.Count ?? 0, request.FromWarehouse, request.ToWarehouse);
-
-            // Start both validations concurrently
-            using var warehouseValidationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            warehouseValidationCts.CancelAfter(TimeSpan.FromSeconds(15));
-            var warehouseTask = ValidateWarehouseCodesAsync(request, warehouseValidationCts.Token);
-            var stockTask = _stockValidation.ValidateInventoryTransferStockAsync(request, cancellationToken);
-
-            await Task.WhenAll(warehouseTask, stockTask);
-
-            // Check warehouse validation result
-            var warehouseErrors = await warehouseTask;
-            if (warehouseErrors != null && warehouseErrors.Count > 0)
-            {
-                _logger.LogWarning("Invalid warehouse codes in transfer request: {Errors}", string.Join(", ", warehouseErrors));
-                return BadRequest(new ErrorResponseDto
-                {
-                    Message = "Invalid warehouse code(s) - the specified warehouse(s) do not exist in SAP",
-                    Errors = warehouseErrors
-                });
-            }
-
-            var stockValidationResult = await stockTask;
-            if (!stockValidationResult.IsValid)
-            {
-                _logger.LogWarning("Stock validation failed for inventory transfer. {ErrorCount} items have insufficient stock",
-                    stockValidationResult.Errors.Count);
-
-                return BadRequest(new StockValidationResponseDto
-                {
-                    Message = "Insufficient stock in source warehouse - transfer would cause negative quantities",
-                    IsValid = false,
-                    Errors = stockValidationResult.Errors,
-                    Warnings = stockValidationResult.Warnings,
-                    Suggestions = stockValidationResult.Suggestions.Count > 0
-                        ? stockValidationResult.Suggestions
-                        : new List<string>
-                        {
-                            "Check stock levels in source warehouse using GET /api/Stock/{warehouseCode}",
-                            "For batch-managed items, verify batch availability in source warehouse",
-                            "Reduce transfer quantities to match available stock",
-                            "Wait for pending purchase orders to be received"
-                        }
-                });
-            }
-
-            var transfer = await _sapClient.CreateInventoryTransferAsync(request, stockValidationResult.PreFetchedData, cancellationToken);
-
-            _logger.LogInformation("Inventory transfer created successfully. DocEntry: {DocEntry}, DocNum: {DocNum}, From: {FromWarehouse}, To: {ToWarehouse}",
-                transfer.DocEntry, transfer.DocNum, request.FromWarehouse, request.ToWarehouse);
-
-            try { await _auditService.LogAsync(AuditActions.CreateTransfer, "InventoryTransfer", transfer.DocEntry.ToString(), $"Transfer #{transfer.DocNum} from {request.FromWarehouse} to {request.ToWarehouse}", true); } catch { }
-
-            return CreatedAtAction(
-                nameof(GetInventoryTransferByDocEntry),
-                new { docEntry = transfer.DocEntry },
-                new InventoryTransferCreatedResponseDto
-                {
-                    Message = "Inventory transfer created successfully",
-                    Transfer = transfer.ToDto()
-                });
-        }
-        catch (ArgumentException ex)
-        {
-            _logger.LogWarning(ex, "Validation error creating inventory transfer");
-            return BadRequest(new ErrorResponseDto { Message = "Validation error", Errors = ex.Message.Split("; ").ToList() });
-        }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("negative"))
-        {
-            _logger.LogError(ex, "CRITICAL: Attempted transfer would result in negative stock");
-            return BadRequest(new ErrorResponseDto
-            {
-                Message = "Transfer rejected: Would result in negative stock quantities",
-                Errors = new List<string> { ex.Message }
-            });
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogError(ex, "Timeout or connection abort creating inventory transfer");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer. Please check network connectivity.", Errors = new List<string> { ex.Message } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error creating inventory transfer");
-            return StatusCode(500, new ErrorResponseDto { Message = "Error creating inventory transfer", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new CreateInventoryTransferCommand(request), cancellationToken);
+        return result.Match(
+            value => CreatedAtAction(nameof(GetInventoryTransferByDocEntry), new { docEntry = value.Transfer!.DocEntry }, value),
+            errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Validates quantities in transfer request to ensure none are negative or zero
-    /// </summary>
-    private List<string> ValidateTransferQuantities(CreateInventoryTransferRequest request)
-    {
-        var errors = new List<string>();
-
-        if (request.Lines == null || request.Lines.Count == 0)
-        {
-            errors.Add("At least one line item is required");
-            return errors;
-        }
-
-        for (int i = 0; i < request.Lines.Count; i++)
-        {
-            var line = request.Lines[i];
-
-            if (line.Quantity <= 0)
-            {
-                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Quantity must be greater than zero. Current value: {line.Quantity}");
-            }
-
-            // Validate batch quantities if present
-            if (line.BatchNumbers != null)
-            {
-                decimal batchTotal = 0;
-                for (int j = 0; j < line.BatchNumbers.Count; j++)
-                {
-                    var batch = line.BatchNumbers[j];
-                    if (batch.Quantity <= 0)
-                    {
-                        errors.Add($"Line {i + 1}, Batch {j + 1} (Batch: {batch.BatchNumber ?? "unknown"}): Quantity must be greater than zero. Current value: {batch.Quantity}");
-                    }
-                    batchTotal += batch.Quantity;
-                }
-
-                // Warn if batch total doesn't match line quantity
-                if (line.BatchNumbers.Count > 0 && Math.Abs(batchTotal - line.Quantity) > 0.0001m)
-                {
-                    errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Batch quantities total ({batchTotal:N4}) does not match line quantity ({line.Quantity:N4})");
-                }
-            }
-        }
-
-        return errors;
-    }
-
-    private async Task<List<string>?> ValidateWarehouseCodesAsync(CreateInventoryTransferRequest request, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var warehouses = await _sapClient.GetWarehousesAsync(cancellationToken);
-            var validCodes = new HashSet<string>(warehouses.Select(w => w.WarehouseCode!), StringComparer.OrdinalIgnoreCase);
-
-            var invalidWarehouses = new List<string>();
-
-            if (!string.IsNullOrWhiteSpace(request.FromWarehouse) && !validCodes.Contains(request.FromWarehouse))
-                invalidWarehouses.Add($"FromWarehouse '{request.FromWarehouse}' does not exist in SAP");
-
-            if (!string.IsNullOrWhiteSpace(request.ToWarehouse) && !validCodes.Contains(request.ToWarehouse))
-                invalidWarehouses.Add($"ToWarehouse '{request.ToWarehouse}' does not exist in SAP");
-
-            if (request.Lines != null)
-            {
-                for (int i = 0; i < request.Lines.Count; i++)
-                {
-                    var line = request.Lines[i];
-                    if (!string.IsNullOrWhiteSpace(line.FromWarehouseCode) && !validCodes.Contains(line.FromWarehouseCode))
-                        invalidWarehouses.Add($"Line {i + 1}: FromWarehouseCode '{line.FromWarehouseCode}' does not exist in SAP");
-                    if (!string.IsNullOrWhiteSpace(line.ToWarehouseCode) && !validCodes.Contains(line.ToWarehouseCode))
-                        invalidWarehouses.Add($"Line {i + 1}: ToWarehouseCode '{line.ToWarehouseCode}' does not exist in SAP");
-                }
-            }
-
-            return invalidWarehouses;
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning("Warehouse validation timed out after 15s. Proceeding without warehouse validation.");
-            return null;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogWarning(ex, "Could not validate warehouse codes against SAP. Proceeding without warehouse validation.");
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Gets all inventory transfers to a specific warehouse
-    /// </summary>
-    /// <param name="warehouseCode">The warehouse code to filter by</param>
-    /// <returns>List of inventory transfers</returns>
     [HttpGet("{warehouseCode}")]
     [ProducesResponseType(typeof(InventoryTransferListResponseDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetInventoryTransfersByWarehouse(
-        string warehouseCode,
-        CancellationToken cancellationToken)
+    public async Task<IActionResult> GetInventoryTransfersByWarehouse(string warehouseCode, CancellationToken cancellationToken)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            if (string.IsNullOrWhiteSpace(warehouseCode))
-            {
-                return BadRequest(new ErrorResponseDto { Message = "Warehouse code is required" });
-            }
-
-            var transfers = await _sapClient.GetInventoryTransfersToWarehouseAsync(
-                warehouseCode,
-                cancellationToken);
-
-            _logger.LogInformation("Retrieved {Count} inventory transfers to warehouse {Warehouse}",
-                transfers.Count, warehouseCode);
-
-            return Ok(new InventoryTransferListResponseDto
-            {
-                Warehouse = warehouseCode,
-                Count = transfers.Count,
-                Transfers = transfers.ToDto()
-            });
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogError(ex, "Timeout or connection abort retrieving inventory transfers");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer. Please check network connectivity.", Errors = new List<string> { ex.Message } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving inventory transfers for warehouse {Warehouse}", warehouseCode);
-            return StatusCode(500, new ErrorResponseDto { Message = "Error retrieving inventory transfers", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new GetTransfersByWarehouseQuery(warehouseCode), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Gets inventory transfers to a specific warehouse with pagination
-    /// </summary>
-    /// <param name="warehouseCode">The warehouse code to filter by</param>
-    /// <param name="page">Page number (default: 1)</param>
-    /// <param name="pageSize">Number of records per page (default: 20, max: 100)</param>
-    /// <returns>List of inventory transfers with pagination info</returns>
     [HttpGet("{warehouseCode}/paged")]
     [ProducesResponseType(typeof(InventoryTransferListResponseDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetPagedInventoryTransfers(
-        string warehouseCode,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
-        CancellationToken cancellationToken = default)
+        string warehouseCode, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            if (string.IsNullOrWhiteSpace(warehouseCode))
-            {
-                return BadRequest(new ErrorResponseDto { Message = "Warehouse code is required" });
-            }
-
-            // Validate pagination parameters
-            if (page < 1) page = 1;
-            if (pageSize < 1) pageSize = 20;
-            if (pageSize > 100) pageSize = 100; // Limit max page size
-
-            var transfers = await _sapClient.GetPagedInventoryTransfersToWarehouseAsync(
-                warehouseCode,
-                page,
-                pageSize,
-                cancellationToken);
-            var totalCount = await _sapClient.GetInventoryTransfersCountAsync(warehouseCode, cancellationToken: cancellationToken);
-            var totalPages = pageSize > 0 ? (int)Math.Ceiling(totalCount / (double)pageSize) : 1;
-            var hasMore = (page * pageSize) < totalCount;
-
-            _logger.LogInformation("Retrieved {Count} inventory transfers (page {Page}) to warehouse {Warehouse}",
-                transfers.Count, page, warehouseCode);
-
-            return Ok(new InventoryTransferListResponseDto
-            {
-                Warehouse = warehouseCode,
-                Page = page,
-                PageSize = pageSize,
-                Count = transfers.Count,
-                TotalCount = totalCount,
-                TotalPages = totalPages,
-                HasMore = hasMore,
-                Transfers = transfers.ToDto()
-            });
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogError(ex, "Timeout or connection abort retrieving paged inventory transfers");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer. Please check network connectivity.", Errors = new List<string> { ex.Message } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving inventory transfers for warehouse {Warehouse}", warehouseCode);
-            return StatusCode(500, new ErrorResponseDto { Message = "Error retrieving inventory transfers", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new GetPagedTransfersQuery(warehouseCode, page, pageSize), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Gets inventory transfers to a specific warehouse filtered by date
-    /// </summary>
-    /// <param name="warehouseCode">The warehouse code to filter by</param>
-    /// <param name="date">The date to filter by (format: yyyy-MM-dd)</param>
-    /// <returns>List of inventory transfers for the specified date</returns>
     [HttpGet("{warehouseCode}/date/{date}")]
     [ProducesResponseType(typeof(InventoryTransferDateResponseDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetInventoryTransfersByDate(
-        string warehouseCode,
-        string date,
-        CancellationToken cancellationToken)
+    public async Task<IActionResult> GetInventoryTransfersByDate(string warehouseCode, string date, CancellationToken cancellationToken)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            if (string.IsNullOrWhiteSpace(warehouseCode))
-            {
-                return BadRequest(new ErrorResponseDto { Message = "Warehouse code is required" });
-            }
-
-            if (!DateTime.TryParse(date, out DateTime parsedDate))
-            {
-                return BadRequest(new ErrorResponseDto { Message = "Invalid date format. Use yyyy-MM-dd format." });
-            }
-
-            var transfers = await _sapClient.GetInventoryTransfersByDateAsync(
-                warehouseCode,
-                parsedDate,
-                cancellationToken);
-
-            _logger.LogInformation("Retrieved {Count} inventory transfers to warehouse {Warehouse} for date {Date}",
-                transfers.Count, warehouseCode, date);
-
-            return Ok(new InventoryTransferDateResponseDto
-            {
-                Warehouse = warehouseCode,
-                Date = parsedDate.ToString("yyyy-MM-dd"),
-                Count = transfers.Count,
-                Transfers = transfers.ToDto()
-            });
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogError(ex, "Timeout or connection abort retrieving transfers by date");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer. Please check network connectivity.", Errors = new List<string> { ex.Message } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving inventory transfers for warehouse {Warehouse} on date {Date}", warehouseCode, date);
-            return StatusCode(500, new ErrorResponseDto { Message = "Error retrieving inventory transfers", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new GetTransfersByDateQuery(warehouseCode, date), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Gets inventory transfers to a specific warehouse filtered by date range
-    /// </summary>
-    /// <param name="warehouseCode">The warehouse code to filter by</param>
-    /// <param name="fromDate">Start date (format: yyyy-MM-dd)</param>
-    /// <param name="toDate">End date (format: yyyy-MM-dd)</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <param name="page">Optional page number for paged results</param>
-    /// <param name="pageSize">Optional page size for paged results</param>
-    /// <returns>List of inventory transfers within the date range</returns>
     [HttpGet("{warehouseCode}/daterange")]
     [ProducesResponseType(typeof(InventoryTransferDateResponseDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetInventoryTransfersByDateRange(
-        string warehouseCode,
-        [FromQuery] string fromDate,
-        [FromQuery] string toDate,
-        CancellationToken cancellationToken = default,
-        [FromQuery] int? page = null,
-        [FromQuery] int? pageSize = null)
+        string warehouseCode, [FromQuery] string fromDate, [FromQuery] string toDate,
+        [FromQuery] int? page = null, [FromQuery] int? pageSize = null, CancellationToken cancellationToken = default)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            if (string.IsNullOrWhiteSpace(warehouseCode))
-            {
-                return BadRequest(new ErrorResponseDto { Message = "Warehouse code is required" });
-            }
-
-            if (!DateTime.TryParse(fromDate, out DateTime parsedFromDate))
-            {
-                return BadRequest(new ErrorResponseDto { Message = "Invalid fromDate format. Use yyyy-MM-dd format." });
-            }
-
-            if (!DateTime.TryParse(toDate, out DateTime parsedToDate))
-            {
-                return BadRequest(new ErrorResponseDto { Message = "Invalid toDate format. Use yyyy-MM-dd format." });
-            }
-
-            if (parsedFromDate > parsedToDate)
-            {
-                return BadRequest(new ErrorResponseDto { Message = "fromDate cannot be greater than toDate." });
-            }
-
-            var usePagination = page.HasValue || pageSize.HasValue;
-            List<InventoryTransfer> transfers;
-            var currentPage = page ?? 1;
-            var currentPageSize = pageSize ?? 20;
-            int totalCount;
-            int totalPages;
-            bool hasMore;
-
-            if (usePagination)
-            {
-                currentPage = Math.Max(currentPage, 1);
-                currentPageSize = Math.Clamp(currentPageSize, 1, 100);
-                var skip = (currentPage - 1) * currentPageSize;
-
-                transfers = await _sapClient.GetPagedInventoryTransfersByOffsetAsync(
-                    warehouseCode,
-                    skip,
-                    currentPageSize,
-                    parsedFromDate,
-                    parsedToDate,
-                    cancellationToken);
-
-                totalCount = await _sapClient.GetInventoryTransfersCountAsync(
-                    warehouseCode,
-                    parsedFromDate,
-                    parsedToDate,
-                    cancellationToken);
-                totalPages = currentPageSize > 0 ? (int)Math.Ceiling(totalCount / (double)currentPageSize) : 1;
-                hasMore = (currentPage * currentPageSize) < totalCount;
-            }
-            else
-            {
-                transfers = await _sapClient.GetInventoryTransfersByDateRangeAsync(
-                    warehouseCode,
-                    parsedFromDate,
-                    parsedToDate,
-                    cancellationToken);
-                totalCount = transfers.Count;
-                currentPage = 1;
-                currentPageSize = transfers.Count;
-                totalPages = totalCount > 0 ? 1 : 0;
-                hasMore = false;
-            }
-
-            _logger.LogInformation("Retrieved {Count} inventory transfers to warehouse {Warehouse} from {FromDate} to {ToDate}",
-                transfers.Count, warehouseCode, fromDate, toDate);
-
-            return Ok(new InventoryTransferDateResponseDto
-            {
-                Warehouse = warehouseCode,
-                FromDate = parsedFromDate.ToString("yyyy-MM-dd"),
-                ToDate = parsedToDate.ToString("yyyy-MM-dd"),
-                Page = currentPage,
-                PageSize = currentPageSize,
-                Count = transfers.Count,
-                TotalCount = totalCount,
-                TotalPages = totalPages,
-                HasMore = hasMore,
-                Transfers = transfers.ToDto()
-            });
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogError(ex, "Timeout or connection abort retrieving transfers by date range");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer. Please check network connectivity.", Errors = new List<string> { ex.Message } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving inventory transfers for warehouse {Warehouse} from {FromDate} to {ToDate}", warehouseCode, fromDate, toDate);
-            return StatusCode(500, new ErrorResponseDto { Message = "Error retrieving inventory transfers", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new GetTransfersByDateRangeQuery(warehouseCode, fromDate, toDate, page, pageSize), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Gets a specific inventory transfer by document entry
-    /// </summary>
-    /// <param name="docEntry">The document entry ID</param>
-    /// <returns>The inventory transfer details</returns>
     [HttpGet("detail/{docEntry:int}")]
     [ProducesResponseType(typeof(InventoryTransferDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetInventoryTransferByDocEntry(
-        int docEntry,
-        CancellationToken cancellationToken)
+    public async Task<IActionResult> GetInventoryTransferByDocEntry(int docEntry, CancellationToken cancellationToken)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            var transfer = await _sapClient.GetInventoryTransferByDocEntryAsync(docEntry, cancellationToken);
-
-            if (transfer == null)
-            {
-                return NotFound(new ErrorResponseDto { Message = $"Inventory transfer with DocEntry {docEntry} not found" });
-            }
-
-            return Ok(transfer.ToDto());
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving inventory transfer {DocEntry}", docEntry);
-            return StatusCode(500, new ErrorResponseDto { Message = "Error retrieving inventory transfer", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new GetTransferByDocEntryQuery(docEntry), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     #region Transfer Request Endpoints
 
-    /// <summary>
-    /// Creates a new inventory transfer request in SAP Business One.
-    /// Transfer requests are draft documents that require approval before becoming actual transfers.
-    /// </summary>
-    /// <param name="request">The transfer request creation data</param>
-    /// <returns>The created transfer request</returns>
     [HttpPost("request")]
     [ProducesResponseType(typeof(TransferRequestCreatedResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> CreateTransferRequest(
-        [FromBody] CreateTransferRequestDto request,
-        CancellationToken cancellationToken)
+        [FromBody] CreateTransferRequestDto request, CancellationToken cancellationToken)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            // Validate the model
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(new ErrorResponseDto
-                {
-                    Message = "Validation failed",
-                    Errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList()
-                });
-            }
-
-            // Validate positive quantities
-            var quantityErrors = ValidateTransferRequestQuantities(request);
-            if (quantityErrors.Count > 0)
-            {
-                _logger.LogWarning("Transfer request quantity validation failed: {Errors}", string.Join(", ", quantityErrors));
-                return BadRequest(new ErrorResponseDto
-                {
-                    Message = "Quantity validation failed - negative or zero quantities are not allowed",
-                    Errors = quantityErrors
-                });
-            }
-
-            // Validate warehouse codes exist in SAP (with short timeout so it doesn't block the main operation)
-            try
-            {
-                using var warehouseValidationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                warehouseValidationCts.CancelAfter(TimeSpan.FromSeconds(15));
-
-                var warehouses = await _sapClient.GetWarehousesAsync(warehouseValidationCts.Token);
-                var validCodes = new HashSet<string>(warehouses.Select(w => w.WarehouseCode!), StringComparer.OrdinalIgnoreCase);
-
-                var invalidWarehouses = new List<string>();
-
-                if (!string.IsNullOrWhiteSpace(request.FromWarehouse) && !validCodes.Contains(request.FromWarehouse))
-                    invalidWarehouses.Add($"FromWarehouse '{request.FromWarehouse}' does not exist in SAP");
-
-                if (!string.IsNullOrWhiteSpace(request.ToWarehouse) && !validCodes.Contains(request.ToWarehouse))
-                    invalidWarehouses.Add($"ToWarehouse '{request.ToWarehouse}' does not exist in SAP");
-
-                if (request.Lines != null)
-                {
-                    for (int i = 0; i < request.Lines.Count; i++)
-                    {
-                        var line = request.Lines[i];
-                        if (!string.IsNullOrWhiteSpace(line.FromWarehouseCode) && !validCodes.Contains(line.FromWarehouseCode))
-                            invalidWarehouses.Add($"Line {i + 1}: FromWarehouseCode '{line.FromWarehouseCode}' does not exist in SAP");
-                        if (!string.IsNullOrWhiteSpace(line.ToWarehouseCode) && !validCodes.Contains(line.ToWarehouseCode))
-                            invalidWarehouses.Add($"Line {i + 1}: ToWarehouseCode '{line.ToWarehouseCode}' does not exist in SAP");
-                    }
-                }
-
-                if (invalidWarehouses.Count > 0)
-                {
-                    _logger.LogWarning("Invalid warehouse codes in transfer request: {Errors}", string.Join(", ", invalidWarehouses));
-                    return BadRequest(new ErrorResponseDto
-                    {
-                        Message = "Invalid warehouse code(s) - the specified warehouse(s) do not exist in SAP",
-                        Errors = invalidWarehouses
-                    });
-                }
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                _logger.LogWarning("Warehouse validation timed out after 15s. Proceeding without warehouse validation.");
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogWarning(ex, "Could not validate warehouse codes against SAP. Proceeding without warehouse validation.");
-            }
-
-            _logger.LogInformation("Creating transfer request with {LineCount} lines from {FromWarehouse} to {ToWarehouse}",
-                request.Lines?.Count ?? 0, request.FromWarehouse, request.ToWarehouse);
-
-            var transferRequest = await _sapClient.CreateInventoryTransferRequestAsync(request, cancellationToken);
-
-            _logger.LogInformation("Transfer request created successfully. DocEntry: {DocEntry}, DocNum: {DocNum}, From: {FromWarehouse}, To: {ToWarehouse}",
-                transferRequest.DocEntry, transferRequest.DocNum, request.FromWarehouse, request.ToWarehouse);
-
-            try { await _auditService.LogAsync(AuditActions.CreateTransferRequest, "TransferRequest", transferRequest.DocEntry.ToString(), $"Transfer request #{transferRequest.DocNum} from {request.FromWarehouse} to {request.ToWarehouse}", true); } catch { }
-
-            return CreatedAtAction(
-                nameof(GetTransferRequestByDocEntry),
-                new { docEntry = transferRequest.DocEntry },
-                new TransferRequestCreatedResponseDto
-                {
-                    Message = "Transfer request created successfully",
-                    TransferRequest = transferRequest.ToDto()
-                });
-        }
-        catch (ArgumentException ex)
-        {
-            _logger.LogWarning(ex, "Validation error creating transfer request");
-            return BadRequest(new ErrorResponseDto { Message = "Validation error", Errors = ex.Message.Split("; ").ToList() });
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogError(ex, "Timeout or connection abort creating transfer request");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer. Please check network connectivity.", Errors = new List<string> { ex.Message } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error creating transfer request");
-            return StatusCode(500, new ErrorResponseDto { Message = "Error creating transfer request", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new CreateTransferRequestCommand(request), cancellationToken);
+        return result.Match(
+            value => CreatedAtAction(nameof(GetTransferRequestByDocEntry), new { docEntry = value.TransferRequest!.DocEntry }, value),
+            errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Converts a transfer request to an actual inventory transfer
-    /// </summary>
-    /// <param name="docEntry">The document entry ID of the transfer request to convert</param>
-    /// <returns>The created inventory transfer</returns>
     [HttpPost("request/{docEntry:int}/convert")]
     [ProducesResponseType(typeof(TransferRequestConvertedResponseDto), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> ConvertTransferRequestToTransfer(
-        int docEntry,
-        CancellationToken cancellationToken)
+    public async Task<IActionResult> ConvertTransferRequestToTransfer(int docEntry, CancellationToken cancellationToken)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            _logger.LogInformation("Converting transfer request {DocEntry} to inventory transfer", docEntry);
-
-            var transfer = await _sapClient.ConvertTransferRequestToTransferAsync(docEntry, cancellationToken);
-
-            _logger.LogInformation("Transfer request {DocEntry} converted successfully to transfer {TransferDocEntry}",
-                docEntry, transfer.DocEntry);
-
-            try { await _auditService.LogAsync(AuditActions.ConvertTransferRequest, "TransferRequest", docEntry.ToString(), $"Transfer request {docEntry} converted to transfer {transfer.DocEntry}", true); } catch { }
-
-            return CreatedAtAction(
-                nameof(GetInventoryTransferByDocEntry),
-                new { docEntry = transfer.DocEntry },
-                new TransferRequestConvertedResponseDto
-                {
-                    Message = $"Transfer request converted successfully to Inventory Transfer #{transfer.DocNum}",
-                    RequestDocEntry = docEntry,
-                    Transfer = transfer.ToDto()
-                });
-        }
-        catch (ArgumentException ex)
-        {
-            _logger.LogWarning(ex, "Transfer request {DocEntry} not found", docEntry);
-            return NotFound(new ErrorResponseDto { Message = ex.Message });
-        }
-        catch (InvalidOperationException ex)
-        {
-            _logger.LogWarning(ex, "Cannot convert transfer request {DocEntry}", docEntry);
-            return BadRequest(new ErrorResponseDto { Message = ex.Message });
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogError(ex, "Timeout or connection abort converting transfer request");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer.", Errors = new List<string> { ex.Message } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error converting transfer request {DocEntry}", docEntry);
-            return StatusCode(500, new ErrorResponseDto { Message = "Error converting transfer request", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new ConvertTransferRequestCommand(docEntry), cancellationToken);
+        return result.Match(
+            value => CreatedAtAction(nameof(GetInventoryTransferByDocEntry), new { docEntry = value.Transfer!.DocEntry }, value),
+            errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Closes a transfer request so it cannot be converted again
-    /// </summary>
-    /// <param name="docEntry">The document entry ID of the transfer request to close</param>
     [HttpPost("request/{docEntry:int}/close")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> CloseTransferRequest(
-        int docEntry,
-        CancellationToken cancellationToken)
+    public async Task<IActionResult> CloseTransferRequest(int docEntry, CancellationToken cancellationToken)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            await _sapClient.CloseInventoryTransferRequestAsync(docEntry, cancellationToken);
-
-            try { await _auditService.LogAsync(AuditActions.CloseTransferRequest, "TransferRequest", docEntry.ToString(), $"Transfer request {docEntry} closed", true); } catch { }
-            return Ok(new { Message = $"Transfer request {docEntry} closed successfully" });
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error closing transfer request {DocEntry}", docEntry);
-            return StatusCode(500, new ErrorResponseDto { Message = "Error closing transfer request", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new CloseTransferRequestCommand(docEntry), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Gets a specific transfer request by document entry
-    /// </summary>
-    /// <param name="docEntry">The document entry ID</param>
-    /// <returns>The transfer request details</returns>
     [HttpGet("request/{docEntry:int}")]
     [ProducesResponseType(typeof(InventoryTransferRequestDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetTransferRequestByDocEntry(
-        int docEntry,
-        CancellationToken cancellationToken)
+    public async Task<IActionResult> GetTransferRequestByDocEntry(int docEntry, CancellationToken cancellationToken)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            var transferRequest = await _sapClient.GetInventoryTransferRequestByDocEntryAsync(docEntry, cancellationToken);
-
-            if (transferRequest == null)
-            {
-                return NotFound(new ErrorResponseDto { Message = $"Transfer request with DocEntry {docEntry} not found" });
-            }
-
-            return Ok(transferRequest.ToDto());
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving transfer request {DocEntry}", docEntry);
-            return StatusCode(500, new ErrorResponseDto { Message = "Error retrieving transfer request", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new GetTransferRequestByDocEntryQuery(docEntry), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Gets all transfer requests to a specific warehouse
-    /// </summary>
-    /// <param name="warehouseCode">The warehouse code to filter by</param>
-    /// <returns>List of transfer requests</returns>
     [HttpGet("requests/{warehouseCode}")]
     [ProducesResponseType(typeof(TransferRequestListResponseDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetTransferRequestsByWarehouse(
-        string warehouseCode,
-        CancellationToken cancellationToken)
+    public async Task<IActionResult> GetTransferRequestsByWarehouse(string warehouseCode, CancellationToken cancellationToken)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            if (string.IsNullOrWhiteSpace(warehouseCode))
-            {
-                return BadRequest(new ErrorResponseDto { Message = "Warehouse code is required" });
-            }
-
-            var transferRequests = await _sapClient.GetInventoryTransferRequestsByWarehouseAsync(
-                warehouseCode,
-                cancellationToken);
-
-            _logger.LogInformation("Retrieved {Count} transfer requests to warehouse {Warehouse}",
-                transferRequests.Count, warehouseCode);
-
-            return Ok(new TransferRequestListResponseDto
-            {
-                Warehouse = warehouseCode,
-                Count = transferRequests.Count,
-                TransferRequests = transferRequests.ToDto()
-            });
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogError(ex, "Timeout or connection abort retrieving transfer requests by warehouse");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer. Please check network connectivity.", Errors = new List<string> { ex.Message } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving transfer requests for warehouse {Warehouse}", warehouseCode);
-            return StatusCode(500, new ErrorResponseDto { Message = "Error retrieving transfer requests", Errors = new List<string> { ex.Message } });
-        }
+        var result = await mediator.Send(new GetTransferRequestsByWarehouseQuery(warehouseCode), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Gets transfer requests with pagination
-    /// </summary>
-    /// <param name="page">Page number (default: 1)</param>
-    /// <param name="pageSize">Number of records per page (default: 20, max: 100)</param>
-    /// <returns>List of transfer requests with pagination info</returns>
     [HttpGet("requests")]
     [ProducesResponseType(typeof(TransferRequestListResponseDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetPagedTransferRequests(
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
-        CancellationToken cancellationToken = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default)
     {
-        try
-        {
-            if (!_settings.Enabled)
-            {
-                return StatusCode(503, new ErrorResponseDto { Message = "SAP integration is disabled" });
-            }
-
-            // Validate pagination parameters
-            if (page < 1) page = 1;
-            if (pageSize < 1) pageSize = 20;
-            if (pageSize > 100) pageSize = 100; // Limit max page size
-
-            var transferRequests = await _sapClient.GetPagedInventoryTransferRequestsAsync(
-                page,
-                pageSize,
-                cancellationToken);
-
-            _logger.LogInformation("Retrieved {Count} transfer requests (page {Page})",
-                transferRequests.Count, page);
-
-            return Ok(new TransferRequestListResponseDto
-            {
-                Page = page,
-                PageSize = pageSize,
-                Count = transferRequests.Count,
-                HasMore = transferRequests.Count == pageSize,
-                TransferRequests = transferRequests.ToDto()
-            });
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return StatusCode(499, new ErrorResponseDto { Message = "Request was canceled by the client" });
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogError(ex, "Timeout or connection abort retrieving paged transfer requests");
-            return StatusCode(504, new ErrorResponseDto { Message = "Connection to SAP Service Layer timed out or was aborted." });
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return StatusCode(502, new ErrorResponseDto { Message = "Unable to connect to SAP Service Layer. Please check network connectivity.", Errors = new List<string> { ex.Message } });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving transfer requests");
-            return StatusCode(500, new ErrorResponseDto { Message = "Error retrieving transfer requests", Errors = new List<string> { ex.Message } });
-        }
-    }
-
-    /// <summary>
-    /// Validates quantities in transfer request to ensure none are negative or zero
-    /// </summary>
-    private List<string> ValidateTransferRequestQuantities(CreateTransferRequestDto request)
-    {
-        var errors = new List<string>();
-
-        if (request.Lines == null || request.Lines.Count == 0)
-        {
-            errors.Add("At least one line item is required");
-            return errors;
-        }
-
-        for (int i = 0; i < request.Lines.Count; i++)
-        {
-            var line = request.Lines[i];
-
-            if (line.Quantity <= 0)
-            {
-                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Quantity must be greater than zero. Current value: {line.Quantity}");
-            }
-        }
-
-        return errors;
+        var result = await mediator.Send(new GetPagedTransferRequestsQuery(page, pageSize), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     #endregion
