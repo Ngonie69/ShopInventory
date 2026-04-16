@@ -1,290 +1,145 @@
 using System.Security.Claims;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Authentication;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
-using ShopInventory.Services;
+using ShopInventory.Features.UserManagement.Queries.GetUsers;
+using ShopInventory.Features.UserManagement.Queries.GetUser;
+using ShopInventory.Features.UserManagement.Queries.GetUserPermissions;
+using ShopInventory.Features.UserManagement.Queries.GetAvailablePermissions;
+using ShopInventory.Features.UserManagement.Queries.GetCurrentUser;
+using ShopInventory.Features.UserManagement.Queries.GetCurrentUserPermissions;
+using ShopInventory.Features.UserManagement.Commands.CreateUser;
+using ShopInventory.Features.UserManagement.Commands.UpdateUser;
+using ShopInventory.Features.UserManagement.Commands.DeleteUser;
+using ShopInventory.Features.UserManagement.Commands.UpdateUserPermissions;
+using ShopInventory.Features.UserManagement.Commands.UnlockUser;
+using ShopInventory.Features.UserManagement.Commands.ResetTwoFactor;
 
 namespace ShopInventory.Controllers;
 
-/// <summary>
-/// Controller for user management operations
-/// </summary>
-[ApiController]
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
-[Produces("application/json")]
-public class UserManagementController : ControllerBase
+public class UserManagementController(IMediator mediator) : ApiControllerBase
 {
-    private readonly IUserManagementService _userManagementService;
-    private readonly IAuditService _auditService;
-    private readonly ILogger<UserManagementController> _logger;
-
-    public UserManagementController(
-        IUserManagementService userManagementService,
-        IAuditService auditService,
-        ILogger<UserManagementController> logger)
-    {
-        _userManagementService = userManagementService;
-        _auditService = auditService;
-        _logger = logger;
-    }
-
-    /// <summary>
-    /// Get all users with pagination and filtering
-    /// </summary>
-    /// <param name="page">Page number (default: 1)</param>
-    /// <param name="pageSize">Page size (default: 10)</param>
-    /// <param name="search">Search term for username, email, or name</param>
-    /// <param name="role">Filter by role</param>
-    /// <param name="isActive">Filter by active status</param>
-    /// <returns>Paged list of users</returns>
     [HttpGet]
     [RequirePermission(Permission.ViewUsers)]
-    [ProducesResponseType(typeof(PagedResult<UserDetailDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetUsers(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
         [FromQuery] string? search = null,
         [FromQuery] string? role = null,
-        [FromQuery] bool? isActive = null)
+        [FromQuery] bool? isActive = null,
+        CancellationToken cancellationToken = default)
     {
-        var result = await _userManagementService.GetUsersAsync(page, pageSize, search, role, isActive);
-        return Ok(result);
+        var result = await mediator.Send(new GetUsersQuery(page, pageSize, search, role, isActive), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Get a specific user by ID
-    /// </summary>
-    /// <param name="id">User ID</param>
-    /// <returns>User details</returns>
     [HttpGet("{id:guid}")]
     [RequirePermission(Permission.ViewUsers)]
-    [ProducesResponseType(typeof(UserDetailDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetUser(Guid id)
+    public async Task<IActionResult> GetUser(Guid id, CancellationToken cancellationToken)
     {
-        var user = await _userManagementService.GetUserByIdAsync(id);
-        if (user == null)
-        {
-            return NotFound(new { message = "User not found" });
-        }
-        return Ok(user);
+        var result = await mediator.Send(new GetUserQuery(id), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Create a new user
-    /// </summary>
-    /// <param name="request">User creation request</param>
-    /// <returns>Created user</returns>
     [HttpPost]
     [RequirePermission(Permission.CreateUsers)]
-    [ProducesResponseType(typeof(UserDetailDto), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> CreateUser([FromBody] CreateUserDetailRequest request)
+    public async Task<IActionResult> CreateUser([FromBody] CreateUserDetailRequest request, CancellationToken cancellationToken)
     {
-        var result = await _userManagementService.CreateUserAsync(request);
-        if (!result.IsSuccess)
-        {
-            return BadRequest(new { message = result.Message, errors = result.Errors });
-        }
-
-        try { await _auditService.LogAsync(AuditActions.CreateUser, "User", result.Data!.Id.ToString(), $"User {request.Username} created with role {request.Role}", true); } catch { }
-        return CreatedAtAction(nameof(GetUser), new { id = result.Data!.Id }, result.Data);
+        var result = await mediator.Send(new CreateUserCommand(request), cancellationToken);
+        return result.Match(
+            value => CreatedAtAction(nameof(GetUser), new { id = value.Id }, value),
+            errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Update an existing user
-    /// </summary>
-    /// <param name="id">User ID</param>
-    /// <param name="request">Update request</param>
-    /// <returns>Success status</returns>
     [HttpPut("{id:guid}")]
     [RequirePermission(Permission.EditUsers)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> UpdateUser(Guid id, [FromBody] UpdateUserDetailRequest request)
+    public async Task<IActionResult> UpdateUser(Guid id, [FromBody] UpdateUserDetailRequest request, CancellationToken cancellationToken)
     {
-        var result = await _userManagementService.UpdateUserAsync(id, request);
-        if (!result.IsSuccess)
-        {
-            return BadRequest(new { message = result.Message, errors = result.Errors });
-        }
-
-        try { await _auditService.LogAsync(AuditActions.UpdateUser, "User", id.ToString(), $"User {id} updated", true); } catch { }
-        return Ok(new { message = result.Message });
+        var result = await mediator.Send(new UpdateUserCommand(id, request), cancellationToken);
+        return result.Match(_ => Ok(new { message = "User updated successfully" }), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Deactivate a user
-    /// </summary>
-    /// <param name="id">User ID</param>
-    /// <returns>Success status</returns>
     [HttpDelete("{id:guid}")]
     [RequirePermission(Permission.DeleteUsers)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> DeleteUser(Guid id)
+    public async Task<IActionResult> DeleteUser(Guid id, CancellationToken cancellationToken)
     {
-        var result = await _userManagementService.DeleteUserAsync(id);
-        if (!result.IsSuccess)
-        {
-            return NotFound(new { message = result.Message });
-        }
-
-        try { await _auditService.LogAsync(AuditActions.DeleteUser, "User", id.ToString(), $"User {id} deleted", true); } catch { }
-        return Ok(new { message = result.Message });
+        var result = await mediator.Send(new DeleteUserCommand(id), cancellationToken);
+        return result.Match(_ => Ok(new { message = "User deleted successfully" }), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Get user permissions
-    /// </summary>
-    /// <param name="id">User ID</param>
-    /// <returns>User permissions</returns>
     [HttpGet("{id:guid}/permissions")]
     [RequirePermission(Permission.ViewUsers)]
-    [ProducesResponseType(typeof(UserPermissionsResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetUserPermissions(Guid id)
+    public async Task<IActionResult> GetUserPermissions(Guid id, CancellationToken cancellationToken)
     {
-        var permissions = await _userManagementService.GetUserPermissionsAsync(id);
-        if (permissions == null)
-        {
-            return NotFound(new { message = "User not found" });
-        }
-
-        return Ok(permissions);
+        var result = await mediator.Send(new GetUserPermissionsQuery(id), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Update user permissions
-    /// </summary>
-    /// <param name="id">User ID</param>
-    /// <param name="request">Permissions update request</param>
-    /// <returns>Success status</returns>
     [HttpPut("{id:guid}/permissions")]
     [RequirePermission(Permission.ManageUserPermissions)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> UpdateUserPermissions(Guid id, [FromBody] UpdatePermissionsRequest request)
+    public async Task<IActionResult> UpdateUserPermissions(Guid id, [FromBody] UpdatePermissionsRequest request, CancellationToken cancellationToken)
     {
-        var result = await _userManagementService.UpdateUserPermissionsAsync(id, request);
-        if (!result.IsSuccess)
-        {
-            return BadRequest(new { message = result.Message, errors = result.Errors });
-        }
-
-        try { await _auditService.LogAsync(AuditActions.UpdatePermissions, "User", id.ToString(), $"Permissions updated for user {id}", true); } catch { }
-        return Ok(new { message = result.Message });
+        var result = await mediator.Send(new UpdateUserPermissionsCommand(id, request), cancellationToken);
+        return result.Match(_ => Ok(new { message = "Permissions updated successfully" }), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Get all available permissions
-    /// </summary>
-    /// <returns>All available permissions grouped by category</returns>
     [HttpGet("permissions/available")]
     [RequirePermission(Permission.ViewUsers)]
-    [ProducesResponseType(typeof(AvailablePermissionsResponse), StatusCodes.Status200OK)]
-    public IActionResult GetAvailablePermissions()
+    public async Task<IActionResult> GetAvailablePermissions(CancellationToken cancellationToken)
     {
-        var permissions = _userManagementService.GetAvailablePermissions();
-        return Ok(permissions);
+        var result = await mediator.Send(new GetAvailablePermissionsQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Unlock a user account
-    /// </summary>
-    /// <param name="id">User ID</param>
-    /// <returns>Success status</returns>
     [HttpPost("{id:guid}/unlock")]
     [RequirePermission(Permission.EditUsers)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> UnlockUser(Guid id)
+    public async Task<IActionResult> UnlockUser(Guid id, CancellationToken cancellationToken)
     {
-        var result = await _userManagementService.UnlockUserAsync(id);
-        if (!result.IsSuccess)
-        {
-            return NotFound(new { message = result.Message });
-        }
-
-        try { await _auditService.LogAsync(AuditActions.UnlockUser, "User", id.ToString(), $"User {id} unlocked", true); } catch { }
-        return Ok(new { message = result.Message });
+        var result = await mediator.Send(new UnlockUserCommand(id), cancellationToken);
+        return result.Match(_ => Ok(new { message = "User account unlocked successfully" }), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Reset user's two-factor authentication
-    /// </summary>
-    /// <param name="id">User ID</param>
-    /// <returns>Success status</returns>
     [HttpPost("{id:guid}/reset-2fa")]
     [RequirePermission(Permission.EditUsers)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> ResetTwoFactor(Guid id)
+    public async Task<IActionResult> ResetTwoFactor(Guid id, CancellationToken cancellationToken)
     {
-        var result = await _userManagementService.ResetTwoFactorAsync(id);
-        if (!result.IsSuccess)
-        {
-            return NotFound(new { message = result.Message });
-        }
-
-        try { await _auditService.LogAsync(AuditActions.ResetTwoFactor, "User", id.ToString(), $"2FA reset for user {id}", true); } catch { }
-        return Ok(new { message = result.Message });
+        var result = await mediator.Send(new ResetTwoFactorCommand(id), cancellationToken);
+        return result.Match(_ => Ok(new { message = "Two-factor authentication reset successfully" }), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Get current user's profile
-    /// </summary>
-    /// <returns>Current user details</returns>
     [HttpGet("me")]
-    [ProducesResponseType(typeof(UserDetailDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetCurrentUser()
+    public async Task<IActionResult> GetCurrentUser(CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
         if (userId == null)
-        {
             return Unauthorized();
-        }
 
-        var user = await _userManagementService.GetUserByIdAsync(userId.Value);
-        if (user == null)
-        {
-            return NotFound(new { message = "User not found" });
-        }
-
-        return Ok(user);
+        var result = await mediator.Send(new GetCurrentUserQuery(userId.Value), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Get current user's permissions
-    /// </summary>
-    /// <returns>Current user's effective permissions</returns>
     [HttpGet("me/permissions")]
-    [ProducesResponseType(typeof(List<string>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetCurrentUserPermissions()
+    public async Task<IActionResult> GetCurrentUserPermissions(CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
         if (userId == null)
-        {
             return Unauthorized();
-        }
 
-        var permissions = await _userManagementService.GetEffectivePermissionsAsync(userId.Value);
-        return Ok(permissions);
+        var result = await mediator.Send(new GetCurrentUserPermissionsQuery(userId.Value), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     private Guid? GetCurrentUserId()
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (Guid.TryParse(userIdClaim, out var userId))
-        {
-            return userId;
-        }
-        return null;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return null;
+
+        return userId;
     }
 }

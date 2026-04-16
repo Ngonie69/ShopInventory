@@ -1,171 +1,82 @@
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.DTOs;
-using ShopInventory.Services;
-using Swashbuckle.AspNetCore.Annotations;
+using ShopInventory.Features.Webhooks.Queries.GetWebhooks;
+using ShopInventory.Features.Webhooks.Queries.GetWebhook;
+using ShopInventory.Features.Webhooks.Queries.GetDeliveries;
+using ShopInventory.Features.Webhooks.Queries.GetEventTypes;
+using ShopInventory.Features.Webhooks.Commands.CreateWebhook;
+using ShopInventory.Features.Webhooks.Commands.UpdateWebhook;
+using ShopInventory.Features.Webhooks.Commands.DeleteWebhook;
+using ShopInventory.Features.Webhooks.Commands.TestWebhook;
 
 namespace ShopInventory.Controllers;
 
-/// <summary>
-/// Manages webhook subscriptions for event notifications to external systems
-/// </summary>
-[ApiController]
 [Route("api/[controller]")]
 [Authorize(Policy = "AdminOnly")]
-public class WebhookController : ControllerBase
+public class WebhookController(IMediator mediator) : ApiControllerBase
 {
-    private readonly IWebhookService _webhookService;
-    private readonly ILogger<WebhookController> _logger;
-
-    public WebhookController(IWebhookService webhookService, ILogger<WebhookController> logger)
-    {
-        _webhookService = webhookService;
-        _logger = logger;
-    }
-
-    /// <summary>
-    /// Get all webhook subscriptions
-    /// </summary>
     [HttpGet]
-    [SwaggerOperation(Summary = "Get all webhooks", Description = "Retrieves all webhook subscriptions")]
-    [SwaggerResponse(200, "List of webhooks retrieved successfully", typeof(List<WebhookDto>))]
-    public async Task<ActionResult<List<WebhookDto>>> GetWebhooks()
+    public async Task<IActionResult> GetWebhooks(CancellationToken cancellationToken)
     {
-        var webhooks = await _webhookService.GetAllWebhooksAsync();
-        return Ok(webhooks);
+        var result = await mediator.Send(new GetWebhooksQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Get a specific webhook by ID
-    /// </summary>
-    /// <param name="id">Webhook ID</param>
     [HttpGet("{id}")]
-    [SwaggerOperation(Summary = "Get webhook by ID", Description = "Retrieves a specific webhook subscription")]
-    [SwaggerResponse(200, "Webhook retrieved successfully", typeof(WebhookDto))]
-    [SwaggerResponse(404, "Webhook not found")]
-    public async Task<ActionResult<WebhookDto>> GetWebhook(int id)
+    public async Task<IActionResult> GetWebhook(int id, CancellationToken cancellationToken)
     {
-        var webhook = await _webhookService.GetWebhookByIdAsync(id);
-        if (webhook == null)
-        {
-            return NotFound(new { message = "Webhook not found" });
-        }
-        return Ok(webhook);
+        var result = await mediator.Send(new GetWebhookQuery(id), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Create a new webhook subscription
-    /// </summary>
-    /// <param name="request">Webhook creation request</param>
     [HttpPost]
-    [SwaggerOperation(Summary = "Create webhook", Description = "Creates a new webhook subscription for event notifications")]
-    [SwaggerResponse(201, "Webhook created successfully", typeof(WebhookDto))]
-    [SwaggerResponse(400, "Invalid request")]
-    public async Task<ActionResult<WebhookDto>> CreateWebhook([FromBody] CreateWebhookRequest request)
+    public async Task<IActionResult> CreateWebhook([FromBody] CreateWebhookRequest request, CancellationToken cancellationToken)
     {
-        try
-        {
-            var webhook = await _webhookService.CreateWebhookAsync(request);
-            return CreatedAtAction(nameof(GetWebhook), new { id = webhook.Id }, webhook);
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        var result = await mediator.Send(new CreateWebhookCommand(request), cancellationToken);
+        return result.Match(
+            value => CreatedAtAction(nameof(GetWebhook), new { id = value.Id }, value),
+            errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Update an existing webhook subscription
-    /// </summary>
-    /// <param name="id">Webhook ID</param>
-    /// <param name="request">Webhook update request</param>
     [HttpPut("{id}")]
-    [SwaggerOperation(Summary = "Update webhook", Description = "Updates an existing webhook subscription")]
-    [SwaggerResponse(200, "Webhook updated successfully", typeof(WebhookDto))]
-    [SwaggerResponse(400, "Invalid request")]
-    [SwaggerResponse(404, "Webhook not found")]
-    public async Task<ActionResult<WebhookDto>> UpdateWebhook(int id, [FromBody] UpdateWebhookRequest request)
+    public async Task<IActionResult> UpdateWebhook(int id, [FromBody] UpdateWebhookRequest request, CancellationToken cancellationToken)
     {
-        try
-        {
-            var webhook = await _webhookService.UpdateWebhookAsync(id, request);
-            if (webhook == null)
-            {
-                return NotFound(new { message = "Webhook not found" });
-            }
-            return Ok(webhook);
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        var result = await mediator.Send(new UpdateWebhookCommand(id, request), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Delete a webhook subscription
-    /// </summary>
-    /// <param name="id">Webhook ID</param>
     [HttpDelete("{id}")]
-    [SwaggerOperation(Summary = "Delete webhook", Description = "Deletes a webhook subscription")]
-    [SwaggerResponse(204, "Webhook deleted successfully")]
-    [SwaggerResponse(404, "Webhook not found")]
-    public async Task<IActionResult> DeleteWebhook(int id)
+    public async Task<IActionResult> DeleteWebhook(int id, CancellationToken cancellationToken)
     {
-        var deleted = await _webhookService.DeleteWebhookAsync(id);
-        if (!deleted)
-        {
-            return NotFound(new { message = "Webhook not found" });
-        }
-        return NoContent();
+        var result = await mediator.Send(new DeleteWebhookCommand(id), cancellationToken);
+        return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Test a webhook by sending a test payload
-    /// </summary>
-    /// <param name="id">Webhook ID</param>
-    /// <param name="request">Test request with event type and optional sample data</param>
     [HttpPost("{id}/test")]
-    [SwaggerOperation(Summary = "Test webhook", Description = "Sends a test payload to the webhook URL")]
-    [SwaggerResponse(200, "Test result", typeof(TestWebhookResponse))]
-    [SwaggerResponse(404, "Webhook not found")]
-    public async Task<ActionResult<TestWebhookResponse>> TestWebhook(int id, [FromBody] TestWebhookRequest request)
+    public async Task<IActionResult> TestWebhook(int id, [FromBody] TestWebhookRequest request, CancellationToken cancellationToken)
     {
-        var result = await _webhookService.TestWebhookAsync(id, request);
-        if (result.ErrorMessage == "Webhook not found")
-        {
-            return NotFound(new { message = "Webhook not found" });
-        }
-        return Ok(result);
+        var result = await mediator.Send(new TestWebhookCommand(id, request), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Get webhook delivery logs
-    /// </summary>
-    /// <param name="webhookId">Optional webhook ID to filter by</param>
-    /// <param name="page">Page number (default: 1)</param>
-    /// <param name="pageSize">Page size (default: 50)</param>
     [HttpGet("deliveries")]
-    [SwaggerOperation(Summary = "Get delivery logs", Description = "Retrieves webhook delivery history")]
-    [SwaggerResponse(200, "Delivery logs retrieved successfully", typeof(WebhookDeliveryListResponse))]
-    public async Task<ActionResult<WebhookDeliveryListResponse>> GetDeliveries(
+    public async Task<IActionResult> GetDeliveries(
         [FromQuery] int? webhookId = null,
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 50)
+        [FromQuery] int pageSize = 50,
+        CancellationToken cancellationToken = default)
     {
-        var deliveries = await _webhookService.GetDeliveriesAsync(webhookId, page, pageSize);
-        return Ok(deliveries);
+        var result = await mediator.Send(new GetDeliveriesQuery(webhookId, page, pageSize), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Get available webhook event types
-    /// </summary>
     [HttpGet("event-types")]
     [AllowAnonymous]
-    [SwaggerOperation(Summary = "Get event types", Description = "Retrieves all available webhook event types")]
-    [SwaggerResponse(200, "Event types retrieved successfully", typeof(WebhookEventTypesResponse))]
-    public async Task<ActionResult<WebhookEventTypesResponse>> GetEventTypes()
+    public async Task<IActionResult> GetEventTypes(CancellationToken cancellationToken)
     {
-        var eventTypes = await _webhookService.GetEventTypesAsync();
-        return Ok(new WebhookEventTypesResponse { EventTypes = eventTypes });
+        var result = await mediator.Send(new GetEventTypesQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 }
