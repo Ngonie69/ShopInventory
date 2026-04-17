@@ -298,7 +298,8 @@ public static class Permissions
             {
                 ViewDashboard, ViewProducts, ViewCustomers,
                 ViewSalesOrders, CreateSalesOrders,
-                ViewPurchaseOrders, UploadPurchaseOrderDocuments
+                ViewPurchaseOrders, UploadPurchaseOrderDocuments,
+                ViewTimesheets, ManageTimesheets
             },
             "SalesRep" => new List<string>
             {
