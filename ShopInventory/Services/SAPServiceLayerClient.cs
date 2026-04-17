@@ -2905,8 +2905,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             T0.""InvntryUom"" as ""UoM""{customFieldsSql}
         FROM OITM T0 
         INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
-        WHERE T1.""WhsCode"" = '{SanitizeSqlValue(warehouseCode)}' 
-        AND (T1.""OnHand"" > 0 OR T1.""IsCommited"" > 0 OR T1.""OnOrder"" > 0)
+        WHERE T1.""WhsCode"" = '{SanitizeSqlValue(warehouseCode)}'
         ORDER BY T0.""ItemCode""";
 
         // Create the SQL query
@@ -2958,8 +2957,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             T0.""InvntryUom"" as ""UoM""
         FROM OITM T0 
         INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
-        WHERE T1.""WhsCode"" = '{SanitizeSqlValue(warehouseCode)}' 
-        AND (T1.""OnHand"" <> 0 OR T1.""IsCommited"" <> 0 OR T1.""OnOrder"" <> 0)
+        WHERE T1.""WhsCode"" = '{SanitizeSqlValue(warehouseCode)}'
         ORDER BY T0.""ItemCode""";
 
         await CreateSqlQueryAsync(queryCode, $"Stock Quantities in {warehouseCode}", sqlText, cancellationToken);

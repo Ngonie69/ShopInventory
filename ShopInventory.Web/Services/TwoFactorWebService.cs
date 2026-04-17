@@ -100,13 +100,17 @@ public class TwoFactorWebService : ITwoFactorWebService
             }
 
             var error = await response.Content.ReadAsStringAsync();
-            _logger.LogWarning("Failed to initiate 2FA setup: {Error}", error);
-            return null;
+            _logger.LogWarning("Failed to initiate 2FA setup (HTTP {StatusCode}): {Error}", (int)response.StatusCode, error);
+            throw new HttpRequestException($"API returned {(int)response.StatusCode}: {error}");
+        }
+        catch (HttpRequestException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error initiating 2FA setup");
-            return null;
+            throw;
         }
     }
 

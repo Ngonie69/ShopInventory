@@ -1,0 +1,493 @@
+@page "/timesheet-report"
+@attribute [Authorize(Roles = "Admin,Manager,SalesRep")]
+@rendermode InteractiveServer
+@inject ITimesheetService TimesheetService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+
+<PageTitle>Timesheet Report</PageTitle>
+
+<div class="tsr-container">
+    <!-- Header -->
+    <div class="tsr-header">
+        <div>
+            <h2 class="tsr-title">
+                <MudIcon Icon="@Icons.Material.Filled.Assessment" Class="tsr-title-icon" />
+                Timesheet Report
+            </h2>
+            <p class="tsr-subtitle">Detailed analysis of sales rep visit activity</p>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="tsr-filters">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="tsr-filter-label">From Date</label>
+                <MudDatePicker @bind-Date="fromDate" DateFormat="dd/MM/yyyy" Variant="Variant.Outlined"
+                               Margin="Margin.Dense" />
+            </div>
+            <div class="col-md-3">
+                <label class="tsr-filter-label">To Date</label>
+                <MudDatePicker @bind-Date="toDate" DateFormat="dd/MM/yyyy" Variant="Variant.Outlined"
+                               Margin="Margin.Dense" />
+            </div>
+            @if (isAdmin)
+            {
+                <div class="col-md-3">
+                    <label class="tsr-filter-label">Username</label>
+                    <MudTextField @bind-Value="filterUsername" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  Placeholder="Filter by user..." />
+                </div>
+            }
+            <div class="col-md-3 d-flex gap-2">
+                <MudButton Variant="Variant.Filled" Color="Color.Dark" OnClick="LoadReport"
+                           StartIcon="@Icons.Material.Filled.Assessment" Disabled="isLoading">
+                    @if (isLoading) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" /> }
+                    Generate
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ClearFilters"
+                           StartIcon="@Icons.Material.Filled.Clear">
+                    Clear
+                </MudButton>
+            </div>
+            <div class="col-md-12 d-flex gap-2">
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="() => SetDateRange(7)"
+                           Size="Size.Small">Last 7 days</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="() => SetDateRange(14)"
+                           Size="Size.Small">Last 14 days</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="() => SetDateRange(30)"
+                           Size="Size.Small">Last 30 days</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="SetThisMonth"
+                           Size="Size.Small">This Month</MudButton>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="tsr-loading">
+            <MudProgressCircular Indeterminate="true" Color="Color.Dark" />
+            <span>Generating report...</span>
+        </div>
+    }
+    else if (loadError is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-3">@loadError</MudAlert>
+    }
+    else if (reportData is not null)
+    {
+        <!-- Overall KPI Cards -->
+        <div class="tsr-kpi-row">
+            <div class="tsr-kpi-card tsr-kpi-primary">
+                <MudIcon Icon="@Icons.Material.Filled.LocationOn" Class="tsr-kpi-icon" />
+                <div class="tsr-kpi-value">@reportData.TotalVisits</div>
+                <div class="tsr-kpi-label">Total Visits</div>
+            </div>
+            <div class="tsr-kpi-card">
+                <MudIcon Icon="@Icons.Material.Filled.AccessTime" Class="tsr-kpi-icon" />
+                <div class="tsr-kpi-value">@reportData.TotalHours.ToString("F1")h</div>
+                <div class="tsr-kpi-label">Total Hours</div>
+            </div>
+            <div class="tsr-kpi-card">
+                <MudIcon Icon="@Icons.Material.Filled.Timer" Class="tsr-kpi-icon" />
+                <div class="tsr-kpi-value">@reportData.AverageVisitMinutes.ToString("F0")m</div>
+                <div class="tsr-kpi-label">Avg Visit Duration</div>
+            </div>
+            <div class="tsr-kpi-card">
+                <MudIcon Icon="@Icons.Material.Filled.People" Class="tsr-kpi-icon" />
+                <div class="tsr-kpi-value">@reportData.UserSummaries.Count</div>
+                <div class="tsr-kpi-label">Sales Reps</div>
+            </div>
+        </div>
+
+        @if (reportData.UserSummaries.Count == 0)
+        {
+            <div class="tsr-empty">
+                <MudIcon Icon="@Icons.Material.Filled.EventBusy" Style="font-size: 48px; opacity: 0.3;" />
+                <p>No timesheet data found for the selected period.</p>
+            </div>
+        }
+
+        <!-- Per-User Reports -->
+        @foreach (var userSummary in reportData.UserSummaries)
+        {
+            <div class="tsr-user-section">
+                <div class="tsr-user-header" @onclick="() => ToggleUser(userSummary.UserId)">
+                    <div class="tsr-user-info">
+                        <div class="tsr-user-avatar">@userSummary.Username[0].ToString().ToUpper()</div>
+                        <div>
+                            <div class="tsr-user-name">@userSummary.Username</div>
+                            <div class="tsr-user-stats">
+                                @userSummary.TotalVisits visits · @userSummary.CompletedVisits completed ·
+                                @FormatHours(userSummary.TotalMinutes) total
+                            </div>
+                        </div>
+                    </div>
+                    <MudIcon Icon="@(expandedUsers.Contains(userSummary.UserId) ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)" />
+                </div>
+
+                @if (expandedUsers.Contains(userSummary.UserId))
+                {
+                    <div class="tsr-user-body">
+                        <!-- User KPI Row -->
+                        <div class="tsr-user-kpi-row">
+                            <div class="tsr-user-kpi">
+                                <div class="tsr-user-kpi-value">@userSummary.TotalVisits</div>
+                                <div class="tsr-user-kpi-label">Total Visits</div>
+                            </div>
+                            <div class="tsr-user-kpi">
+                                <div class="tsr-user-kpi-value">@userSummary.CompletedVisits</div>
+                                <div class="tsr-user-kpi-label">Completed</div>
+                            </div>
+                            <div class="tsr-user-kpi">
+                                <div class="tsr-user-kpi-value">@FormatHours(userSummary.TotalMinutes)</div>
+                                <div class="tsr-user-kpi-label">Total Time</div>
+                            </div>
+                            <div class="tsr-user-kpi">
+                                <div class="tsr-user-kpi-value">@userSummary.AverageMinutesPerVisit.ToString("F0")m</div>
+                                <div class="tsr-user-kpi-label">Avg Visit</div>
+                            </div>
+                        </div>
+
+                        <!-- Daily Breakdown -->
+                        <h6 class="tsr-section-title">
+                            <MudIcon Icon="@Icons.Material.Filled.CalendarMonth" Style="font-size: 18px;" />
+                            Daily Breakdown
+                        </h6>
+                        <div class="tsr-table-wrapper">
+                            <table class="table table-hover tsr-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Visits</th>
+                                        <th>Total Time</th>
+                                        <th>First Check-In</th>
+                                        <th>Last Check-Out</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var day in userSummary.DailySummaries)
+                                    {
+                                        <tr>
+                                            <td class="tsr-cell-date">@day.Date.ToString("ddd dd MMM yyyy")</td>
+                                            <td>
+                                                <span class="tsr-visit-count">@day.VisitCount</span>
+                                            </td>
+                                            <td class="tsr-cell-duration">@FormatHours(day.TotalMinutes)</td>
+                                            <td class="tsr-cell-time">
+                                                @if (day.FirstCheckIn.HasValue)
+                                                {
+                                                    @ToCat(day.FirstCheckIn.Value).ToString("HH:mm")
+                                                }
+                                            </td>
+                                            <td class="tsr-cell-time">
+                                                @if (day.LastCheckOut.HasValue)
+                                                {
+                                                    @ToCat(day.LastCheckOut.Value).ToString("HH:mm")
+                                                }
+                                                else
+                                                {
+                                                    <span class="tsr-badge-active">Active</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Customer Breakdown -->
+                        <h6 class="tsr-section-title">
+                            <MudIcon Icon="@Icons.Material.Filled.Store" Style="font-size: 18px;" />
+                            Customer Breakdown
+                        </h6>
+                        <div class="tsr-table-wrapper">
+                            <table class="table table-hover tsr-table">
+                                <thead>
+                                    <tr>
+                                        <th>Customer</th>
+                                        <th>Code</th>
+                                        <th>Visits</th>
+                                        <th>Total Time</th>
+                                        <th>Avg per Visit</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var cust in userSummary.CustomerSummaries)
+                                    {
+                                        <tr>
+                                            <td class="tsr-cell-customer">@cust.CustomerName</td>
+                                            <td class="tsr-cell-code">@cust.CustomerCode</td>
+                                            <td>
+                                                <span class="tsr-visit-count">@cust.VisitCount</span>
+                                            </td>
+                                            <td class="tsr-cell-duration">@FormatHours(cust.TotalMinutes)</td>
+                                            <td class="tsr-cell-duration">
+                                                @if (cust.VisitCount > 0)
+                                                {
+                                                    @FormatHours(cust.TotalMinutes / cust.VisitCount)
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private ShopInventory.Web.Models.TimesheetReportResponse? reportData;
+    private bool isLoading;
+    private string? loadError;
+    private bool isAdmin;
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string? filterUsername;
+
+    private HashSet<Guid> expandedUsers = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        isAdmin = user.IsInRole("Admin") || user.IsInRole("Manager");
+
+        fromDate = DateTime.Today.AddDays(-30);
+        toDate = DateTime.Today;
+
+        await LoadReport();
+    }
+
+    private async Task LoadReport()
+    {
+        isLoading = true;
+        loadError = null;
+        StateHasChanged();
+
+        try
+        {
+            var adjustedToDate = toDate?.AddDays(1).AddSeconds(-1);
+
+            reportData = await TimesheetService.GetReportAsync(
+                username: isAdmin ? filterUsername : null,
+                fromDate: fromDate,
+                toDate: adjustedToDate);
+
+            // Auto-expand first user for convenience
+            if (reportData?.UserSummaries.Count > 0)
+            {
+                expandedUsers.Clear();
+                expandedUsers.Add(reportData.UserSummaries[0].UserId);
+            }
+        }
+        catch (Exception ex)
+        {
+            loadError = $"Failed to generate report: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ClearFilters()
+    {
+        fromDate = DateTime.Today.AddDays(-30);
+        toDate = DateTime.Today;
+        filterUsername = null;
+        expandedUsers.Clear();
+        await LoadReport();
+    }
+
+    private async Task SetDateRange(int days)
+    {
+        fromDate = DateTime.Today.AddDays(-days);
+        toDate = DateTime.Today;
+        await LoadReport();
+    }
+
+    private async Task SetThisMonth()
+    {
+        fromDate = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+        toDate = DateTime.Today;
+        await LoadReport();
+    }
+
+    private void ToggleUser(Guid userId)
+    {
+        if (!expandedUsers.Remove(userId))
+            expandedUsers.Add(userId);
+    }
+
+    private static DateTime ToCat(DateTime utc) => utc.AddHours(2);
+
+    private static string FormatHours(double minutes)
+    {
+        var hours = (int)(minutes / 60);
+        var mins = (int)(minutes % 60);
+        return $"{hours}h {mins}m";
+    }
+}
+
+<style>
+    .tsr-container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+    .tsr-header { margin-bottom: 24px; }
+    .tsr-title { font-size: 1.6rem; font-weight: 700; display: flex; align-items: center; gap: 10px; margin: 0; }
+    .tsr-title-icon { font-size: 28px !important; }
+    .tsr-subtitle { font-size: 0.85rem; color: var(--mud-palette-text-secondary); margin: 4px 0 0; }
+
+    .tsr-filters {
+        background: var(--mud-palette-surface);
+        border: 1px solid var(--mud-palette-lines-default);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 24px;
+    }
+    .tsr-filter-label { font-size: 0.8rem; font-weight: 600; margin-bottom: 4px; display: block; color: var(--mud-palette-text-secondary); }
+
+    .tsr-loading { display: flex; align-items: center; gap: 12px; justify-content: center; padding: 40px; }
+    .tsr-empty { text-align: center; padding: 60px 20px; color: var(--mud-palette-text-secondary); }
+
+    /* KPI Cards */
+    .tsr-kpi-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 16px;
+        margin-bottom: 28px;
+    }
+    .tsr-kpi-card {
+        background: var(--mud-palette-surface);
+        border: 1px solid var(--mud-palette-lines-default);
+        border-radius: 14px;
+        padding: 24px;
+        text-align: center;
+    }
+    .tsr-kpi-primary {
+        background: linear-gradient(135deg, #1a1a1a 0%, #333 100%);
+        color: white;
+        border: none;
+    }
+    .tsr-kpi-primary .tsr-kpi-icon { color: rgba(255,255,255,0.7) !important; }
+    .tsr-kpi-primary .tsr-kpi-label { color: rgba(255,255,255,0.7); }
+    .tsr-kpi-icon { font-size: 28px !important; margin-bottom: 8px; color: var(--mud-palette-text-secondary); }
+    .tsr-kpi-value { font-size: 1.8rem; font-weight: 700; }
+    .tsr-kpi-label { font-size: 0.8rem; color: var(--mud-palette-text-secondary); margin-top: 4px; }
+
+    /* User Section */
+    .tsr-user-section {
+        background: var(--mud-palette-surface);
+        border: 1px solid var(--mud-palette-lines-default);
+        border-radius: 14px;
+        margin-bottom: 16px;
+        overflow: hidden;
+    }
+    .tsr-user-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 18px 24px;
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+    .tsr-user-header:hover { background: var(--mud-palette-action-default-hover); }
+    .tsr-user-info { display: flex; align-items: center; gap: 14px; }
+    .tsr-user-avatar {
+        width: 42px; height: 42px;
+        border-radius: 50%;
+        background: #1a1a1a;
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 1.1rem;
+    }
+    .tsr-user-name { font-weight: 700; font-size: 1rem; }
+    .tsr-user-stats { font-size: 0.82rem; color: var(--mud-palette-text-secondary); margin-top: 2px; }
+
+    .tsr-user-body {
+        padding: 0 24px 24px;
+        border-top: 1px solid var(--mud-palette-lines-default);
+    }
+
+    .tsr-user-kpi-row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        padding: 20px 0;
+    }
+    .tsr-user-kpi { text-align: center; }
+    .tsr-user-kpi-value { font-size: 1.2rem; font-weight: 700; }
+    .tsr-user-kpi-label { font-size: 0.75rem; color: var(--mud-palette-text-secondary); }
+
+    .tsr-section-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 700;
+        font-size: 0.9rem;
+        margin: 20px 0 12px;
+        color: var(--mud-palette-text-primary);
+    }
+
+    /* Tables */
+    .tsr-table-wrapper { overflow-x: auto; border-radius: 10px; border: 1px solid var(--mud-palette-lines-default); margin-bottom: 8px; }
+    .tsr-table { margin-bottom: 0; }
+    .tsr-table thead th {
+        background: var(--mud-palette-background);
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--mud-palette-text-secondary);
+        border-bottom: 2px solid var(--mud-palette-lines-default);
+        padding: 10px 14px;
+    }
+    .tsr-table tbody td { padding: 10px 14px; vertical-align: middle; font-size: 0.85rem; }
+
+    .tsr-cell-date { font-weight: 600; white-space: nowrap; }
+    .tsr-cell-time { white-space: nowrap; }
+    .tsr-cell-duration { font-weight: 600; }
+    .tsr-cell-customer { font-weight: 600; }
+    .tsr-cell-code { font-size: 0.78rem; color: var(--mud-palette-text-secondary); }
+
+    .tsr-visit-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 28px;
+        height: 28px;
+        border-radius: 14px;
+        background: #E8F5E9;
+        color: #2E7D32;
+        font-weight: 700;
+        font-size: 0.82rem;
+    }
+    .tsr-badge-active {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 20px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        background: #FFF3E0;
+        color: #E65100;
+    }
+
+    .dark-theme .tsr-kpi-primary { background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%); }
+    .dark-theme .tsr-user-avatar { background: #333; }
+    .dark-theme .tsr-visit-count { background: #1B5E20; color: #A5D6A7; }
+    .dark-theme .tsr-badge-active { background: #E65100; color: #FFE0B2; }
+
+    @@media (max-width: 768px) {
+        .tsr-user-kpi-row { grid-template-columns: repeat(2, 1fr); }
+        .tsr-kpi-row { grid-template-columns: repeat(2, 1fr); }
+    }
+</style>

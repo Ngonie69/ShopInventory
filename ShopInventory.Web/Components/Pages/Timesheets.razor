@@ -1,0 +1,350 @@
+@page "/timesheets"
+@attribute [Authorize(Roles = "Admin,Manager,SalesRep")]
+@rendermode InteractiveServer
+@inject ITimesheetService TimesheetService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+
+<PageTitle>Timesheets</PageTitle>
+
+<div class="ts-container">
+    <!-- Header -->
+    <div class="ts-header">
+        <div class="ts-header-left">
+            <h2 class="ts-title">
+                <MudIcon Icon="@Icons.Material.Filled.Schedule" Class="ts-title-icon" />
+                Timesheets
+            </h2>
+            <p class="ts-subtitle">View sales rep check-in and check-out activity</p>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="ts-filters">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="ts-filter-label">From Date</label>
+                <MudDatePicker @bind-Date="fromDate" DateFormat="dd/MM/yyyy" Variant="Variant.Outlined"
+                               Margin="Margin.Dense" Class="ts-date-picker" />
+            </div>
+            <div class="col-md-3">
+                <label class="ts-filter-label">To Date</label>
+                <MudDatePicker @bind-Date="toDate" DateFormat="dd/MM/yyyy" Variant="Variant.Outlined"
+                               Margin="Margin.Dense" Class="ts-date-picker" />
+            </div>
+            @if (isAdmin)
+            {
+                <div class="col-md-3">
+                    <label class="ts-filter-label">Username</label>
+                    <MudTextField @bind-Value="filterUsername" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  Placeholder="Filter by username..." Class="ts-text-filter" />
+                </div>
+            }
+            <div class="col-md-3">
+                <label class="ts-filter-label">Customer Code</label>
+                <MudTextField @bind-Value="filterCustomerCode" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Placeholder="Filter by customer..." Class="ts-text-filter" />
+            </div>
+            <div class="col-md-12 d-flex gap-2">
+                <MudButton Variant="Variant.Filled" Color="Color.Dark" OnClick="LoadTimesheets"
+                           StartIcon="@Icons.Material.Filled.Search" Disabled="isLoading">
+                    @if (isLoading) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" /> }
+                    Search
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ClearFilters"
+                           StartIcon="@Icons.Material.Filled.Clear">
+                    Clear
+                </MudButton>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    @if (timesheetData is not null)
+    {
+        <div class="ts-summary-row">
+            <div class="ts-summary-card">
+                <div class="ts-summary-value">@timesheetData.TotalCount</div>
+                <div class="ts-summary-label">Total Visits</div>
+            </div>
+            <div class="ts-summary-card">
+                <div class="ts-summary-value">@completedCount</div>
+                <div class="ts-summary-label">Completed</div>
+            </div>
+            <div class="ts-summary-card">
+                <div class="ts-summary-value">@activeCount</div>
+                <div class="ts-summary-label">Active</div>
+            </div>
+            <div class="ts-summary-card">
+                <div class="ts-summary-value">@FormatHours(totalMinutes)</div>
+                <div class="ts-summary-label">Total Time</div>
+            </div>
+        </div>
+    }
+
+    <!-- Loading -->
+    @if (isLoading)
+    {
+        <div class="ts-loading">
+            <MudProgressCircular Indeterminate="true" Color="Color.Dark" />
+            <span>Loading timesheets...</span>
+        </div>
+    }
+    else if (loadError is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-3">@loadError</MudAlert>
+    }
+    else if (timesheetData?.Entries.Count == 0)
+    {
+        <div class="ts-empty">
+            <MudIcon Icon="@Icons.Material.Filled.EventBusy" Style="font-size: 48px; opacity: 0.3;" />
+            <p>No timesheet entries found for the selected criteria.</p>
+        </div>
+    }
+    else if (timesheetData is not null)
+    {
+        <!-- Timesheet Table -->
+        <div class="ts-table-wrapper">
+            <table class="table table-hover ts-table">
+                <thead>
+                    <tr>
+                        @if (isAdmin) { <th>User</th> }
+                        <th>Customer</th>
+                        <th>Check In</th>
+                        <th>Check Out</th>
+                        <th>Duration</th>
+                        <th>Status</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var entry in timesheetData.Entries)
+                    {
+                        <tr class="@(entry.CheckOutTime.HasValue ? "" : "ts-row-active")">
+                            @if (isAdmin) { <td class="ts-cell-user">@entry.Username</td> }
+                            <td>
+                                <div class="ts-customer-name">@entry.CustomerName</div>
+                                <div class="ts-customer-code">@entry.CustomerCode</div>
+                            </td>
+                            <td class="ts-cell-time">@ToCat(entry.CheckInTime).ToString("dd MMM yyyy HH:mm")</td>
+                            <td class="ts-cell-time">
+                                @if (entry.CheckOutTime.HasValue)
+                                {
+                                    @ToCat(entry.CheckOutTime.Value).ToString("dd MMM yyyy HH:mm")
+                                }
+                                else
+                                {
+                                    <span class="ts-badge-active">In Progress</span>
+                                }
+                            </td>
+                            <td class="ts-cell-duration">@entry.DurationDisplay</td>
+                            <td>
+                                <span class="ts-badge @(entry.CheckOutTime.HasValue ? "ts-badge-completed" : "ts-badge-active")">
+                                    @entry.StatusDisplay
+                                </span>
+                            </td>
+                            <td class="ts-cell-notes">
+                                @if (!string.IsNullOrWhiteSpace(entry.CheckInNotes))
+                                {
+                                    <div class="ts-note"><strong>In:</strong> @entry.CheckInNotes</div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(entry.CheckOutNotes))
+                                {
+                                    <div class="ts-note"><strong>Out:</strong> @entry.CheckOutNotes</div>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        @if (totalPages > 1)
+        {
+            <div class="ts-pagination">
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="currentPage <= 1"
+                           OnClick="() => GoToPage(currentPage - 1)">Previous</MudButton>
+                <span class="ts-page-info">Page @currentPage of @totalPages (@timesheetData.TotalCount entries)</span>
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="currentPage >= totalPages"
+                           OnClick="() => GoToPage(currentPage + 1)">Next</MudButton>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private ShopInventory.Web.Models.TimesheetListResponse? timesheetData;
+    private bool isLoading;
+    private string? loadError;
+    private bool isAdmin;
+    private int currentPage = 1;
+    private int pageSize = 20;
+    private int totalPages;
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string? filterUsername;
+    private string? filterCustomerCode;
+
+    private int completedCount;
+    private int activeCount;
+    private double totalMinutes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        isAdmin = user.IsInRole("Admin") || user.IsInRole("Manager");
+
+        fromDate = DateTime.Today.AddDays(-30);
+        toDate = DateTime.Today;
+
+        await LoadTimesheets();
+    }
+
+    private async Task LoadTimesheets()
+    {
+        isLoading = true;
+        loadError = null;
+        StateHasChanged();
+
+        try
+        {
+            // Adjust toDate to end of day for inclusive filtering
+            var adjustedToDate = toDate?.AddDays(1).AddSeconds(-1);
+
+            timesheetData = await TimesheetService.GetTimesheetsAsync(
+                currentPage, pageSize,
+                username: isAdmin ? filterUsername : null,
+                customerCode: filterCustomerCode,
+                fromDate: fromDate,
+                toDate: adjustedToDate);
+
+            if (timesheetData is not null)
+            {
+                totalPages = (int)Math.Ceiling((double)timesheetData.TotalCount / pageSize);
+                completedCount = timesheetData.Entries.Count(e => e.CheckOutTime.HasValue);
+                activeCount = timesheetData.Entries.Count(e => !e.CheckOutTime.HasValue);
+                totalMinutes = timesheetData.Entries
+                    .Where(e => e.DurationMinutes.HasValue)
+                    .Sum(e => e.DurationMinutes!.Value);
+            }
+        }
+        catch (Exception ex)
+        {
+            loadError = $"Failed to load timesheets: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task GoToPage(int page)
+    {
+        currentPage = page;
+        await LoadTimesheets();
+    }
+
+    private async Task ClearFilters()
+    {
+        fromDate = DateTime.Today.AddDays(-30);
+        toDate = DateTime.Today;
+        filterUsername = null;
+        filterCustomerCode = null;
+        currentPage = 1;
+        await LoadTimesheets();
+    }
+
+    private static DateTime ToCat(DateTime utc) => utc.AddHours(2);
+
+    private static string FormatHours(double minutes)
+    {
+        var hours = (int)(minutes / 60);
+        var mins = (int)(minutes % 60);
+        return $"{hours}h {mins}m";
+    }
+}
+
+<style>
+    .ts-container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+    .ts-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+    .ts-title { font-size: 1.6rem; font-weight: 700; display: flex; align-items: center; gap: 10px; margin: 0; }
+    .ts-title-icon { font-size: 28px !important; }
+    .ts-subtitle { font-size: 0.85rem; color: var(--mud-palette-text-secondary); margin: 4px 0 0; }
+
+    .ts-filters {
+        background: var(--mud-palette-surface);
+        border: 1px solid var(--mud-palette-lines-default);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 24px;
+    }
+    .ts-filter-label { font-size: 0.8rem; font-weight: 600; margin-bottom: 4px; display: block; color: var(--mud-palette-text-secondary); }
+
+    .ts-summary-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .ts-summary-card {
+        background: var(--mud-palette-surface);
+        border: 1px solid var(--mud-palette-lines-default);
+        border-radius: 12px;
+        padding: 20px;
+        text-align: center;
+    }
+    .ts-summary-value { font-size: 1.5rem; font-weight: 700; }
+    .ts-summary-label { font-size: 0.8rem; color: var(--mud-palette-text-secondary); margin-top: 4px; }
+
+    .ts-loading { display: flex; align-items: center; gap: 12px; justify-content: center; padding: 40px; }
+    .ts-empty { text-align: center; padding: 60px 20px; color: var(--mud-palette-text-secondary); }
+
+    .ts-table-wrapper { overflow-x: auto; border-radius: 12px; border: 1px solid var(--mud-palette-lines-default); }
+    .ts-table { margin-bottom: 0; }
+    .ts-table thead th {
+        background: var(--mud-palette-surface);
+        font-size: 0.78rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--mud-palette-text-secondary);
+        border-bottom: 2px solid var(--mud-palette-lines-default);
+        padding: 12px 16px;
+    }
+    .ts-table tbody td { padding: 12px 16px; vertical-align: middle; font-size: 0.88rem; }
+    .ts-row-active { background: rgba(76, 175, 80, 0.06); }
+
+    .ts-customer-name { font-weight: 600; }
+    .ts-customer-code { font-size: 0.75rem; color: var(--mud-palette-text-secondary); }
+    .ts-cell-time { white-space: nowrap; }
+    .ts-cell-duration { font-weight: 600; }
+    .ts-cell-notes { max-width: 200px; }
+    .ts-note { font-size: 0.8rem; color: var(--mud-palette-text-secondary); }
+
+    .ts-badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .ts-badge-completed { background: #E8F5E9; color: #2E7D32; }
+    .ts-badge-active { background: #FFF3E0; color: #E65100; }
+
+    .ts-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        padding: 20px;
+    }
+    .ts-page-info { font-size: 0.85rem; color: var(--mud-palette-text-secondary); }
+
+    .dark-theme .ts-badge-completed { background: #1B5E20; color: #A5D6A7; }
+    .dark-theme .ts-badge-active { background: #E65100; color: #FFE0B2; }
+    .dark-theme .ts-row-active { background: rgba(76, 175, 80, 0.1); }
+</style>

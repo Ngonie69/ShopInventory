@@ -29,6 +29,7 @@ public static class Permissions
     public const string DeletePurchaseOrders = "purchasing.delete";
     public const string ApprovePurchaseOrders = "purchasing.approve";
     public const string ReceivePurchaseOrders = "purchasing.receive";
+    public const string UploadPurchaseOrderDocuments = "purchasing.upload_documents";
 
     // Payments
     public const string ViewPayments = "payments.view";
@@ -99,6 +100,10 @@ public static class Permissions
     public const string RestoreBackups = "backups.restore";
     public const string DeleteBackups = "backups.delete";
 
+    // Timesheets
+    public const string ViewTimesheets = "timesheets.view";
+    public const string ManageTimesheets = "timesheets.manage";
+
     /// <summary>
     /// Get all permissions grouped by category
     /// </summary>
@@ -133,7 +138,8 @@ public static class Permissions
                 new(EditPurchaseOrders, "Edit Purchase Orders", "Modify draft purchase orders"),
                 new(DeletePurchaseOrders, "Delete Purchase Orders", "Delete draft purchase orders"),
                 new(ApprovePurchaseOrders, "Approve Purchase Orders", "Approve pending purchase orders"),
-                new(ReceivePurchaseOrders, "Receive Purchase Orders", "Record goods receipt against purchase orders")
+                new(ReceivePurchaseOrders, "Receive Purchase Orders", "Record goods receipt against purchase orders"),
+                new(UploadPurchaseOrderDocuments, "Upload PO Documents", "Upload physical purchase order documents")
             },
             ["Payments"] = new()
             {
@@ -197,6 +203,11 @@ public static class Permissions
                 new(DeleteSalesOrders, "Delete Sales Orders", "Delete draft sales orders"),
                 new(ApproveSalesOrders, "Approve Sales Orders", "Approve pending sales orders"),
                 new(PostSalesOrdersToSAP, "Post to SAP", "Post approved sales orders to SAP")
+            },
+            ["Timesheets"] = new()
+            {
+                new(ViewTimesheets, "View Timesheets", "View sales rep check-in/check-out timesheets"),
+                new(ManageTimesheets, "Manage Timesheets", "Manage timesheet entries")
             },
             ["System"] = new()
             {
@@ -286,12 +297,14 @@ public static class Permissions
             "Merchandiser" => new List<string>
             {
                 ViewDashboard, ViewProducts, ViewCustomers,
-                ViewSalesOrders, CreateSalesOrders
+                ViewSalesOrders, CreateSalesOrders,
+                ViewPurchaseOrders, UploadPurchaseOrderDocuments
             },
             "SalesRep" => new List<string>
             {
                 ViewDashboard,
-                ViewSalesOrders, EditSalesOrders, ApproveSalesOrders, PostSalesOrdersToSAP
+                ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders, PostSalesOrdersToSAP,
+                ViewTimesheets, ManageTimesheets
             },
             _ => new List<string> { ViewDashboard }
         };
@@ -327,6 +340,7 @@ public static class Permission
     public const string DeletePurchaseOrders = Permissions.DeletePurchaseOrders;
     public const string ApprovePurchaseOrders = Permissions.ApprovePurchaseOrders;
     public const string ReceivePurchaseOrders = Permissions.ReceivePurchaseOrders;
+    public const string UploadPurchaseOrderDocuments = Permissions.UploadPurchaseOrderDocuments;
 
     // Payments
     public const string ViewPayments = Permissions.ViewPayments;
@@ -396,6 +410,10 @@ public static class Permission
     public const string CreateBackups = Permissions.CreateBackups;
     public const string RestoreBackups = Permissions.RestoreBackups;
     public const string DeleteBackups = Permissions.DeleteBackups;
+
+    // Timesheets
+    public const string ViewTimesheets = Permissions.ViewTimesheets;
+    public const string ManageTimesheets = Permissions.ManageTimesheets;
 
     /// <summary>
     /// Get all permissions grouped by category (delegates to Permissions)

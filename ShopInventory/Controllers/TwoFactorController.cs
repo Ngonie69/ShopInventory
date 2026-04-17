@@ -16,7 +16,7 @@ namespace ShopInventory.Controllers;
 /// Controller for Two-Factor Authentication operations
 /// </summary>
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Policy = "ApiAccess")]
 [Produces("application/json")]
 public class TwoFactorController(IMediator mediator) : ApiControllerBase
 {

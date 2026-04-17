@@ -110,6 +110,12 @@ public class DocumentAttachmentEntity
     public int EntityId { get; set; }
 
     /// <summary>
+    /// External reference identifier (e.g. PO number from external system)
+    /// </summary>
+    [MaxLength(100)]
+    public string? ExternalReference { get; set; }
+
+    /// <summary>
     /// Original filename
     /// </summary>
     [Required]

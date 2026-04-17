@@ -1385,6 +1385,10 @@
             else
                 errorMessage = "Failed to initiate 2FA setup. Please try again.";
         }
+        catch (HttpRequestException ex)
+        {
+            errorMessage = $"Failed to initiate 2FA setup: {ex.Message}";
+        }
         catch (Exception ex)
         {
             errorMessage = $"Error starting 2FA setup: {ex.Message}";

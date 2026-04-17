@@ -200,6 +200,7 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
         var cached = await dbContext.CachedIncomingPayments
+            .OrderBy(p => p.Id)
             .FirstOrDefaultAsync(p => p.DocEntry == docEntry);
 
         if (cached != null)
@@ -403,6 +404,7 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
         foreach (var payment in payments)
         {
             var existing = await dbContext.CachedIncomingPayments
+                .OrderBy(p => p.Id)
                 .FirstOrDefaultAsync(p => p.DocEntry == payment.DocEntry);
 
             var cached = existing ?? new CachedIncomingPayment();

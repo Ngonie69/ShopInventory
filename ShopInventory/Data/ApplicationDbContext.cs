@@ -108,6 +108,9 @@ public class ApplicationDbContext : DbContext
   // Merchandiser Product assignments
   public DbSet<MerchandiserProductEntity> MerchandiserProducts { get; set; }
 
+  // Timesheet tables
+  public DbSet<TimesheetEntryEntity> TimesheetEntries { get; set; }
+
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
     base.OnModelCreating(modelBuilder);
@@ -908,6 +911,29 @@ public class ApplicationDbContext : DbContext
       entity.HasOne(e => e.MerchandiserUser)
             .WithMany()
             .HasForeignKey(e => e.MerchandiserUserId)
+            .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    // Timesheet Entry configuration
+    modelBuilder.Entity<TimesheetEntryEntity>(entity =>
+    {
+      entity.ToTable("TimesheetEntries");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.UserId);
+      entity.HasIndex(e => e.CustomerCode);
+      entity.HasIndex(e => e.CheckInTime);
+      entity.HasIndex(e => new { e.UserId, e.CheckOutTime });
+
+      entity.Property(e => e.Username).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.CustomerCode).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.CustomerName).IsRequired().HasMaxLength(200);
+      entity.Property(e => e.CheckInNotes).HasMaxLength(500);
+      entity.Property(e => e.CheckOutNotes).HasMaxLength(500);
+
+      entity.HasOne(e => e.User)
+            .WithMany()
+            .HasForeignKey(e => e.UserId)
             .OnDelete(DeleteBehavior.Cascade);
     });
   }

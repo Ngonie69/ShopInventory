@@ -30,6 +30,9 @@ public static partial class Errors
         public static Error DeleteFailed(string message) =>
             Error.Failure("PurchaseOrder.DeleteFailed", message);
 
+        public static Error UploadFailed(string message) =>
+            Error.Failure("PurchaseOrder.UploadFailed", message);
+
         public static readonly Error SapDisabled =
             Error.Failure("PurchaseOrder.SapDisabled", "SAP integration is disabled");
 

@@ -158,7 +158,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
             new DownloadInvoiceAttachmentQuery(docEntry, attachmentId), cancellationToken);
 
         return result.Match(
-            file => File(file.Stream!, file.FileName ?? "attachment", file.MimeType ?? "application/octet-stream"),
+            file => File(file.Stream!, file.MimeType ?? "application/octet-stream", file.FileName ?? "attachment"),
             Problem);
     }
 

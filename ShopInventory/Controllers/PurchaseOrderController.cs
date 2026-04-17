@@ -10,9 +10,11 @@ using ShopInventory.Features.PurchaseOrders.Commands.DeletePurchaseOrder;
 using ShopInventory.Features.PurchaseOrders.Commands.ReceivePurchaseOrder;
 using ShopInventory.Features.PurchaseOrders.Commands.UpdatePurchaseOrder;
 using ShopInventory.Features.PurchaseOrders.Commands.UpdatePurchaseOrderStatus;
+using ShopInventory.Features.PurchaseOrders.Commands.UploadPurchaseOrderDocument;
 using ShopInventory.Features.PurchaseOrders.Queries.GetAllPurchaseOrders;
 using ShopInventory.Features.PurchaseOrders.Queries.GetPurchaseOrderById;
 using ShopInventory.Features.PurchaseOrders.Queries.GetPurchaseOrderByNumber;
+using ShopInventory.Features.PurchaseOrders.Queries.GetPurchaseOrderDocuments;
 using ShopInventory.Features.PurchaseOrders.Queries.GetPurchaseOrderFromSAPByDocEntry;
 using ShopInventory.Features.PurchaseOrders.Queries.GetPurchaseOrdersFromSAP;
 using ShopInventory.Models.Entities;
@@ -136,5 +138,36 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
     {
         var result = await mediator.Send(new DeletePurchaseOrderCommand(id), cancellationToken);
         return result.Match(_ => NoContent(), errors => Problem(errors));
+    }
+
+    [HttpPost("documents/upload")]
+    [RequirePermission(Permission.UploadPurchaseOrderDocuments)]
+    public async Task<IActionResult> UploadDocument(
+        IFormFile file,
+        [FromForm] string poReferenceNumber,
+        [FromForm] string? description,
+        CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!Guid.TryParse(userIdClaim, out var userId))
+            return Forbid();
+
+        using var ms = new MemoryStream();
+        await file.CopyToAsync(ms, cancellationToken);
+
+        var result = await mediator.Send(new UploadPurchaseOrderDocumentCommand(
+            poReferenceNumber, ms.ToArray(), file.FileName, file.ContentType ?? "application/octet-stream", description, userId), cancellationToken);
+
+        return result.Match(
+            value => CreatedAtAction(nameof(GetDocuments), null, value),
+            errors => Problem(errors));
+    }
+
+    [HttpGet("documents")]
+    [RequirePermission(Permission.ViewPurchaseOrders)]
+    public async Task<IActionResult> GetDocuments([FromQuery] string? poReferenceNumber, CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetPurchaseOrderDocumentsQuery(poReferenceNumber), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 }

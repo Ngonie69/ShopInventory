@@ -40,6 +40,7 @@ public static class AuditActions
     public const string ApprovePurchaseOrder = "ApprovePurchaseOrder";
     public const string ReceiveGoods = "ReceiveGoods";
     public const string DeletePurchaseOrder = "DeletePurchaseOrder";
+    public const string UploadPurchaseOrderDocument = "UploadPurchaseOrderDocument";
 
     // Inventory Transfer actions
     public const string CreateTransfer = "CreateTransfer";
@@ -70,4 +71,8 @@ public static class AuditActions
     // Customer Portal actions
     public const string RegisterCustomer = "RegisterCustomer";
     public const string BulkRegisterCustomers = "BulkRegisterCustomers";
+
+    // Timesheet actions
+    public const string CheckIn = "CheckIn";
+    public const string CheckOut = "CheckOut";
 }

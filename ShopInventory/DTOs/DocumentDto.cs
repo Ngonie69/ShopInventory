@@ -63,6 +63,7 @@ public class DocumentAttachmentDto
     public int Id { get; set; }
     public string EntityType { get; set; } = string.Empty;
     public int EntityId { get; set; }
+    public string? ExternalReference { get; set; }
     public string FileName { get; set; } = string.Empty;
     public string? MimeType { get; set; }
     public long FileSizeBytes { get; set; }
@@ -81,6 +82,7 @@ public class UploadAttachmentRequest
 {
     public string EntityType { get; set; } = string.Empty;
     public int EntityId { get; set; }
+    public string? ExternalReference { get; set; }
     public string? Description { get; set; }
     public bool IncludeInEmail { get; set; } = true;
 }

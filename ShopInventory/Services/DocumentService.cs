@@ -480,6 +480,7 @@ public class DocumentService : IDocumentService
         {
             EntityType = request.EntityType,
             EntityId = request.EntityId,
+            ExternalReference = request.ExternalReference,
             FileName = fileName,
             StoredFileName = fullPath,
             MimeType = mimeType,
@@ -1090,6 +1091,7 @@ public class DocumentService : IDocumentService
             Id = entity.Id,
             EntityType = entity.EntityType,
             EntityId = entity.EntityId,
+            ExternalReference = entity.ExternalReference,
             FileName = entity.FileName,
             MimeType = entity.MimeType,
             FileSizeBytes = entity.FileSizeBytes,

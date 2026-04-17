@@ -231,6 +231,9 @@ try
     // Add REVMax fiscal device service
     builder.Services.AddScoped<IRevmaxService, RevmaxService>();
 
+    // Add Timesheet service
+    builder.Services.AddScoped<ITimesheetService, TimesheetService>();
+
     // Add Email service with MailKit
     builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
     builder.Services.AddScoped<IEmailService, EmailService>();

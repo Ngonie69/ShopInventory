@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ShopInventory.Data;
@@ -11,9 +12,11 @@ using ShopInventory.Data;
 namespace ShopInventory.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260416120951_AddExternalReferenceToDocumentAttachments")]
+    partial class AddExternalReferenceToDocumentAttachments
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -3006,77 +3009,6 @@ namespace ShopInventory.Migrations
                     b.ToTable("SystemConfigs", (string)null);
                 });
 
-            modelBuilder.Entity("ShopInventory.Models.Entities.TimesheetEntryEntity", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<double?>("CheckInLatitude")
-                        .HasColumnType("double precision");
-
-                    b.Property<double?>("CheckInLongitude")
-                        .HasColumnType("double precision");
-
-                    b.Property<string>("CheckInNotes")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<DateTime>("CheckInTime")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<double?>("CheckOutLatitude")
-                        .HasColumnType("double precision");
-
-                    b.Property<double?>("CheckOutLongitude")
-                        .HasColumnType("double precision");
-
-                    b.Property<string>("CheckOutNotes")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<DateTime?>("CheckOutTime")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CustomerCode")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("CustomerName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<double?>("DurationMinutes")
-                        .HasColumnType("double precision");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Username")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CheckInTime");
-
-                    b.HasIndex("CustomerCode");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("UserId", "CheckOutTime");
-
-                    b.ToTable("TimesheetEntries", (string)null);
-                });
-
             modelBuilder.Entity("ShopInventory.Models.Entities.UserPermissionEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -4224,17 +4156,6 @@ namespace ShopInventory.Migrations
                         .IsRequired();
 
                     b.Navigation("Reservation");
-                });
-
-            modelBuilder.Entity("ShopInventory.Models.Entities.TimesheetEntryEntity", b =>
-                {
-                    b.HasOne("ShopInventory.Models.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.UserPermissionEntity", b =>

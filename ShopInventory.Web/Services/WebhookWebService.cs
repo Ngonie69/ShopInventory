@@ -31,13 +31,24 @@ public class WebhookService : IWebhookService
     {
         try
         {
-            var webhooks = await _httpClient.GetFromJsonAsync<List<WebhookDto>>("api/webhook");
+            var response = await _httpClient.GetAsync("api/webhook");
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Failed to fetch webhooks: {StatusCode} - {Body}", response.StatusCode, body);
+                throw new HttpRequestException($"API returned {(int)response.StatusCode} {response.ReasonPhrase}");
+            }
+            var webhooks = await response.Content.ReadFromJsonAsync<List<WebhookDto>>();
             return webhooks != null ? new WebhookListResponse { Webhooks = webhooks, TotalCount = webhooks.Count } : null;
+        }
+        catch (HttpRequestException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching webhooks");
-            return null;
+            throw;
         }
     }
 

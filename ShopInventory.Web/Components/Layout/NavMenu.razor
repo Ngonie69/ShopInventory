@@ -229,7 +229,8 @@
     <AuthorizeView>
         <Authorized>
             @* ── Overview ── *@
-            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager,SalesRep" Context="dashboardCtx">
+            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager,SalesRep"
+                           Context="dashboardCtx">
                 <Authorized>
                     <div class="nav-section-label">Overview</div>
                     <NavLink class="snav-link" href="/dashboard" Match="NavLinkMatch.All">
@@ -281,11 +282,29 @@
                         </span>
                         <span class="snav-text">Sales Orders</span>
                     </NavLink>
+                    <NavLink class="snav-link" href="/sales-orders/create" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.NoteAdd" />
+                        </span>
+                        <span class="snav-text">Create Sale Order</span>
+                    </NavLink>
                     <NavLink class="snav-link" href="/mobile-drafts" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.PhoneAndroid" />
                         </span>
                         <span class="snav-text">Mobile Drafts</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/timesheets" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Schedule" />
+                        </span>
+                        <span class="snav-text">Timesheets</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/timesheet-report" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Assessment" />
+                        </span>
+                        <span class="snav-text">Timesheet Report</span>
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
@@ -421,6 +440,23 @@
                             <MudIcon Icon="@Icons.Material.Filled.TrendingUp" />
                         </span>
                         <span class="snav-text">Reports</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
+
+            <AuthorizeView Roles="Admin,Manager" Context="timesheetsAdminCtx">
+                <Authorized>
+                    <NavLink class="snav-link" href="/timesheets" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Schedule" />
+                        </span>
+                        <span class="snav-text">Timesheets</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/timesheet-report" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Assessment" />
+                        </span>
+                        <span class="snav-text">Timesheet Report</span>
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
