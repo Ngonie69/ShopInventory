@@ -101,6 +101,12 @@ public interface ISAPServiceLayerClient
     /// </summary>
     Task<ItemPriceByListDto?> GetItemPriceFromListAsync(string itemCode, int priceListNum, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Gets special prices assigned to a specific business partner from SAP (OSPP table).
+    /// These override the BP's default price list prices for specific items.
+    /// </summary>
+    Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, CancellationToken cancellationToken = default);
+
     // Incoming Payment Operations
     Task<List<IncomingPayment>> GetIncomingPaymentsAsync(CancellationToken cancellationToken = default);
     Task<List<IncomingPayment>> GetPagedIncomingPaymentsAsync(int page, int pageSize, CancellationToken cancellationToken = default);

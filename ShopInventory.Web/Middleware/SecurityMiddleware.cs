@@ -50,7 +50,7 @@ public class SecurityHeadersMiddleware
             "img-src 'self' data: https:; " +
             "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; " +
             "connect-src 'self' ws: wss: https://fonts.googleapis.com https://fonts.gstatic.com; " + // Blazor SignalR + Google Fonts
-            "frame-src 'self'; " +  // Blazor Server error UI uses iframes
+            "frame-src 'self' https://www.openstreetmap.org; " +  // Blazor Server error UI + map embeds
             "frame-ancestors 'self'; " +
             "base-uri 'self'; " +
             "form-action 'self'; " +

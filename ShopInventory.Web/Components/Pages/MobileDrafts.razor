@@ -8,6 +8,7 @@
 @inject IDialogService DialogService
 @inject ILogger<MobileDrafts> Logger
 @inject IAppSettingsProvider AppSettings
+@inject IPriceService PriceService
 @rendermode InteractiveServer
 
 <PageTitle>Mobile Drafts - Shop Inventory</PageTitle>
@@ -839,6 +840,33 @@
                 </div>
             }
 
+            @if (selectedOrder.Latitude.HasValue && selectedOrder.Longitude.HasValue)
+            {
+                <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:.85rem 1rem; margin-bottom:1.25rem;">
+                    <div style="font-size:.78rem; font-weight:600; color:#166534; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.5rem;">
+                        <i class="bi bi-geo-alt-fill"></i> Order Location
+                    </div>
+                    <div style="display:flex; gap:1.5rem; align-items:center; margin-bottom:.6rem;">
+                        <span style="font-size:.85rem; color:#166534;">
+                            <strong>Lat:</strong> @selectedOrder.Latitude.Value.ToString("F6")
+                        </span>
+                        <span style="font-size:.85rem; color:#166534;">
+                            <strong>Lon:</strong> @selectedOrder.Longitude.Value.ToString("F6")
+                        </span>
+                        <a href="https://www.google.com/maps?q=@selectedOrder.Latitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),@selectedOrder.Longitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                           target="_blank" rel="noopener noreferrer"
+                           style="font-size:.82rem; color:#2563eb; text-decoration:none; margin-left:auto;">
+                            <i class="bi bi-box-arrow-up-right"></i> Open in Google Maps
+                        </a>
+                    </div>
+                    <div style="border-radius:8px; overflow:hidden; border:1px solid #d1d5db;">
+                        <iframe width="100%" height="200" frameborder="0" scrolling="no" style="display:block;"
+                                src="https://www.openstreetmap.org/export/embed.html?bbox=@((selectedOrder.Longitude.Value - 0.005m).ToString(System.Globalization.CultureInfo.InvariantCulture))%2C@((selectedOrder.Latitude.Value - 0.005m).ToString(System.Globalization.CultureInfo.InvariantCulture))%2C@((selectedOrder.Longitude.Value + 0.005m).ToString(System.Globalization.CultureInfo.InvariantCulture))%2C@((selectedOrder.Latitude.Value + 0.005m).ToString(System.Globalization.CultureInfo.InvariantCulture))&marker=@(selectedOrder.Latitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))%2C@(selectedOrder.Longitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))">
+                        </iframe>
+                    </div>
+                </div>
+            }
+
             @if (selectedOrder.Lines?.Any() == true)
             {
                 <div class="detail-section-title"><i class="bi bi-list-ul"></i> Order Lines</div>
@@ -998,9 +1026,51 @@
         await LoadOrders();
     }
 
-    private void ViewOrder(SalesOrderDto order)
+    private async Task ViewOrder(SalesOrderDto order)
     {
         selectedOrder = order;
+        StateHasChanged();
+
+        // If order lines have no prices (mobile drafts), fetch from SAP using the BP's price list
+        if (order.Lines?.Any() == true && order.Lines.All(l => l.UnitPrice == 0))
+        {
+            await PopulateOrderPricesAsync(order);
+            StateHasChanged();
+        }
+    }
+
+    private async Task PopulateOrderPricesAsync(SalesOrderDto order)
+    {
+        try
+        {
+            var bpPrices = await PriceService.GetPricesByBusinessPartnerAsync(order.CardCode);
+            if (bpPrices?.Prices == null || bpPrices.Prices.Count == 0)
+                return;
+
+            var priceMap = bpPrices.Prices
+                .Where(p => p.ItemCode != null)
+                .ToDictionary(p => p.ItemCode!, p => p.Price, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var line in order.Lines!)
+            {
+                if (priceMap.TryGetValue(line.ItemCode, out var price))
+                {
+                    line.UnitPrice = price;
+                    var discountMultiplier = line.DiscountPercent > 0 ? (1 - line.DiscountPercent / 100m) : 1m;
+                    line.LineTotal = Math.Round(line.Quantity * price * discountMultiplier, 2);
+                }
+            }
+
+            order.SubTotal = order.Lines!.Sum(l => l.LineTotal);
+            var taxRate = order.Lines!.FirstOrDefault()?.TaxPercent ?? 0m;
+            order.TaxAmount = taxRate > 0 ? Math.Round(order.SubTotal * taxRate / 100m, 2) : 0m;
+            var orderDiscountMultiplier = order.DiscountPercent > 0 ? (1 - order.DiscountPercent / 100m) : 1m;
+            order.DocTotal = Math.Round((order.SubTotal + order.TaxAmount) * orderDiscountMultiplier, 2);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to fetch BP prices for order {OrderId} ({CardCode})", order.Id, order.CardCode);
+        }
     }
 
     private void NavigateToEdit(int id)
@@ -1013,6 +1083,7 @@
         var result = await SalesOrderService.ApproveAsync(id);
         if (result != null)
         {
+            selectedOrder = result;
             await LoadOrders();
         }
     }

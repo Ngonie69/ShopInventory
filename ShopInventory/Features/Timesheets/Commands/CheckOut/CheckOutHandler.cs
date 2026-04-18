@@ -18,6 +18,7 @@ public sealed class CheckOutHandler(
         try
         {
             var entry = await db.TimesheetEntries
+                .AsTracking()
                 .FirstOrDefaultAsync(t => t.UserId == command.UserId && t.CheckOutTime == null, cancellationToken);
 
             if (entry is null)
@@ -41,7 +42,9 @@ public sealed class CheckOutHandler(
                 entry.CustomerName,
                 entry.CheckInTime,
                 checkOutTime,
-                entry.DurationMinutes.Value);
+                entry.DurationMinutes.Value,
+                entry.CheckOutLatitude,
+                entry.CheckOutLongitude);
         }
         catch (Exception ex)
         {

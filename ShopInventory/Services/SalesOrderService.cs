@@ -380,7 +380,9 @@ public class SalesOrderService : ISalesOrderService
             Status = SalesOrderStatus.Draft,
             Source = request.Source,
             MerchandiserNotes = request.MerchandiserNotes,
-            DeviceInfo = request.DeviceInfo
+            DeviceInfo = request.DeviceInfo,
+            Latitude = request.Latitude,
+            Longitude = request.Longitude
         };
 
         decimal subTotal = 0;
@@ -402,7 +404,7 @@ public class SalesOrderService : ISalesOrderService
                 DiscountPercent = lineRequest.DiscountPercent,
                 TaxPercent = lineRequest.TaxPercent,
                 LineTotal = lineTotal,
-                WarehouseCode = lineRequest.WarehouseCode ?? request.WarehouseCode,
+                WarehouseCode = !string.IsNullOrEmpty(lineRequest.WarehouseCode) ? lineRequest.WarehouseCode : request.WarehouseCode,
                 UoMCode = lineRequest.UoMCode,
                 BatchNumber = lineRequest.BatchNumber
             };
@@ -593,7 +595,7 @@ public class SalesOrderService : ISalesOrderService
                 DiscountPercent = lineRequest.DiscountPercent,
                 TaxPercent = lineRequest.TaxPercent,
                 LineTotal = lineTotal,
-                WarehouseCode = lineRequest.WarehouseCode ?? request.WarehouseCode,
+                WarehouseCode = !string.IsNullOrEmpty(lineRequest.WarehouseCode) ? lineRequest.WarehouseCode : request.WarehouseCode,
                 UoMCode = lineRequest.UoMCode,
                 BatchNumber = lineRequest.BatchNumber
             };
@@ -657,6 +659,9 @@ public class SalesOrderService : ISalesOrderService
 
         if (order.Status != SalesOrderStatus.Draft && order.Status != SalesOrderStatus.Pending)
             throw new InvalidOperationException("Only draft or pending orders can be approved");
+
+        // Populate prices from SAP using the BP's price list + any special prices
+        await PopulateSAPPricesAsync(order, cancellationToken);
 
         // Look up approver name
         var approver = await _context.Users.AsNoTracking()
@@ -958,6 +963,98 @@ public class SalesOrderService : ISalesOrderService
         };
     }
 
+    /// <summary>
+    /// Populates line prices from SAP using the BP's assigned price list,
+    /// with BP-specific special prices (OSPP) taking priority.
+    /// </summary>
+    private async Task PopulateSAPPricesAsync(SalesOrderEntity order, CancellationToken cancellationToken)
+    {
+        if (order.Lines == null || order.Lines.Count == 0)
+            return;
+
+        try
+        {
+            // Get the BP to determine their assigned price list
+            var bp = await _businessPartnerService.GetBusinessPartnerByCodeAsync(order.CardCode, cancellationToken);
+            var priceListNum = bp?.PriceListNum ?? 1;
+
+            _logger.LogInformation(
+                "Populating prices for order {OrderId} from price list {PriceListNum} (BP: {CardCode})",
+                order.Id, priceListNum, order.CardCode);
+
+            // Fetch all prices from the BP's price list in one call
+            var priceListPrices = await _sapClient.GetPricesByPriceListAsync(priceListNum, cancellationToken);
+            var priceMap = priceListPrices
+                .Where(p => p.ItemCode != null)
+                .ToDictionary(p => p.ItemCode!, p => p.Price, StringComparer.OrdinalIgnoreCase);
+
+            // Fetch BP-specific special prices (override per item from OSPP table)
+            var specialPrices = await _sapClient.GetSpecialPricesForBPAsync(order.CardCode, cancellationToken);
+
+            if (specialPrices.Count > 0)
+            {
+                _logger.LogInformation(
+                    "Found {Count} special prices for BP {CardCode}, these will override price list values",
+                    specialPrices.Count, order.CardCode);
+            }
+
+            // Apply prices to each line: special price > price list price
+            foreach (var line in order.Lines)
+            {
+                decimal unitPrice = 0;
+
+                // Special price takes priority
+                if (specialPrices.TryGetValue(line.ItemCode, out var specialPrice))
+                {
+                    unitPrice = specialPrice;
+                }
+                else if (priceMap.TryGetValue(line.ItemCode, out var listPrice))
+                {
+                    unitPrice = listPrice;
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "No price found for item {ItemCode} in price list {PriceListNum} or special prices for BP {CardCode}",
+                        line.ItemCode, priceListNum, order.CardCode);
+                    continue;
+                }
+
+                line.UnitPrice = unitPrice;
+                var discountMultiplier = line.DiscountPercent > 0
+                    ? (1 - line.DiscountPercent / 100m)
+                    : 1m;
+                line.LineTotal = Math.Round(line.Quantity * unitPrice * discountMultiplier, 2);
+            }
+
+            // Recalculate order totals
+            order.SubTotal = order.Lines.Sum(l => l.LineTotal);
+
+            var taxRate = order.Lines.FirstOrDefault()?.TaxPercent ?? 0m;
+            order.TaxAmount = taxRate > 0
+                ? Math.Round(order.SubTotal * taxRate / 100m, 2)
+                : 0m;
+
+            var orderDiscountMultiplier = order.DiscountPercent > 0
+                ? (1 - order.DiscountPercent / 100m)
+                : 1m;
+            order.DocTotal = Math.Round(
+                (order.SubTotal + order.TaxAmount) * orderDiscountMultiplier - order.DiscountAmount, 2);
+
+            _logger.LogInformation(
+                "Prices populated for order {OrderId}: SubTotal={SubTotal}, Tax={TaxAmount}, Total={DocTotal}",
+                order.Id, order.SubTotal, order.TaxAmount, order.DocTotal);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Failed to populate SAP prices for order {OrderId} (BP: {CardCode}). Prices may be incomplete.",
+                order.Id, order.CardCode);
+            // Don't block approval if SAP pricing fails — order can still be approved
+            // but prices might need manual correction
+        }
+    }
+
     private static SalesOrderDto MapToDto(SalesOrderEntity entity)
     {
         return new SalesOrderDto
@@ -997,6 +1094,8 @@ public class SalesOrderService : ISalesOrderService
             Source = entity.Source,
             MerchandiserNotes = entity.MerchandiserNotes,
             DeviceInfo = entity.DeviceInfo,
+            Latitude = entity.Latitude,
+            Longitude = entity.Longitude,
             RowVersion = entity.RowVersion != null ? Convert.ToBase64String(entity.RowVersion) : null,
             Lines = entity.Lines.Select(l => new SalesOrderLineDto
             {

@@ -2568,6 +2568,72 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         return null;
     }
 
+    public async Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var safeCardCode = SanitizeSqlValue(cardCode);
+        var suffix = Random.Shared.Next(100000, 999999);
+        var queryCode = $"SH_SP_{suffix}";
+
+        // Query SAP special prices table (OSPP) for the BP - gets the latest valid price per item
+        var sqlText = $@"SELECT T0.""ItemCode"", T0.""Price"" FROM OSPP T0 WHERE T0.""CardCode"" = '{safeCardCode}' AND T0.""Price"" > 0 AND (T0.""ToDate"" IS NULL OR T0.""ToDate"" >= CURRENT_DATE) AND (T0.""FromDate"" IS NULL OR T0.""FromDate"" <= CURRENT_DATE)";
+
+        var result = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            await CreateSqlQueryAsync(queryCode, $"Special prices for {cardCode}", sqlText, cancellationToken);
+
+            var url = $"SQLQueries('{queryCode}')/List";
+            var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                using var doc = JsonDocument.Parse(content);
+                if (doc.RootElement.TryGetProperty("value", out var valueArray))
+                {
+                    foreach (var item in valueArray.EnumerateArray())
+                    {
+                        var itemCode = item.TryGetProperty("ItemCode", out var ic) ? ic.GetString() : null;
+                        var price = item.TryGetProperty("Price", out var p) ? p.GetDecimal() : 0m;
+                        if (!string.IsNullOrEmpty(itemCode) && price > 0)
+                            result[itemCode] = price;
+                    }
+                }
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("Failed to get special prices for BP {CardCode}: {StatusCode} - {Error}",
+                    cardCode, response.StatusCode, errorContent);
+            }
+        }
+        finally
+        {
+            await TryDeleteQueryAsync(queryCode, cancellationToken);
+        }
+
+        _logger.LogInformation("Retrieved {Count} special prices for BP {CardCode}", result.Count, cardCode);
+        return result;
+    }
+
     #endregion
 
     #region Incoming Payment Operations

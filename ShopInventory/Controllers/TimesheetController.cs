@@ -5,6 +5,7 @@ using ShopInventory.Authentication;
 using ShopInventory.Features.Timesheets.Commands.CheckIn;
 using ShopInventory.Features.Timesheets.Commands.CheckOut;
 using ShopInventory.Features.Timesheets.Queries.GetActiveCheckIn;
+using ShopInventory.Features.Timesheets.Queries.GetAssignedCustomers;
 using ShopInventory.Features.Timesheets.Queries.GetTimesheets;
 using ShopInventory.Features.Timesheets.Queries.GetTimesheetReport;
 using ShopInventory.Models;
@@ -93,6 +94,22 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    [HttpGet("assigned-customers")]
+    [RequirePermission(Permission.ManageTimesheets)]
+    [ProducesResponseType(typeof(List<AssignedCustomerDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetAssignedCustomers(CancellationToken cancellationToken)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new GetAssignedCustomersQuery(userId.Value), cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
     [HttpGet]
     [RequirePermission(Permission.ViewTimesheets)]
     [ProducesResponseType(typeof(TimesheetListResult), StatusCodes.Status200OK)]
@@ -106,15 +123,19 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
         [FromQuery] DateTime? toDate = null,
         CancellationToken cancellationToken = default)
     {
-        // SalesRep can only see their own timesheets
-        if (User.IsInRole("SalesRep") && !User.IsInRole("Admin"))
+        // Merchandiser can only see their own timesheets
+        if (User.IsInRole("Merchandiser") && !User.IsInRole("Admin"))
         {
             var currentUserId = GetCurrentUserId();
             userId = currentUserId;
         }
 
+        // Normalize dates to UTC for PostgreSQL timestamptz compatibility
+        var utcFromDate = fromDate.HasValue ? DateTime.SpecifyKind(fromDate.Value, DateTimeKind.Utc) : fromDate;
+        var utcToDate = toDate.HasValue ? DateTime.SpecifyKind(toDate.Value, DateTimeKind.Utc) : toDate;
+
         var result = await mediator.Send(
-            new GetTimesheetsQuery(page, pageSize, userId, username, customerCode, fromDate, toDate),
+            new GetTimesheetsQuery(page, pageSize, userId, username, customerCode, utcFromDate, utcToDate),
             cancellationToken);
 
         return result.Match(
@@ -132,11 +153,12 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
         [FromQuery] DateTime? toDate = null,
         CancellationToken cancellationToken = default)
     {
-        var from = fromDate ?? DateTime.UtcNow.AddDays(-30);
-        var to = toDate ?? DateTime.UtcNow;
+        // Normalize dates to UTC for PostgreSQL timestamptz compatibility
+        var from = fromDate.HasValue ? DateTime.SpecifyKind(fromDate.Value, DateTimeKind.Utc) : DateTime.UtcNow.AddDays(-30);
+        var to = toDate.HasValue ? DateTime.SpecifyKind(toDate.Value, DateTimeKind.Utc) : DateTime.UtcNow;
 
-        // SalesRep can only see their own report
-        if (User.IsInRole("SalesRep") && !User.IsInRole("Admin"))
+        // Merchandiser can only see their own report
+        if (User.IsInRole("Merchandiser") && !User.IsInRole("Admin"))
         {
             var currentUserId = GetCurrentUserId();
             userId = currentUserId;

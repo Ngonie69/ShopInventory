@@ -68,7 +68,12 @@ try
         .WriteTo.File("logs/shopinventory-api-.log", rollingInterval: RollingInterval.Day, retainedFileCountLimit: 31));
 
     // Add services to the container.
-    builder.Services.AddControllers();
+    builder.Services.AddControllers()
+        .AddJsonOptions(options =>
+        {
+            options.JsonSerializerOptions.NumberHandling =
+                System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString;
+        });
     builder.Services.AddEndpointsApiExplorer();
 
     // Add response compression for bandwidth savings on JSON payloads
@@ -187,6 +192,7 @@ try
     builder.Services.Configure<RateLimitSettings>(builder.Configuration.GetSection("RateLimit"));
     builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection("Security"));
     builder.Services.Configure<RevmaxSettings>(builder.Configuration.GetSection("Revmax"));
+    builder.Services.Configure<DailyStockSettings>(builder.Configuration.GetSection("DailyStock"));
 
     // Get JWT settings for authentication configuration
     var jwtSettings = builder.Configuration.GetSection("Jwt").Get<JwtSettings>()
@@ -437,6 +443,15 @@ try
 
     // Register background service for processing queued inventory transfers
     builder.Services.AddHostedService<InventoryTransferPostingBackgroundService>();
+
+    // Register FetchDailyStockHandler for direct resolution by background service
+    builder.Services.AddScoped<ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock.FetchDailyStockHandler>();
+
+    // Register background services for daily stock snapshot and end-of-day consolidation
+    builder.Services.AddSingleton<DailyStockSnapshotService>();
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<DailyStockSnapshotService>());
+    builder.Services.AddSingleton<EndOfDayConsolidationService>();
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<EndOfDayConsolidationService>());
 
     // Add permission-based authorization
     builder.Services.AddPermissionAuthorization();

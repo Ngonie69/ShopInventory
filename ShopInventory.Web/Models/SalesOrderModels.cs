@@ -138,6 +138,12 @@ public class SalesOrderDto
     [JsonPropertyName("deviceInfo")]
     public string? DeviceInfo { get; set; }
 
+    [JsonPropertyName("latitude")]
+    public decimal? Latitude { get; set; }
+
+    [JsonPropertyName("longitude")]
+    public decimal? Longitude { get; set; }
+
     [JsonPropertyName("rowVersion")]
     public string? RowVersion { get; set; }
 

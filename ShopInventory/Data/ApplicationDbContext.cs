@@ -111,6 +111,14 @@ public class ApplicationDbContext : DbContext
   // Timesheet tables
   public DbSet<TimesheetEntryEntity> TimesheetEntries { get; set; }
 
+  // Desktop offline invoicing tables
+  public DbSet<DailyStockSnapshotEntity> DailyStockSnapshots { get; set; }
+  public DbSet<DailyStockSnapshotItemEntity> DailyStockSnapshotItems { get; set; }
+  public DbSet<DesktopSaleEntity> DesktopSales { get; set; }
+  public DbSet<DesktopSaleLineEntity> DesktopSaleLines { get; set; }
+  public DbSet<SaleConsolidationEntity> SaleConsolidations { get; set; }
+  public DbSet<StockTransferAdjustmentEntity> StockTransferAdjustments { get; set; }
+
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
     base.OnModelCreating(modelBuilder);
@@ -935,6 +943,97 @@ public class ApplicationDbContext : DbContext
             .WithMany()
             .HasForeignKey(e => e.UserId)
             .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    // ── Desktop Offline Invoicing ────────────────────────────────────────
+
+    // Daily Stock Snapshot
+    modelBuilder.Entity<DailyStockSnapshotEntity>(entity =>
+    {
+      entity.ToTable("DailyStockSnapshots");
+      entity.HasKey(e => e.Id);
+
+      entity.HasMany(s => s.Items)
+            .WithOne(i => i.Snapshot)
+            .HasForeignKey(i => i.SnapshotId)
+            .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    // Daily Stock Snapshot Item
+    modelBuilder.Entity<DailyStockSnapshotItemEntity>(entity =>
+    {
+      entity.ToTable("DailyStockSnapshotItems");
+      entity.HasKey(e => e.Id);
+
+      // PostgreSQL uses xmin for row versioning
+      entity.Property(e => e.RowVersion)
+            .IsRowVersion();
+
+      entity.ToTable(t =>
+      {
+        t.HasCheckConstraint("CK_SnapshotItems_OriginalQuantity_NonNegative", "\"OriginalQuantity\" >= 0");
+        t.HasCheckConstraint("CK_SnapshotItems_AvailableQuantity_NonNegative", "\"AvailableQuantity\" >= 0");
+      });
+    });
+
+    // Desktop Sale
+    modelBuilder.Entity<DesktopSaleEntity>(entity =>
+    {
+      entity.ToTable("DesktopSales");
+      entity.HasKey(e => e.Id);
+
+      entity.HasMany(s => s.Lines)
+            .WithOne(l => l.Sale)
+            .HasForeignKey(l => l.SaleId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(s => s.Consolidation)
+            .WithMany(c => c.Sales)
+            .HasForeignKey(s => s.ConsolidationId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      entity.ToTable(t =>
+      {
+        t.HasCheckConstraint("CK_DesktopSales_TotalAmount_NonNegative", "\"TotalAmount\" >= 0");
+        t.HasCheckConstraint("CK_DesktopSales_VatAmount_NonNegative", "\"VatAmount\" >= 0");
+        t.HasCheckConstraint("CK_DesktopSales_AmountPaid_NonNegative", "\"AmountPaid\" >= 0");
+      });
+    });
+
+    // Desktop Sale Line
+    modelBuilder.Entity<DesktopSaleLineEntity>(entity =>
+    {
+      entity.ToTable("DesktopSaleLines");
+      entity.HasKey(e => e.Id);
+
+      entity.ToTable(t =>
+      {
+        t.HasCheckConstraint("CK_DesktopSaleLines_Quantity_Positive", "\"Quantity\" > 0");
+        t.HasCheckConstraint("CK_DesktopSaleLines_UnitPrice_NonNegative", "\"UnitPrice\" >= 0");
+        t.HasCheckConstraint("CK_DesktopSaleLines_LineTotal_NonNegative", "\"LineTotal\" >= 0");
+        t.HasCheckConstraint("CK_DesktopSaleLines_DiscountPercent_Valid", "\"DiscountPercent\" >= 0 AND \"DiscountPercent\" <= 100");
+      });
+    });
+
+    // Sale Consolidation
+    modelBuilder.Entity<SaleConsolidationEntity>(entity =>
+    {
+      entity.ToTable("SaleConsolidations");
+      entity.HasKey(e => e.Id);
+
+      entity.ToTable(t =>
+      {
+        t.HasCheckConstraint("CK_SaleConsolidations_TotalAmount_NonNegative", "\"TotalAmount\" >= 0");
+        t.HasCheckConstraint("CK_SaleConsolidations_TotalVat_NonNegative", "\"TotalVat\" >= 0");
+        t.HasCheckConstraint("CK_SaleConsolidations_SaleCount_Positive", "\"SaleCount\" > 0");
+      });
+    });
+
+    // Stock Transfer Adjustment
+    modelBuilder.Entity<StockTransferAdjustmentEntity>(entity =>
+    {
+      entity.ToTable("StockTransferAdjustments");
+      entity.HasKey(e => e.Id);
     });
   }
 }

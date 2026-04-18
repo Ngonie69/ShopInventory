@@ -49,6 +49,12 @@ using ShopInventory.Features.DesktopIntegration.Queries.GetTransfersRequiringRev
 using ShopInventory.Features.DesktopIntegration.Queries.ListReservations;
 using ShopInventory.Features.DesktopIntegration.Queries.ValidateInvoice;
 using ShopInventory.Features.DesktopIntegration.Queries.ValidateStockAvailability;
+using ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
+using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
+using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
+using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
+using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
+using ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
 using ShopInventory.Services;
 using System.Security.Claims;
 
@@ -552,6 +558,100 @@ public class DesktopIntegrationController(IMediator mediator) : ApiControllerBas
     {
         var result = await mediator.Send(new RetryQueuedTransferCommand(externalReference), cancellationToken);
         return result.Match(_ => Ok(new { message = "Transfer will be retried shortly", status = "Pending" }), errors => Problem(errors));
+    }
+
+    #endregion
+
+    #region Daily Stock & Desktop Sales
+
+    /// <summary>
+    /// Manually trigger daily stock snapshot fetch from SAP.
+    /// </summary>
+    [HttpPost("stock/fetch-daily")]
+    public async Task<IActionResult> FetchDailyStock(
+        [FromBody] FetchDailyStockCommand? command,
+        CancellationToken cancellationToken)
+    {
+        var cmd = command ?? new FetchDailyStockCommand();
+        var result = await mediator.Send(cmd, cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Get local stock for a warehouse from today's snapshot (including transfer adjustments).
+    /// </summary>
+    [HttpGet("stock/{warehouseCode}/local")]
+    public async Task<IActionResult> GetLocalStock(
+        string warehouseCode,
+        [FromQuery] DateTime? snapshotDate,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetLocalStockQuery(warehouseCode, snapshotDate), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Create a desktop sale — validates against local stock, deducts quantities, and fiscalizes immediately.
+    /// </summary>
+    [HttpPost("sales")]
+    public async Task<IActionResult> CreateDesktopSale(
+        [FromBody] CreateDesktopSaleRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(
+            new CreateDesktopSaleCommand(request, GetUserId()), cancellationToken);
+        return result.Match(value => CreatedAtAction(nameof(GetLocalStock), new { warehouseCode = request.WarehouseCode }, value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Manually trigger end-of-day consolidation — consolidates sales per BP and posts to SAP.
+    /// </summary>
+    [HttpPost("end-of-day/consolidate")]
+    public async Task<IActionResult> ConsolidateDailySales(
+        [FromBody] ConsolidateDailySalesCommand? command,
+        CancellationToken cancellationToken)
+    {
+        var cmd = command ?? new ConsolidateDailySalesCommand();
+        var result = await mediator.Send(cmd, cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Get end-of-day sales report with consolidation status, fiscal receipts, and payment matching.
+    /// </summary>
+    [HttpGet("end-of-day/report")]
+    public async Task<IActionResult> GetEndOfDayReport(
+        [FromQuery] DateTime? reportDate,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GenerateEndOfDayReportQuery(reportDate), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Manually trigger end-of-day report email.
+    /// </summary>
+    [HttpPost("end-of-day/email-report")]
+    public async Task<IActionResult> EmailEndOfDayReport(
+        [FromQuery] DateTime? reportDate,
+        CancellationToken cancellationToken)
+    {
+        var consolidationService = HttpContext.RequestServices.GetRequiredService<EndOfDayConsolidationService>();
+        await consolidationService.RunConsolidationAndReportAsync(cancellationToken);
+        return Ok(new { message = "End-of-day consolidation and report email triggered" });
+    }
+
+    /// <summary>
+    /// Webhook endpoint for TransferEventListener to notify about stock transfers.
+    /// </summary>
+    [HttpPost("webhook/transfer-event")]
+    [AllowAnonymous]
+    public async Task<IActionResult> TransferEventWebhook(
+        [FromBody] ProcessTransferEventCommand command,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(command, cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     #endregion

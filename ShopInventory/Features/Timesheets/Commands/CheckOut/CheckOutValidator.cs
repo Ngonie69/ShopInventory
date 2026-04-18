@@ -14,10 +14,12 @@ public sealed class CheckOutValidator : AbstractValidator<CheckOutCommand>
             .MaximumLength(50).WithMessage("Username must not exceed 50 characters.");
 
         RuleFor(x => x.Latitude)
+            .NotNull().WithMessage("GPS coordinates are required for check-out.")
             .InclusiveBetween(-90, 90).When(x => x.Latitude.HasValue)
             .WithMessage("Latitude must be between -90 and 90.");
 
         RuleFor(x => x.Longitude)
+            .NotNull().WithMessage("GPS coordinates are required for check-out.")
             .InclusiveBetween(-180, 180).When(x => x.Longitude.HasValue)
             .WithMessage("Longitude must be between -180 and 180.");
 

@@ -22,6 +22,7 @@ public interface IReportExportService
     byte[] ExportProfitOverviewToExcel(ProfitOverviewReport report);
     byte[] ExportSlowMovingProductsToExcel(SlowMovingProductsReport report);
     byte[] ExportPodUploadStatusToExcel(PodUploadStatusReport report);
+    byte[] ExportTimesheetReportToExcel(TimesheetReportResponse report, DateTime? fromDate = null, DateTime? toDate = null);
     string GeneratePrintableHtml(string title, string content, DateTime? fromDate = null, DateTime? toDate = null);
 }
 
@@ -1702,6 +1703,522 @@ public class ReportExportService : IReportExportService
 
         return WorkbookToBytes(workbook);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // TIMESHEET REPORT  (Stock-sheet style)
+    // ═══════════════════════════════════════════════════════════════
+
+    // ── Corporate palette (matches Stock Sheets) ──
+    private static readonly XLColor TsNavy = XLColor.FromHtml("#1B3A5C");
+    private static readonly XLColor TsHeaderBg = XLColor.FromHtml("#2C5F8A");
+    private static readonly XLColor TsSubHeaderBg = XLColor.FromHtml("#E8EEF4");
+    private static readonly XLColor TsStripeBg = XLColor.FromHtml("#F5F7FA");
+    private static readonly XLColor TsGridColor = XLColor.FromHtml("#C5CED8");
+    private static readonly XLColor TsGridLight = XLColor.FromHtml("#DDE3EA");
+    private static readonly XLColor TsTextDark = XLColor.FromHtml("#1A1A2E");
+    private static readonly XLColor TsTextMuted = XLColor.FromHtml("#5A6A7A");
+    private static readonly XLColor TsTotalBg = XLColor.FromHtml("#DCE6F0");
+    private static readonly XLColor TsGreen = XLColor.FromHtml("#2E7D32");
+    private static readonly XLColor TsOrange = XLColor.FromHtml("#E65100");
+    private static readonly XLColor TsRed = XLColor.FromHtml("#C62828");
+
+    public byte[] ExportTimesheetReportToExcel(TimesheetReportResponse report, DateTime? fromDate = null, DateTime? toDate = null)
+    {
+        using var workbook = new XLWorkbook();
+        var now = DateTime.UtcNow.AddHours(2); // CAT
+
+        BuildTimesheetOverviewSheet(workbook, report, fromDate, toDate, now);
+
+        foreach (var user in report.UserSummaries.OrderByDescending(u => u.TotalVisits))
+            BuildTimesheetUserSheet(workbook, user, fromDate, toDate, now);
+
+        return WorkbookToBytes(workbook);
+    }
+
+    private static void TsApplyDefaults(IXLWorksheet ws)
+    {
+        ws.Style.Font.FontName = "Aptos";
+        ws.Style.Font.FontSize = 10;
+    }
+
+    private static int TsTitleBar(IXLWorksheet ws, string title, int lastCol, DateTime now)
+    {
+        ws.Row(1).Height = 32;
+        var titleRange = ws.Range(1, 1, 1, lastCol);
+        titleRange.Style.Fill.BackgroundColor = TsNavy;
+        titleRange.Style.Font.FontColor = XLColor.White;
+        titleRange.Style.Border.BottomBorder = XLBorderStyleValues.Medium;
+        titleRange.Style.Border.BottomBorderColor = XLColor.FromHtml("#4A90C4");
+
+        ws.Cell(1, 1).Value = $" {title}";
+        ws.Cell(1, 1).Style.Font.Bold = true;
+        ws.Cell(1, 1).Style.Font.FontSize = 13;
+        ws.Cell(1, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
+        ws.Cell(1, lastCol).Value = now.ToString("dd MMM yyyy  HH:mm");
+        ws.Cell(1, lastCol).Style.Font.FontSize = 9;
+        ws.Cell(1, lastCol).Style.Font.Italic = true;
+        ws.Cell(1, lastCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+        ws.Cell(1, lastCol).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
+        return 2;
+    }
+
+    private static int TsColumnHeaders(IXLWorksheet ws, int row, int lastCol, string[] headers)
+    {
+        ws.Row(row).Height = 44;
+        var range = ws.Range(row, 1, row, lastCol);
+        range.Style.Fill.BackgroundColor = TsHeaderBg;
+        range.Style.Font.FontColor = XLColor.White;
+        range.Style.Font.Bold = true;
+        range.Style.Font.FontSize = 9;
+        range.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        range.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        range.Style.Alignment.WrapText = true;
+        range.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        range.Style.Border.OutsideBorderColor = TsNavy;
+        range.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+        range.Style.Border.InsideBorderColor = XLColor.FromHtml("#4A7DAA");
+
+        for (int i = 0; i < headers.Length; i++)
+            ws.Cell(row, i + 1).Value = headers[i];
+
+        return row + 1;
+    }
+
+    private static void TsDataRow(IXLWorksheet ws, int row, int lastCol, bool isStripe)
+    {
+        var bg = isStripe ? TsStripeBg : XLColor.White;
+        var rowRange = ws.Range(row, 1, row, lastCol);
+        rowRange.Style.Fill.BackgroundColor = bg;
+        rowRange.Style.Border.BottomBorder = XLBorderStyleValues.Thin;
+        rowRange.Style.Border.BottomBorderColor = TsGridLight;
+        rowRange.Style.Font.FontSize = 10;
+        rowRange.Style.Font.FontColor = TsTextDark;
+        for (int c = 1; c <= lastCol; c++)
+        {
+            ws.Cell(row, c).Style.Border.LeftBorder = XLBorderStyleValues.Thin;
+            ws.Cell(row, c).Style.Border.LeftBorderColor = TsGridLight;
+            ws.Cell(row, c).Style.Border.RightBorder = XLBorderStyleValues.Thin;
+            ws.Cell(row, c).Style.Border.RightBorderColor = TsGridLight;
+        }
+        ws.Cell(row, 1).Style.Border.LeftBorderColor = TsGridColor;
+        ws.Cell(row, lastCol).Style.Border.RightBorderColor = TsGridColor;
+    }
+
+    private static void TsSummaryRow(IXLWorksheet ws, int row, int lastCol)
+    {
+        var range = ws.Range(row, 1, row, lastCol);
+        range.Style.Fill.BackgroundColor = TsNavy;
+        range.Style.Font.FontColor = XLColor.White;
+        range.Style.Font.Bold = true;
+        range.Style.Font.FontSize = 10;
+        range.Style.Border.TopBorder = XLBorderStyleValues.Medium;
+        range.Style.Border.TopBorderColor = TsNavy;
+        range.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
+        range.Style.Border.OutsideBorderColor = TsNavy;
+        ws.Row(row).Height = 26;
+    }
+
+    private static void TsDisclaimerRow(IXLWorksheet ws, int row, int lastCol, DateTime now)
+    {
+        var cell = ws.Cell(row, 1);
+        cell.Value = $"This document was auto-generated by the Shop Inventory System on {now:dd MMM yyyy 'at' HH:mm}. Data covers check-in/check-out activity.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        cell.Style.Font.FontSize = 8;
+        cell.Style.Font.Italic = true;
+        cell.Style.Font.FontColor = XLColor.FromHtml("#9CA3AF");
+        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+    }
+
+    private static void TsFinalize(IXLWorksheet ws, int lastCol, int freezeRow = 0, int freezeCol = 0)
+    {
+        ws.Columns(1, lastCol).AdjustToContents();
+        for (int c = 1; c <= lastCol; c++)
+        {
+            if (ws.Column(c).Width > 42) ws.Column(c).Width = 42;
+            if (ws.Column(c).Width < 11) ws.Column(c).Width = 11;
+        }
+        if (freezeRow > 0) ws.SheetView.FreezeRows(freezeRow);
+        if (freezeCol > 0) ws.SheetView.FreezeColumns(freezeCol);
+        ws.PageSetup.PageOrientation = XLPageOrientation.Landscape;
+        ws.PageSetup.FitToPages(1, 0);
+        ws.PageSetup.Margins.SetLeft(0.4);
+        ws.PageSetup.Margins.SetRight(0.4);
+        ws.PageSetup.Margins.SetTop(0.4);
+        ws.PageSetup.Margins.SetBottom(0.4);
+    }
+
+    private static void TsSectionTitle(IXLWorksheet ws, int row, int lastCol, string title)
+    {
+        ws.Range(row, 1, row, lastCol).Merge();
+        var cell = ws.Cell(row, 1);
+        cell.Value = title;
+        cell.Style.Font.Bold = true;
+        cell.Style.Font.FontSize = 11;
+        cell.Style.Font.FontColor = TsNavy;
+        cell.Style.Border.BottomBorder = XLBorderStyleValues.Thin;
+        cell.Style.Border.BottomBorderColor = TsGridColor;
+    }
+
+    private static int TsKpiStrip(IXLWorksheet ws, int row, int lastCol, params (string Label, string Value, XLColor? Color)[] kpis)
+    {
+        // Value row
+        ws.Row(row).Height = 28;
+        var valRange = ws.Range(row, 1, row, lastCol);
+        valRange.Style.Fill.BackgroundColor = TsSubHeaderBg;
+        valRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        valRange.Style.Border.OutsideBorderColor = TsGridColor;
+        valRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+        valRange.Style.Border.InsideBorderColor = TsGridLight;
+
+        for (int i = 0; i < kpis.Length && i < lastCol; i++)
+        {
+            var cell = ws.Cell(row, i + 1);
+            cell.Value = kpis[i].Value;
+            cell.Style.Font.Bold = true;
+            cell.Style.Font.FontSize = 14;
+            cell.Style.Font.FontColor = kpis[i].Color ?? TsNavy;
+            cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            cell.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        }
+
+        // Label row
+        row++;
+        ws.Row(row).Height = 18;
+        var lblRange = ws.Range(row, 1, row, lastCol);
+        lblRange.Style.Fill.BackgroundColor = TsSubHeaderBg;
+        lblRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        lblRange.Style.Border.OutsideBorderColor = TsGridColor;
+        lblRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+        lblRange.Style.Border.InsideBorderColor = TsGridLight;
+        lblRange.Style.Border.BottomBorder = XLBorderStyleValues.Medium;
+        lblRange.Style.Border.BottomBorderColor = TsGridColor;
+
+        for (int i = 0; i < kpis.Length && i < lastCol; i++)
+        {
+            var cell = ws.Cell(row, i + 1);
+            cell.Value = kpis[i].Label;
+            cell.Style.Font.FontSize = 8;
+            cell.Style.Font.FontColor = TsTextMuted;
+            cell.Style.Font.Italic = true;
+            cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            cell.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        }
+
+        return row + 2;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Overview sheet
+    // ═══════════════════════════════════════════════════════════════
+    private static void BuildTimesheetOverviewSheet(XLWorkbook workbook, TimesheetReportResponse report, DateTime? fromDate, DateTime? toDate, DateTime now)
+    {
+        const int lastCol = 8;
+        var ws = workbook.Worksheets.Add("Overview");
+        TsApplyDefaults(ws);
+
+        var period = fromDate.HasValue && toDate.HasValue
+            ? $"TIMESHEET REPORT  \u2014  {fromDate:dd MMM yyyy} to {toDate:dd MMM yyyy}"
+            : "TIMESHEET REPORT";
+        int row = TsTitleBar(ws, period, lastCol, now);
+
+        // KPI strip
+        var totalCompleted = report.UserSummaries.Sum(u => u.CompletedVisits);
+        var completionPct = report.TotalVisits > 0 ? (double)totalCompleted / report.TotalVisits * 100 : 0;
+        var pctColor = completionPct >= 80 ? TsGreen : completionPct >= 50 ? TsOrange : TsRed;
+
+        var allDays = report.UserSummaries.SelectMany(u => u.DailySummaries).GroupBy(d => d.Date)
+            .Select(g => new { Date = g.Key, Visits = g.Sum(x => x.VisitCount) })
+            .OrderByDescending(x => x.Visits).FirstOrDefault();
+        var allCustomers = report.UserSummaries.SelectMany(u => u.CustomerSummaries).GroupBy(c => c.CustomerCode)
+            .Select(g => new { Name = g.First().CustomerName, Visits = g.Sum(x => x.VisitCount) })
+            .OrderByDescending(x => x.Visits).FirstOrDefault();
+
+        row = TsKpiStrip(ws, row, lastCol,
+            ("Total Visits", report.TotalVisits.ToString("N0"), null),
+            ("Completed", totalCompleted.ToString("N0"), null),
+            ("Total Hours", $"{report.TotalHours:F1}h", null),
+            ("Avg per Visit", FormatHoursExcel(report.AverageVisitMinutes), null),
+            ("Merchandisers", report.UserSummaries.Count.ToString("N0"), null),
+            ("Completion", $"{completionPct:F0}%", pctColor),
+            ("Busiest Day", allDays != null ? allDays.Date.ToString("dd MMM") : "\u2014", null),
+            ("Top Customer", allCustomers?.Name ?? "\u2014", null));
+
+        // \u2500\u2500 Merchandiser Performance Table \u2500\u2500
+        TsSectionTitle(ws, row, lastCol, "MERCHANDISER PERFORMANCE");
+        row += 2;
+
+        string[] headers = ["Merchandiser", "Total Visits", "Completed", "Active", "Total Time", "Avg per Visit", "Shops Visited", "Completion"];
+        row = TsColumnHeaders(ws, row, lastCol, headers);
+
+        int idx = 0;
+        foreach (var user in report.UserSummaries.OrderByDescending(u => u.TotalVisits))
+        {
+            TsDataRow(ws, row, lastCol, idx % 2 == 1);
+            var active = user.TotalVisits - user.CompletedVisits;
+            var pct = user.TotalVisits > 0 ? (double)user.CompletedVisits / user.TotalVisits * 100 : 0;
+
+            ws.Cell(row, 1).Value = user.Username;
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 2).Value = user.TotalVisits;
+            ws.Cell(row, 3).Value = user.CompletedVisits;
+            ws.Cell(row, 4).Value = active;
+            if (active > 0)
+            {
+                ws.Cell(row, 4).Style.Font.FontColor = TsOrange;
+                ws.Cell(row, 4).Style.Font.Bold = true;
+            }
+            ws.Cell(row, 5).Value = FormatHoursExcel(user.TotalMinutes);
+            ws.Cell(row, 6).Value = FormatHoursExcel(user.AverageMinutesPerVisit);
+            ws.Cell(row, 7).Value = user.CustomerSummaries.Count;
+            ws.Cell(row, 8).Value = $"{pct:F0}%";
+            ws.Cell(row, 8).Style.Font.Bold = true;
+            ws.Cell(row, 8).Style.Font.FontColor = pct >= 80 ? TsGreen : pct >= 50 ? TsOrange : TsRed;
+
+            for (int c = 2; c <= lastCol; c++)
+                ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            row++; idx++;
+        }
+
+        // Totals summary row
+        TsSummaryRow(ws, row, lastCol);
+        ws.Cell(row, 1).Value = $"TOTAL: {report.UserSummaries.Count} MERCHANDISERS";
+        ws.Cell(row, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        ws.Cell(row, 2).Value = report.TotalVisits;
+        ws.Cell(row, 3).Value = totalCompleted;
+        ws.Cell(row, 4).Value = report.TotalVisits - totalCompleted;
+        ws.Cell(row, 5).Value = FormatHoursExcel(report.TotalHours * 60);
+        ws.Cell(row, 6).Value = FormatHoursExcel(report.AverageVisitMinutes);
+        ws.Cell(row, 7).Value = report.UserSummaries.SelectMany(u => u.CustomerSummaries).Select(c => c.CustomerCode).Distinct().Count();
+        ws.Cell(row, 8).Value = $"{completionPct:F0}%";
+        for (int c = 2; c <= lastCol; c++)
+        {
+            ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, c).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        }
+        row += 2;
+
+        // \u2500\u2500 Daily Activity Table \u2500\u2500
+        var dailyTotals = report.UserSummaries.SelectMany(u => u.DailySummaries)
+            .GroupBy(d => d.Date)
+            .Select(g => new
+            {
+                Date = g.Key,
+                Visits = g.Sum(x => x.VisitCount),
+                TotalMinutes = g.Sum(x => x.TotalMinutes),
+                FirstCheckIn = g.Where(x => x.FirstCheckIn.HasValue).Min(x => x.FirstCheckIn),
+                LastCheckOut = g.Where(x => x.LastCheckOut.HasValue).Max(x => x.LastCheckOut)
+            })
+            .OrderByDescending(d => d.Date).ToList();
+
+        if (dailyTotals.Count > 0)
+        {
+            TsSectionTitle(ws, row, lastCol, "DAILY ACTIVITY");
+            row += 2;
+
+            string[] dayHeaders = ["Date", "Day", "Total Visits", "Total Time", "Avg per Visit", "First Check-In", "Last Check-Out", "Working Hours"];
+            row = TsColumnHeaders(ws, row, lastCol, dayHeaders);
+
+            idx = 0;
+            foreach (var day in dailyTotals)
+            {
+                TsDataRow(ws, row, lastCol, idx % 2 == 1);
+                ws.Cell(row, 1).Value = day.Date.ToString("dd MMM yyyy");
+                ws.Cell(row, 2).Value = day.Date.ToString("ddd");
+                if (day.Date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+                    ws.Cell(row, 2).Style.Font.FontColor = TsOrange;
+                ws.Cell(row, 3).Value = day.Visits;
+                ws.Cell(row, 4).Value = FormatHoursExcel(day.TotalMinutes);
+                ws.Cell(row, 5).Value = day.Visits > 0 ? FormatHoursExcel(day.TotalMinutes / day.Visits) : "\u2014";
+                ws.Cell(row, 6).Value = day.FirstCheckIn.HasValue ? ToCatExcel(day.FirstCheckIn.Value).ToString("HH:mm") : "\u2014";
+                ws.Cell(row, 7).Value = day.LastCheckOut.HasValue ? ToCatExcel(day.LastCheckOut.Value).ToString("HH:mm") : "Active";
+                if (!day.LastCheckOut.HasValue)
+                {
+                    ws.Cell(row, 7).Style.Font.FontColor = TsOrange;
+                    ws.Cell(row, 7).Style.Font.Bold = true;
+                }
+                if (day.FirstCheckIn.HasValue && day.LastCheckOut.HasValue)
+                    ws.Cell(row, 8).Value = FormatHoursExcel((day.LastCheckOut.Value - day.FirstCheckIn.Value).TotalMinutes);
+                else
+                    ws.Cell(row, 8).Value = "\u2014";
+
+                for (int c = 2; c <= lastCol; c++)
+                    ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                row++; idx++;
+            }
+            row += 2;
+        }
+
+        // \u2500\u2500 Customer Summary \u2500\u2500
+        var topCustomers = report.UserSummaries.SelectMany(u => u.CustomerSummaries)
+            .GroupBy(c => new { c.CustomerCode, c.CustomerName })
+            .Select(g => new { g.Key.CustomerCode, g.Key.CustomerName, Visits = g.Sum(x => x.VisitCount), TotalMinutes = g.Sum(x => x.TotalMinutes), Merchandisers = g.Count() })
+            .OrderByDescending(c => c.Visits).ToList();
+
+        if (topCustomers.Count > 0)
+        {
+            TsSectionTitle(ws, row, lastCol, "CUSTOMER SUMMARY");
+            row += 2;
+
+            row = TsColumnHeaders(ws, row, 6, ["Customer", "Code", "Total Visits", "Total Time", "Avg per Visit", "Merchandisers"]);
+
+            idx = 0;
+            foreach (var cust in topCustomers)
+            {
+                TsDataRow(ws, row, 6, idx % 2 == 1);
+                ws.Cell(row, 1).Value = cust.CustomerName;
+                ws.Cell(row, 2).Value = cust.CustomerCode;
+                ws.Cell(row, 2).Style.Font.FontColor = TsTextMuted;
+                ws.Cell(row, 3).Value = cust.Visits;
+                ws.Cell(row, 4).Value = FormatHoursExcel(cust.TotalMinutes);
+                ws.Cell(row, 5).Value = cust.Visits > 0 ? FormatHoursExcel(cust.TotalMinutes / cust.Visits) : "\u2014";
+                ws.Cell(row, 6).Value = cust.Merchandisers;
+                for (int c = 2; c <= 6; c++)
+                    ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                row++; idx++;
+            }
+        }
+
+        row += 2;
+        TsDisclaimerRow(ws, row, lastCol, now);
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+        ws.Column(1).Width = 22;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Per-user detail sheet
+    // ═══════════════════════════════════════════════════════════════
+    private static void BuildTimesheetUserSheet(XLWorkbook workbook, TimesheetReportUserSummary user, DateTime? fromDate, DateTime? toDate, DateTime now)
+    {
+        const int lastCol = 7;
+        var sheetName = user.Username.Length > 28 ? user.Username[..28] : user.Username;
+        sheetName = string.Concat(sheetName.Select(c => ":\\/?*[]".Contains(c) ? '_' : c));
+        var ws = workbook.Worksheets.Add(sheetName);
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, $"TIMESHEET  \u2014  {user.Username.ToUpper()}", lastCol, now);
+
+        // KPI strip
+        var pct = user.TotalVisits > 0 ? (double)user.CompletedVisits / user.TotalVisits * 100 : 0;
+        var pctColor = pct >= 80 ? TsGreen : pct >= 50 ? TsOrange : TsRed;
+
+        row = TsKpiStrip(ws, row, lastCol,
+            ("Total Visits", user.TotalVisits.ToString("N0"), null),
+            ("Completed", user.CompletedVisits.ToString("N0"), null),
+            ("Total Time", FormatHoursExcel(user.TotalMinutes), null),
+            ("Avg per Visit", FormatHoursExcel(user.AverageMinutesPerVisit), null),
+            ("Active Days", user.DailySummaries.Count.ToString("N0"), null),
+            ("Shops Visited", user.CustomerSummaries.Count.ToString("N0"), null),
+            ("Completion", $"{pct:F0}%", pctColor));
+
+        // \u2500\u2500 Daily Breakdown \u2500\u2500
+        TsSectionTitle(ws, row, lastCol, "DAILY BREAKDOWN");
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol, ["Date", "Day", "Visits", "Total Time", "Avg per Visit", "First Check-In", "Last Check-Out"]);
+
+        int idx = 0;
+        foreach (var day in user.DailySummaries.OrderByDescending(d => d.Date))
+        {
+            TsDataRow(ws, row, lastCol, idx % 2 == 1);
+            ws.Cell(row, 1).Value = day.Date.ToString("dd MMM yyyy");
+            ws.Cell(row, 2).Value = day.Date.ToString("ddd");
+            if (day.Date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+                ws.Cell(row, 2).Style.Font.FontColor = TsOrange;
+            ws.Cell(row, 3).Value = day.VisitCount;
+            ws.Cell(row, 4).Value = FormatHoursExcel(day.TotalMinutes);
+            ws.Cell(row, 5).Value = day.VisitCount > 0 ? FormatHoursExcel(day.TotalMinutes / day.VisitCount) : "\u2014";
+            ws.Cell(row, 6).Value = day.FirstCheckIn.HasValue ? ToCatExcel(day.FirstCheckIn.Value).ToString("HH:mm") : "\u2014";
+            ws.Cell(row, 7).Value = day.LastCheckOut.HasValue ? ToCatExcel(day.LastCheckOut.Value).ToString("HH:mm") : "Active";
+            if (!day.LastCheckOut.HasValue)
+            {
+                ws.Cell(row, 7).Style.Font.FontColor = TsOrange;
+                ws.Cell(row, 7).Style.Font.Bold = true;
+            }
+            for (int c = 2; c <= lastCol; c++)
+                ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            row++; idx++;
+        }
+
+        // Daily totals
+        TsSummaryRow(ws, row, lastCol);
+        ws.Cell(row, 1).Value = $"TOTAL: {user.DailySummaries.Count} DAYS";
+        ws.Cell(row, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        ws.Cell(row, 3).Value = user.DailySummaries.Sum(d => d.VisitCount);
+        ws.Cell(row, 4).Value = FormatHoursExcel(user.TotalMinutes);
+        ws.Cell(row, 5).Value = FormatHoursExcel(user.AverageMinutesPerVisit);
+        for (int c = 2; c <= lastCol; c++)
+        {
+            ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, c).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        }
+        row += 2;
+
+        // \u2500\u2500 Customer Breakdown \u2500\u2500
+        TsSectionTitle(ws, row, lastCol, "CUSTOMER BREAKDOWN");
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol, ["Customer", "Code", "Visits", "Total Time", "Avg per Visit", "% of Visits", "% of Time"]);
+
+        idx = 0;
+        foreach (var cust in user.CustomerSummaries.OrderByDescending(c => c.VisitCount))
+        {
+            TsDataRow(ws, row, lastCol, idx % 2 == 1);
+            var visitPct = user.TotalVisits > 0 ? (double)cust.VisitCount / user.TotalVisits * 100 : 0;
+            var timePct = user.TotalMinutes > 0 ? cust.TotalMinutes / user.TotalMinutes * 100 : 0;
+
+            ws.Cell(row, 1).Value = cust.CustomerName;
+            ws.Cell(row, 2).Value = cust.CustomerCode;
+            ws.Cell(row, 2).Style.Font.FontColor = TsTextMuted;
+            ws.Cell(row, 3).Value = cust.VisitCount;
+            ws.Cell(row, 4).Value = FormatHoursExcel(cust.TotalMinutes);
+            ws.Cell(row, 5).Value = cust.VisitCount > 0 ? FormatHoursExcel(cust.TotalMinutes / cust.VisitCount) : "\u2014";
+            ws.Cell(row, 6).Value = $"{visitPct:F0}%";
+            ws.Cell(row, 7).Value = $"{timePct:F0}%";
+
+            for (int c = 2; c <= lastCol; c++)
+                ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+            if (idx == 0)
+            {
+                ws.Cell(row, 1).Style.Font.Bold = true;
+                ws.Cell(row, 6).Style.Font.Bold = true;
+                ws.Cell(row, 6).Style.Font.FontColor = TsNavy;
+            }
+            row++; idx++;
+        }
+
+        // Customer totals
+        TsSummaryRow(ws, row, lastCol);
+        ws.Cell(row, 1).Value = $"TOTAL: {user.CustomerSummaries.Count} SHOPS";
+        ws.Cell(row, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        ws.Cell(row, 3).Value = user.TotalVisits;
+        ws.Cell(row, 4).Value = FormatHoursExcel(user.TotalMinutes);
+        ws.Cell(row, 5).Value = FormatHoursExcel(user.AverageMinutesPerVisit);
+        ws.Cell(row, 6).Value = "100%";
+        ws.Cell(row, 7).Value = "100%";
+        for (int c = 2; c <= lastCol; c++)
+        {
+            ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, c).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        }
+        row += 2;
+
+        TsDisclaimerRow(ws, row, lastCol, now);
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+        ws.Column(1).Width = 30;
+    }
+
+    private static string FormatHoursExcel(double minutes)
+    {
+        var hours = (int)(minutes / 60);
+        var mins = (int)(minutes % 60);
+        return $"{hours}h {mins}m";
+    }
+
+    private static DateTime ToCatExcel(DateTime utc) => utc.AddHours(2);
 
     private static string FormatExcelDate(string? dateStr)
     {

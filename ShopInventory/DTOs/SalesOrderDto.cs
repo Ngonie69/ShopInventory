@@ -46,6 +46,8 @@ public class SalesOrderDto
     public SalesOrderSource Source { get; set; }
     public string? MerchandiserNotes { get; set; }
     public string? DeviceInfo { get; set; }
+    public decimal? Latitude { get; set; }
+    public decimal? Longitude { get; set; }
     public string? RowVersion { get; set; }
     public List<SalesOrderLineDto> Lines { get; set; } = new();
 }
@@ -94,6 +96,8 @@ public class CreateSalesOrderRequest
     public SalesOrderSource Source { get; set; } = SalesOrderSource.Web;
     public string? MerchandiserNotes { get; set; }
     public string? DeviceInfo { get; set; }
+    public decimal? Latitude { get; set; }
+    public decimal? Longitude { get; set; }
     public string? RowVersion { get; set; }
 
     [Required(ErrorMessage = "At least one line item is required")]

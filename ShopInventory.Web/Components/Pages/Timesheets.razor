@@ -1,5 +1,5 @@
 @page "/timesheets"
-@attribute [Authorize(Roles = "Admin,Manager,SalesRep")]
+@attribute [Authorize(Roles = "Admin,Manager,SalesRep,Merchandiser")]
 @rendermode InteractiveServer
 @inject ITimesheetService TimesheetService
 @inject AuthenticationStateProvider AuthStateProvider
@@ -15,7 +15,7 @@
                 <MudIcon Icon="@Icons.Material.Filled.Schedule" Class="ts-title-icon" />
                 Timesheets
             </h2>
-            <p class="ts-subtitle">View sales rep check-in and check-out activity</p>
+            <p class="ts-subtitle">View merchandiser check-in and check-out activity</p>
         </div>
     </div>
 
@@ -108,12 +108,13 @@
             <table class="table table-hover ts-table">
                 <thead>
                     <tr>
-                        @if (isAdmin) { <th>User</th> }
+                        <th>Merchandiser</th>
                         <th>Customer</th>
                         <th>Check In</th>
                         <th>Check Out</th>
                         <th>Duration</th>
                         <th>Status</th>
+                        <th>Location</th>
                         <th>Notes</th>
                     </tr>
                 </thead>
@@ -121,7 +122,10 @@
                     @foreach (var entry in timesheetData.Entries)
                     {
                         <tr class="@(entry.CheckOutTime.HasValue ? "" : "ts-row-active")">
-                            @if (isAdmin) { <td class="ts-cell-user">@entry.Username</td> }
+                            <td class="ts-cell-user">
+                                <div class="ts-merchandiser-name">@(!string.IsNullOrWhiteSpace(entry.FullName) ? entry.FullName : entry.Username)</div>
+                                <div class="ts-merchandiser-username">@entry.Username</div>
+                            </td>
                             <td>
                                 <div class="ts-customer-name">@entry.CustomerName</div>
                                 <div class="ts-customer-code">@entry.CustomerCode</div>
@@ -142,6 +146,26 @@
                                 <span class="ts-badge @(entry.CheckOutTime.HasValue ? "ts-badge-completed" : "ts-badge-active")">
                                     @entry.StatusDisplay
                                 </span>
+                            </td>
+                            <td class="ts-cell-location">
+                                @if (entry.CheckInLatitude.HasValue && entry.CheckInLongitude.HasValue)
+                                {
+                                    <MudTooltip Text="View check-in location">
+                                        <MudIconButton Icon="@Icons.Material.Filled.LocationOn" Color="Color.Info" Size="Size.Small"
+                                                       OnClick="@(() => ShowMap(entry, true))" />
+                                    </MudTooltip>
+                                }
+                                @if (entry.CheckOutLatitude.HasValue && entry.CheckOutLongitude.HasValue)
+                                {
+                                    <MudTooltip Text="View check-out location">
+                                        <MudIconButton Icon="@Icons.Material.Filled.LocationOff" Color="Color.Warning" Size="Size.Small"
+                                                       OnClick="@(() => ShowMap(entry, false))" />
+                                    </MudTooltip>
+                                }
+                                @if (!entry.CheckInLatitude.HasValue && !entry.CheckOutLatitude.HasValue)
+                                {
+                                    <span class="ts-no-location">—</span>
+                                }
                             </td>
                             <td class="ts-cell-notes">
                                 @if (!string.IsNullOrWhiteSpace(entry.CheckInNotes))
@@ -173,6 +197,42 @@
     }
 </div>
 
+<!-- Map Dialog -->
+<MudDialog @bind-Visible="showMapDialog" Options="mapDialogOptions">
+    <TitleContent>
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@Icons.Material.Filled.Map" />
+            <span>@mapDialogTitle</span>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        @if (mapLatitude.HasValue && mapLongitude.HasValue)
+        {
+            <div class="ts-map-container">
+                <iframe
+                    width="100%"
+                    height="400"
+                    style="border:0; border-radius: 8px;"
+                    loading="lazy"
+                    referrerpolicy="no-referrer-when-downgrade"
+                    src="@GetMapUrl(mapLatitude.Value, mapLongitude.Value)">
+                </iframe>
+                <div class="ts-map-coords">
+                    <MudIcon Icon="@Icons.Material.Filled.MyLocation" Size="Size.Small" />
+                    <span>@mapLatitude.Value.ToString("F6"), @mapLongitude.Value.ToString("F6")</span>
+                    <MudTooltip Text="Open in Google Maps">
+                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" Color="Color.Info"
+                                       Href="@GetGoogleMapsLink(mapLatitude.Value, mapLongitude.Value)" Target="_blank" />
+                    </MudTooltip>
+                </div>
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => showMapDialog = false)" Variant="Variant.Text">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
 @code {
     private ShopInventory.Web.Models.TimesheetListResponse? timesheetData;
     private bool isLoading;
@@ -191,11 +251,18 @@
     private int activeCount;
     private double totalMinutes;
 
+    // Map dialog state
+    private bool showMapDialog;
+    private string mapDialogTitle = "";
+    private double? mapLatitude;
+    private double? mapLongitude;
+    private readonly DialogOptions mapDialogOptions = new() { MaxWidth = MaxWidth.Medium, FullWidth = true };
+
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = authState.User;
-        isAdmin = user.IsInRole("Admin") || user.IsInRole("Manager");
+        isAdmin = user.IsInRole("Admin") || user.IsInRole("Manager") || user.IsInRole("SalesRep");
 
         fromDate = DateTime.Today.AddDays(-30);
         toDate = DateTime.Today;
@@ -266,6 +333,34 @@
         var mins = (int)(minutes % 60);
         return $"{hours}h {mins}m";
     }
+
+    private void ShowMap(ShopInventory.Web.Models.TimesheetEntryDto entry, bool isCheckIn)
+    {
+        var name = !string.IsNullOrWhiteSpace(entry.FullName) ? entry.FullName : entry.Username;
+        if (isCheckIn)
+        {
+            mapDialogTitle = $"Check-In Location — {name} @ {entry.CustomerName}";
+            mapLatitude = entry.CheckInLatitude;
+            mapLongitude = entry.CheckInLongitude;
+        }
+        else
+        {
+            mapDialogTitle = $"Check-Out Location — {name} @ {entry.CustomerName}";
+            mapLatitude = entry.CheckOutLatitude;
+            mapLongitude = entry.CheckOutLongitude;
+        }
+        showMapDialog = true;
+    }
+
+    private static string GetMapUrl(double lat, double lon)
+    {
+        return $"https://www.openstreetmap.org/export/embed.html?bbox={lon - 0.005},{lat - 0.005},{lon + 0.005},{lat + 0.005}&layer=mapnik&marker={lat},{lon}";
+    }
+
+    private static string GetGoogleMapsLink(double lat, double lon)
+    {
+        return $"https://www.google.com/maps?q={lat},{lon}";
+    }
 }
 
 <style>
@@ -324,6 +419,24 @@
     .ts-cell-duration { font-weight: 600; }
     .ts-cell-notes { max-width: 200px; }
     .ts-note { font-size: 0.8rem; color: var(--mud-palette-text-secondary); }
+
+    .ts-merchandiser-name { font-weight: 600; }
+    .ts-merchandiser-username { font-size: 0.75rem; color: var(--mud-palette-text-secondary); }
+    .ts-cell-location { white-space: nowrap; }
+    .ts-no-location { color: var(--mud-palette-text-secondary); }
+
+    .ts-map-container { display: flex; flex-direction: column; gap: 12px; }
+    .ts-map-coords {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.85rem;
+        color: var(--mud-palette-text-secondary);
+        padding: 8px 12px;
+        background: var(--mud-palette-surface);
+        border-radius: 8px;
+        border: 1px solid var(--mud-palette-lines-default);
+    }
 
     .ts-badge {
         display: inline-block;

@@ -221,6 +221,18 @@ public class SalesOrderEntity
     public string? DeviceInfo { get; set; }
 
     /// <summary>
+    /// GPS latitude where the order was created (mobile orders)
+    /// </summary>
+    [Column(TypeName = "decimal(10,7)")]
+    public decimal? Latitude { get; set; }
+
+    /// <summary>
+    /// GPS longitude where the order was created (mobile orders)
+    /// </summary>
+    [Column(TypeName = "decimal(10,7)")]
+    public decimal? Longitude { get; set; }
+
+    /// <summary>
     /// Optimistic concurrency token
     /// </summary>
     [Timestamp]

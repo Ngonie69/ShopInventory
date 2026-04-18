@@ -42,7 +42,7 @@ public sealed class CheckInHandler(
             logger.LogInformation("User {Username} checked in at {CustomerCode} ({CustomerName})",
                 command.Username, command.CustomerCode, command.CustomerName);
 
-            return new CheckInResult(entry.Id, entry.CheckInTime, entry.CustomerCode, entry.CustomerName);
+            return new CheckInResult(entry.Id, entry.CheckInTime, entry.CustomerCode, entry.CustomerName, entry.CheckInLatitude, entry.CheckInLongitude);
         }
         catch (Exception ex)
         {

@@ -17,5 +17,7 @@ public sealed record CheckInResult(
     int Id,
     DateTime CheckInTime,
     string CustomerCode,
-    string CustomerName
+    string CustomerName,
+    double? Latitude,
+    double? Longitude
 );

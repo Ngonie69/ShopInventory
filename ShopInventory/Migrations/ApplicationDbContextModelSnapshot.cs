@@ -471,6 +471,308 @@ namespace ShopInventory.Migrations
                     b.ToTable("CreditNoteLines", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.DailyStockSnapshotEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("ItemCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("SnapshotDate")
+                        .HasColumnType("date");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("WarehouseCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("SnapshotDate", "WarehouseCode")
+                        .IsUnique();
+
+                    b.ToTable("DailyStockSnapshots", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.DailyStockSnapshotItemEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("AvailableQuantity")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<string>("BatchNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ItemCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ItemDescription")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal>("OriginalQuantity")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("bytea");
+
+                    b.Property<int>("SnapshotId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("WarehouseCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ItemCode", "WarehouseCode");
+
+                    b.HasIndex("SnapshotId", "ItemCode", "BatchNumber");
+
+                    b.ToTable("DailyStockSnapshotItems", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SnapshotItems_AvailableQuantity_NonNegative", "\"AvailableQuantity\" >= 0");
+
+                            t.HasCheckConstraint("CK_SnapshotItems_OriginalQuantity_NonNegative", "\"OriginalQuantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.DesktopSaleEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("AmountPaid")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("CardCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("CardName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Comments")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int?>("ConsolidationId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ConsolidationStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<DateTime>("DocDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("ExternalReferenceId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FiscalDayNo")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("FiscalDeviceNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FiscalError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("FiscalQRCode")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("FiscalReceiptNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FiscalVerificationCode")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("FiscalVerificationLink")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("FiscalizationStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("NumAtCard")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("PaymentMethod")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("PaymentReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int?>("SalesPersonCode")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SourceSystem")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("VatAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("WarehouseCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CardCode");
+
+                    b.HasIndex("ConsolidationId");
+
+                    b.HasIndex("ConsolidationStatus");
+
+                    b.HasIndex("DocDate");
+
+                    b.HasIndex("ExternalReferenceId")
+                        .IsUnique();
+
+                    b.HasIndex("WarehouseCode");
+
+                    b.ToTable("DesktopSales", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_DesktopSales_AmountPaid_NonNegative", "\"AmountPaid\" >= 0");
+
+                            t.HasCheckConstraint("CK_DesktopSales_TotalAmount_NonNegative", "\"TotalAmount\" >= 0");
+
+                            t.HasCheckConstraint("CK_DesktopSales_VatAmount_NonNegative", "\"VatAmount\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.DesktopSaleLineEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("DiscountPercent")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<string>("ItemCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ItemDescription")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("LineNum")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("LineTotal")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("Quantity")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<int>("SaleId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TaxCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<string>("UoMCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("WarehouseCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SaleId");
+
+                    b.HasIndex("ItemCode", "WarehouseCode");
+
+                    b.ToTable("DesktopSaleLines", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_DesktopSaleLines_DiscountPercent_Valid", "\"DiscountPercent\" >= 0 AND \"DiscountPercent\" <= 100");
+
+                            t.HasCheckConstraint("CK_DesktopSaleLines_LineTotal_NonNegative", "\"LineTotal\" >= 0");
+
+                            t.HasCheckConstraint("CK_DesktopSaleLines_Quantity_Positive", "\"Quantity\" > 0");
+
+                            t.HasCheckConstraint("CK_DesktopSaleLines_UnitPrice_NonNegative", "\"UnitPrice\" >= 0");
+                        });
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.DocumentAttachmentEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -2509,6 +2811,89 @@ namespace ShopInventory.Migrations
                     b.ToTable("RolePermissions", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.SaleConsolidationEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CardCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("CardName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("ConsolidationDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime?>("PaymentPostedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("PaymentSapDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("PaymentSapDocNum")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PaymentStatus")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("PostedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("SaleCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("SapDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("SapDocNum")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("TotalVat")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("WarehouseCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConsolidationDate");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("CardCode", "ConsolidationDate");
+
+                    b.ToTable("SaleConsolidations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SaleConsolidations_SaleCount_Positive", "\"SaleCount\" > 0");
+
+                            t.HasCheckConstraint("CK_SaleConsolidations_TotalAmount_NonNegative", "\"TotalAmount\" >= 0");
+
+                            t.HasCheckConstraint("CK_SaleConsolidations_TotalVat_NonNegative", "\"TotalVat\" >= 0");
+                        });
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.SalesOrderEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -2578,6 +2963,12 @@ namespace ShopInventory.Migrations
 
                     b.Property<bool>("IsSynced")
                         .HasColumnType("boolean");
+
+                    b.Property<decimal?>("Latitude")
+                        .HasColumnType("decimal(10,7)");
+
+                    b.Property<decimal?>("Longitude")
+                        .HasColumnType("decimal(10,7)");
 
                     b.Property<string>("MerchandiserNotes")
                         .HasMaxLength(2000)
@@ -2952,6 +3343,62 @@ namespace ShopInventory.Migrations
 
                             t.HasCheckConstraint("CK_StockReservationLines_UnitPrice_NonNegative", "\"UnitPrice\" >= 0");
                         });
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.StockTransferAdjustmentEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("AdjustmentQuantity")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<string>("DestinationWarehouse")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("DetectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)");
+
+                    b.Property<string>("ItemCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("SnapshotDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("SourceWarehouse")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int?>("TransferDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("TransferDocNum")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("WarehouseCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SnapshotDate");
+
+                    b.HasIndex("SnapshotDate", "ItemCode", "WarehouseCode", "TransferDocEntry", "Direction")
+                        .IsUnique();
+
+                    b.ToTable("StockTransferAdjustments", (string)null);
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.SystemConfigEntity", b =>
@@ -3892,6 +4339,38 @@ namespace ShopInventory.Migrations
                     b.Navigation("Product");
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.DailyStockSnapshotItemEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.DailyStockSnapshotEntity", "Snapshot")
+                        .WithMany("Items")
+                        .HasForeignKey("SnapshotId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Snapshot");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.DesktopSaleEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.SaleConsolidationEntity", "Consolidation")
+                        .WithMany("Sales")
+                        .HasForeignKey("ConsolidationId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Consolidation");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.DesktopSaleLineEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.DesktopSaleEntity", "Sale")
+                        .WithMany("Lines")
+                        .HasForeignKey("SaleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Sale");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.DocumentAttachmentEntity", b =>
                 {
                     b.HasOne("ShopInventory.Models.User", "UploadedByUser")
@@ -4325,6 +4804,16 @@ namespace ShopInventory.Migrations
                     b.Navigation("Lines");
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.DailyStockSnapshotEntity", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.DesktopSaleEntity", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.IncomingPaymentEntity", b =>
                 {
                     b.Navigation("PaymentChecks");
@@ -4380,6 +4869,11 @@ namespace ShopInventory.Migrations
             modelBuilder.Entity("ShopInventory.Models.Entities.RoleEntity", b =>
                 {
                     b.Navigation("Permissions");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.SaleConsolidationEntity", b =>
+                {
+                    b.Navigation("Sales");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.SalesOrderEntity", b =>

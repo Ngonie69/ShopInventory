@@ -1,7 +1,8 @@
 @page "/timesheet-report"
-@attribute [Authorize(Roles = "Admin,Manager,SalesRep")]
+@attribute [Authorize(Roles = "Admin,Manager,SalesRep,Merchandiser")]
 @rendermode InteractiveServer
 @inject ITimesheetService TimesheetService
+@inject IReportExportService ExportService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
 
@@ -51,6 +52,20 @@
                     Clear
                 </MudButton>
             </div>
+            @if (reportData is not null)
+            {
+                <div class="col-md-12 d-flex gap-2">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Success" OnClick="ExportToExcel"
+                               StartIcon="@Icons.Custom.FileFormats.FileExcel" Disabled="isExporting" Size="Size.Small">
+                        @if (isExporting) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" /> }
+                        Export Excel
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="ExportToPdf"
+                               StartIcon="@Icons.Custom.FileFormats.FilePdf" Disabled="isExporting" Size="Size.Small">
+                        Export PDF
+                    </MudButton>
+                </div>
+            }
             <div class="col-md-12 d-flex gap-2">
                 <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="() => SetDateRange(7)"
                            Size="Size.Small">Last 7 days</MudButton>
@@ -246,6 +261,7 @@
     private bool isLoading;
     private string? loadError;
     private bool isAdmin;
+    private bool isExporting;
 
     private DateTime? fromDate;
     private DateTime? toDate;
@@ -334,6 +350,104 @@
         var hours = (int)(minutes / 60);
         var mins = (int)(minutes % 60);
         return $"{hours}h {mins}m";
+    }
+
+    private async Task ExportToExcel()
+    {
+        if (reportData is null) return;
+        isExporting = true;
+        StateHasChanged();
+        try
+        {
+            var bytes = ExportService.ExportTimesheetReportToExcel(reportData, fromDate, toDate);
+            var base64 = Convert.ToBase64String(bytes);
+            await JS.InvokeVoidAsync("downloadFile", $"Timesheet_Report_{DateTime.Now:yyyyMMdd_HHmm}.xlsx", base64);
+        }
+        catch (Exception ex) { loadError = $"Export failed: {ex.Message}"; }
+        finally { isExporting = false; StateHasChanged(); }
+    }
+
+    private async Task ExportToPdf()
+    {
+        if (reportData is null) return;
+        isExporting = true;
+        StateHasChanged();
+        try
+        {
+            var html = BuildTimesheetPdfHtml();
+            await JS.InvokeVoidAsync("printReportHtml", html);
+        }
+        catch (Exception ex) { loadError = $"PDF export failed: {ex.Message}"; }
+        finally { isExporting = false; StateHasChanged(); }
+    }
+
+    private string BuildTimesheetPdfHtml()
+    {
+        var sb = new System.Text.StringBuilder();
+
+        // KPI cards
+        sb.Append("<div class='kpi-row'>");
+        sb.Append($"<div class='kpi'><h3>{reportData!.TotalVisits}</h3><p>Total Visits</p></div>");
+        sb.Append($"<div class='kpi'><h3>{reportData.TotalHours:F1}h</h3><p>Total Hours</p></div>");
+        sb.Append($"<div class='kpi'><h3>{reportData.AverageVisitMinutes:F0}m</h3><p>Avg Visit</p></div>");
+        sb.Append($"<div class='kpi'><h3>{reportData.UserSummaries.Count}</h3><p>Merchandisers</p></div>");
+        sb.Append("</div>");
+
+        // Merchandiser summary table
+        sb.Append("<p class='section-title'>Merchandiser Summary</p>");
+        sb.Append("<table><thead><tr><th>Merchandiser</th><th class='text-center'>Visits</th><th class='text-center'>Completed</th><th class='text-center'>Total Time</th><th class='text-center'>Avg / Visit</th><th class='text-center'>Completion</th></tr></thead><tbody>");
+        foreach (var user in reportData.UserSummaries.OrderByDescending(u => u.TotalVisits))
+        {
+            var pct = user.TotalVisits > 0 ? (double)user.CompletedVisits / user.TotalVisits * 100 : 0;
+            var pctClass = pct >= 80 ? "text-success" : pct >= 50 ? "text-warning" : "text-danger";
+            sb.Append($"<tr><td class='text-bold'>{System.Net.WebUtility.HtmlEncode(user.Username)}</td><td class='text-center'>{user.TotalVisits}</td><td class='text-center'>{user.CompletedVisits}</td><td class='text-center'>{FormatHours(user.TotalMinutes)}</td><td class='text-center'>{FormatHours(user.AverageMinutesPerVisit)}</td><td class='text-center {pctClass}'>{pct:F0}%</td></tr>");
+        }
+        sb.Append($"<tr class='totals'><td>TOTAL</td><td class='text-center'>{reportData.TotalVisits}</td><td class='text-center'>{reportData.UserSummaries.Sum(u => u.CompletedVisits)}</td><td class='text-center'>{FormatHours(reportData.TotalHours * 60)}</td><td class='text-center'>{FormatHours(reportData.AverageVisitMinutes)}</td><td></td></tr>");
+        sb.Append("</tbody></table>");
+
+        // Per-user detail sections
+        foreach (var user in reportData.UserSummaries)
+        {
+            sb.Append($"<div style='page-break-before: auto; margin-top: 25px;'>");
+            sb.Append($"<p class='section-title'>{System.Net.WebUtility.HtmlEncode(user.Username)}</p>");
+
+            // User KPI row
+            sb.Append("<div class='kpi-row'>");
+            sb.Append($"<div class='kpi'><h3>{user.TotalVisits}</h3><p>Visits</p></div>");
+            sb.Append($"<div class='kpi'><h3>{user.CompletedVisits}</h3><p>Completed</p></div>");
+            sb.Append($"<div class='kpi'><h3>{FormatHours(user.TotalMinutes)}</h3><p>Total Time</p></div>");
+            sb.Append($"<div class='kpi'><h3>{FormatHours(user.AverageMinutesPerVisit)}</h3><p>Avg / Visit</p></div>");
+            sb.Append("</div>");
+
+            // Daily breakdown
+            if (user.DailySummaries.Count > 0)
+            {
+                sb.Append("<table><thead><tr><th>Date</th><th class='text-center'>Visits</th><th class='text-center'>Total Time</th><th class='text-center'>First Check-In</th><th class='text-center'>Last Check-Out</th></tr></thead><tbody>");
+                foreach (var day in user.DailySummaries.OrderByDescending(d => d.Date))
+                {
+                    var checkIn = day.FirstCheckIn.HasValue ? ToCat(day.FirstCheckIn.Value).ToString("HH:mm") : "";
+                    var checkOut = day.LastCheckOut.HasValue ? ToCat(day.LastCheckOut.Value).ToString("HH:mm") : "<span class='text-warning'>Active</span>";
+                    sb.Append($"<tr><td>{day.Date:ddd dd MMM yyyy}</td><td class='text-center'>{day.VisitCount}</td><td class='text-center'>{FormatHours(day.TotalMinutes)}</td><td class='text-center'>{checkIn}</td><td class='text-center'>{checkOut}</td></tr>");
+                }
+                sb.Append("</tbody></table>");
+            }
+
+            // Customer breakdown
+            if (user.CustomerSummaries.Count > 0)
+            {
+                sb.Append("<table style='margin-top: 12px;'><thead><tr><th>Customer</th><th>Code</th><th class='text-center'>Visits</th><th class='text-center'>Total Time</th><th class='text-center'>Avg / Visit</th></tr></thead><tbody>");
+                foreach (var cust in user.CustomerSummaries.OrderByDescending(c => c.VisitCount))
+                {
+                    var avg = cust.VisitCount > 0 ? FormatHours(cust.TotalMinutes / cust.VisitCount) : "";
+                    sb.Append($"<tr><td>{System.Net.WebUtility.HtmlEncode(cust.CustomerName)}</td><td style='color:#616161'>{System.Net.WebUtility.HtmlEncode(cust.CustomerCode)}</td><td class='text-center'>{cust.VisitCount}</td><td class='text-center'>{FormatHours(cust.TotalMinutes)}</td><td class='text-center'>{avg}</td></tr>");
+                }
+                sb.Append("</tbody></table>");
+            }
+
+            sb.Append("</div>");
+        }
+
+        return ExportService.GeneratePrintableHtml("Timesheet Report", sb.ToString(), fromDate, toDate);
     }
 }
 

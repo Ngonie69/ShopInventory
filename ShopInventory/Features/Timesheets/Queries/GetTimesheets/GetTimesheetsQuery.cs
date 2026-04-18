@@ -24,6 +24,7 @@ public sealed record TimesheetEntryDto(
     int Id,
     Guid UserId,
     string Username,
+    string? FullName,
     string CustomerCode,
     string CustomerName,
     DateTime CheckInTime,

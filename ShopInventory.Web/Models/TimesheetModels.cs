@@ -5,6 +5,7 @@ public class TimesheetEntryDto
     public int Id { get; set; }
     public Guid UserId { get; set; }
     public string Username { get; set; } = string.Empty;
+    public string? FullName { get; set; }
     public string CustomerCode { get; set; } = string.Empty;
     public string CustomerName { get; set; } = string.Empty;
     public DateTime CheckInTime { get; set; }

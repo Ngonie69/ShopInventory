@@ -40,6 +40,7 @@ public sealed class GetTimesheetsHandler(
                 t.Id,
                 t.UserId,
                 t.Username,
+                t.User != null ? ((t.User.FirstName ?? "") + " " + (t.User.LastName ?? "")).Trim() : null,
                 t.CustomerCode,
                 t.CustomerName,
                 t.CheckInTime,

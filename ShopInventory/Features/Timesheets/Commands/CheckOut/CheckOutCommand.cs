@@ -17,5 +17,7 @@ public sealed record CheckOutResult(
     string CustomerName,
     DateTime CheckInTime,
     DateTime CheckOutTime,
-    double DurationMinutes
+    double DurationMinutes,
+    double? Latitude,
+    double? Longitude
 );
