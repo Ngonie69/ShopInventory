@@ -28,6 +28,15 @@ public interface IDesktopIntegrationService
     Task<List<StockReservationDto>?> GetReservationsAsync(string? sourceSystem = null, string? status = null, int page = 1, int pageSize = 50);
     Task<StockReservationDto?> GetReservationAsync(string reservationId);
     Task<bool> CancelReservationAsync(string reservationId, string? reason = null);
+
+    // Desktop Sales (offline invoicing)
+    Task<DesktopSalesListResponse?> GetDesktopSalesAsync(string? warehouseCode = null, string? cardCode = null, string? consolidationStatus = null, DateTime? fromDate = null, DateTime? toDate = null, int page = 1, int pageSize = 50);
+    Task<EndOfDayReportDto?> GetEndOfDayReportAsync(DateTime? reportDate = null);
+
+    // Local Stock Snapshots
+    Task<LocalStockResultDto?> GetLocalStockAsync(string warehouseCode, DateTime? snapshotDate = null);
+    Task<bool> TriggerStockFetchAsync();
+    Task<bool> TriggerConsolidationAsync();
 }
 
 public class DesktopIntegrationService : IDesktopIntegrationService
@@ -265,6 +274,96 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     }
 
     #endregion
+
+    #region Desktop Sales & Local Stock
+
+    public async Task<DesktopSalesListResponse?> GetDesktopSalesAsync(string? warehouseCode = null, string? cardCode = null, string? consolidationStatus = null, DateTime? fromDate = null, DateTime? toDate = null, int page = 1, int pageSize = 50)
+    {
+        try
+        {
+            var queryParams = new List<string> { $"page={page}", $"pageSize={pageSize}" };
+            if (!string.IsNullOrEmpty(warehouseCode))
+                queryParams.Add($"warehouseCode={Uri.EscapeDataString(warehouseCode)}");
+            if (!string.IsNullOrEmpty(cardCode))
+                queryParams.Add($"cardCode={Uri.EscapeDataString(cardCode)}");
+            if (!string.IsNullOrEmpty(consolidationStatus))
+                queryParams.Add($"consolidationStatus={Uri.EscapeDataString(consolidationStatus)}");
+            if (fromDate.HasValue)
+                queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+            if (toDate.HasValue)
+                queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+
+            var url = $"api/DesktopIntegration/sales?{string.Join("&", queryParams)}";
+            return await _httpClient.GetFromJsonAsync<DesktopSalesListResponse>(url);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting desktop sales");
+            return null;
+        }
+    }
+
+    public async Task<EndOfDayReportDto?> GetEndOfDayReportAsync(DateTime? reportDate = null)
+    {
+        try
+        {
+            var url = "api/DesktopIntegration/end-of-day/report";
+            if (reportDate.HasValue)
+                url += $"?reportDate={reportDate.Value:yyyy-MM-dd}";
+            return await _httpClient.GetFromJsonAsync<EndOfDayReportDto>(url);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting end-of-day report");
+            return null;
+        }
+    }
+
+    public async Task<LocalStockResultDto?> GetLocalStockAsync(string warehouseCode, DateTime? snapshotDate = null)
+    {
+        try
+        {
+            var url = $"api/DesktopIntegration/stock/{Uri.EscapeDataString(warehouseCode)}/local";
+            if (snapshotDate.HasValue)
+                url += $"?snapshotDate={snapshotDate.Value:yyyy-MM-dd}";
+            return await _httpClient.GetFromJsonAsync<LocalStockResultDto>(url);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting local stock for {Warehouse}", warehouseCode);
+            return null;
+        }
+    }
+
+    public async Task<bool> TriggerStockFetchAsync()
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync("api/DesktopIntegration/stock/fetch-daily", null);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error triggering stock fetch");
+            return false;
+        }
+    }
+
+    public async Task<bool> TriggerConsolidationAsync()
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync("api/DesktopIntegration/end-of-day/consolidate", null);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error triggering consolidation");
+            return false;
+        }
+    }
+
+    #endregion
 }
 
 #region DTOs
@@ -389,6 +488,118 @@ public class InventoryTransferQueueStatsDto
     public int Cancelled { get; set; }
     public DateTime? OldestPendingAge { get; set; }
     public decimal TotalQuantityPending { get; set; }
+}
+
+// Desktop Sales DTOs
+public class DesktopSalesListResponse
+{
+    public List<DesktopSaleDto> Sales { get; set; } = new();
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public bool HasMore { get; set; }
+}
+
+public class DesktopSaleDto
+{
+    public int Id { get; set; }
+    public string ExternalReferenceId { get; set; } = string.Empty;
+    public string? SourceSystem { get; set; }
+    public string CardCode { get; set; } = string.Empty;
+    public string? CardName { get; set; }
+    public DateTime DocDate { get; set; }
+    public decimal TotalAmount { get; set; }
+    public decimal VatAmount { get; set; }
+    public string Currency { get; set; } = "ZWG";
+    public string FiscalizationStatus { get; set; } = string.Empty;
+    public string? FiscalReceiptNumber { get; set; }
+    public string ConsolidationStatus { get; set; } = string.Empty;
+    public int? ConsolidationId { get; set; }
+    public string WarehouseCode { get; set; } = string.Empty;
+    public string? PaymentMethod { get; set; }
+    public string? PaymentReference { get; set; }
+    public decimal AmountPaid { get; set; }
+    public string? CreatedBy { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public List<DesktopSaleLineDto> Lines { get; set; } = new();
+}
+
+public class DesktopSaleLineDto
+{
+    public int LineNum { get; set; }
+    public string ItemCode { get; set; } = string.Empty;
+    public string? ItemDescription { get; set; }
+    public decimal Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal LineTotal { get; set; }
+    public string WarehouseCode { get; set; } = string.Empty;
+    public string? TaxCode { get; set; }
+    public decimal DiscountPercent { get; set; }
+}
+
+// End of Day Report DTOs
+public class EndOfDayReportDto
+{
+    public DateTime ReportDate { get; set; }
+    public DateTime GeneratedAt { get; set; }
+    public int TotalSalesCount { get; set; }
+    public decimal TotalSalesAmount { get; set; }
+    public decimal TotalVatAmount { get; set; }
+    public decimal TotalAmountPaid { get; set; }
+    public int PostedInvoiceCount { get; set; }
+    public int UnpostedInvoiceCount { get; set; }
+    public List<BPSummaryDto> BusinessPartnerSummaries { get; set; } = new();
+    public List<UnpostedSaleDto> UnpostedSales { get; set; } = new();
+}
+
+public class BPSummaryDto
+{
+    public string CardCode { get; set; } = string.Empty;
+    public string? CardName { get; set; }
+    public int SalesCount { get; set; }
+    public decimal TotalAmount { get; set; }
+    public decimal TotalVat { get; set; }
+    public decimal TotalPaid { get; set; }
+}
+
+public class UnpostedSaleDto
+{
+    public int SaleId { get; set; }
+    public string ExternalReferenceId { get; set; } = string.Empty;
+    public string CardCode { get; set; } = string.Empty;
+    public string? CardName { get; set; }
+    public decimal Amount { get; set; }
+    public string? FiscalReceiptNumber { get; set; }
+    public string ConsolidationStatus { get; set; } = string.Empty;
+    public string? Reason { get; set; }
+}
+
+// Local Stock DTOs
+public class LocalStockResultDto
+{
+    public string WarehouseCode { get; set; } = string.Empty;
+    public DateTime SnapshotDate { get; set; }
+    public string SnapshotStatus { get; set; } = string.Empty;
+    public List<LocalStockItemDto> Items { get; set; } = new();
+}
+
+public class LocalStockItemDto
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public string? ItemDescription { get; set; }
+    public string WarehouseCode { get; set; } = string.Empty;
+    public decimal AvailableQuantity { get; set; }
+    public decimal OriginalQuantity { get; set; }
+    public decimal TransferAdjustment { get; set; }
+    public List<LocalStockBatchDto> Batches { get; set; } = new();
+}
+
+public class LocalStockBatchDto
+{
+    public string? BatchNumber { get; set; }
+    public decimal AvailableQuantity { get; set; }
+    public decimal OriginalQuantity { get; set; }
+    public DateTime? ExpiryDate { get; set; }
 }
 
 #endregion

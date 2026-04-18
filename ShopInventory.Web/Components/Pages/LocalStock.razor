@@ -1,0 +1,646 @@
+@page "/local-stock"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Services
+@attribute [Authorize(Roles = "Admin,StockController,DepotController")]
+@inject IDesktopIntegrationService DesktopService
+@inject IMasterDataCacheService MasterDataCache
+@inject ISnackbar Snackbar
+@inject IAuditService AuditService
+@rendermode InteractiveServer
+
+<PageTitle>Local Stock Snapshot - Shop Inventory</PageTitle>
+
+<style>
+    /* ── Page ────────────────────────────────────────── */
+    .ls-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
+    }
+
+    .dark-theme .ls-page { background: #1a1a2e; }
+
+    /* ── Header ──────────────────────────────────────── */
+    .ls-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .ls-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .ls-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .ls-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+        letter-spacing: -.3px;
+    }
+
+    .dark-theme .ls-header h2 { color: #e2e8f0; }
+
+    .ls-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: .88rem;
+    }
+
+    .ls-header-actions {
+        display: flex;
+        gap: .5rem;
+        flex-wrap: wrap;
+    }
+
+    .btn-ls-gradient {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
+        cursor: pointer;
+    }
+
+    .btn-ls-gradient:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(102, 126, 234, .35); }
+
+    .btn-ls-outline {
+        background: transparent;
+        border: 1.5px solid #d1d5db;
+        color: #374151;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .dark-theme .btn-ls-outline { border-color: #4b5563; color: #d1d5db; }
+
+    /* ── Stat Cards ──────────────────────────────────── */
+    .stat-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .stat-card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 1.1rem 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .dark-theme .stat-card { background: #1e293b; border-color: #334155; }
+
+    .stat-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.2rem;
+    }
+
+    .stat-icon.purple { background: #ede9fe; color: #7c3aed; }
+    .stat-icon.green { background: #d1fae5; color: #059669; }
+    .stat-icon.amber { background: #fef3c7; color: #d97706; }
+    .stat-icon.blue { background: #dbeafe; color: #2563eb; }
+
+    .stat-value { font-size: 1.35rem; font-weight: 700; color: #1a1a2e; }
+    .dark-theme .stat-value { color: #e2e8f0; }
+    .stat-label { font-size: .75rem; color: #6b7280; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+
+    /* ── Filter Bar ──────────────────────────────────── */
+    .filter-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .75rem;
+        align-items: flex-end;
+        padding: 1rem 1.25rem;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        margin-bottom: 1.25rem;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .dark-theme .filter-bar { background: #1e293b; border-color: #334155; }
+
+    .filter-field { display: flex; flex-direction: column; gap: .25rem; }
+    .filter-field label { font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; }
+    .filter-field select,
+    .filter-field input {
+        padding: .45rem .65rem;
+        border: 1.5px solid #d1d5db;
+        border-radius: 8px;
+        font-size: .85rem;
+        background: #fff;
+        color: #374151;
+        min-width: 140px;
+    }
+
+    .dark-theme .filter-field select,
+    .dark-theme .filter-field input { background: #0f172a; border-color: #475569; color: #e2e8f0; }
+
+    .filter-actions-row { display: flex; gap: .5rem; align-items: flex-end; }
+
+    .btn-search {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        border: none;
+        padding: .45rem 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+    }
+
+    .btn-clear {
+        background: transparent;
+        border: 1.5px solid #d1d5db;
+        padding: .45rem 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        color: #6b7280;
+    }
+
+    /* ── Snapshot Info Banner ─────────────────────────── */
+    .snapshot-info {
+        display: flex;
+        align-items: center;
+        gap: .75rem;
+        padding: .65rem 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        font-size: .85rem;
+    }
+
+    .snapshot-complete { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+    .snapshot-pending { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+    .snapshot-failed { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+
+    /* ── Table ───────────────────────────────────────── */
+    .ls-table-wrap {
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        overflow: hidden;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .dark-theme .ls-table-wrap { background: #1e293b; border-color: #334155; }
+
+    .ls-table-header {
+        padding: .75rem 1rem;
+        border-bottom: 1px solid #e5e7eb;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .dark-theme .ls-table-header { border-color: #334155; }
+
+    .ls-table-header h6 { margin: 0; font-size: .85rem; font-weight: 600; color: #374151; }
+    .dark-theme .ls-table-header h6 { color: #d1d5db; }
+
+    .ls-count-badge {
+        background: #667eea;
+        color: #fff;
+        padding: .15rem .5rem;
+        border-radius: 20px;
+        font-size: .7rem;
+        font-weight: 700;
+        margin-left: .35rem;
+    }
+
+    .ls-table {
+        width: 100%;
+        font-size: .85rem;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .ls-table th {
+        background: #f8fafc;
+        font-size: .72rem;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #6b7280;
+        font-weight: 600;
+        padding: .6rem .75rem;
+        border-bottom: 2px solid #e5e7eb;
+        white-space: nowrap;
+    }
+
+    .dark-theme .ls-table th { background: #0f172a; color: #94a3b8; border-color: #334155; }
+
+    .ls-table td {
+        padding: .55rem .75rem;
+        border-bottom: 1px solid #f3f4f6;
+        color: #374151;
+        vertical-align: middle;
+    }
+
+    .dark-theme .ls-table td { color: #cbd5e1; border-color: #1e293b; }
+
+    .ls-table tbody tr { cursor: pointer; transition: background .15s; }
+    .ls-table tbody tr:hover { background: rgba(102, 126, 234, .04); }
+    .dark-theme .ls-table tbody tr:hover { background: rgba(102, 126, 234, .08); }
+
+    .item-code { font-weight: 700; color: #667eea; font-size: .88rem; font-family: 'Space Grotesk', monospace; }
+    .qty-cell { font-family: 'Space Grotesk', monospace; font-weight: 600; font-size: .88rem; }
+    .qty-success { color: #059669; }
+    .qty-warning { color: #d97706; }
+    .qty-danger { color: #dc2626; }
+    .qty-info { color: #2563eb; }
+
+    .adjustment-pos { color: #059669; font-weight: 600; }
+    .adjustment-neg { color: #dc2626; font-weight: 600; }
+    .adjustment-zero { color: #6b7280; }
+
+    /* ── Batch Expandable ────────────────────────────── */
+    .batch-row { background: #f8fafc; }
+    .dark-theme .batch-row { background: #0f172a; }
+    .batch-row td { font-size: .8rem; padding-left: 2rem; }
+
+    /* ── Loading / Empty ─────────────────────────────── */
+    .loading-state { text-align: center; padding: 3rem; color: #6b7280; font-size: .9rem; }
+    .empty-state { text-align: center; padding: 3rem; }
+    .empty-icon { font-size: 3rem; margin-bottom: .75rem; }
+    .empty-state h6 { color: #374151; font-weight: 600; }
+    .empty-state p { color: #6b7280; font-size: .85rem; }
+    .alert-banner { padding: .75rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: .85rem; }
+    .error-alert { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+
+    /* ── Search ───────────────────────────────────────── */
+    .search-input {
+        padding: .45rem .65rem;
+        border: 1.5px solid #d1d5db;
+        border-radius: 8px;
+        font-size: .85rem;
+        min-width: 200px;
+    }
+
+    .dark-theme .search-input { background: #0f172a; border-color: #475569; color: #e2e8f0; }
+</style>
+
+<div class="ls-page">
+    <div class="container-fluid">
+        <!-- ━━━ Header ━━━ -->
+        <div class="ls-header">
+            <div class="ls-header-left">
+                <div class="ls-header-icon"><i class="bi bi-clipboard-data"></i></div>
+                <div>
+                    <h2>Local Stock Snapshot</h2>
+                    <p>Daily stock fetched from SAP — adjusted by transfers and sales throughout the day</p>
+                </div>
+            </div>
+            <div class="ls-header-actions">
+                <button class="btn-ls-gradient" @onclick="TriggerStockFetch" disabled="@isFetching">
+                    @if (isFetching)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-cloud-download"></i>
+                    }
+                    Fetch Stock
+                </button>
+                <button class="btn-ls-outline" @onclick="LoadStock" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-arrow-clockwise"></i>
+                    }
+                    Refresh
+                </button>
+            </div>
+        </div>
+
+        <!-- ━━━ Stat Cards ━━━ -->
+        @if (stockResult != null)
+        {
+            <div class="stat-row">
+                <div class="stat-card">
+                    <div class="stat-icon purple">📦</div>
+                    <div class="stat-info">
+                        <div class="stat-value">@stockResult.Items.Count</div>
+                        <div class="stat-label">Total Items</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon green">✓</div>
+                    <div class="stat-info">
+                        <div class="stat-value">@stockResult.Items.Count(i => i.AvailableQuantity > 0)</div>
+                        <div class="stat-label">In Stock</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon amber">⚠</div>
+                    <div class="stat-info">
+                        <div class="stat-value">@stockResult.Items.Count(i => i.AvailableQuantity <= 0)</div>
+                        <div class="stat-label">Out of Stock</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon blue">🔄</div>
+                    <div class="stat-info">
+                        <div class="stat-value">@stockResult.Items.Count(i => i.TransferAdjustment != 0)</div>
+                        <div class="stat-label">Transfer Adjusted</div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- ━━━ Filter Bar ━━━ -->
+        <div class="filter-bar">
+            <div class="filter-field">
+                <label>Warehouse</label>
+                <select @bind="selectedWarehouse" @bind:event="onchange">
+                    <option value="">-- Select Warehouse --</option>
+                    @foreach (var wh in warehouses)
+                    {
+                        <option value="@wh.WarehouseCode">@wh.WarehouseCode - @wh.WarehouseName</option>
+                    }
+                </select>
+            </div>
+            <div class="filter-field">
+                <label>Snapshot Date</label>
+                <input type="date" @bind="snapshotDate" />
+            </div>
+            <div class="filter-actions-row">
+                <button class="btn-search" @onclick="LoadStock" disabled="@(isLoading || string.IsNullOrEmpty(selectedWarehouse))">Load</button>
+            </div>
+            @if (stockResult != null)
+            {
+                <div class="filter-field" style="margin-left:auto">
+                    <label>Search Item</label>
+                    <input type="text" class="search-input" placeholder="Item code or description..." @bind="searchTerm" @bind:event="oninput" />
+                </div>
+            }
+        </div>
+
+        <!-- ━━━ Snapshot Status ━━━ -->
+        @if (stockResult != null)
+        {
+            <div class="snapshot-info @GetSnapshotStatusClass(stockResult.SnapshotStatus)">
+                <strong>Snapshot:</strong> @stockResult.WarehouseCode — @stockResult.SnapshotDate.ToString("dd MMM yyyy") —
+                Status: @stockResult.SnapshotStatus
+            </div>
+        }
+
+        <!-- ━━━ Data Table ━━━ -->
+        @if (errorMessage != null)
+        {
+            <div class="alert-banner error-alert">@errorMessage</div>
+        }
+
+        @if (isLoading)
+        {
+            <div class="loading-state">Loading local stock...</div>
+        }
+        else if (string.IsNullOrEmpty(selectedWarehouse))
+        {
+            <div class="empty-state">
+                <div class="empty-icon">🏭</div>
+                <h6>Select a Warehouse</h6>
+                <p>Choose a warehouse to view today's local stock snapshot</p>
+            </div>
+        }
+        else if (filteredItems.Any())
+        {
+            <div class="ls-table-wrap">
+                <div class="ls-table-header">
+                    <h6>Items <span class="ls-count-badge">@filteredItems.Count()</span></h6>
+                </div>
+                <table class="ls-table">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th>Item Code</th>
+                            <th>Description</th>
+                            <th>Available</th>
+                            <th>Original</th>
+                            <th>Adjustment</th>
+                            <th>Batches</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in filteredItems)
+                        {
+                            <tr @onclick="() => ToggleExpand(item.ItemCode)">
+                                <td style="width:30px">
+                                    @if (item.Batches.Count > 1)
+                                    {
+                                        <i class="bi @(expandedItems.Contains(item.ItemCode) ? "bi-chevron-down" : "bi-chevron-right")" style="font-size:.75rem;color:#6b7280"></i>
+                                    }
+                                </td>
+                                <td><span class="item-code">@item.ItemCode</span></td>
+                                <td>@(item.ItemDescription ?? "—")</td>
+                                <td><span class="qty-cell @GetQtyClass(item.AvailableQuantity)">@item.AvailableQuantity.ToString("N2")</span></td>
+                                <td><span class="qty-cell" style="color:#6b7280">@item.OriginalQuantity.ToString("N2")</span></td>
+                                <td>
+                                    @{
+                                        var adj = item.TransferAdjustment;
+                                        var adjClass = adj > 0 ? "adjustment-pos" : adj < 0 ? "adjustment-neg" : "adjustment-zero";
+                                        var adjPrefix = adj > 0 ? "+" : "";
+                                    }
+                                    <span class="@adjClass">@adjPrefix@adj.ToString("N2")</span>
+                                </td>
+                                <td>@item.Batches.Count</td>
+                            </tr>
+                            @if (expandedItems.Contains(item.ItemCode) && item.Batches.Count > 1)
+                            {
+                                @foreach (var batch in item.Batches.OrderBy(b => b.ExpiryDate))
+                                {
+                                    <tr class="batch-row">
+                                        <td></td>
+                                        <td colspan="2" style="font-size:.8rem;color:#6b7280">
+                                            Batch: <strong>@(batch.BatchNumber ?? "N/A")</strong>
+                                            @if (batch.ExpiryDate.HasValue)
+                                            {
+                                                <span> — Expires: @batch.ExpiryDate.Value.ToString("dd MMM yyyy")</span>
+                                            }
+                                        </td>
+                                        <td><span class="qty-cell @GetQtyClass(batch.AvailableQuantity)">@batch.AvailableQuantity.ToString("N2")</span></td>
+                                        <td><span class="qty-cell" style="color:#6b7280">@batch.OriginalQuantity.ToString("N2")</span></td>
+                                        <td></td>
+                                        <td></td>
+                                    </tr>
+                                }
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else if (stockResult != null)
+        {
+            <div class="empty-state">
+                <div class="empty-icon">🔍</div>
+                <h6>No Items Found</h6>
+                <p>No stock data available for this warehouse and date</p>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<WarehouseDto> warehouses = new();
+    private LocalStockResultDto? stockResult;
+    private HashSet<string> expandedItems = new();
+
+    private bool isLoading = false;
+    private bool isFetching = false;
+    private string? errorMessage;
+
+    private string selectedWarehouse = "";
+    private DateTime? snapshotDate;
+    private string searchTerm = "";
+
+    private IEnumerable<LocalStockItemDto> filteredItems
+    {
+        get
+        {
+            if (stockResult == null) return Enumerable.Empty<LocalStockItemDto>();
+            var items = stockResult.Items.AsEnumerable();
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                var term = searchTerm.ToLowerInvariant();
+                items = items.Where(i =>
+                    (i.ItemCode?.ToLowerInvariant().Contains(term) ?? false) ||
+                    (i.ItemDescription?.ToLowerInvariant().Contains(term) ?? false));
+            }
+            return items;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        snapshotDate = DateTime.Today;
+        var warehouseList = await MasterDataCache.GetWarehousesAsync();
+        warehouses = warehouseList?.Where(w => w.IsActive).ToList() ?? new();
+        await AuditService.LogAsync(AuditActions.ViewStock, "LocalStock", null);
+    }
+
+    private async Task LoadStock()
+    {
+        if (string.IsNullOrEmpty(selectedWarehouse)) return;
+
+        isLoading = true;
+        errorMessage = null;
+        expandedItems.Clear();
+        StateHasChanged();
+
+        try
+        {
+            stockResult = await DesktopService.GetLocalStockAsync(selectedWarehouse, snapshotDate);
+            if (stockResult == null)
+            {
+                errorMessage = "No snapshot found for this warehouse and date. Stock may not have been fetched yet.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error: {ex.Message}";
+            stockResult = null;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task TriggerStockFetch()
+    {
+        isFetching = true;
+        StateHasChanged();
+        try
+        {
+            var success = await DesktopService.TriggerStockFetchAsync();
+            if (success)
+            {
+                Snackbar.Add("Daily stock fetch triggered successfully. This may take a few minutes.", Severity.Success);
+                if (!string.IsNullOrEmpty(selectedWarehouse))
+                {
+                    await Task.Delay(2000);
+                    await LoadStock();
+                }
+            }
+            else
+            {
+                Snackbar.Add("Failed to trigger stock fetch", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isFetching = false;
+        }
+    }
+
+    private void ToggleExpand(string itemCode)
+    {
+        if (!expandedItems.Remove(itemCode))
+            expandedItems.Add(itemCode);
+    }
+
+    private static string GetQtyClass(decimal qty) => qty switch
+    {
+        > 100 => "qty-success",
+        > 10 => "qty-info",
+        > 0 => "qty-warning",
+        _ => "qty-danger"
+    };
+
+    private static string GetSnapshotStatusClass(string status) => status.ToLower() switch
+    {
+        "complete" => "snapshot-complete",
+        "pending" => "snapshot-pending",
+        "failed" => "snapshot-failed",
+        _ => "snapshot-pending"
+    };
+}

@@ -143,6 +143,9 @@ public static class AuditActions
     // Stock actions
     public const string ViewStock = "ViewStock";
 
+    // Desktop Sales actions
+    public const string ViewDesktopTransactions = "ViewDesktopTransactions";
+
     // Exchange Rate actions
     public const string ViewExchangeRates = "ViewExchangeRates";
     public const string UpdateExchangeRate = "UpdateExchangeRate";

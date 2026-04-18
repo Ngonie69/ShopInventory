@@ -54,6 +54,7 @@ using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
 using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
 using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
+using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 using ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
 using ShopInventory.Services;
 using System.Security.Claims;
@@ -604,6 +605,26 @@ public class DesktopIntegrationController(IMediator mediator) : ApiControllerBas
     }
 
     /// <summary>
+    /// List desktop sales with optional filters.
+    /// </summary>
+    [HttpGet("sales")]
+    public async Task<IActionResult> GetDesktopSales(
+        [FromQuery] string? warehouseCode,
+        [FromQuery] string? cardCode,
+        [FromQuery] string? consolidationStatus,
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetDesktopSalesQuery(warehouseCode, cardCode, consolidationStatus, fromDate, toDate, page, pageSize),
+            cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
     /// Manually trigger end-of-day consolidation — consolidates sales per BP and posts to SAP.
     /// </summary>
     [HttpPost("end-of-day/consolidate")]
@@ -643,9 +664,9 @@ public class DesktopIntegrationController(IMediator mediator) : ApiControllerBas
 
     /// <summary>
     /// Webhook endpoint for TransferEventListener to notify about stock transfers.
+    /// Secured via X-API-Key header (same as all other endpoints on this controller).
     /// </summary>
     [HttpPost("webhook/transfer-event")]
-    [AllowAnonymous]
     public async Task<IActionResult> TransferEventWebhook(
         [FromBody] ProcessTransferEventCommand command,
         CancellationToken cancellationToken)
