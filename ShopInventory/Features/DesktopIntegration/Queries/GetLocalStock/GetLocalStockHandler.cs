@@ -7,8 +7,7 @@ using ShopInventory.Data;
 namespace ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
 
 public sealed class GetLocalStockHandler(
-    ApplicationDbContext context,
-    ILogger<GetLocalStockHandler> logger
+    ApplicationDbContext context
 ) : IRequestHandler<GetLocalStockQuery, ErrorOr<LocalStockResult>>
 {
     public async Task<ErrorOr<LocalStockResult>> Handle(

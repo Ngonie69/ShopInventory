@@ -50,7 +50,8 @@ public class DailyStockSnapshotItemEntity
 
     /// <summary>
     /// Row version for optimistic concurrency on AvailableQuantity.
+    /// PostgreSQL uses xmin system column via [Timestamp] on uint.
     /// </summary>
     [Timestamp]
-    public byte[] RowVersion { get; set; } = null!;
+    public uint Version { get; set; }
 }

@@ -25,7 +25,7 @@ public class DailyStockSettings
         "KEFSHOP", "CORMACH", "CORMACH2", "KEFGRS", "KEFGRC",
         "VAN001", "VAN004", "VAN005", "VAN006", "VAN013",
         "VAN014", "VAN015", "VAN016", "VAN018",
-        "KEFBYC", "VAN008", "VAN009", "VAN010", "VAN011"
+        "KEFBYC", "VAN008", "VAN009", "VAN010", "VAN011", "VAN012"
     };
 
     /// <summary>

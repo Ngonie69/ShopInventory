@@ -1,4 +1,6 @@
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Blazored.LocalStorage;
 using ShopInventory.Web.Models;
 
 namespace ShopInventory.Web.Services;
@@ -60,18 +62,40 @@ public interface ITwoFactorWebService
 public class TwoFactorWebService : ITwoFactorWebService
 {
     private readonly HttpClient _httpClient;
+    private readonly ILocalStorageService _localStorage;
     private readonly ILogger<TwoFactorWebService> _logger;
 
-    public TwoFactorWebService(HttpClient httpClient, ILogger<TwoFactorWebService> logger)
+    public TwoFactorWebService(HttpClient httpClient, ILocalStorageService localStorage, ILogger<TwoFactorWebService> logger)
     {
         _httpClient = httpClient;
+        _localStorage = localStorage;
         _logger = logger;
+    }
+
+    private async Task EnsureAuthenticationAsync()
+    {
+        try
+        {
+            if (_httpClient.DefaultRequestHeaders.Authorization == null)
+            {
+                var token = await _localStorage.GetItemAsync<string>("authToken");
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Could not access localStorage for auth token: {Message}", ex.Message);
+        }
     }
 
     public async Task<TwoFactorStatusModel?> GetStatusAsync()
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var response = await _httpClient.GetAsync("api/twofactor/status");
             if (response.IsSuccessStatusCode)
             {
@@ -93,6 +117,7 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var response = await _httpClient.PostAsync("api/twofactor/setup", null);
             if (response.IsSuccessStatusCode)
             {
@@ -118,6 +143,7 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var request = new { Code = code };
             var response = await _httpClient.PostAsJsonAsync("api/twofactor/enable", request);
 
@@ -151,6 +177,7 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var request = new { Password = password, Code = code };
             var response = await _httpClient.PostAsJsonAsync("api/twofactor/disable", request);
 
@@ -184,6 +211,7 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var request = new { Code = code };
             var response = await _httpClient.PostAsJsonAsync("api/twofactor/backup-codes/regenerate", request);
 
@@ -207,6 +235,7 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var request = new { Username = username, CurrentPassword = currentPassword, NewPassword = newPassword, ConfirmPassword = confirmPassword };
             var response = await _httpClient.PostAsJsonAsync("api/password/change", request);
 
@@ -238,6 +267,7 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var response = await _httpClient.GetAsync($"api/useractivity/me?recentCount={count}");
             if (response.IsSuccessStatusCode)
             {
@@ -257,6 +287,7 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var response = await _httpClient.GetAsync("api/password/credentials");
             if (response.IsSuccessStatusCode)
             {
@@ -275,6 +306,7 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var request = new { Username = username, Email = email, CurrentPassword = currentPassword };
             var response = await _httpClient.PutAsJsonAsync("api/password/credentials", request);
 

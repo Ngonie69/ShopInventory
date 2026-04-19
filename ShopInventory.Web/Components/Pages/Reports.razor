@@ -1559,7 +1559,9 @@ new("fulfillment", "Fulfillment", "bi-truck")
     ];
 
     private string activeTab = "profit";
+#pragma warning disable CS0169
     private bool isLoading;
+#pragma warning restore CS0169
     private bool isExporting;
     private string errorMessage = "";
     private DateTime fromDate = DateTime.UtcNow.AddDays(-30);

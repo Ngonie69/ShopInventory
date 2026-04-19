@@ -8,8 +8,7 @@ namespace ShopInventory.Features.Payments.Commands.RefundPayment;
 
 public sealed class RefundPaymentHandler(
     IPaymentGatewayService paymentService,
-    IAuditService auditService,
-    ILogger<RefundPaymentHandler> logger
+    IAuditService auditService
 ) : IRequestHandler<RefundPaymentCommand, ErrorOr<Success>>
 {
     public async Task<ErrorOr<Success>> Handle(

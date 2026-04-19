@@ -1,11 +1,16 @@
 @page "/local-stock"
 @using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @attribute [Authorize(Roles = "Admin,StockController,DepotController")]
 @inject IDesktopIntegrationService DesktopService
 @inject IMasterDataCacheService MasterDataCache
+@inject IReportExportService ExportService
+@inject INotificationHubService HubService
+@inject IJSRuntime JS
 @inject ISnackbar Snackbar
 @inject IAuditService AuditService
+@implements IDisposable
 @rendermode InteractiveServer
 
 <PageTitle>Local Stock Snapshot - Shop Inventory</PageTitle>
@@ -318,6 +323,108 @@
     }
 
     .dark-theme .search-input { background: #0f172a; border-color: #475569; color: #e2e8f0; }
+
+    /* ── Live Indicator ──────────────────────────────── */
+    .live-badge { display: inline-flex; align-items: center; gap: .35rem; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: #059669; }
+    .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #059669; animation: ls-pulse 1.5s infinite; }
+    @@keyframes ls-pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+    /* ── Fetch Progress Panel ────────────────────────── */
+    .fetch-progress-panel {
+        background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+        border: 1px solid #4338ca;
+        border-radius: 12px;
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 1rem;
+        color: #e0e7ff;
+    }
+    .fetch-progress-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: .75rem;
+    }
+    .fetch-progress-header h6 {
+        margin: 0;
+        font-weight: 600;
+        color: #c7d2fe;
+        font-size: .95rem;
+    }
+    .fetch-progress-count {
+        font-size: .85rem;
+        color: #a5b4fc;
+        font-weight: 500;
+    }
+    .fetch-progress-bar-track {
+        height: 10px;
+        background: rgba(255,255,255,.1);
+        border-radius: 6px;
+        overflow: hidden;
+        margin-bottom: .75rem;
+    }
+    .fetch-progress-bar-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #818cf8, #a78bfa, #c084fc);
+        border-radius: 6px;
+        transition: width .4s ease;
+    }
+    .fetch-progress-warehouses {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .4rem;
+    }
+    .wh-chip {
+        font-size: .72rem;
+        padding: .2rem .55rem;
+        border-radius: 6px;
+        font-weight: 500;
+        border: 1px solid rgba(255,255,255,.15);
+        background: rgba(255,255,255,.05);
+        color: #94a3b8;
+        transition: all .3s ease;
+    }
+    .wh-chip.done {
+        background: rgba(34,197,94,.15);
+        border-color: rgba(34,197,94,.3);
+        color: #4ade80;
+    }
+    .wh-chip.clickable {
+        cursor: pointer;
+    }
+    .wh-chip.clickable:hover {
+        background: rgba(34,197,94,.3);
+        border-color: rgba(34,197,94,.5);
+        transform: scale(1.05);
+    }
+    .wh-chip.active {
+        background: rgba(129,140,248,.2);
+        border-color: rgba(129,140,248,.4);
+        color: #c7d2fe;
+        animation: ls-pulse 1.2s infinite;
+    }
+
+    /* ── Mobile Responsive ───────────────────────────── */
+    @@media (max-width: 768px) {
+        .ls-page { padding: .75rem; }
+        .ls-header { flex-direction: column; }
+        .ls-header-actions { width: 100%; justify-content: stretch; }
+        .ls-header-actions button { flex: 1; }
+        .stat-row { grid-template-columns: repeat(2, 1fr); }
+        .filter-bar { flex-direction: column; }
+        .filter-field { width: 100%; }
+        .filter-field select,
+        .filter-field input { width: 100%; min-width: unset; }
+        .filter-actions-row { width: 100%; }
+        .filter-actions-row button { flex: 1; }
+        .ls-table { font-size: .78rem; }
+        .ls-table th, .ls-table td { padding: .4rem .5rem; }
+    }
+
+    @@media (max-width: 480px) {
+        .stat-row { grid-template-columns: 1fr; }
+        .ls-header-icon { width: 40px; height: 40px; font-size: 1.1rem; }
+        .ls-header h2 { font-size: 1.3rem; }
+    }
 </style>
 
 <div class="ls-page">
@@ -343,6 +450,17 @@
                     }
                     Fetch Stock
                 </button>
+                <button class="btn-ls-outline" @onclick="ExportToExcel" disabled="@(isExporting || stockResult == null || !filteredItems.Any())">
+                    @if (isExporting)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-file-earmark-excel"></i>
+                    }
+                    Export
+                </button>
                 <button class="btn-ls-outline" @onclick="LoadStock" disabled="@isLoading">
                     @if (isLoading)
                     {
@@ -354,8 +472,66 @@
                     }
                     Refresh
                 </button>
+                @if (HubService.IsConnected)
+                {
+                    <span class="live-badge"><span class="live-dot"></span> LIVE</span>
+                }
             </div>
         </div>
+
+        <!-- ━━━ Fetch Progress Panel ━━━ -->
+        @if (fetchProgress != null)
+        {
+            var pct = fetchProgress.TotalCount > 0
+                ? (int)((double)fetchProgress.CompletedCount / fetchProgress.TotalCount * 100)
+                : 0;
+
+            <div class="fetch-progress-panel">
+                <div class="fetch-progress-header">
+                    <h6>
+                        <span class="spinner-border spinner-border-sm me-2" style="width:14px;height:14px;"></span>
+                        @if (fetchProgress.Status == "Complete")
+                        {
+                            <text>Stock Fetch Complete</text>
+                        }
+                        else if (fetchProgress.Status == "Initializing")
+                        {
+                            <text>Initiating Stock Fetch...</text>
+                        }
+                        else
+                        {
+                            <text>Fetching Stock from SAP...</text>
+                        }
+                    </h6>
+                    <span class="fetch-progress-count">@fetchProgress.CompletedCount / @fetchProgress.TotalCount warehouses</span>
+                </div>
+                <div class="fetch-progress-bar-track">
+                    <div class="fetch-progress-bar-fill" style="width: @(pct)%"></div>
+                </div>
+                @if (fetchProgress.Status == "Initializing" && !HubService.IsConnected)
+                {
+                    <div style="font-size:.8rem;color:#a5b4fc;margin-bottom:.5rem">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Real-time updates unavailable — page will refresh automatically when complete
+                    </div>
+                }
+                <div class="fetch-progress-warehouses">
+                    @foreach (var wh in warehouses)
+                    {
+                        var whCode = wh.WarehouseCode ?? "";
+                        var isDone = fetchProgress.CompletedWarehouses.Contains(whCode);
+                        var isActive = !isDone && fetchProgress.CompletedCount < fetchProgress.TotalCount
+                            && fetchProgress.CompletedWarehouses.Count > 0
+                            && whCode == GetNextWarehouse(fetchProgress);
+                        <span class="wh-chip @(isDone ? "done" : isActive ? "active" : "") @(isDone ? "clickable" : "")"
+                              @onclick="() => { if (isDone) SelectCompletedWarehouse(whCode); }">
+                            @if (isDone) { <text>✓ </text> }
+                            @whCode
+                        </span>
+                    }
+                </div>
+            </div>
+        }
 
         <!-- ━━━ Stat Cards ━━━ -->
         @if (stockResult != null)
@@ -459,7 +635,7 @@
                             <th></th>
                             <th>Item Code</th>
                             <th>Description</th>
-                            <th>Available</th>
+                            <th>In Stock</th>
                             <th>Original</th>
                             <th>Adjustment</th>
                             <th>Batches</th>
@@ -529,9 +705,11 @@
     private List<WarehouseDto> warehouses = new();
     private LocalStockResultDto? stockResult;
     private HashSet<string> expandedItems = new();
+    private StockFetchProgressModel? fetchProgress;
 
     private bool isLoading = false;
     private bool isFetching = false;
+    private bool isExporting = false;
     private string? errorMessage;
 
     private string selectedWarehouse = "";
@@ -557,10 +735,91 @@
 
     protected override async Task OnInitializedAsync()
     {
-        snapshotDate = DateTime.Today;
+        snapshotDate = DateTime.UtcNow.Date;
+
+        // Load only warehouses configured for daily stock monitoring
+        var monitoredCodes = await DesktopService.GetMonitoredWarehousesAsync();
         var warehouseList = await MasterDataCache.GetWarehousesAsync();
-        warehouses = warehouseList?.Where(w => w.IsActive).ToList() ?? new();
+
+        if (monitoredCodes is { Count: > 0 })
+        {
+            var monitoredSet = new HashSet<string>(monitoredCodes, StringComparer.OrdinalIgnoreCase);
+            warehouses = warehouseList?
+                .Where(w => w.IsActive && w.WarehouseCode is not null && monitoredSet.Contains(w.WarehouseCode))
+                .ToList() ?? new();
+        }
+        else
+        {
+            // Fallback to all active warehouses if API call fails
+            warehouses = warehouseList?.Where(w => w.IsActive).ToList() ?? new();
+        }
+
         await AuditService.LogAsync(AuditActions.ViewStock, "LocalStock", null);
+
+        // Subscribe to real-time stock updates
+        HubService.OnStockSnapshotUpdated += OnStockUpdated;
+        HubService.OnStockFetchProgress += OnFetchProgress;
+        HubService.OnDesktopSaleCreated += OnSaleAffectsStock;
+    }
+
+    private async void OnStockUpdated()
+    {
+        await InvokeAsync(async () =>
+        {
+            // StockSnapshotUpdated fires at the end of the entire fetch — always reset
+            isFetching = false;
+            fetchProgress = null;
+
+            if (!string.IsNullOrEmpty(selectedWarehouse))
+            {
+                Snackbar.Add("Stock fetch complete — refreshing", Severity.Success);
+                await LoadStock();
+            }
+            StateHasChanged();
+        });
+    }
+
+    private async void OnFetchProgress(StockFetchProgressModel progress)
+    {
+        await InvokeAsync(() =>
+        {
+            fetchProgress = progress;
+            if (progress.Status == "Complete")
+            {
+                isFetching = false;
+                // Clear progress after a short delay to let user see 100%
+                _ = Task.Delay(3000).ContinueWith(_ =>
+                    InvokeAsync(() => { fetchProgress = null; StateHasChanged(); }));
+            }
+            StateHasChanged();
+        });
+    }
+
+    private string GetNextWarehouse(StockFetchProgressModel progress)
+    {
+        return warehouses
+            .Select(w => w.WarehouseCode)
+            .FirstOrDefault(wc => wc is not null && !progress.CompletedWarehouses.Contains(wc)) ?? "";
+    }
+
+    private async void SelectCompletedWarehouse(string warehouseCode)
+    {
+        selectedWarehouse = warehouseCode;
+        await LoadStock();
+        StateHasChanged();
+    }
+
+    private async void OnSaleAffectsStock()
+    {
+        await InvokeAsync(async () =>
+        {
+            if (!string.IsNullOrEmpty(selectedWarehouse))
+            {
+                // Stock quantities change when a desktop sale deducts from snapshot
+                await LoadStock();
+                StateHasChanged();
+            }
+        });
     }
 
     private async Task LoadStock()
@@ -594,32 +853,113 @@
     private async Task TriggerStockFetch()
     {
         isFetching = true;
+        // Show immediate progress panel so user sees feedback even without SignalR
+        fetchProgress = new StockFetchProgressModel
+        {
+            TotalCount = warehouses.Count,
+            CompletedCount = 0,
+            Status = "Initializing",
+            CurrentWarehouse = "",
+            CompletedWarehouses = new()
+        };
         StateHasChanged();
         try
         {
             var success = await DesktopService.TriggerStockFetchAsync();
-            if (success)
-            {
-                Snackbar.Add("Daily stock fetch triggered successfully. This may take a few minutes.", Severity.Success);
-                if (!string.IsNullOrEmpty(selectedWarehouse))
-                {
-                    await Task.Delay(2000);
-                    await LoadStock();
-                }
-            }
-            else
+            if (!success)
             {
                 Snackbar.Add("Failed to trigger stock fetch", Severity.Error);
+                isFetching = false;
+                fetchProgress = null;
+                return;
             }
+
+            Snackbar.Add("Stock fetch started — progress will update in real-time", Severity.Info);
+
+            // If SignalR isn't connected, poll the API to detect completion
+            if (!HubService.IsConnected)
+            {
+                _ = PollForFetchCompletionAsync();
+            }
+
+            // Safety timeout — if no SignalR events arrive within 5 minutes, reset
+            _ = Task.Delay(TimeSpan.FromMinutes(5)).ContinueWith(_ =>
+                InvokeAsync(() =>
+                {
+                    if (isFetching)
+                    {
+                        isFetching = false;
+                        fetchProgress = null;
+                        Snackbar.Add("Stock fetch timed out — check server logs", Severity.Warning);
+                        StateHasChanged();
+                    }
+                }));
         }
         catch (Exception ex)
         {
             Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+            isFetching = false;
+            fetchProgress = null;
         }
-        finally
+    }
+
+    private async Task PollForFetchCompletionAsync()
+    {
+        // Poll each warehouse to detect completion when SignalR is unavailable
+        var completed = new List<string>();
+        while (isFetching && completed.Count < warehouses.Count)
+        {
+            await Task.Delay(10_000); // check every 10 seconds
+            if (!isFetching) break;
+
+            foreach (var wh in warehouses)
+            {
+                var whCode = wh.WarehouseCode ?? "";
+                if (completed.Contains(whCode)) continue;
+                try
+                {
+                    var result = await DesktopService.GetLocalStockAsync(whCode, DateTime.UtcNow.Date);
+                    if (result != null && result.SnapshotStatus == "Complete")
+                    {
+                        completed.Add(whCode);
+                    }
+                }
+                catch { /* ignore polling errors */ }
+            }
+
+            await InvokeAsync(() =>
+            {
+                if (!isFetching) return;
+                fetchProgress = new StockFetchProgressModel
+                {
+                    TotalCount = warehouses.Count,
+                    CompletedCount = completed.Count,
+                    Status = completed.Count >= warehouses.Count ? "Complete" : "InProgress",
+                    CurrentWarehouse = "",
+                    CompletedWarehouses = new List<string>(completed)
+                };
+                StateHasChanged();
+            });
+        }
+
+        // Fetch done
+        await InvokeAsync(async () =>
         {
             isFetching = false;
-        }
+            if (completed.Count > 0)
+            {
+                Snackbar.Add($"Stock fetch complete — {completed.Count} warehouses updated", Severity.Success);
+                // Auto-select first warehouse if none selected
+                if (string.IsNullOrEmpty(selectedWarehouse) && completed.Count > 0)
+                {
+                    selectedWarehouse = completed.First();
+                }
+                await LoadStock();
+            }
+            _ = Task.Delay(3000).ContinueWith(_ =>
+                InvokeAsync(() => { fetchProgress = null; StateHasChanged(); }));
+            StateHasChanged();
+        });
     }
 
     private void ToggleExpand(string itemCode)
@@ -643,4 +983,33 @@
         "failed" => "snapshot-failed",
         _ => "snapshot-pending"
     };
+
+    private async Task ExportToExcel()
+    {
+        if (stockResult == null || !filteredItems.Any()) return;
+        isExporting = true;
+        StateHasChanged();
+        try
+        {
+            var bytes = ExportService.ExportLocalStockToExcel(stockResult);
+            var base64 = Convert.ToBase64String(bytes);
+            await JS.InvokeVoidAsync("downloadFile", $"Local_Stock_{stockResult.WarehouseCode}_{DateTime.Now:yyyyMMdd_HHmm}.xlsx", base64);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Export failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isExporting = false;
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose()
+    {
+        HubService.OnStockSnapshotUpdated -= OnStockUpdated;
+        HubService.OnStockFetchProgress -= OnFetchProgress;
+        HubService.OnDesktopSaleCreated -= OnSaleAffectsStock;
+    }
 }

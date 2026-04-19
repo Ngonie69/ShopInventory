@@ -43,7 +43,7 @@ public class UserController(IMediator mediator) : ApiControllerBase
     {
         var result = await mediator.Send(new CreateUserCommand(request), cancellationToken);
         return result.Match(
-            value => CreatedAtAction(nameof(GetUser), new { id = value.User.Id }, value),
+            value => CreatedAtAction(nameof(GetUser), new { id = value.User?.Id }, value),
             errors => Problem(errors));
     }
 

@@ -1,9 +1,11 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Hubs;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 using Microsoft.Extensions.Options;
@@ -14,6 +16,7 @@ public sealed class CreateDesktopSaleHandler(
     ApplicationDbContext context,
     IFiscalizationService fiscalizationService,
     IInventoryLockService lockService,
+    IHubContext<NotificationHub> hubContext,
     IOptions<RevmaxSettings> revmaxSettings,
     ILogger<CreateDesktopSaleHandler> logger
 ) : IRequestHandler<CreateDesktopSaleCommand, ErrorOr<DesktopSaleResponseDto>>
@@ -182,7 +185,7 @@ public sealed class CreateDesktopSaleHandler(
             await context.SaveChangesAsync(ct);
         }
 
-        return new DesktopSaleResponseDto
+        var result = new DesktopSaleResponseDto
         {
             SaleId = sale.Id,
             ExternalReferenceId = sale.ExternalReferenceId,
@@ -196,6 +199,20 @@ public sealed class CreateDesktopSaleHandler(
             FiscalError = sale.FiscalError,
             CreatedAt = sale.CreatedAt
         };
+
+        // Broadcast real-time event to connected Web clients
+        await hubContext.Clients.Group("all").SendAsync("DesktopSaleCreated", new
+        {
+            sale.Id,
+            sale.ExternalReferenceId,
+            sale.CardCode,
+            sale.CardName,
+            sale.TotalAmount,
+            sale.WarehouseCode,
+            sale.CreatedAt
+        });
+
+        return result;
     }
 
     private async Task<List<Error>> ValidateLocalStockAsync(

@@ -1646,7 +1646,7 @@
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error deleting POD {PodId}", deletePod.Id);
+            Logger.LogError(ex, "Error deleting POD {PodId}", deletePod?.Id);
             deleteSuccess = false;
             deleteMessage = "An unexpected error occurred.";
         }

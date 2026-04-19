@@ -1329,7 +1329,7 @@
                                                                                    class="form-control form-control-sm @(invoiceValidationErrors.ContainsKey(index) && invoiceValidationErrors[index].ContainsKey("DocEntry") ? "validation-error" : "")"
                                                                                    placeholder="DocEntry" @bind="invoiceLines[index].DocEntry" />
                                                                             @if (invoiceValidationErrors.ContainsKey(index) &&
-                                                                                                                                                                                                                                                                        invoiceValidationErrors[index].ContainsKey("DocEntry"))
+                                                                                                                                                                                                                                                                                                                                                                                                                                invoiceValidationErrors[index].ContainsKey("DocEntry"))
                                                                             {
                                                                                 <div class="val-msg">@invoiceValidationErrors[index]["DocEntry"]</div>
                                                                             }
@@ -1340,7 +1340,7 @@
                                                                                    class="form-control form-control-sm @(invoiceValidationErrors.ContainsKey(index) && invoiceValidationErrors[index].ContainsKey("SumApplied") ? "validation-error" : "")"
                                                                                    step="0.01" min="0" placeholder="0.00" @bind="invoiceLines[index].SumApplied" />
                                                                             @if (invoiceValidationErrors.ContainsKey(index) &&
-                                                                                                                                                                                                                                                                        invoiceValidationErrors[index].ContainsKey("SumApplied"))
+                                                                                                                                                                                                                                                                                                                                                                                                                                invoiceValidationErrors[index].ContainsKey("SumApplied"))
                                                                             {
                                                                                 <div class="val-msg">@invoiceValidationErrors[index]["SumApplied"]</div>
                                                                             }
@@ -1498,7 +1498,7 @@
                                                                                             <span class="sum-value">@invoiceLines.Sum(l => l.SumApplied).ToString("N2")</span>
                                                                                         </div>
                                                                                         <div style="font-size:.78rem; color:#6b7280; text-align:right;">@invoiceLines.Count(l =>
-                                                                                                                                                                                                                                                                                                    l.DocEntry > 0) invoice(s)</div>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            l.DocEntry > 0) invoice(s)</div>
                                                                                         }
 
                                                                                         <hr class="sum-divider" />
@@ -1553,7 +1553,9 @@
     private string bpSearchTerm = "";
     private bool showBpDropdown = false;
     private bool isBpLoading = false;
+#pragma warning disable CS0414 // assigned but never read
     private bool bpLoadedFromCache = false;
+#pragma warning restore CS0414
     private CancellationTokenSource? _searchCts;
 
     // Payment fields
@@ -1564,6 +1566,8 @@
     // Current user info
     private bool isAdmin = false;
     private List<string> userAllowedPaymentMethods = new();
+    private string? userDefaultGLAccount;
+    private List<string> userAllowedPaymentBPs = new();
 
     private static readonly Dictionary<string, (string Label, string Icon, PaymentMethodType Type)> AllPaymentMethods =
 new()
@@ -1663,6 +1667,8 @@ new()
             var role = authState.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
             isAdmin = role == "Admin";
             userAllowedPaymentMethods = authState.User.FindAll("paymentmethod").Select(c => c.Value).ToList();
+            userDefaultGLAccount = authState.User.FindFirst("defaultglaccount")?.Value;
+            userAllowedPaymentBPs = authState.User.FindAll("paymentbp").Select(c => c.Value).ToList();
         }
         catch (Exception ex)
         {
@@ -1674,8 +1680,15 @@ new()
     {
         try
         {
+            // Start with system-wide defaults
             var glAccount = await AppSettingsService.GetValueAsync(SettingKeys.IncomingPaymentGLAccount);
             defaultGLAccount = glAccount ?? "";
+
+            // Override with user-level G/L account if set
+            if (!string.IsNullOrEmpty(userDefaultGLAccount))
+            {
+                defaultGLAccount = userDefaultGLAccount;
+            }
 
             // Pre-fill GL account fields
             if (!string.IsNullOrEmpty(defaultGLAccount))
@@ -1698,14 +1711,22 @@ new()
                 activePaymentMethod = avail[0];
             }
 
-            var bpJson = await AppSettingsService.GetValueAsync(SettingKeys.AllowedPaymentBusinessPartners);
-            if (!string.IsNullOrWhiteSpace(bpJson) && bpJson != "[]")
+            // Load allowed business partners: user-level overrides system-level
+            if (userAllowedPaymentBPs.Any())
             {
-                try
+                allowedPaymentBPs = new List<string>(userAllowedPaymentBPs);
+            }
+            else
+            {
+                var bpJson = await AppSettingsService.GetValueAsync(SettingKeys.AllowedPaymentBusinessPartners);
+                if (!string.IsNullOrWhiteSpace(bpJson) && bpJson != "[]")
                 {
-                    allowedPaymentBPs = System.Text.Json.JsonSerializer.Deserialize<List<string>>(bpJson) ?? new();
+                    try
+                    {
+                        allowedPaymentBPs = System.Text.Json.JsonSerializer.Deserialize<List<string>>(bpJson) ?? new();
+                    }
+                    catch { allowedPaymentBPs = new(); }
                 }
-                catch { allowedPaymentBPs = new(); }
             }
 
             await InvokeAsync(StateHasChanged);
@@ -1737,7 +1758,7 @@ new()
                 if (allowedPaymentBPs.Any())
                 {
                     allBusinessPartners = allBusinessPartners
-                    .Where(bp => allowedPaymentBPs.Contains(bp.CardCode))
+                    .Where(bp => bp.CardCode is not null && allowedPaymentBPs.Contains(bp.CardCode))
                     .ToList();
                 }
 
@@ -1762,7 +1783,7 @@ new()
                 if (allowedPaymentBPs.Any())
                 {
                     allBusinessPartners = allBusinessPartners
-                    .Where(bp => allowedPaymentBPs.Contains(bp.CardCode))
+                    .Where(bp => bp.CardCode is not null && allowedPaymentBPs.Contains(bp.CardCode))
                     .ToList();
                 }
             }

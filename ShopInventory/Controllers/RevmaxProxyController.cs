@@ -42,7 +42,7 @@ public class RevmaxProxyController(IMediator mediator) : ApiControllerBase
     [HttpPost("license")]
     public async Task<IActionResult> SetLicense([FromBody] SetLicenseRequest request, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new SetLicenseCommand(request.License), cancellationToken);
+        var result = await mediator.Send(new SetLicenseCommand(request.License ?? string.Empty), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

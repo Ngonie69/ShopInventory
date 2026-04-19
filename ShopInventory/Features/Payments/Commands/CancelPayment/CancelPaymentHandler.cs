@@ -8,8 +8,7 @@ namespace ShopInventory.Features.Payments.Commands.CancelPayment;
 
 public sealed class CancelPaymentHandler(
     IPaymentGatewayService paymentService,
-    IAuditService auditService,
-    ILogger<CancelPaymentHandler> logger
+    IAuditService auditService
 ) : IRequestHandler<CancelPaymentCommand, ErrorOr<Success>>
 {
     public async Task<ErrorOr<Success>> Handle(

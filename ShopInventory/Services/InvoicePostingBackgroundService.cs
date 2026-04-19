@@ -1,14 +1,13 @@
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
-using ShopInventory.Data;
 using ShopInventory.DTOs;
-using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Services;
 
 /// <summary>
-/// Background service that processes queued invoices and posts them to SAP in batches
+/// Background service that processes queued invoices — fiscalizes them and stores locally.
+/// Invoices are NOT posted to SAP individually; they are accumulated and posted as a
+/// single consolidated invoice per customer at end-of-day via ConsolidateDailySales.
 /// </summary>
 public class InvoicePostingBackgroundService : BackgroundService
 {
@@ -83,9 +82,7 @@ public class InvoicePostingBackgroundService : BackgroundService
         {
             using var scope = _serviceProvider.CreateScope();
             var queueService = scope.ServiceProvider.GetRequiredService<IInvoiceQueueService>();
-            var sapService = scope.ServiceProvider.GetRequiredService<ISAPServiceLayerClient>();
-            var reservationService = scope.ServiceProvider.GetRequiredService<IStockReservationService>();
-            var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var fiscalizationService = scope.ServiceProvider.GetService<IFiscalizationService>();
 
             // Get next batch of invoices to process
             var pendingInvoices = await queueService.GetNextBatchForProcessingAsync(_batchSize, stoppingToken);
@@ -96,7 +93,7 @@ public class InvoicePostingBackgroundService : BackgroundService
                 return;
             }
 
-            _logger.LogInformation("Processing {Count} queued invoices", pendingInvoices.Count);
+            _logger.LogInformation("Processing {Count} queued invoices for fiscalization", pendingInvoices.Count);
 
             foreach (var queueEntry in pendingInvoices)
             {
@@ -109,8 +106,7 @@ public class InvoicePostingBackgroundService : BackgroundService
                 await ProcessSingleInvoiceAsync(
                     queueEntry,
                     queueService,
-                    sapService,
-                    reservationService,
+                    fiscalizationService,
                     stoppingToken);
             }
         }
@@ -123,8 +119,7 @@ public class InvoicePostingBackgroundService : BackgroundService
     private async Task ProcessSingleInvoiceAsync(
         InvoiceQueueEntity queueEntry,
         IInvoiceQueueService queueService,
-        ISAPServiceLayerClient sapService,
-        IStockReservationService reservationService,
+        IFiscalizationService? fiscalizationService,
         CancellationToken stoppingToken)
     {
         var startTime = DateTime.UtcNow;
@@ -135,7 +130,7 @@ public class InvoicePostingBackgroundService : BackgroundService
             await queueService.MarkAsProcessingAsync(queueEntry.Id, stoppingToken);
 
             _logger.LogInformation(
-                "Processing invoice: ExternalRef={ExternalReference}, QueueId={QueueId}, Attempt={Attempt}",
+                "Fiscalizing invoice: ExternalRef={ExternalReference}, QueueId={QueueId}, Attempt={Attempt}",
                 queueEntry.ExternalReference, queueEntry.Id, queueEntry.RetryCount + 1);
 
             // Deserialize the invoice request
@@ -148,131 +143,59 @@ public class InvoicePostingBackgroundService : BackgroundService
                 throw new InvalidOperationException("Failed to deserialize invoice payload");
             }
 
-            // Get the reservation to ensure stock is still reserved
-            var reservation = await reservationService.GetReservationAsync(
-                queueEntry.ReservationId, stoppingToken);
-
-            if (reservation == null)
-            {
-                throw new InvalidOperationException($"Reservation {queueEntry.ReservationId} not found");
-            }
-
-            if (reservation.Status != ReservationStatus.Pending &&
-                reservation.Status != ReservationStatus.Confirmed)
-            {
-                throw new InvalidOperationException(
-                    $"Reservation {queueEntry.ReservationId} is in status {reservation.Status}, cannot post invoice");
-            }
-
-            // Build SAP invoice document using existing CreateInvoiceRequest
-            var invoiceLines = new List<CreateInvoiceLineRequest>();
-
-            foreach (var line in request.Lines)
-            {
-                var sapLine = new CreateInvoiceLineRequest
-                {
-                    ItemCode = line.ItemCode,
-                    Quantity = line.Quantity,
-                    WarehouseCode = line.WarehouseCode,
-                    UnitPrice = line.UnitPrice,
-                    TaxCode = line.TaxCode,
-                    DiscountPercent = line.DiscountPercent,
-                    UoMCode = line.UoMCode,
-                    AutoAllocateBatches = line.AutoAllocateBatches
-                };
-
-                // Add batch allocations if present
-                if (line.BatchNumbers?.Any() == true)
-                {
-                    sapLine.BatchNumbers = line.BatchNumbers.Select(b => new BatchNumberRequest
-                    {
-                        BatchNumber = b.BatchNumber,
-                        Quantity = b.Quantity
-                    }).ToList();
-                }
-
-                invoiceLines.Add(sapLine);
-            }
-
-            var sapInvoice = new CreateInvoiceRequest
-            {
-                CardCode = queueEntry.CustomerCode,
-                DocDate = DateTime.Now.ToString("yyyy-MM-dd"),
-                DocDueDate = request.DocDueDate?.ToString("yyyy-MM-dd") ?? DateTime.Now.AddDays(30).ToString("yyyy-MM-dd"),
-                Lines = invoiceLines,
-                Comments = $"Desktop Invoice: {queueEntry.ExternalReference}",
-                NumAtCard = queueEntry.ExternalReference,
-                SalesPersonCode = request.SalesPersonCode
-            };
-
-            // Post to SAP
-            _logger.LogDebug("Posting invoice to SAP: {ExternalReference}", queueEntry.ExternalReference);
-
-            var invoice = await sapService.CreateInvoiceAsync(sapInvoice, stoppingToken);
-
-            // Invoice was created successfully (if it fails, an exception is thrown)
-            _logger.LogInformation(
-                "Invoice posted to SAP: ExternalRef={ExternalReference}, DocEntry={DocEntry}, DocNum={DocNum}",
-                queueEntry.ExternalReference, invoice.DocEntry, invoice.DocNum);
-
-            // Handle fiscalization if required
+            // Fiscalize the invoice (if required)
             string? fiscalDeviceNumber = null;
             string? fiscalReceiptNumber = null;
 
             if (queueEntry.RequiresFiscalization)
             {
-                try
+                if (fiscalizationService == null)
                 {
-                    var fiscalResult = await FiscalizeInvoiceAsync(
-                        scope: _serviceProvider.CreateScope(),
-                        docEntry: invoice.DocEntry,
-                        stoppingToken);
-
-                    if (fiscalResult != null && fiscalResult.Success)
-                    {
-                        fiscalDeviceNumber = fiscalResult.DeviceSerial;
-                        fiscalReceiptNumber = fiscalResult.ReceiptGlobalNo;
-                        _logger.LogInformation(
-                            "Invoice fiscalized: {ExternalReference}, Receipt: {Receipt}",
-                            queueEntry.ExternalReference, fiscalReceiptNumber);
-                    }
-                    else
-                    {
-                        _logger.LogWarning(
-                            "Fiscalization failed for {ExternalReference}: {Error}",
-                            queueEntry.ExternalReference, fiscalResult?.Message ?? fiscalResult?.ErrorDetails ?? "Unknown error");
-                    }
-                }
-                catch (Exception fiscalEx)
-                {
-                    _logger.LogWarning(fiscalEx,
-                        "Fiscalization error for {ExternalReference} - invoice posted but not fiscalized",
+                    _logger.LogWarning(
+                        "Fiscalization required but service not available for {ExternalReference}",
                         queueEntry.ExternalReference);
+                    throw new InvalidOperationException("Fiscalization is required but the fiscalization service is not available");
+                }
+
+                var invoiceDto = BuildInvoiceDtoFromPayload(queueEntry, request);
+                var fiscalResult = await fiscalizationService.FiscalizeInvoiceAsync(
+                    invoiceDto,
+                    queueEntry.ExternalReference,
+                    null,
+                    stoppingToken);
+
+                if (fiscalResult.Success)
+                {
+                    fiscalDeviceNumber = fiscalResult.DeviceSerial;
+                    fiscalReceiptNumber = fiscalResult.ReceiptGlobalNo;
+                    _logger.LogInformation(
+                        "Invoice fiscalized: {ExternalReference}, Receipt: {Receipt}",
+                        queueEntry.ExternalReference, fiscalReceiptNumber);
+                }
+                else
+                {
+                    _logger.LogError(
+                        "Fiscalization failed for {ExternalReference}: {Error}",
+                        queueEntry.ExternalReference, fiscalResult.Message ?? fiscalResult.ErrorDetails ?? "Unknown error");
+                    throw new InvalidOperationException(
+                        $"Fiscalization failed: {fiscalResult.Message ?? fiscalResult.ErrorDetails ?? "Unknown error"}");
                 }
             }
 
-            // Update queue entry as completed
+            // Mark as Fiscalized — SAP posting happens at end-of-day via ConsolidateDailySales
             await queueService.UpdateQueueEntryAsync(
                 queueEntry.Id,
-                InvoiceQueueStatus.Completed,
-                invoice.DocEntry.ToString(),
-                invoice.DocNum,
+                InvoiceQueueStatus.Fiscalized,
+                null, // No SAP DocEntry yet
+                null, // No SAP DocNum yet
                 null,
                 fiscalDeviceNumber,
                 fiscalReceiptNumber,
                 stoppingToken);
 
-            // Confirm the reservation (mark as confirmed in our system)
-            // The ConfirmReservationRequest just needs the ID - SAP details are already in queue entry
-            await reservationService.ConfirmReservationAsync(new ConfirmReservationRequest
-            {
-                ReservationId = queueEntry.ReservationId,
-                Fiscalize = false // Already fiscalized above if needed
-            }, stoppingToken);
-
             var duration = DateTime.UtcNow - startTime;
             _logger.LogInformation(
-                "Invoice processing completed: ExternalRef={ExternalReference}, Duration={Duration}ms",
+                "Invoice fiscalized and stored locally: ExternalRef={ExternalReference}, Duration={Duration}ms. Awaiting end-of-day consolidation.",
                 queueEntry.ExternalReference, duration.TotalMilliseconds);
         }
         catch (Exception ex)
@@ -313,58 +236,46 @@ public class InvoicePostingBackgroundService : BackgroundService
         }
     }
 
-    private async Task<FiscalizationResult?> FiscalizeInvoiceAsync(
-        IServiceScope scope,
-        int docEntry,
-        CancellationToken stoppingToken)
+    /// <summary>
+    /// Builds an InvoiceDto from queue entry and deserialized payload data
+    /// for pre-SAP fiscalization.
+    /// </summary>
+    private static InvoiceDto BuildInvoiceDtoFromPayload(
+        InvoiceQueueEntity queueEntry,
+        CreateStockReservationRequest request)
     {
-        try
+        var lines = request.Lines.Select((l, i) => new InvoiceLineDto
         {
-            // Get the invoice from SAP first
-            var sapClient = scope.ServiceProvider.GetRequiredService<ISAPServiceLayerClient>();
-            var fiscalizationService = scope.ServiceProvider.GetService<IFiscalizationService>();
+            LineNum = l.LineNum,
+            ItemCode = l.ItemCode,
+            ItemDescription = l.ItemDescription,
+            Quantity = l.Quantity,
+            UnitPrice = l.UnitPrice,
+            LineTotal = l.Quantity * l.UnitPrice * (1 - l.DiscountPercent / 100m),
+            WarehouseCode = l.WarehouseCode,
+            DiscountPercent = l.DiscountPercent,
+            UoMCode = l.UoMCode
+        }).ToList();
 
-            if (fiscalizationService == null)
-            {
-                _logger.LogDebug("Fiscalization service not available");
-                return null;
-            }
+        var docTotal = lines.Sum(l => l.LineTotal);
 
-            // Get invoice details from SAP for fiscalization
-            var invoice = await sapClient.GetInvoiceByDocEntryAsync(docEntry, stoppingToken);
-            if (invoice == null)
-            {
-                return new FiscalizationResult
-                {
-                    Success = false,
-                    Message = $"Could not retrieve invoice {docEntry} for fiscalization"
-                };
-            }
+        // Approximate VAT sum (15.5% VAT-exclusive on line totals)
+        // REVMax recalculates from per-item TAXR, this is for the header summary
+        var vatSum = docTotal * 0.155m;
 
-            // Convert to InvoiceDto for fiscalization service
-            var invoiceDto = new InvoiceDto
-            {
-                DocEntry = invoice.DocEntry,
-                DocNum = invoice.DocNum,
-                CardCode = invoice.CardCode ?? "",
-                CardName = invoice.CardName ?? "",
-                DocDate = invoice.DocDate ?? DateTime.Now.ToString("yyyy-MM-dd"),
-                DocTotal = invoice.DocTotal,
-                VatSum = invoice.VatSum,
-                DocCurrency = invoice.DocCurrency ?? "USD"
-            };
-
-            return await fiscalizationService.FiscalizeInvoiceAsync(invoiceDto, null, stoppingToken);
-        }
-        catch (Exception ex)
+        return new InvoiceDto
         {
-            _logger.LogWarning(ex, "Fiscalization failed for DocEntry {DocEntry}", docEntry);
-            return new FiscalizationResult
-            {
-                Success = false,
-                Message = ex.Message
-            };
-        }
+            DocEntry = 0,
+            DocNum = 0,
+            CardCode = request.CardCode,
+            CardName = request.CardName,
+            DocDate = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+            DocCurrency = request.Currency ?? queueEntry.Currency,
+            DocTotal = docTotal,
+            VatSum = vatSum,
+            Comments = request.Notes,
+            Lines = lines
+        };
     }
 
     private static bool IsRetryableError(Exception ex)

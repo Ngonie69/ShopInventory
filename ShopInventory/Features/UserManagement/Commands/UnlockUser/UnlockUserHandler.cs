@@ -8,8 +8,7 @@ namespace ShopInventory.Features.UserManagement.Commands.UnlockUser;
 
 public sealed class UnlockUserHandler(
     IUserManagementService userManagementService,
-    IAuditService auditService,
-    ILogger<UnlockUserHandler> logger
+    IAuditService auditService
 ) : IRequestHandler<UnlockUserCommand, ErrorOr<Success>>
 {
     public async Task<ErrorOr<Success>> Handle(

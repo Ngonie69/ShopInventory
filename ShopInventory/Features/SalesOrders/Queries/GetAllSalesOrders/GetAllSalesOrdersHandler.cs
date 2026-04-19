@@ -15,7 +15,7 @@ public sealed class GetAllSalesOrdersHandler(
     {
         var result = await salesOrderService.GetAllAsync(
             request.Page, request.PageSize, request.Status, request.CardCode,
-            request.FromDate, request.ToDate, request.Source, cancellationToken);
+            request.FromDate, request.ToDate, request.Source, request.Search, cancellationToken);
         return result;
     }
 }

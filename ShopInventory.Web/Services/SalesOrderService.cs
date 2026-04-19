@@ -5,7 +5,7 @@ namespace ShopInventory.Web.Services;
 
 public interface ISalesOrderService
 {
-    Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20, SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null);
+    Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20, SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null, string? search = null);
     Task<SalesOrderDto?> GetSalesOrderByIdAsync(int id);
     Task<SalesOrderDto?> GetSalesOrderByNumberAsync(string orderNumber);
     Task<SalesOrderDto?> CreateSalesOrderAsync(CreateSalesOrderRequest request);
@@ -29,7 +29,7 @@ public class SalesOrderService : ISalesOrderService
     }
 
     public async Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20,
-        SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null)
+        SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null, string? search = null)
     {
         try
         {
@@ -45,6 +45,8 @@ public class SalesOrderService : ISalesOrderService
                 queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
             if (source.HasValue)
                 queryParams.Add($"source={(int)source.Value}");
+            if (!string.IsNullOrEmpty(search))
+                queryParams.Add($"search={Uri.EscapeDataString(search)}");
 
             var url = $"api/salesorder?{string.Join("&", queryParams)}";
             _logger.LogInformation("Fetching sales orders from API: {Url}", url);

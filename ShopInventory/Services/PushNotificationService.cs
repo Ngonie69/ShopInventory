@@ -99,7 +99,9 @@ public class PushNotificationService : IPushNotificationService
                 {
                     options = new AppOptions
                     {
+#pragma warning disable CS0618 // GoogleCredential.FromFile deprecated — migrate to CredentialFactory when Firebase SDK is updated
                         Credential = GoogleCredential.FromFile(_settings.ServiceAccountKeyPath),
+#pragma warning restore CS0618
                         ProjectId = _settings.ProjectId
                     };
                 }

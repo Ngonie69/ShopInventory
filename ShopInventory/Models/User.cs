@@ -214,6 +214,37 @@ public class User
     }
 
     /// <summary>
+    /// Default G/L account code for incoming payments (e.g. "11000").
+    /// If null/empty, the user inherits the system-wide default from AppSettings.
+    /// </summary>
+    [MaxLength(50)]
+    public string? DefaultGLAccount { get; set; }
+
+    /// <summary>
+    /// JSON array of allowed business partner codes for incoming payments (e.g. ["ABS006","ABS008"]).
+    /// If null/empty, the user inherits the system-wide allowed list from AppSettings.
+    /// </summary>
+    public string? AllowedPaymentBusinessPartners { get; set; }
+
+    /// <summary>
+    /// Deserialize allowed payment business partners from JSON.
+    /// </summary>
+    public List<string> GetAllowedPaymentBusinessPartners()
+    {
+        if (string.IsNullOrEmpty(AllowedPaymentBusinessPartners)) return new();
+        try { return JsonSerializer.Deserialize<List<string>>(AllowedPaymentBusinessPartners) ?? new(); }
+        catch { return new(); }
+    }
+
+    /// <summary>
+    /// Serialize allowed payment business partners to JSON.
+    /// </summary>
+    public void SetAllowedPaymentBusinessPartners(List<string>? codes)
+    {
+        AllowedPaymentBusinessPartners = codes == null || codes.Count == 0 ? null : JsonSerializer.Serialize(codes);
+    }
+
+    /// <summary>
     /// Navigation property for refresh tokens
     /// </summary>
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();

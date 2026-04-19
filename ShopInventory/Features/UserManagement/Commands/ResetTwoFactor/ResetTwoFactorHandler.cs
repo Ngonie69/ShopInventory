@@ -8,8 +8,7 @@ namespace ShopInventory.Features.UserManagement.Commands.ResetTwoFactor;
 
 public sealed class ResetTwoFactorHandler(
     IUserManagementService userManagementService,
-    IAuditService auditService,
-    ILogger<ResetTwoFactorHandler> logger
+    IAuditService auditService
 ) : IRequestHandler<ResetTwoFactorCommand, ErrorOr<Success>>
 {
     public async Task<ErrorOr<Success>> Handle(

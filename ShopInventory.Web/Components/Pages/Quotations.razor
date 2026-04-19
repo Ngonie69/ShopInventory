@@ -326,26 +326,26 @@
                         <MudTd DataLabel="Actions">
                             <MudStack Row="true" Spacing="1">
                                 <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small"
-                                               Variant="Variant.Outlined" Color="Color.Primary" Title="View Details"
+                                               Variant="Variant.Outlined" Color="Color.Primary" aria-label="View Details"
                                                OnClick="() => ViewQuotation(context)" />
                                 @if ((context.Status == QuotationStatus.Approved || context.Status == QuotationStatus.Accepted) && context.SalesOrderId == null)
                                 {
                                     <MudIconButton
                                         Icon="@(convertingQuotationId == context.Id ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.ShoppingCartCheckout)"
                                         Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
-                                        Title="Convert to Sales Order" Disabled="@(convertingQuotationId == context.Id)"
+                                        aria-label="Convert to Sales Order" Disabled="@(convertingQuotationId == context.Id)"
                                         OnClick="() => ConvertToSalesOrder(context)" />
                                 }
                                 @if (context.Status == QuotationStatus.Draft || context.Status == QuotationStatus.Pending)
                                 {
                                     <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small"
-                                                   Variant="Variant.Outlined" Color="Color.Success" Title="Approve"
+                                                   Variant="Variant.Outlined" Color="Color.Success" aria-label="Approve"
                                                    OnClick="() => ApproveQuotation(context.Id)" />
                                 }
                                 @if (context.Status == QuotationStatus.Draft || context.Status == QuotationStatus.Cancelled)
                                 {
                                     <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
-                                                   Variant="Variant.Outlined" Color="Color.Error" Title="Delete"
+                                                   Variant="Variant.Outlined" Color="Color.Error" aria-label="Delete"
                                                    OnClick="() => DeleteQuotation(context.Id)" />
                                 }
                             </MudStack>
@@ -704,7 +704,7 @@
 }
 
 @code {
-    private MudTable<QuotationDto>? _table;
+    private MudTable<QuotationDto> _table = null!;
     private int _pageSize = 10;
     private List<QuotationDto>? quotations;
     private QuotationDto? selectedQuotation;

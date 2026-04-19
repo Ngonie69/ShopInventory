@@ -4,9 +4,13 @@
 @attribute [Authorize(Roles = "Admin,Cashier")]
 @inject IDesktopIntegrationService DesktopService
 @inject IMasterDataCacheService MasterDataCache
+@inject IReportExportService ExportService
+@inject INotificationHubService HubService
+@inject IJSRuntime JS
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject IAuditService AuditService
+@implements IDisposable
 @rendermode InteractiveServer
 
 <PageTitle>Desktop Sales - Shop Inventory</PageTitle>
@@ -436,6 +440,35 @@
     .empty-state p { color: #6b7280; font-size: .85rem; }
     .alert-banner { padding: .75rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: .85rem; }
     .error-alert { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+
+    /* ── Live Indicator ──────────────────────────────── */
+    .live-badge { display: inline-flex; align-items: center; gap: .35rem; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: #059669; }
+    .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #059669; animation: ds-pulse 1.5s infinite; }
+    @@keyframes ds-pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+    /* ── Mobile Responsive ───────────────────────────── */
+    @@media (max-width: 768px) {
+        .ds-page { padding: .75rem; }
+        .ds-header { flex-direction: column; }
+        .ds-header-actions { width: 100%; justify-content: stretch; }
+        .ds-header-actions button { flex: 1; }
+        .stat-row { grid-template-columns: repeat(2, 1fr); }
+        .filter-bar { flex-direction: column; }
+        .filter-field { width: 100%; }
+        .filter-field select,
+        .filter-field input { width: 100%; min-width: unset; }
+        .filter-actions-row { width: 100%; }
+        .filter-actions-row button { flex: 1; }
+        .ds-table { font-size: .78rem; }
+        .ds-table th, .ds-table td { padding: .4rem .5rem; }
+        .ds-drawer { width: 100% !important; }
+    }
+
+    @@media (max-width: 480px) {
+        .stat-row { grid-template-columns: 1fr; }
+        .ds-header-icon { width: 40px; height: 40px; font-size: 1.1rem; }
+        .ds-header h2 { font-size: 1.3rem; }
+    }
 </style>
 
 <div class="ds-page">
@@ -461,6 +494,17 @@
                     }
                     Consolidate
                 </button>
+                <button class="btn-ds-outline" @onclick="ExportToExcel" disabled="@(isExporting || !sales.Any())">
+                    @if (isExporting)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-file-earmark-excel"></i>
+                    }
+                    Export
+                </button>
                 <button class="btn-ds-outline" @onclick="RefreshData" disabled="@isLoading">
                     @if (isLoading)
                     {
@@ -472,6 +516,10 @@
                     }
                     Refresh
                 </button>
+                @if (HubService.IsConnected)
+                {
+                    <span class="live-badge"><span class="live-dot"></span> LIVE</span>
+                }
             </div>
         </div>
 
@@ -740,6 +788,7 @@
 
     private bool isLoading = false;
     private bool isConsolidating = false;
+    private bool isExporting = false;
     private string? errorMessage;
 
     // Filters
@@ -766,6 +815,30 @@
 
         await LoadData();
         await AuditService.LogAsync(AuditActions.ViewDesktopTransactions, "DesktopSale", null);
+
+        // Subscribe to real-time events
+        HubService.OnDesktopSaleCreated += OnSaleCreated;
+        HubService.OnConsolidationCompleted += OnConsolidationDone;
+    }
+
+    private async void OnSaleCreated()
+    {
+        await InvokeAsync(async () =>
+        {
+            Snackbar.Add("New desktop sale received", Severity.Info);
+            await LoadData();
+            StateHasChanged();
+        });
+    }
+
+    private async void OnConsolidationDone()
+    {
+        await InvokeAsync(async () =>
+        {
+            Snackbar.Add("Consolidation completed — data refreshed", Severity.Success);
+            await LoadData();
+            StateHasChanged();
+        });
     }
 
     private async Task LoadData()
@@ -904,4 +977,32 @@
         "excluded" => "status-excluded",
         _ => "status-pending"
     };
+
+    private async Task ExportToExcel()
+    {
+        if (!sales.Any()) return;
+        isExporting = true;
+        StateHasChanged();
+        try
+        {
+            var bytes = ExportService.ExportDesktopSalesToExcel(sales, report, filterFromDate, filterToDate);
+            var base64 = Convert.ToBase64String(bytes);
+            await JS.InvokeVoidAsync("downloadFile", $"Desktop_Sales_{DateTime.Now:yyyyMMdd_HHmm}.xlsx", base64);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Export failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isExporting = false;
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose()
+    {
+        HubService.OnDesktopSaleCreated -= OnSaleCreated;
+        HubService.OnConsolidationCompleted -= OnConsolidationDone;
+    }
 }

@@ -949,7 +949,7 @@
     private DateTime? fromDate;
     private DateTime? toDate;
 
-    private MudTable<IncomingPaymentDto>? _paymentsTable;
+    private MudTable<IncomingPaymentDto> _paymentsTable = null!;
     private string _searchString = string.Empty;
 
     private bool PaymentQuickFilter(IncomingPaymentDto p)

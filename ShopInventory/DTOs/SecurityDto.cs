@@ -237,6 +237,14 @@ public class UserDetailDto
     /// Empty means system default. Admin users always get all methods.
     /// </summary>
     public List<string> AllowedPaymentMethods { get; set; } = new();
+    /// <summary>
+    /// Default G/L account code for incoming payments. Empty means system default.
+    /// </summary>
+    public string? DefaultGLAccount { get; set; }
+    /// <summary>
+    /// Allowed business partner codes for incoming payments. Empty means system default.
+    /// </summary>
+    public List<string> AllowedPaymentBusinessPartners { get; set; } = new();
     public List<string> AssignedCustomerCodes { get; set; } = new();
     public string? AssignedSection { get; set; }
     public DateTime CreatedAt { get; set; }
@@ -286,6 +294,16 @@ public class CreateUserDetailRequest
     public List<string>? AllowedPaymentMethods { get; set; }
 
     /// <summary>
+    /// Default G/L account code for incoming payments (for Cashier/DepotController roles)
+    /// </summary>
+    public string? DefaultGLAccount { get; set; }
+
+    /// <summary>
+    /// Allowed business partner codes for incoming payments (for Cashier/DepotController roles)
+    /// </summary>
+    public List<string>? AllowedPaymentBusinessPartners { get; set; }
+
+    /// <summary>
     /// Assigned section for Driver role (e.g. Cheeseman, Factory, Graniteside, Machipisa, Bulawayo)
     /// </summary>
     public string? AssignedSection { get; set; }
@@ -333,6 +351,16 @@ public class UpdateUserDetailRequest
     /// Allowed payment methods (e.g. ["cash","transfer","check","credit"])
     /// </summary>
     public List<string>? AllowedPaymentMethods { get; set; }
+
+    /// <summary>
+    /// Default G/L account code for incoming payments (for Cashier/DepotController roles)
+    /// </summary>
+    public string? DefaultGLAccount { get; set; }
+
+    /// <summary>
+    /// Allowed business partner codes for incoming payments (for Cashier/DepotController roles)
+    /// </summary>
+    public List<string>? AllowedPaymentBusinessPartners { get; set; }
 
     /// <summary>
     /// Assigned section for Driver role (e.g. Cheeseman, Factory, Graniteside, Machipisa, Bulawayo)

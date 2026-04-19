@@ -543,14 +543,14 @@ namespace ShopInventory.Migrations
                     b.Property<decimal>("OriginalQuantity")
                         .HasColumnType("decimal(18,6)");
 
-                    b.Property<byte[]>("RowVersion")
-                        .IsConcurrencyToken()
-                        .IsRequired()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("bytea");
-
                     b.Property<int>("SnapshotId")
                         .HasColumnType("integer");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.Property<string>("WarehouseCode")
                         .IsRequired()
@@ -4051,6 +4051,9 @@ namespace ShopInventory.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AllowedPaymentBusinessPartners")
+                        .HasColumnType("text");
+
                     b.Property<string>("AllowedPaymentMethods")
                         .HasColumnType("text");
 
@@ -4067,6 +4070,10 @@ namespace ShopInventory.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DefaultGLAccount")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<string>("Email")
                         .HasMaxLength(255)

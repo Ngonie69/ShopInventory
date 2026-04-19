@@ -712,12 +712,12 @@
                         <MudTd DataLabel="Actions">
                             <MudStack Row="true" Spacing="1">
                                 <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small"
-                                               Variant="Variant.Outlined" Color="Color.Primary" Title="View Details"
+                                               Variant="Variant.Outlined" Color="Color.Primary" title="View Details"
                                                OnClick="() => ViewOrder(context)" />
                                 @if ((context.Status == SalesOrderStatus.Draft || context.Status == SalesOrderStatus.Pending) && !context.IsSynced)
                                 {
                                     <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
-                                                   Variant="Variant.Outlined" Color="Color.Warning" Title="Edit"
+                                                   Variant="Variant.Outlined" Color="Color.Warning" title="Edit"
                                                    OnClick="() => NavigateToEdit(context.Id)" />
                                 }
                                 <AuthorizeView Roles="Admin,Cashier" Context="invoiceAccess">
@@ -727,7 +727,7 @@
                                             <MudIconButton
                                                 Icon="@(convertingOrderId == context.Id ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Receipt)"
                                                 Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
-                                                Title="Convert to Invoice" Disabled="@(convertingOrderId == context.Id)"
+                                                title="Convert to Invoice" Disabled="@(convertingOrderId == context.Id)"
                                                 OnClick="() => ConvertToInvoice(context)" />
                                         }
                                     </Authorized>
@@ -739,7 +739,7 @@
                                             @if (context.Status == SalesOrderStatus.Draft || context.Status == SalesOrderStatus.Pending)
                                             {
                                                 <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small"
-                                                               Variant="Variant.Outlined" Color="Color.Success" Title="Approve"
+                                                               Variant="Variant.Outlined" Color="Color.Success" title="Approve"
                                                                OnClick="() => ApproveOrder(context.Id)" />
                                             }
                                         </Authorized>
@@ -747,7 +747,7 @@
                                     @if (context.Status == SalesOrderStatus.Draft || context.Status == SalesOrderStatus.Cancelled)
                                     {
                                         <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
-                                                       Variant="Variant.Outlined" Color="Color.Error" Title="Delete"
+                                                       Variant="Variant.Outlined" Color="Color.Error" title="Delete"
                                                        OnClick="() => DeleteOrder(context.Id)" />
                                     }
                                 }
@@ -948,7 +948,7 @@
 }
 
 @code {
-    private MudTable<SalesOrderDto>? _table;
+    private MudTable<SalesOrderDto> _table = null!;
     private int _pageSize = 10;
     private List<SalesOrderDto>? orders;
     private SalesOrderDto? selectedOrder;

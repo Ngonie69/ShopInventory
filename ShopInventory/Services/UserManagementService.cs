@@ -231,6 +231,12 @@ public class UserManagementService : IUserManagementService
         if (request.AllowedPaymentMethods != null && request.AllowedPaymentMethods.Count > 0)
             user.SetAllowedPaymentMethods(request.AllowedPaymentMethods);
 
+        if (!string.IsNullOrWhiteSpace(request.DefaultGLAccount))
+            user.DefaultGLAccount = request.DefaultGLAccount;
+
+        if (request.AllowedPaymentBusinessPartners != null && request.AllowedPaymentBusinessPartners.Count > 0)
+            user.SetAllowedPaymentBusinessPartners(request.AllowedPaymentBusinessPartners);
+
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
         InvalidateEffectivePermissionsCache(user.Id);
@@ -309,6 +315,19 @@ public class UserManagementService : IUserManagementService
         {
             user.SetAllowedPaymentMethods(request.AllowedPaymentMethods);
         }
+
+        // Update default GL account
+        if (request.DefaultGLAccount != null)
+        {
+            user.DefaultGLAccount = string.IsNullOrWhiteSpace(request.DefaultGLAccount) ? null : request.DefaultGLAccount;
+        }
+
+        // Update allowed payment business partners
+        if (request.AllowedPaymentBusinessPartners != null)
+        {
+            user.SetAllowedPaymentBusinessPartners(request.AllowedPaymentBusinessPartners);
+        }
+
         // Validate warehouses are set for warehouse-dependent roles
         if ((user.Role == "StockController" || user.Role == "DepotController") && user.GetWarehouseCodes().Count == 0)
         {
@@ -626,6 +645,8 @@ public class UserManagementService : IUserManagementService
             Permissions = permissions,
             AssignedWarehouseCodes = user.GetWarehouseCodes(),
             AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
+            DefaultGLAccount = user.DefaultGLAccount,
+            AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = user.GetCustomerCodes(),
             CreatedAt = user.CreatedAt,

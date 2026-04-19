@@ -449,6 +449,16 @@
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
+            <AuthorizeView Roles="Admin,Manager" Context="fiscalReportCtx">
+                <Authorized>
+                    <NavLink class="snav-link sub-link" href="/fiscalized-sales-report" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Receipt" />
+                        </span>
+                        <span class="snav-text">Fiscalized Sales</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
 
             <AuthorizeView Roles="Admin,Manager,Merchandiser" Context="timesheetsAdminCtx">
                 <Authorized>
@@ -603,12 +613,6 @@
                             <MudIcon Icon="@Icons.Material.Filled.PointOfSale" />
                         </span>
                         <span class="snav-text">Desktop Sales</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/local-stock" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Inventory" />
-                        </span>
-                        <span class="snav-text">Local Stock</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/desktop-transactions" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">

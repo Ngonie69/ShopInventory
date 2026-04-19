@@ -1525,8 +1525,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                     var batch = new BatchNumber
                     {
                         ItemCode = item.TryGetProperty("ItemCode", out var ic) ? ic.GetString() : null,
+                        ItemName = item.TryGetProperty("ItemName", out var iname) ? iname.GetString() : null,
                         BatchNum = item.TryGetProperty("BatchNum", out var bn) ? bn.GetString() : null,
-                        Quantity = item.TryGetProperty("Quantity", out var qty) ? qty.GetDecimal() : 0,
+                        Quantity = item.TryGetProperty("InStock", out var inStk) ? inStk.GetDecimal()
+                                 : item.TryGetProperty("Quantity", out var qty) ? qty.GetDecimal() : 0,
                         Warehouse = warehouseCode,
                         ExpiryDate = item.TryGetProperty("ExpDate", out var exp) ? exp.GetString() : null,
                         ManufacturingDate = item.TryGetProperty("MnfDate", out var mnf) ? mnf.GetString() : null,
@@ -1558,9 +1560,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         // SQL query to get all batch numbers in a warehouse
         var safeWarehouse = SanitizeSqlValue(warehouseCode);
-        var sqlText = $"SELECT T0.\"ItemCode\", T0.\"DistNumber\" as \"BatchNum\", T1.\"Quantity\", T1.\"WhsCode\", " +
+        var sqlText = $"SELECT T0.\"ItemCode\", T2.\"ItemName\", T0.\"DistNumber\" as \"BatchNum\", T1.\"Quantity\" as \"InStock\", T1.\"WhsCode\", " +
                       $"T0.\"ExpDate\", T0.\"MnfDate\", T0.\"InDate\", T0.\"Notes\" " +
                       $"FROM OBTN T0 INNER JOIN OBTQ T1 ON T0.\"AbsEntry\" = T1.\"MdAbsEntry\" " +
+                      $"INNER JOIN OITM T2 ON T0.\"ItemCode\" = T2.\"ItemCode\" " +
                       $"WHERE T1.\"WhsCode\" = '{safeWarehouse}' AND T1.\"Quantity\" > 0 " +
                       $"ORDER BY T0.\"ItemCode\", T0.\"DistNumber\"";
 
@@ -7343,7 +7346,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                         BaseEntry = request.OriginalInvoiceDocEntry, // Link to original invoice
                         BaseLine = line.OriginalInvoiceLineId ?? index, // Line from original invoice
                         BaseType = 13, // 13 = A/R Invoice
-                        BatchNumbers = hasBatches ? batches.Select(b => new
+                        BatchNumbers = hasBatches ? batches!.Select(b => new
                         {
                             BatchNumber = b.BatchNumber,
                             Quantity = b.Quantity

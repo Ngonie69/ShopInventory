@@ -55,7 +55,13 @@ using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
 using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
+using ShopInventory.Features.DesktopIntegration.Queries.GetFiscalizedSalesReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
+using ShopInventory.Features.DesktopIntegration.Queries.GetMonitoredWarehouses;
+using ShopInventory.Features.Prices.Queries.GetPricesByPriceList;
+using ShopInventory.Features.Prices.Queries.GetPriceLists;
+using ShopInventory.Features.Prices.Queries.GetItemPriceFromList;
+using ShopInventory.Features.Prices.Queries.GetPricesByBusinessPartner;
 using ShopInventory.Services;
 using System.Security.Claims;
 
@@ -63,7 +69,7 @@ namespace ShopInventory.Controllers;
 
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
-public class DesktopIntegrationController(IMediator mediator) : ApiControllerBase
+public class DesktopIntegrationController(IMediator mediator, IServiceScopeFactory scopeFactory) : ApiControllerBase
 {
     private string? GetUserId() =>
         User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("client_id")?.Value;
@@ -255,6 +261,28 @@ public class DesktopIntegrationController(IMediator mediator) : ApiControllerBas
     public async Task<IActionResult> GetQueueStats(CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetQueueStatsQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Detailed report of all fiscalized sales. Supports daily, weekly, monthly, and custom date ranges.
+    /// </summary>
+    [HttpGet("reports/fiscalized-sales")]
+    public async Task<IActionResult> GetFiscalizedSalesReport(
+        [FromQuery] ReportPeriod period = ReportPeriod.Daily,
+        [FromQuery] DateTime? date = null,
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] string? cardCode = null,
+        [FromQuery] string? warehouseCode = null,
+        [FromQuery] bool? isConsolidated = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(new GetFiscalizedSalesReportQuery(
+            period, date, fromDate, toDate, cardCode, warehouseCode, isConsolidated, page, pageSize),
+            cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
@@ -566,16 +594,40 @@ public class DesktopIntegrationController(IMediator mediator) : ApiControllerBas
     #region Daily Stock & Desktop Sales
 
     /// <summary>
+    /// Get the list of monitored warehouses configured for daily stock snapshots.
+    /// </summary>
+    [HttpGet("stock/monitored-warehouses")]
+    public async Task<IActionResult> GetMonitoredWarehouses(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetMonitoredWarehousesQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
     /// Manually trigger daily stock snapshot fetch from SAP.
+    /// Runs in background — returns 202 Accepted immediately.
     /// </summary>
     [HttpPost("stock/fetch-daily")]
-    public async Task<IActionResult> FetchDailyStock(
-        [FromBody] FetchDailyStockCommand? command,
-        CancellationToken cancellationToken)
+    public IActionResult FetchDailyStock([FromBody] FetchDailyStockCommand? command)
     {
         var cmd = command ?? new FetchDailyStockCommand();
-        var result = await mediator.Send(cmd, cancellationToken);
-        return result.Match(value => Ok(value), errors => Problem(errors));
+
+        _ = Task.Run(async () =>
+        {
+            using var scope = scopeFactory.CreateScope();
+            var scopedMediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+            try
+            {
+                await scopedMediator.Send(cmd, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                var logger = scope.ServiceProvider.GetRequiredService<ILogger<DesktopIntegrationController>>();
+                logger.LogError(ex, "Background stock fetch failed");
+            }
+        });
+
+        return Accepted(new { Message = "Stock fetch started", StartedAt = DateTime.UtcNow });
     }
 
     /// <summary>
@@ -672,6 +724,61 @@ public class DesktopIntegrationController(IMediator mediator) : ApiControllerBas
         CancellationToken cancellationToken)
     {
         var result = await mediator.Send(command, cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    #endregion
+
+    #region Prices
+
+    /// <summary>
+    /// Get available price lists from SAP.
+    /// </summary>
+    [HttpGet("prices/pricelists")]
+    public async Task<IActionResult> GetPriceLists(
+        [FromQuery] bool forceRefresh = false,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(new GetPriceListsQuery(forceRefresh), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Get all item prices for a given price list number.
+    /// Uses 15-minute cache — set forceRefresh=true to bypass.
+    /// </summary>
+    [HttpGet("prices/pricelists/{priceListNum:int}")]
+    public async Task<IActionResult> GetPricesByPriceList(
+        int priceListNum,
+        [FromQuery] bool forceRefresh = false,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(new GetPricesByPriceListQuery(priceListNum, forceRefresh), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Get the price for a single item from a specific price list.
+    /// </summary>
+    [HttpGet("prices/pricelists/{priceListNum:int}/items/{itemCode}")]
+    public async Task<IActionResult> GetItemPriceFromList(
+        int priceListNum,
+        string itemCode,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(new GetItemPriceFromListQuery(priceListNum, itemCode), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Get item prices for a business partner — uses BP's default price list with special price overrides.
+    /// </summary>
+    [HttpGet("prices/business-partner/{cardCode}")]
+    public async Task<IActionResult> GetPricesByBusinessPartner(
+        string cardCode,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(new GetPricesByBusinessPartnerQuery(cardCode, false), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

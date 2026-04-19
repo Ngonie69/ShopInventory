@@ -93,6 +93,22 @@ public interface IInvoiceQueueService
     /// Mark an invoice as processing
     /// </summary>
     Task MarkAsProcessingAsync(int queueId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Get all fiscalized invoices ready for end-of-day consolidation
+    /// </summary>
+    Task<List<InvoiceQueueEntity>> GetFiscalizedInvoicesAsync(
+        DateTime? date = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Mark fiscalized invoices as completed after consolidation posts to SAP
+    /// </summary>
+    Task MarkAsConsolidatedAsync(
+        IEnumerable<int> queueIds,
+        string sapDocEntry,
+        int sapDocNum,
+        CancellationToken cancellationToken = default);
 }
 
 public class InvoiceQueueService : IInvoiceQueueService
@@ -314,6 +330,7 @@ public class InvoiceQueueService : IInvoiceQueueService
                 Failed = g.Count(q => q.Status == InvoiceQueueStatus.Failed),
                 RequiresReview = g.Count(q => q.Status == InvoiceQueueStatus.RequiresReview),
                 Cancelled = g.Count(q => q.Status == InvoiceQueueStatus.Cancelled),
+                Fiscalized = g.Count(q => q.Status == InvoiceQueueStatus.Fiscalized),
                 OldestPendingAge = g.Where(q => q.Status == InvoiceQueueStatus.Pending)
                                     .Min(q => (DateTime?)q.CreatedAt),
                 TotalAmountPending = g.Where(q => q.Status == InvoiceQueueStatus.Pending)
@@ -355,6 +372,46 @@ public class InvoiceQueueService : IInvoiceQueueService
         }
     }
 
+    public async Task<List<InvoiceQueueEntity>> GetFiscalizedInvoicesAsync(
+        DateTime? date = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.InvoiceQueue
+            .Where(q => q.Status == InvoiceQueueStatus.Fiscalized);
+
+        if (date.HasValue)
+        {
+            var startOfDay = date.Value.Date;
+            var endOfDay = startOfDay.AddDays(1);
+            query = query.Where(q => q.CreatedAt >= startOfDay && q.CreatedAt < endOfDay);
+        }
+
+        return await query
+            .OrderBy(q => q.CreatedAt)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task MarkAsConsolidatedAsync(
+        IEnumerable<int> queueIds,
+        string sapDocEntry,
+        int sapDocNum,
+        CancellationToken cancellationToken = default)
+    {
+        var entries = await _context.InvoiceQueue
+            .Where(q => queueIds.Contains(q.Id))
+            .ToListAsync(cancellationToken);
+
+        foreach (var entry in entries)
+        {
+            entry.Status = InvoiceQueueStatus.Completed;
+            entry.SapDocEntry = sapDocEntry;
+            entry.SapDocNum = sapDocNum;
+            entry.ProcessedAt = DateTime.UtcNow;
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task UpdateQueueEntryAsync(
         int queueId,
         InvoiceQueueStatus status,
@@ -370,7 +427,8 @@ public class InvoiceQueueService : IInvoiceQueueService
 
         entry.Status = status;
 
-        if (status == InvoiceQueueStatus.Completed || status == InvoiceQueueStatus.RequiresReview)
+        if (status == InvoiceQueueStatus.Completed || status == InvoiceQueueStatus.RequiresReview ||
+            status == InvoiceQueueStatus.Fiscalized)
         {
             entry.ProcessedAt = DateTime.UtcNow;
         }
@@ -506,6 +564,7 @@ public class InvoiceQueueStatsDto
     public int Failed { get; set; }
     public int RequiresReview { get; set; }
     public int Cancelled { get; set; }
+    public int Fiscalized { get; set; }
     public DateTime? OldestPendingAge { get; set; }
     public decimal TotalAmountPending { get; set; }
     public double AverageWaitTimeSeconds { get; set; }

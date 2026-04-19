@@ -26,6 +26,21 @@ public interface IFiscalizationService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Fiscalizes an invoice using a custom invoice number (e.g., for pre-SAP fiscalization
+    /// where a SAP DocNum is not yet available).
+    /// </summary>
+    /// <param name="invoice">The invoice data to fiscalize</param>
+    /// <param name="invoiceNumber">Custom invoice number to use with REVMax</param>
+    /// <param name="customerDetails">Optional customer details for fiscalization</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Fiscalization result with QR code and fiscal details</returns>
+    Task<FiscalizationResult> FiscalizeInvoiceAsync(
+        InvoiceDto invoice,
+        string invoiceNumber,
+        CustomerFiscalDetails? customerDetails = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Fiscalizes a credit note that has been successfully posted to SAP.
     /// Requires the original invoice to be already fiscalized.
     /// </summary>
@@ -108,7 +123,7 @@ public class FiscalizationService : IFiscalizationService
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public async Task<FiscalizationResult> FiscalizeInvoiceAsync(
+    public Task<FiscalizationResult> FiscalizeInvoiceAsync(
         InvoiceDto invoice,
         CustomerFiscalDetails? customerDetails = null,
         CancellationToken cancellationToken = default)
@@ -118,7 +133,24 @@ public class FiscalizationService : IFiscalizationService
             throw new ArgumentNullException(nameof(invoice));
         }
 
-        var invoiceNumber = invoice.DocNum.ToString();
+        return FiscalizeInvoiceAsync(invoice, invoice.DocNum.ToString(), customerDetails, cancellationToken);
+    }
+
+    public async Task<FiscalizationResult> FiscalizeInvoiceAsync(
+        InvoiceDto invoice,
+        string invoiceNumber,
+        CustomerFiscalDetails? customerDetails = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (invoice == null)
+        {
+            throw new ArgumentNullException(nameof(invoice));
+        }
+
+        if (string.IsNullOrWhiteSpace(invoiceNumber))
+        {
+            throw new ArgumentException("Invoice number is required", nameof(invoiceNumber));
+        }
 
         try
         {
@@ -144,6 +176,7 @@ public class FiscalizationService : IFiscalizationService
 
             // Build the TransactM request
             var request = BuildTransactMRequest(invoice, customerDetails);
+            request.InvoiceNumber = invoiceNumber;
 
             // Post to REVMax
             var response = await _revmaxClient.TransactMAsync(request, cancellationToken);

@@ -12,6 +12,7 @@
 @inject ILogger<SalesOrders> Logger
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
+@inject AuthenticationStateProvider AuthStateProvider
 @rendermode InteractiveServer
 
 <PageTitle>Sales Orders - Shop Inventory</PageTitle>
@@ -951,7 +952,7 @@
                     <div class="stat-icon fulfilled"><i class="bi bi-truck"></i></div>
                     <div class="stat-info">
                         <div class="stat-value">@orders.Count(o => o.Status == SalesOrderStatus.Fulfilled || o.Status ==
-                                                                                                                                                                                                                                                        SalesOrderStatus.Invoiced)</div>
+                                                                                                                                                                                                                                                                                                                                            SalesOrderStatus.Invoiced)</div>
                             <div class="stat-label">Fulfilled</div>
                         </div>
                     </div>
@@ -1031,9 +1032,9 @@
                         <RowTemplate>
                             <MudTd DataLabel="Doc Entry"><span
                                 style="font-size:.85rem;color:#6b7280;">@(context.SAPDocEntry?.ToString() ??
-                                                                                                                            context.Id.ToString())</span></MudTd>
+                                                                                                                                                                                                                            context.Id.ToString())</span></MudTd>
                                 <MudTd DataLabel="Doc #"><span class="doc-number">@(context.SAPDocNum?.ToString() ??
-                                                                                                                                        context.OrderNumber)</span></MudTd>
+                                                                                                                                                                                                                                                    context.OrderNumber)</span></MudTd>
                                     <MudTd DataLabel="Customer">
                                         <div class="customer-info">
                                             <span class="name">@context.CardName</span>
@@ -1045,7 +1046,7 @@
                                     </MudTd>
                                     <MudTd DataLabel="Delivery"><span
                                         style="font-size:.85rem;color:#374151;">@(context.DeliveryDate?.ToString("dd MMM yyyy") ??
-                                                                                                                                                                                                                                                                                                                                        "—")</span></MudTd>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                "—")</span></MudTd>
                                         <MudTd DataLabel="Status">
                                             <span class="status-badge @GetStatusCssClass(context.Status)">@context.StatusName</span>
                                             @if (context.IsMobileOrder)
@@ -1073,13 +1074,13 @@
                                             <MudTd DataLabel="Actions">
                                                 <MudStack Row="true" Spacing="1">
                                                     <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small"
-                                                                   Variant="Variant.Outlined" Color="Color.Primary" Title="View Details"
+                                                                   Variant="Variant.Outlined" Color="Color.Primary" aria-label="View Details"
                                                                    OnClick="async () => await ViewOrder(context)" />
                                                     @if ((context.Status == SalesOrderStatus.Draft || context.Status ==
-                                                                                                                                                                                                                                                                                                                                                                                        SalesOrderStatus.Pending) && !context.IsSynced)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    SalesOrderStatus.Pending) && !context.IsSynced)
                                                     {
                                                         <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
-                                                                       Variant="Variant.Outlined" Color="Color.Warning" Title="Edit"
+                                                                       Variant="Variant.Outlined" Color="Color.Warning" aria-label="Edit"
                                                                        OnClick="() => NavigateToEdit(context.Id)" />
                                                     }
                                                     @if (context.Status == SalesOrderStatus.Approved && context.InvoiceId == null)
@@ -1087,7 +1088,7 @@
                                                         <MudIconButton
                                                         Icon="@(convertingOrderId == context.Id ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Receipt)"
                                                         Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
-                                                        Title="Convert to Invoice" Disabled="@(convertingOrderId == context.Id)"
+                                                        aria-label="Convert to Invoice" Disabled="@(convertingOrderId == context.Id)"
                                                         OnClick="() => ConvertToInvoice(context)" />
                                                     }
                                                     @if (!context.IsSynced)
@@ -1095,14 +1096,14 @@
                                                         @if (context.Status == SalesOrderStatus.Pending)
                                                         {
                                                             <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small"
-                                                                           Variant="Variant.Outlined" Color="Color.Success" Title="Approve"
+                                                                           Variant="Variant.Outlined" Color="Color.Success" aria-label="Approve"
                                                                            OnClick="() => ApproveOrder(context.Id)" />
                                                         }
                                                         @if (context.Status == SalesOrderStatus.Draft || context.Status ==
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                    SalesOrderStatus.Cancelled)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            SalesOrderStatus.Cancelled)
                                                         {
                                                             <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
-                                                                           Variant="Variant.Outlined" Color="Color.Error" Title="Delete"
+                                                                           Variant="Variant.Outlined" Color="Color.Error" aria-label="Delete"
                                                                            OnClick="() => DeleteOrder(context.Id)" />
                                                         }
                                                     }
@@ -1225,7 +1226,7 @@
                             </div>
                             <div class="drawer-footer">
                                 @if ((selectedOrder.Status == SalesOrderStatus.Draft || selectedOrder.Status == SalesOrderStatus.Pending) &&
-                                                                                                                                                                                                                        !selectedOrder.IsSynced)
+                                                                                                                                                                                                                                                                                                                        !selectedOrder.IsSynced)
                                 {
                                     <MudButton Class="btn-so-gradient" Style="font-size:.82rem; padding:.45rem 1rem;"
                                                OnClick="() => NavigateToEdit(selectedOrder.Id)">
@@ -1426,13 +1427,13 @@
                                                         <div class="d-flex align-items-center gap-2">
                                                             <span
                                                                 style="background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:.75rem;">@(index
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        + 1)</span>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        + 1)</span>
                                             @if (!string.IsNullOrEmpty(line.ItemDescription))
                                             {
                                                 <span style="font-weight:600; font-size:.85rem; color:#1a1a2e;">@line.ItemCode</span>
                                                 <span style="color:#d1d5db;">—</span>
                                                 <span style="color:#6b7280; font-size:.82rem;">@TruncateName(line.ItemDescription,
-                                                                                                                                                                                                                                                                                                                                                                                                                                        30)</span>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    30)</span>
                                                 }
                             else
                                                 {
@@ -1477,7 +1478,7 @@
                                                                                 <div style="font-weight:600; font-size:.82rem;">@product.ItemCode</div>
                                                                                 <small
                                                                                     style="@(isSelected ? "color:rgba(255,255,255,.7);" : "color:#6b7280;")">@TruncateName(product.ItemName,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            25)</small>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        25)</small>
                                                                                 </div>
                                                                                 <span
                                                                                     style="font-size:.75rem; font-weight:600; padding:.1rem .4rem; border-radius:4px; @(isSelected ? "background:rgba(255,255,255,.2); color:#fff;" : "background:#dbeafe; color:#1e40af;")">
@@ -1621,7 +1622,7 @@
                                 }
 
 @code {
-    private MudTable<SalesOrderDto>? _table;
+    private MudTable<SalesOrderDto> _table = null!;
     private int _pageSize = 10;
     private List<SalesOrderDto>? orders;
     private SalesOrderDto? selectedOrder;
@@ -1636,7 +1637,7 @@
     private string? orderNumberFilter;
     private string? customerFilter;
     private string? statusFilter;
-    private string? sourceFilter;
+    private string? sourceFilter = "";
     private DateTime? fromDate;
     private DateTime? toDate;
 
@@ -1731,7 +1732,7 @@
             }
 
             var response = await SalesOrderService.GetSalesOrdersAsync(currentPage, pageSize, status, customerFilter, fromDate,
-            toDate, source);
+            toDate, source, orderNumberFilter);
             if (response != null)
             {
                 orders = response.Orders;
@@ -1928,6 +1929,21 @@
         {
             isLoadingBPs = false;
             isLoadingMasterData = false;
+        }
+
+        // Pre-select user's assigned warehouse
+        await ApplyUserDefaultWarehouse();
+    }
+
+    private async Task ApplyUserDefaultWarehouse()
+    {
+        if (!string.IsNullOrEmpty(newOrder.WarehouseCode)) return;
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var warehouseClaim = authState.User.FindFirst("warehouse")?.Value;
+        if (!string.IsNullOrEmpty(warehouseClaim) && cachedWarehouses.Any(w => w.WarehouseCode == warehouseClaim))
+        {
+            newOrder.WarehouseCode = warehouseClaim;
         }
     }
 

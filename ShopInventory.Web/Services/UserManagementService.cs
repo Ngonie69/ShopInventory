@@ -211,6 +211,8 @@ public class UserManagementService : IUserManagementService
             Role = model.Role,
             AssignedWarehouseCodes = model.AssignedWarehouseCodes,
             AllowedPaymentMethods = model.AllowedPaymentMethods,
+            DefaultGLAccount = model.DefaultGLAccount,
+            AllowedPaymentBusinessPartners = model.AllowedPaymentBusinessPartners,
             AssignedSection = model.AssignedSection,
             AssignedCustomerCodes = model.AssignedCustomerCodes
         });
@@ -233,6 +235,8 @@ public class UserManagementService : IUserManagementService
             IsActive = model.IsActive,
             AssignedWarehouseCodes = model.AssignedWarehouseCodes,
             AllowedPaymentMethods = model.AllowedPaymentMethods,
+            DefaultGLAccount = model.DefaultGLAccount,
+            AllowedPaymentBusinessPartners = model.AllowedPaymentBusinessPartners,
             AssignedSection = model.AssignedSection,
             AssignedCustomerCodes = model.AssignedCustomerCodes
         });

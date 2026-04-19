@@ -18,6 +18,8 @@ public sealed class GetCardDetailsHandler(
         try
         {
             var result = await revmaxClient.GetCardDetailsAsync(cancellationToken);
+            if (result is null)
+                return Errors.Revmax.DeviceError("No response from device");
             return result;
         }
         catch (Exception ex)

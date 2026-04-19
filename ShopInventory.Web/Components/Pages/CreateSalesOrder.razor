@@ -13,6 +13,7 @@
 @inject ILogger<CreateSalesOrder> Logger
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
+@inject AuthenticationStateProvider AuthStateProvider
 @rendermode InteractiveServer
 
 <PageTitle>Create Sales Order - Shop Inventory</PageTitle>
@@ -503,7 +504,7 @@
                                 <div class="d-flex align-items-center gap-2">
                                     <span
                                         style="background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:.75rem;">@(index
-                                                                    + 1)</span>
+                                                                                                            + 1)</span>
                     @if (!string.IsNullOrEmpty(line.ItemDescription))
                     {
                         <span style="font-weight:600; font-size:.85rem; color:#1a1a2e;">@line.ItemCode</span>
@@ -552,7 +553,7 @@
                                                     <div style="font-weight:600; font-size:.82rem;">@product.ItemCode</div>
                                                     <small
                                                         style="@(isSelected ? "color:rgba(255,255,255,.7);" : "color:#6b7280;")">@TruncateName(product.ItemName,
-                                                                                                        25)</small>
+                                                                                                                                                                25)</small>
                                                     </div>
                                                     <span
                                                         style="font-size:.75rem; font-weight:600; padding:.1rem .4rem; border-radius:4px; @(isSelected ? "background:rgba(255,255,255,.2); color:#fff;" : "background:#dbeafe; color:#1e40af;")">
@@ -749,6 +750,19 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadMasterDataForCreate();
+        await ApplyUserDefaultWarehouse();
+    }
+
+    private async Task ApplyUserDefaultWarehouse()
+    {
+        if (!string.IsNullOrEmpty(newOrder.WarehouseCode)) return;
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var warehouseClaim = authState.User.FindFirst("warehouse")?.Value;
+        if (!string.IsNullOrEmpty(warehouseClaim) && cachedWarehouses.Any(w => w.WarehouseCode == warehouseClaim))
+        {
+            newOrder.WarehouseCode = warehouseClaim;
+        }
     }
 
     private async Task LoadMasterDataForCreate()

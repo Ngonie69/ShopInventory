@@ -20,6 +20,8 @@ public sealed class ConvertToInvoiceHandler(
         try
         {
             var invoice = await salesOrderService.ConvertToInvoiceAsync(command.Id, command.UserId, cancellationToken);
+            if (invoice is null)
+                return Errors.SalesOrder.NotFound(command.Id);
             try { await auditService.LogAsync(AuditActions.ConvertOrderToInvoice, "SalesOrder", command.Id.ToString(), $"Sales order {command.Id} converted to invoice", true); } catch { }
             return invoice;
         }

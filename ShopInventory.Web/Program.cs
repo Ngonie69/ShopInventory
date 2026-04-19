@@ -191,7 +191,11 @@ try
     builder.Services.AddScoped<IAuditService, AuditService>();
     builder.Services.AddScoped<IAppSettingsService, AppSettingsService>();
     builder.Services.AddSingleton<IAppSettingsProvider, AppSettingsProvider>();
-    builder.Services.AddSingleton<IPrinterService, PrinterService>();
+
+    if (OperatingSystem.IsWindows())
+    {
+        builder.Services.AddSingleton<IPrinterService, PrinterService>();
+    }
 
     // Add new feature services
     builder.Services.AddScoped<IReportService, ReportService>();

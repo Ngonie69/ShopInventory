@@ -60,7 +60,7 @@ public class NotificationController(IMediator mediator) : ApiControllerBase
     {
         var username = User.FindFirst(ClaimTypes.Name)?.Value;
 
-        var result = await mediator.Send(new MarkAsReadCommand(request.NotificationIds, username), cancellationToken);
+        var result = await mediator.Send(new MarkAsReadCommand(request.NotificationIds ?? [], username), cancellationToken);
         return result.Match(_ => Ok(new { Message = "Notifications marked as read" }), errors => Problem(errors));
     }
 

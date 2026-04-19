@@ -8,8 +8,7 @@ namespace ShopInventory.Features.UserManagement.Commands.DeleteUser;
 
 public sealed class DeleteUserHandler(
     IUserManagementService userManagementService,
-    IAuditService auditService,
-    ILogger<DeleteUserHandler> logger
+    IAuditService auditService
 ) : IRequestHandler<DeleteUserCommand, ErrorOr<Success>>
 {
     public async Task<ErrorOr<Success>> Handle(

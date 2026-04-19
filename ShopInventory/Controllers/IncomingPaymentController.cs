@@ -155,4 +155,3 @@ public class IncomingPaymentController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 }
-    /// <param name="request">The payment creation request</param>

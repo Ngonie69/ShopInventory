@@ -33,7 +33,7 @@
                     </CardHeaderContent>
                     <CardHeaderActions>
                         <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Primary"
-                            OnClick="OpenSwagger" Title="Open Swagger UI" />
+                            OnClick="OpenSwagger" title="Open Swagger UI" />
                     </CardHeaderActions>
                 </MudCardHeader>
                 <MudCardContent>
@@ -55,7 +55,7 @@
 
         <!-- API Modules -->
         <MudItem xs="12">
-            <MudTabs Elevation="2" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4">
+            <MudTabs Elevation="2" Rounded="true" ApplyEffectsToContainer="true" TabPanelsClass="pa-4">
                 @foreach (var category in _apiCategories)
                 {
                     <MudTabPanel Text="@category.Name" Icon="@category.Icon">
@@ -112,7 +112,7 @@
         <MudItem xs="12">
             <MudExpansionPanels Elevation="2" Class="mt-4">
                 <MudExpansionPanel Text="API Tester" Icon="@Icons.Material.Filled.Terminal"
-                    @bind-IsExpanded="_testerExpanded">
+                    @bind-Expanded="_testerExpanded">
                     <MudGrid>
                         <MudItem xs="12" md="2">
                             <MudSelect @bind-Value="_selectedMethod" Label="Method" Variant="Variant.Outlined">
@@ -162,7 +162,7 @@
                                             <MudText Typo="Typo.caption" Class="ml-2">(@_responseTime ms)</MudText>
                                         </MudText>
                                         <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small"
-                                            OnClick="CopyResponse" Title="Copy Response" />
+                                            OnClick="CopyResponse" title="Copy Response" />
                                     </MudStack>
                                     <pre
                                         style="overflow-x: auto; max-height: 400px; font-size: 12px; white-space: pre-wrap;">@_responseBody</pre>

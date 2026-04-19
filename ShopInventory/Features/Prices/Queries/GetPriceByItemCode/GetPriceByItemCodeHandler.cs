@@ -23,7 +23,9 @@ public sealed class GetPriceByItemCodeHandler(
 
         try
         {
+#pragma warning disable CS0618 // Legacy endpoint — migration to price-list API requires SAP config
             var prices = await sapClient.GetItemPriceByCodeAsync(request.ItemCode, cancellationToken);
+#pragma warning restore CS0618
 
             if (prices.Count == 0)
                 return Errors.Price.NotFound(request.ItemCode);

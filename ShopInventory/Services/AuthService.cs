@@ -197,6 +197,8 @@ public class AuthService : IAuthService
                 AssignedWarehouseCode = user.AssignedWarehouseCode,
                 AssignedWarehouseCodes = user.GetWarehouseCodes(),
                 AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
+                DefaultGLAccount = user.DefaultGLAccount,
+                AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
                 AssignedCustomerCodes = user.GetCustomerCodes()
             }
         };
@@ -272,6 +274,8 @@ public class AuthService : IAuthService
                 AssignedWarehouseCode = user.AssignedWarehouseCode,
                 AssignedWarehouseCodes = user.GetWarehouseCodes(),
                 AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
+                DefaultGLAccount = user.DefaultGLAccount,
+                AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
                 AssignedCustomerCodes = user.GetCustomerCodes()
             }
         };

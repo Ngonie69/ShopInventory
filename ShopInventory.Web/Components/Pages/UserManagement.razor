@@ -76,7 +76,7 @@
                 <option value="locked">Locked</option>
             </select>
             @if (!string.IsNullOrEmpty(searchTerm) || !string.IsNullOrEmpty(roleFilter) ||
-                                                                                            !string.IsNullOrEmpty(statusFilter))
+                                                                                                                    !string.IsNullOrEmpty(statusFilter))
             {
                 <button class="um-btn um-btn-ghost" @onclick="ResetFilters">
                     <i class="bi bi-x-lg"></i> Clear
@@ -155,14 +155,15 @@
                                     <div class="um-dropdown-menu" @onclick:stopPropagation="true">
                                         @if (user.IsLocked)
                                         {
-                                            <button class="um-dropdown-item" @onclick="@(() => { CloseActionMenu(); UnlockUser(user); })">
+                                            <button class="um-dropdown-item"
+                                                    @onclick="@(async () => { CloseActionMenu(); await UnlockUser(user); })">
                                                 <i class="bi bi-unlock-fill text-warning"></i> Unlock Account
                                             </button>
                                         }
                                         @if (user.TwoFactorEnabled)
                                         {
                                             <button class="um-dropdown-item"
-                                                    @onclick="@(() => { CloseActionMenu(); ResetTwoFactor(user); })">
+                                                    @onclick="@(async () => { CloseActionMenu(); await ResetTwoFactor(user); })">
                                                 <i class="bi bi-shield-x text-secondary"></i> Reset 2FA
                                             </button>
                                         }
@@ -173,14 +174,14 @@
                                         @if (user.IsActive)
                                         {
                                             <button class="um-dropdown-item um-dropdown-danger"
-                                                    @onclick="@(() => { CloseActionMenu(); ConfirmDeactivate(user); })">
+                                                    @onclick="@(async () => { CloseActionMenu(); await ConfirmDeactivate(user); })">
                                                 <i class="bi bi-person-dash-fill"></i> Deactivate User
                                             </button>
                                         }
                                         else
                                         {
                                             <button class="um-dropdown-item um-dropdown-success"
-                                                    @onclick="@(() => { CloseActionMenu(); ActivateUser(user); })">
+                                                    @onclick="@(async () => { CloseActionMenu(); await ActivateUser(user); })">
                                                 <i class="bi bi-person-check-fill"></i> Activate User
                                             </button>
                                         }
@@ -202,7 +203,7 @@
             {
                 <div class="um-pagination">
                     <span class="um-page-info">Showing @((currentPage - 1) * pageSize + 1)–@Math.Min(currentPage * pageSize,
-                                                                                                                                                                                    users.Count + (currentPage - 1) * pageSize) of page @currentPage</span>
+                                                                                                                                                                                                                                    users.Count + (currentPage - 1) * pageSize) of page @currentPage</span>
                         <div class="um-page-buttons">
                             <button class="um-page-btn" disabled="@(currentPage <= 1)" @onclick="() => GoToPage(currentPage - 1)">
                                 <i class="bi bi-chevron-left"></i>
@@ -434,10 +435,9 @@
                                         <div class="um-checklist-wrap">
                                             @foreach (var wh in availableWarehouses)
                                             {
-                                                var whCode = wh.WarehouseCode;
+                                                var whCode = wh.WarehouseCode ?? "";
                                                 var isChecked = userModel.AssignedWarehouseCodes.Contains(whCode);
-                                                <label class="um-checklist-item @(isChecked ? "checked" : "")"
-                                                    @onmouseover:stopPropagation>
+                                                <label class="um-checklist-item @(isChecked ? "checked" : "")" @onmouseover:stopPropagation>
                                                     <input type="checkbox" checked="@isChecked"
                                                            @onchange="(e) => ToggleWarehouse(whCode, (bool)(e.Value ?? false))" />
                                                     <span class="um-checklist-label">@wh.WarehouseCode</span>
@@ -452,7 +452,8 @@
                                                 {
                                                     <span class="um-chip um-chip-blue">
                                                         @whCode
-                                                        <button type="button" class="um-chip-remove" @onclick="() => ToggleWarehouse(whCode, false)">x</button>
+                                                        <button type="button" class="um-chip-remove"
+                                                                @onclick="() => ToggleWarehouse(whCode, false)">x</button>
                                                     </span>
                                                 }
                                             </div>
@@ -575,7 +576,8 @@
                                                             var label = allPaymentMethods.GetValueOrDefault(pm, pm);
                                                             <span class="um-chip um-chip-amber">
                                                                 @label
-                                                                <button type="button" class="um-chip-remove" @onclick="() => TogglePaymentMethod(pm, false)">x</button>
+                                                                <button type="button" class="um-chip-remove"
+                                                                        @onclick="() => TogglePaymentMethod(pm, false)">x</button>
                                                             </span>
                                                         }
                                                     </div>
@@ -594,6 +596,117 @@
                                                 <small style="color:#059669; font-size:.82rem;">
                                                     <i class="bi bi-shield-check me-1"></i>Admin users automatically have access to all payment
                                                     methods.
+                                                </small>
+                                            </div>
+                                        }
+
+                                        <!-- Incoming Payment Settings (Cashier & DepotController only) -->
+                                        @if (userModel.Role == "Cashier" || userModel.Role == "DepotController")
+                                        {
+                                            <div class="um-form-field um-form-full" style="margin-top: 0.5rem;">
+                                                <div style="border-top: 1px solid #e5e7eb; padding-top: 1rem; margin-bottom: 0.5rem;">
+                                                    <label
+                                                        style="font-weight: 600; font-size: 0.95rem; color: #374151; display: flex; align-items: center; gap: 0.5rem;">
+                                                        <i class="bi bi-wallet2" style="color: #059669;"></i>
+                                                        Incoming Payment Settings
+                                                    </label>
+                                                    <small class="um-form-hint" style="margin-top: 0; margin-bottom: 0.75rem;">
+                                                        Configure the G/L account and business partners this user can use when posting incoming
+                                                        payments.
+                                                        If not set, the system-wide defaults from Settings will be used.
+                                                    </small>
+                                                </div>
+                                            </div>
+
+                                            <div class="um-form-field">
+                                                <label>Default G/L Account</label>
+                                                @if (isLoadingGLAccounts)
+                                                {
+                                                    <div class="um-spinner-sm"></div>
+                                                }
+                                                else
+                                                {
+                                                    <input type="text" class="um-input" placeholder="Search G/L accounts..."
+                                                           @bind="glAccountSearchTerm" @bind:event="oninput" />
+                                                    @if (!string.IsNullOrEmpty(userModel.DefaultGLAccount))
+                                                    {
+                                                        var gl = availableGLAccounts.FirstOrDefault(a => a.Code == userModel.DefaultGLAccount);
+                                                        <div class="um-chip-wrap" style="margin-top: 0.35rem;">
+                                                            <span class="um-chip um-chip-amber">
+                                                                @(gl != null ? $"{gl.Code} – {gl.Name}" : userModel.DefaultGLAccount)
+                                                                <button type="button" class="um-chip-remove"
+                                                                        @onclick="() => { userModel.DefaultGLAccount = null; }">×</button>
+                                                            </span>
+                                                        </div>
+                                                    }
+                                                    @if (!string.IsNullOrWhiteSpace(glAccountSearchTerm))
+                                                    {
+                                                        <div
+                                                            style="max-height: 180px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 0.5rem; margin-top: 0.25rem;">
+                                                            @foreach (var gl in FilteredGLAccounts.Take(20))
+                                                            {
+                                                                <div class="um-list-item @(userModel.DefaultGLAccount == gl.Code ? "selected" : "")"
+                                                                     style="padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.85rem;"
+                                                                     @onclick="() => { userModel.DefaultGLAccount = gl.Code; glAccountSearchTerm = string.Empty; }">
+                                                                    <strong>@gl.Code</strong> – @gl.Name
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    }
+                                                }
+                                                <small class="um-form-hint">The cash/bank account used for incoming payments</small>
+                                            </div>
+
+                                            <div class="um-form-field um-form-full">
+                                                <label>Allowed Business Partners</label>
+                                                @if (isLoadingPaymentBPs)
+                                                {
+                                                    <div class="um-spinner-sm"></div>
+                                                }
+                                                else
+                                                {
+                                                    <input type="text" class="um-input" placeholder="Search business partners..."
+                                                           @bind="paymentBPSearchTerm" @bind:event="oninput" />
+                                                    @if (userModel.AllowedPaymentBusinessPartners.Count > 0)
+                                                    {
+                                                        <div class="um-chip-wrap" style="margin-top: 0.35rem;">
+                                                            @foreach (var bpCode in userModel.AllowedPaymentBusinessPartners)
+                                                            {
+                                                                var bp = availablePaymentBPs.FirstOrDefault(b => b.CardCode == bpCode);
+                                                                <span class="um-chip um-chip-amber">
+                                                                    @(bp != null ? $"{bp.CardCode} – {bp.CardName}" : bpCode)
+                                                                    <button type="button" class="um-chip-remove"
+                                                                            @onclick="() => TogglePaymentBP(bpCode, false)">×</button>
+                                                                </span>
+                                                            }
+                                                        </div>
+                                                    }
+                                                    <div
+                                                        style="max-height: 200px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 0.5rem; margin-top: 0.25rem;">
+                                                        @foreach (var bp in FilteredPaymentBPs.Take(50))
+                                                        {
+                                                            var isChecked = userModel.AllowedPaymentBusinessPartners.Contains(bp.CardCode!);
+                                                            <label class="um-list-item"
+                                                                   style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.85rem;">
+                                                                <input type="checkbox" checked="@isChecked"
+                                                                       @onchange="(e) => TogglePaymentBP(bp.CardCode!, (bool)(e.Value ?? false))" />
+                                                                <span>
+                                                                    <strong>@bp.CardCode</strong> – @bp.CardName
+                                                                    @if (bp.Balance.HasValue && bp.Balance.Value != 0)
+                                                                    {
+                                                                        <span style="font-size: 0.75rem; color: #b45309; margin-left: 0.5rem;">
+                                                                            Bal: @bp.Balance.Value.ToString("N2")
+                                                                        </span>
+                                                                    }
+                                                                </span>
+                                                            </label>
+                                                        }
+                                                    </div>
+                                                }
+                                                <small class="um-form-hint">
+                                                    Select which business partners this user can choose when creating incoming payments.
+                                                    If none are selected, the system default will be used.
+                                                    (@userModel.AllowedPaymentBusinessPartners.Count selected)
                                                 </small>
                                             </div>
                                         }
@@ -1599,8 +1712,8 @@
                             flex-direction: column;
                         }
 
-                        .um-modal > form,
-                        .um-modal > editform {
+                        .um-modal>form,
+                        .um-modal>editform {
                             display: flex;
                             flex-direction: column;
                             flex: 1;
@@ -2793,6 +2906,47 @@
     };
     private Dictionary<string, List<PermissionModel>>? permissionCategories;
 
+    // Payment settings data (for Cashier/DepotController roles)
+    private List<GLAccountDto> availableGLAccounts = new();
+    private bool isLoadingGLAccounts = false;
+    private string glAccountSearchTerm = string.Empty;
+    private List<BusinessPartnerDto> availablePaymentBPs = new();
+    private bool isLoadingPaymentBPs = false;
+    private string paymentBPSearchTerm = string.Empty;
+
+    private static readonly HashSet<string> _excludedAccountTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "at_Expenses", "at_Revenues"
+    };
+
+    private IEnumerable<GLAccountDto> FilteredGLAccounts
+    {
+        get
+        {
+            var eligible = availableGLAccounts.Where(gl => string.IsNullOrEmpty(gl.AccountType) ||
+!_excludedAccountTypes.Contains(gl.AccountType));
+            if (string.IsNullOrWhiteSpace(glAccountSearchTerm))
+                return eligible;
+            return eligible.Where(gl =>
+                (gl.Code?.Contains(glAccountSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (gl.Name?.Contains(glAccountSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+    }
+
+    private IEnumerable<BusinessPartnerDto> FilteredPaymentBPs
+    {
+        get
+        {
+            var source = string.IsNullOrWhiteSpace(paymentBPSearchTerm)
+                ? availablePaymentBPs
+                : availablePaymentBPs.Where(bp =>
+                    (bp.CardCode?.Contains(paymentBPSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (bp.CardName?.Contains(paymentBPSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+            return source.OrderByDescending(bp => userModel.AllowedPaymentBusinessPartners.Contains(bp.CardCode!))
+                         .ThenBy(bp => bp.CardCode);
+        }
+    }
+
     private bool showUserModal = false;
     private UserFormModel userModel = new();
     private UserDisplayModel? editingUser;
@@ -2859,6 +3013,8 @@
             await LoadSecurityStats();
             await LoadWarehouses();
             await LoadCustomers();
+            await LoadGLAccounts();
+            await LoadPaymentBPs();
             StateHasChanged();
         }
     }
@@ -2920,6 +3076,56 @@
         finally
         {
             isLoadingCustomers = false;
+        }
+    }
+
+    private async Task LoadGLAccounts()
+    {
+        isLoadingGLAccounts = true;
+        try
+        {
+            var accounts = await MasterDataCache.GetGLAccountsAsync();
+            availableGLAccounts = accounts?.Where(a => a.IsActive).ToList() ?? new();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load GL accounts: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingGLAccounts = false;
+        }
+    }
+
+    private async Task LoadPaymentBPs()
+    {
+        isLoadingPaymentBPs = true;
+        try
+        {
+            var bps = await MasterDataCache.GetBusinessPartnersAsync();
+            availablePaymentBPs = bps?.Where(bp => bp.IsActive && (bp.CardType == "cCustomer" || bp.CardType == "C")).ToList() ??
+new();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load payment business partners: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingPaymentBPs = false;
+        }
+    }
+
+    private void TogglePaymentBP(string cardCode, bool isChecked)
+    {
+        if (isChecked)
+        {
+            if (!userModel.AllowedPaymentBusinessPartners.Contains(cardCode))
+                userModel.AllowedPaymentBusinessPartners.Add(cardCode);
+        }
+        else
+        {
+            userModel.AllowedPaymentBusinessPartners.Remove(cardCode);
         }
     }
 
@@ -2986,6 +3192,8 @@
                 Permissions = u.Permissions,
                 AssignedWarehouseCodes = u.AssignedWarehouseCodes,
                 AllowedPaymentMethods = u.AllowedPaymentMethods ?? new(),
+                DefaultGLAccount = u.DefaultGLAccount,
+                AllowedPaymentBusinessPartners = u.AllowedPaymentBusinessPartners ?? new(),
                 AssignedSection = u.AssignedSection,
                 AssignedCustomerCodes = u.AssignedCustomerCodes ?? new()
             }).ToList() ?? new List<UserDisplayModel>();
@@ -3094,6 +3302,8 @@
             IsActive = user.IsActive,
             AssignedWarehouseCodes = new List<string>(user.AssignedWarehouseCodes),
             AllowedPaymentMethods = new List<string>(user.AllowedPaymentMethods),
+            DefaultGLAccount = user.DefaultGLAccount,
+            AllowedPaymentBusinessPartners = new List<string>(user.AllowedPaymentBusinessPartners),
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = new List<string>(user.AssignedCustomerCodes)
         };
@@ -3343,6 +3553,8 @@
                 IsActive = true,
                 AssignedWarehouseCodes = new List<string>(user.AssignedWarehouseCodes),
                 AllowedPaymentMethods = new List<string>(user.AllowedPaymentMethods),
+                DefaultGLAccount = user.DefaultGLAccount,
+                AllowedPaymentBusinessPartners = new List<string>(user.AllowedPaymentBusinessPartners),
                 AssignedCustomerCodes = new List<string>(user.AssignedCustomerCodes)
             };
             await UserService.UpdateUserAsync(user.Id, form);
@@ -3408,6 +3620,8 @@
         public string? AssignedWarehouseCode => AssignedWarehouseCodes.FirstOrDefault();
         public List<string> AssignedWarehouseCodes { get; set; } = new();
         public List<string> AllowedPaymentMethods { get; set; } = new();
+        public string? DefaultGLAccount { get; set; }
+        public List<string> AllowedPaymentBusinessPartners { get; set; } = new();
         public string? AssignedSection { get; set; }
         public List<string> AssignedCustomerCodes { get; set; } = new();
     }
@@ -3439,6 +3653,8 @@
         public bool IsActive { get; set; } = true;
         public List<string> AssignedWarehouseCodes { get; set; } = new();
         public List<string> AllowedPaymentMethods { get; set; } = new();
+        public string? DefaultGLAccount { get; set; }
+        public List<string> AllowedPaymentBusinessPartners { get; set; } = new();
         public string? AssignedSection { get; set; }
         public List<string> AssignedCustomerCodes { get; set; } = new();
 

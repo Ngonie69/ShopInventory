@@ -1828,6 +1828,14 @@ html.dark-theme {
 }
 
 /* --- MudDataGrid & MudTable dark mode fixes --- */
+
+.dt-grid-header th {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
 .dark-theme .mud-table .mud-table-head .mud-table-cell,
 .dark-theme .mud-table-container .mud-table-head .mud-table-cell {
     background-color: #1e293b !important;
@@ -2650,34 +2658,9 @@ html.dark-theme {
 }
 
 /* ========================================
-   Responsive Mobile Styles
+   Responsive Mobile Styles (Legacy)
    ======================================== */
 @media (max-width: 991.98px) {
-    .sidebar {
-        transform: translateX(-100%);
-        position: fixed;
-        z-index: 1040;
-        transition: transform 0.3s ease-in-out;
-    }
-
-    .sidebar.show {
-        transform: translateX(0);
-    }
-
-    .sidebar-backdrop {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: rgba(0, 0, 0, 0.5);
-        z-index: 1039;
-    }
-
-    .main-content {
-        margin-left: 0 !important;
-    }
-
     .search-trigger {
         min-width: auto;
         padding: 0.5rem;
@@ -6939,4 +6922,408 @@ html.dark-theme {
 /* GL account warning */
 .dark-theme .gl-warning {
     color: #fbbf24 !important;
+}
+
+/* ========================================================================
+   GLOBAL MOBILE RESPONSIVE STYLES
+   Comprehensive mobile-first responsive rules for the entire web app.
+   Breakpoints: 992px (tablet), 768px (small tablet), 480px (phone)
+   ======================================================================== */
+
+/* ── Tablet ≤ 992px ─────────────────────────────────── */
+@media (max-width: 991.98px) {
+    /* AppBar: hide welcome text, shrink brand */
+    .staff-appbar .brand-title {
+        font-size: 0.85rem;
+        letter-spacing: 0.03em;
+    }
+
+    /* Reduce main container padding */
+    .staff-container {
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+    }
+
+    /* MudDataGrid: horizontal scroll */
+    .mud-table-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Common page padding reduction */
+    [class$="-page"],
+    [class*="-page "] {
+        padding: 1rem !important;
+    }
+
+    /* Headers stack */
+    .inv-header, .stk-header, .so-header, .po-header,
+    .pay-header, .cn-header, .it-header, .prod-header,
+    .cust-header, .dt-header, .ds-header, .ls-header,
+    .sec-header, .ua-header, .qt-header {
+        flex-direction: column;
+        align-items: flex-start !important;
+        gap: 0.75rem;
+    }
+
+    /* Header actions wrap */
+    [class$="-header-actions"],
+    [class*="-header-actions "] {
+        flex-wrap: wrap;
+        width: 100%;
+        gap: 0.5rem;
+    }
+
+    /* Stat row: 2 columns */
+    .stat-row {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+
+    /* Filter bars: stack vertically */
+    .filter-bar {
+        flex-direction: column !important;
+    }
+
+    .filter-bar .filter-field {
+        min-width: 100% !important;
+    }
+
+    /* Detail grids: single column */
+    .detail-grid, .info-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* MudDialog: wider on tablet */
+    .mud-dialog {
+        margin: 0.75rem !important;
+        max-width: calc(100vw - 1.5rem) !important;
+    }
+}
+
+/* ── Small tablet / Large phone ≤ 768px ─────────────── */
+@media (max-width: 767.98px) {
+    /* AppBar: hide welcome text entirely, collapse brand */
+    .staff-appbar .welcome-text,
+    .staff-appbar .mud-text-body1[style*="color: white"] {
+        display: none !important;
+    }
+
+    .staff-appbar .brand-title {
+        font-size: 0.75rem;
+    }
+
+    .staff-brand .brand-icon {
+        font-size: 1.1rem !important;
+    }
+
+    /* Reduce container vertical padding */
+    .staff-container.py-4 {
+        padding-top: 0.75rem !important;
+        padding-bottom: 0.75rem !important;
+    }
+
+    /* All page wrappers: tighter padding */
+    [class$="-page"],
+    [class*="-page "] {
+        padding: 0.75rem !important;
+    }
+
+    /* Notification popover responsive */
+    .notification-popover {
+        width: min(380px, 92vw) !important;
+        max-width: 92vw !important;
+        right: 0.5rem !important;
+    }
+
+    /* Stat cards: tighter */
+    .stat-card {
+        padding: 0.85rem 1rem !important;
+    }
+
+    .stat-icon {
+        width: 36px !important;
+        height: 36px !important;
+        font-size: 0.95rem !important;
+    }
+
+    .stat-value {
+        font-size: 1.3rem !important;
+    }
+
+    .stat-label {
+        font-size: 0.75rem !important;
+    }
+
+    /* Tables: smaller text, tighter cells */
+    table.table th,
+    table.table td,
+    .mud-table-cell {
+        padding: 0.4rem 0.5rem !important;
+        font-size: 0.8rem !important;
+    }
+
+    /* MudDataGrid: compact */
+    .mud-table-head .mud-table-cell {
+        font-size: 0.75rem !important;
+        white-space: nowrap;
+    }
+
+    /* Button sizing */
+    .mud-button-root {
+        font-size: 0.8rem !important;
+    }
+
+    /* Modal and dialog */
+    .mud-dialog {
+        margin: 0.5rem !important;
+        max-width: calc(100vw - 1rem) !important;
+    }
+
+    .mud-dialog .mud-dialog-content {
+        padding: 1rem !important;
+    }
+
+    /* Form fields tighter */
+    .mud-input-control {
+        margin-bottom: 0.5rem !important;
+    }
+
+    /* Hide less important table columns via MudBlazor hidden classes */
+    .mud-table .hide-sm {
+        display: none !important;
+    }
+
+    /* Dashboard grid */
+    .staff-dashboard .stat-row {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+
+    /* Pagination compact */
+    .mud-table-pagination {
+        flex-wrap: wrap;
+        gap: 0.25rem;
+    }
+
+    .mud-table-pagination .mud-table-pagination-information {
+        font-size: 0.75rem;
+    }
+}
+
+/* ── Phone ≤ 480px ──────────────────────────────────── */
+@media (max-width: 480px) {
+    /* AppBar: minimal */
+    .staff-brand {
+        gap: 0.3rem !important;
+        margin-left: 0 !important;
+    }
+
+    .staff-appbar .brand-title {
+        display: none;
+    }
+
+    .staff-appbar .brand-icon {
+        font-size: 1.2rem !important;
+    }
+
+    /* Logout button: icon only */
+    .staff-appbar .mud-button-root .mud-button-label {
+        font-size: 0 !important;
+    }
+
+    .staff-appbar .mud-button-root .mud-icon-root {
+        font-size: 1.2rem !important;
+        margin: 0 !important;
+    }
+
+    /* Page wrappers: minimal padding */
+    [class$="-page"],
+    [class*="-page "] {
+        padding: 0.5rem !important;
+    }
+
+    .staff-container {
+        padding-left: 0.25rem !important;
+        padding-right: 0.25rem !important;
+    }
+
+    .staff-container.py-4 {
+        padding-top: 0.5rem !important;
+        padding-bottom: 0.5rem !important;
+    }
+
+    /* Stat row: single column on phones */
+    .stat-row {
+        grid-template-columns: 1fr !important;
+        gap: 0.5rem !important;
+    }
+
+    /* Stat card: compact horizontal */
+    .stat-card {
+        padding: 0.7rem 0.85rem !important;
+        border-radius: 8px !important;
+    }
+
+    .stat-icon {
+        width: 32px !important;
+        height: 32px !important;
+        border-radius: 8px !important;
+        font-size: 0.85rem !important;
+    }
+
+    .stat-value {
+        font-size: 1.1rem !important;
+    }
+
+    /* Headers: compact */
+    h2, .page-title {
+        font-size: 1.15rem !important;
+    }
+
+    h2 + p, .page-subtitle {
+        font-size: 0.75rem !important;
+    }
+
+    /* Header icons smaller */
+    [class$="-header-icon"],
+    [class*="-header-icon "] {
+        width: 36px !important;
+        height: 36px !important;
+        font-size: 1rem !important;
+    }
+
+    /* Tables: even more compact */
+    table.table th,
+    table.table td,
+    .mud-table-cell {
+        padding: 0.3rem 0.4rem !important;
+        font-size: 0.75rem !important;
+    }
+
+    /* Buttons: smaller */
+    .mud-button-root {
+        padding: 0.3rem 0.6rem !important;
+        font-size: 0.75rem !important;
+        min-height: 36px !important;
+    }
+
+    /* Filter bar items */
+    .filter-bar .filter-field input,
+    .filter-bar .filter-field select {
+        font-size: 0.8rem !important;
+        padding: 0.4rem 0.6rem !important;
+    }
+
+    /* Dialog: full width on phones */
+    .mud-dialog {
+        margin: 0.25rem !important;
+        max-width: calc(100vw - 0.5rem) !important;
+        max-height: 95vh !important;
+    }
+
+    /* Notification popover: full width on phones */
+    .notification-popover {
+        width: calc(100vw - 1rem) !important;
+        max-width: calc(100vw - 1rem) !important;
+        left: 0.5rem !important;
+        right: 0.5rem !important;
+    }
+
+    /* Dashboard stat row */
+    .staff-dashboard .stat-row {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* MudChip compact */
+    .mud-chip {
+        font-size: 0.7rem !important;
+        height: 24px !important;
+    }
+
+    /* Pagination */
+    .mud-table-pagination .mud-table-pagination-actions button {
+        min-width: 32px !important;
+        min-height: 32px !important;
+    }
+
+    /* Container fluid inside pages */
+    .container-fluid {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+}
+
+/* ── Touch-friendly: all touch devices ──────────────── */
+@media (pointer: coarse) {
+    /* Ensure minimum 44px tap targets */
+    .mud-icon-button {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* Table rows more tappable */
+    .mud-table-row {
+        min-height: 48px;
+    }
+
+    /* Snackbar: easier to dismiss */
+    .mud-snackbar {
+        min-height: 48px;
+    }
+
+    /* Select / dropdown items */
+    .mud-list-item {
+        min-height: 44px;
+    }
+
+    /* Scrollbar thin on touch */
+    ::-webkit-scrollbar {
+        width: 4px;
+        height: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 4px;
+    }
+}
+
+/* ── Landscape phone ────────────────────────────────── */
+@media (max-height: 480px) and (orientation: landscape) {
+    .staff-appbar {
+        min-height: 40px !important;
+    }
+
+    .staff-appbar .mud-toolbar {
+        min-height: 40px !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+
+    .staff-container.py-4 {
+        padding-top: 0.25rem !important;
+        padding-bottom: 0.25rem !important;
+    }
+
+    .notification-popover {
+        max-height: 70vh !important;
+    }
+}
+
+/* ── Print: hide navigation ─────────────────────────── */
+@media print {
+    .staff-appbar,
+    .staff-drawer,
+    .mud-overlay,
+    .notification-popover {
+        display: none !important;
+    }
+
+    .staff-main {
+        margin-left: 0 !important;
+    }
+
+    .staff-container {
+        max-width: 100% !important;
+        padding: 0 !important;
+    }
 }

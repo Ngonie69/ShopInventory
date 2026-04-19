@@ -911,7 +911,7 @@
                     <div class="stat-icon approved"><i class="bi bi-check-circle"></i></div>
                     <div class="stat-info">
                         <div class="stat-value">@orders.Count(o => o.Status == PurchaseOrderStatus.Approved || o.Status ==
-                                                                                                            PurchaseOrderStatus.PartiallyReceived)</div>
+                                                                                                                                        PurchaseOrderStatus.PartiallyReceived)</div>
                             <div class="stat-label">Approved</div>
                         </div>
                     </div>
@@ -1016,7 +1016,7 @@
                                 </MudTd>
                                 <MudTd DataLabel="Delivery Date">
                                     <span style="font-size:.85rem;color:#374151;">@(context.DeliveryDate?.ToString("dd MMM yyyy") ??
-                                                                                                                                                    "—")</span>
+                                                                                                                                                                                            "—")</span>
                                     </MudTd>
                                     <MudTd DataLabel="Status">
                                         <span class="status-badge @GetStatusCssClass(context.Status)">@context.StatusName</span>
@@ -1050,7 +1050,7 @@
                                                 </MudButton>
                                             }
                                             @if (context.Status == PurchaseOrderStatus.Approved || context.Status ==
-                                                                                                                                                                PurchaseOrderStatus.PartiallyReceived)
+                                                                                                                                                                                                            PurchaseOrderStatus.PartiallyReceived)
                                             {
                                                 <MudButton Class="action-btn receive" OnClick="() => ShowReceiveModal(context)"
                                                            title="Receive Goods">
@@ -1058,7 +1058,7 @@
                                                 </MudButton>
                                             }
                                             @if (context.Status == PurchaseOrderStatus.Draft || context.Status ==
-                                                                                                                                                                PurchaseOrderStatus.Cancelled)
+                                                                                                                                                                                                            PurchaseOrderStatus.Cancelled)
                                             {
                                                 <MudButton Class="action-btn delete" OnClick="() => DeleteOrder(context.Id)" title="Delete">
                                                     <i class="bi bi-trash3"></i>
@@ -1326,7 +1326,7 @@
                 }
 
 @code {
-    private MudTable<PurchaseOrderDto>? _table;
+    private MudTable<PurchaseOrderDto> _table = null!;
     private int _pageSize = 10;
     private List<PurchaseOrderDto>? orders;
     private PurchaseOrderDto? selectedOrder;

@@ -477,6 +477,8 @@ public class UserModel
     public List<string> AssignedWarehouseCodes { get; set; } = new();
     public string? AssignedWarehouseCode => AssignedWarehouseCodes.FirstOrDefault();
     public List<string> AllowedPaymentMethods { get; set; } = new();
+    public string? DefaultGLAccount { get; set; }
+    public List<string> AllowedPaymentBusinessPartners { get; set; } = new();
     public string? AssignedSection { get; set; }
     public List<string> AssignedCustomerCodes { get; set; } = new();
     public DateTime? LastLoginAt { get; set; }
@@ -559,6 +561,15 @@ public class NotificationModel
             return CreatedAt.ToString("MMM dd");
         }
     }
+}
+
+public class StockFetchProgressModel
+{
+    public int CompletedCount { get; set; }
+    public int TotalCount { get; set; }
+    public string CurrentWarehouse { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public List<string> CompletedWarehouses { get; set; } = new();
 }
 
 #endregion

@@ -96,6 +96,8 @@ public sealed class TransactExtHandler(
             }
 
             var result = await revmaxClient.TransactMExtAsync(request, cancellationToken);
+            if (result is null)
+                return Errors.Revmax.DeviceError("No response from device");
             return result;
         }
         catch (Exception ex)

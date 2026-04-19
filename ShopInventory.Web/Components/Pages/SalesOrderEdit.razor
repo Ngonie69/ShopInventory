@@ -10,6 +10,7 @@
 @inject ISnackbar Snackbar
 @inject ILogger<SalesOrderEdit> Logger
 @inject IAppSettingsProvider AppSettings
+@inject AuthenticationStateProvider AuthStateProvider
 @rendermode InteractiveServer
 
 <PageTitle>Edit Sales Order - Shop Inventory</PageTitle>
@@ -610,321 +611,322 @@
                     <i class="bi bi-lock" style="font-size:2rem; color:#f59e0b;"></i>
                     <p style="color:#374151; font-weight:600; margin:.75rem 0 .25rem;">This order cannot be edited</p>
                     <p style="color:#6b7280; font-size:.85rem;">Only Draft or Pending orders can be edited. Current status:
-                        <strong>@originalOrder?.Status</strong></p>
-                        <a href="/sales-orders" class="btn-secondary-action" style="margin-top:.75rem;">Back to Sales Orders</a>
+                        <strong>@originalOrder?.Status</strong>
+                    </p>
+                    <a href="/sales-orders" class="btn-secondary-action" style="margin-top:.75rem;">Back to Sales Orders</a>
+                </div>
+            }
+            else
+            {
+                <!-- Merchandiser Notes (if mobile order) -->
+                @if (originalOrder?.IsMobileOrder == true && !string.IsNullOrEmpty(originalOrder.MerchandiserNotes))
+                {
+                    <div class="form-card" style="background:#eff6ff; border-color:#bfdbfe;">
+                        <div class="form-card-title" style="color:#1e40af;">
+                            <i class="bi bi-phone"></i> Merchandiser Notes
+                            @if (!string.IsNullOrEmpty(originalOrder.DeviceInfo))
+                            {
+                                <span
+                                style="font-size:.72rem; font-weight:400; color:#6b7280; margin-left:auto;">@originalOrder.DeviceInfo</span>
+                            }
+                        </div>
+                        <p style="color:#1e40af; font-size:.88rem; margin:0; white-space:pre-wrap;">@originalOrder.MerchandiserNotes
+                        </p>
                     </div>
                 }
-        else
-                {
-                    <!-- Merchandiser Notes (if mobile order) -->
-                    @if (originalOrder?.IsMobileOrder == true && !string.IsNullOrEmpty(originalOrder.MerchandiserNotes))
-                    {
-                        <div class="form-card" style="background:#eff6ff; border-color:#bfdbfe;">
-                            <div class="form-card-title" style="color:#1e40af;">
-                                <i class="bi bi-phone"></i> Merchandiser Notes
-                                @if (!string.IsNullOrEmpty(originalOrder.DeviceInfo))
+
+                <!-- Customer (read-only for edits) -->
+                <div class="form-card">
+                    <div class="form-card-title"><i class="bi bi-person-badge"></i> Customer</div>
+                    <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:.75rem 1rem;">
+                        <div style="font-weight:700; color:#065f46;">
+                            <i class="bi bi-check-circle-fill me-1" style="color:#059669;"></i>
+                            @editRequest.CardCode
+                        </div>
+                        <div style="font-size:.85rem; color:#065f46; opacity:.8;">@editRequest.CardName</div>
+                        @if (customerPriceListNum.HasValue)
+                        {
+                            <div style="font-size:.82rem; color:#065f46; opacity:.7; margin-top:.25rem;">
+                                <i class="bi bi-tags me-1"></i>Price List #@customerPriceListNum
+                                @if (isLoadingCustomerPrices)
+                                {
+                                    <span class="spinner-border spinner-border-sm ms-1"></span>
+                                }
+                                else
                                 {
                                     <span
-                                    style="font-size:.72rem; font-weight:400; color:#6b7280; margin-left:auto;">@originalOrder.DeviceInfo</span>
+                                        style="background:#d1fae5; color:#065f46; font-size:.7rem; padding:.1rem .4rem; border-radius:4px; font-weight:600; margin-left:.25rem;">
+                                        @customerPriceListPrices.Count items
+                                    </span>
                                 }
                             </div>
-                            <p style="color:#1e40af; font-size:.88rem; margin:0; white-space:pre-wrap;">@originalOrder.MerchandiserNotes
-                            </p>
-                        </div>
-                    }
+                        }
+                    </div>
+                </div>
 
-                    <!-- Customer (read-only for edits) -->
-                    <div class="form-card">
-                        <div class="form-card-title"><i class="bi bi-person-badge"></i> Customer</div>
-                        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:.75rem 1rem;">
-                            <div style="font-weight:700; color:#065f46;">
-                                <i class="bi bi-check-circle-fill me-1" style="color:#059669;"></i>
-                                @editRequest.CardCode
+                <!-- Order Details -->
+                <div class="form-card">
+                    <div class="form-card-title"><i class="bi bi-info-circle"></i> Order Details</div>
+                    <div class="form-grid">
+                        <div class="form-field">
+                            <label>Delivery Date</label>
+                            <MudDatePicker @bind-Date="editRequest.DeliveryDate" Variant="Variant.Outlined"
+                                           Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat" Editable="true" />
+                        </div>
+                        <div class="form-field">
+                            <label>Currency</label>
+                            <select @bind="editRequest.Currency">
+                                <option value="USD">USD — US Dollar</option>
+                                <option value="ZIG">ZIG — Zimbabwe Gold</option>
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label>Customer Reference</label>
+                            <input type="text" @bind="editRequest.CustomerRefNo" placeholder="PO / Reference number" />
+                        </div>
+                        <div class="form-field">
+                            <label>Warehouse</label>
+                            <select @bind="editRequest.WarehouseCode">
+                                <option value="">— Default —</option>
+                                @foreach (var wh in cachedWarehouses)
+                                {
+                                    <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="form-field full">
+                            <label>Comments</label>
+                            <textarea @bind="editRequest.Comments" rows="2" placeholder="Optional comments"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Line Items Section -->
+                <div class="form-card">
+                    <div class="d-flex justify-content-between align-items-center" style="margin-bottom:.75rem;">
+                        <span style="font-weight:600; font-size:.92rem; color:#1a1a2e;">
+                            <i class="bi bi-list-ul me-1" style="color:#667eea;"></i>Order Lines
+                            <span
+                                style="font-size:.78rem; font-weight:400; color:#6b7280; margin-left:.5rem;">(@editRequest.Lines.Count
+                                lines)</span>
+                            </span>
+                            <button type="button" class="btn-so-gradient" style="padding:.35rem .85rem; font-size:.8rem;"
+                                    @onclick="AddOrderLine">
+                                <i class="bi bi-plus-lg"></i> Add Line
+                            </button>
+                        </div>
+
+                        @if (editRequest.Lines.Any())
+                        {
+                            <div class="line-items-scroll">
+                                @for (int i = 0; i < editRequest.Lines.Count; i++)
+                                {
+                                    var index = i;
+                                    var line = editRequest.Lines[index];
+                                    var lineState = GetLineState(index);
+                                    var lineErrors = GetLineValidationErrors(index);
+
+                                    <div
+                                        style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.85rem; margin-bottom:.65rem; position:relative;">
+                                        <!-- Line Header -->
+                                        <div class="d-flex justify-content-between align-items-center" style="margin-bottom:.6rem;">
+                                            <div class="d-flex align-items-center gap-2">
+                                                <span
+                                                    style="background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:.75rem;">@(index
+                                                                                                                                            + 1)</span>
+                                @if (!string.IsNullOrEmpty(line.ItemDescription))
+                                {
+                                    <span style="font-weight:600; font-size:.85rem; color:#1a1a2e;">@line.ItemCode</span>
+                                    <span style="color:#d1d5db;">—</span>
+                                    <span style="color:#6b7280; font-size:.82rem;">@TruncateName(line.ItemDescription,
+                                                                                                                    30)</span>
+                                    }
+                                        else
+                                    {
+                                        <span style="color:#9ca3af; font-size:.82rem;">New Line Item</span>
+                                    }
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span
+                                    style="font-weight:700; color:#059669; font-size:.92rem;">@CalculateLineTotal(line).ToString("N2")</span>
+                                    <button type="button"
+                                            style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:.75rem;"
+                                            @onclick="() => RemoveOrderLine(index)">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
                             </div>
-                            <div style="font-size:.85rem; color:#065f46; opacity:.8;">@editRequest.CardName</div>
-                            @if (customerPriceListNum.HasValue)
-                            {
-                                <div style="font-size:.82rem; color:#065f46; opacity:.7; margin-top:.25rem;">
-                                    <i class="bi bi-tags me-1"></i>Price List #@customerPriceListNum
-                                    @if (isLoadingCustomerPrices)
-                                    {
-                                        <span class="spinner-border spinner-border-sm ms-1"></span>
+
+                            <!-- Item Code + Description -->
+                            <div class="row g-2 mb-2">
+                                <div class="col-5">
+                                    <label
+                                        style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Item
+                                        Code <span style="color:#ef4444;">*</span></label>
+                                        <div class="position-relative">
+                                            <input type="text"
+                                                   style="width:100%; padding:.4rem .6rem; border:1px solid @(lineErrors.ContainsKey("ItemCode") ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
+                                                   value="@line.ItemCode" @oninput="(e) => OnItemCodeInput(index, e.Value?.ToString())"
+                                                   @onkeydown="(e) => OnItemCodeKeyDown(index, e)"
+                                                   @onfocus="() => OnItemCodeFocus(index)" @onblur="() => OnItemCodeBlur(index)"
+                                                   placeholder="Search item…" autocomplete="off" />
+                                            @if (lineState.ShowProductDropdown && lineState.FilteredProducts.Any())
+                                            {
+                                                <div class="dropdown-autocomplete" @onmousedown:preventDefault>
+                                                    @foreach (var product in lineState.FilteredProducts.Take(10))
+                                                    {
+                                                        var isSelected = lineState.SuggestedProduct?.ItemCode == product.ItemCode;
+                                                        var displayPrice = GetPriceForItem(product.ItemCode, product.Price);
+                                                        <div class="dropdown-item @(isSelected ? "selected" : "")"
+                                                             @onmousedown="async () => await SelectProduct(index, product)">
+                                                            <div class="d-flex justify-content-between align-items-center">
+                                                                <div>
+                                                                    <div style="font-weight:600; font-size:.82rem;">@product.ItemCode</div>
+                                                                    <small
+                                                                        style="@(isSelected ? "color:rgba(255,255,255,.7);" : "color:#6b7280;")">@TruncateName(product.ItemName,
+                                                                                                                                                                                                        25)</small>
+                                                                    </div>
+                                                                    <span
+                                                                        style="font-size:.75rem; font-weight:600; padding:.1rem .4rem; border-radius:4px; @(isSelected ? "background:rgba(255,255,255,.2); color:#fff;" : "background:#dbeafe; color:#1e40af;")">
+                                                                        @displayPrice.ToString("N2")
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                        @if (lineState.FilteredProducts.Count > 10)
+                                                        {
+                                                            <div class="dropdown-item"
+                                                                 style="color:#9ca3af; text-align:center; font-size:.78rem;">
+                                                                +@(lineState.FilteredProducts.Count - 10) more…
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                        <div class="col-7">
+                                            <label
+                                            style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Description</label>
+                                            @if (!string.IsNullOrEmpty(line.ItemDescription))
+                                            {
+                                                <div
+                                                    style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:7px; padding:.4rem .6rem; font-size:.82rem; color:#0c4a6e;">
+                                                    <i class="bi bi-box-seam me-1"
+                                                       style="color:#667eea;"></i>@TruncateName(line.ItemDescription, 35)
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <input type="text"
+                                                       style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem; background:#f3f4f6; cursor:default;"
+                                                       placeholder="Select an item" readonly />
+                                            }
+                                        </div>
+                                    </div>
+
+                                    <!-- Quantity + Price + Discount + Warehouse -->
+                                    <div class="row g-2">
+                                        <div class="col-3">
+                                            <label
+                                                style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Qty
+                                                <span style="color:#ef4444;">*</span></label>
+                                                <input type="number"
+                                                       style="width:100%; padding:.4rem .6rem; border:1px solid @(lineErrors.ContainsKey("Quantity") ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
+                                                       value="@line.Quantity" @onchange="(e) => OnQuantityChange(index, e.Value?.ToString())"
+                                                       min="0.001" step="0.001" placeholder="0" />
+                                            </div>
+                                            <div class="col-3">
+                                                <label
+                                                    style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Unit
+                                                    Price</label>
+                                                    <input type="text"
+                                                           style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem; background:#f3f4f6; cursor:default;"
+                                                           value="@line.UnitPrice.ToString("N2")" readonly />
+                                                </div>
+                                                <div class="col-3">
+                                                    <label
+                                                        style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Discount
+                                                        %</label>
+                                                        <input type="number"
+                                                               style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
+                                                               @bind="line.DiscountPercent" min="0" max="100" step="0.01" />
+                                                    </div>
+                                                    <div class="col-3">
+                                                        <label
+                                                        style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Warehouse</label>
+                                                        <select
+                                                            style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
+                                                            @bind="line.WarehouseCode">
+                                                            <option value="">Default</option>
+                                                            @foreach (var wh in cachedWarehouses)
+                                                            {
+                                                                <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
+                                                            }
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+
+                                    <!-- Add another line -->
+                                    <div style="text-align:center; margin-top:.5rem;">
+                                        <button type="button"
+                                                style="background:none; border:1px dashed #d1d5db; color:#6b7280; padding:.4rem 1rem; border-radius:8px; font-size:.82rem; cursor:pointer;"
+                                                @onclick="AddOrderLine">
+                                            <i class="bi bi-plus-lg me-1"></i>Add Another Line
+                                        </button>
+                                    </div>
+                                }
+                else
+                                {
+                                    <div
+                                        style="text-align:center; padding:2rem 1rem; background:#f9fafb; border-radius:10px; border:2px dashed #e5e7eb;">
+                                        <div style="font-size:1.5rem; color:#9ca3af; margin-bottom:.5rem;"><i class="bi bi-inbox"></i></div>
+                                        <p style="color:#6b7280; font-size:.85rem; margin-bottom:.25rem;">No order lines</p>
+                                        <p style="color:#9ca3af; font-size:.78rem; margin-bottom:.75rem;">Add products to this sales order</p>
+                                        <button type="button" class="btn-so-gradient" style="padding:.4rem 1rem; font-size:.82rem;"
+                                                @onclick="AddOrderLine">
+                                            <i class="bi bi-plus-lg"></i> Add First Line
+                                        </button>
+                                    </div>
+                                }
+                                @if (validationErrors.ContainsKey("Lines"))
+                                {
+                                    <div style="color:#ef4444; font-size:.78rem; margin-top:.4rem;">@validationErrors["Lines"]</div>
+                                }
+
+                                <!-- Order Summary -->
+                                @if (editRequest.Lines.Any())
+                                {
+                                    <div
+                                        style="background:linear-gradient(135deg,#667eea,#764ba2); border-radius:10px; padding:.85rem 1.15rem; margin-top:1rem; color:#fff;">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <div style="font-size:.78rem; opacity:.8;">@editRequest.Lines.Count line(s) ·
+                                                    @editRequest.Currency</div>
+                                                    <div style="font-size:.85rem; font-weight:500;">Subtotal</div>
+                                                </div>
+                                                <div style="font-size:1.3rem; font-weight:700;">@CalculateOrderTotal().ToString("N2")</div>
+                                            </div>
+                                        </div>
                                     }
-                                    else
-                                    {
-                                        <span
-                                            style="background:#d1fae5; color:#065f46; font-size:.7rem; padding:.1rem .4rem; border-radius:4px; font-weight:600; margin-left:.25rem;">
-                                            @customerPriceListPrices.Count items
-                                        </span>
-                                    }
+                                </div>
+
+                                <!-- Footer Actions -->
+                                <div class="form-footer">
+                                    <a href="/sales-orders" class="btn-secondary-action">Cancel</a>
+                                    <MudButton Class="btn-save" OnClick="SaveOrder" Disabled="@isSaving">
+                                        @if (isSaving)
+                                        {
+                                            <span class="spinner-border spinner-border-sm"></span>
+                                        }
+                                        <span>Save Changes</span>
+                                    </MudButton>
                                 </div>
                             }
                         </div>
                     </div>
-
-                    <!-- Order Details -->
-                    <div class="form-card">
-                        <div class="form-card-title"><i class="bi bi-info-circle"></i> Order Details</div>
-                        <div class="form-grid">
-                            <div class="form-field">
-                                <label>Delivery Date</label>
-                                <MudDatePicker @bind-Date="editRequest.DeliveryDate" Variant="Variant.Outlined"
-                                               Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat" Editable="true" />
-                            </div>
-                            <div class="form-field">
-                                <label>Currency</label>
-                                <select @bind="editRequest.Currency">
-                                    <option value="USD">USD — US Dollar</option>
-                                    <option value="ZIG">ZIG — Zimbabwe Gold</option>
-                                </select>
-                            </div>
-                            <div class="form-field">
-                                <label>Customer Reference</label>
-                                <input type="text" @bind="editRequest.CustomerRefNo" placeholder="PO / Reference number" />
-                            </div>
-                            <div class="form-field">
-                                <label>Warehouse</label>
-                                <select @bind="editRequest.WarehouseCode">
-                                    <option value="">— Default —</option>
-                                    @foreach (var wh in cachedWarehouses)
-                                    {
-                                        <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                                    }
-                                </select>
-                            </div>
-                            <div class="form-field full">
-                                <label>Comments</label>
-                                <textarea @bind="editRequest.Comments" rows="2" placeholder="Optional comments"></textarea>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Line Items Section -->
-                    <div class="form-card">
-                        <div class="d-flex justify-content-between align-items-center" style="margin-bottom:.75rem;">
-                            <span style="font-weight:600; font-size:.92rem; color:#1a1a2e;">
-                                <i class="bi bi-list-ul me-1" style="color:#667eea;"></i>Order Lines
-                                <span
-                                    style="font-size:.78rem; font-weight:400; color:#6b7280; margin-left:.5rem;">(@editRequest.Lines.Count
-                                    lines)</span>
-                                </span>
-                                <button type="button" class="btn-so-gradient" style="padding:.35rem .85rem; font-size:.8rem;"
-                                        @onclick="AddOrderLine">
-                                    <i class="bi bi-plus-lg"></i> Add Line
-                                </button>
-                            </div>
-
-                            @if (editRequest.Lines.Any())
-                            {
-                                <div class="line-items-scroll">
-                                    @for (int i = 0; i < editRequest.Lines.Count; i++)
-                                    {
-                                        var index = i;
-                                        var line = editRequest.Lines[index];
-                                        var lineState = GetLineState(index);
-                                        var lineErrors = GetLineValidationErrors(index);
-
-                                        <div
-                                            style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.85rem; margin-bottom:.65rem; position:relative;">
-                                            <!-- Line Header -->
-                                            <div class="d-flex justify-content-between align-items-center" style="margin-bottom:.6rem;">
-                                                <div class="d-flex align-items-center gap-2">
-                                                    <span
-                                                        style="background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:.75rem;">@(index
-                                                                                        + 1)</span>
-                                    @if (!string.IsNullOrEmpty(line.ItemDescription))
-                                    {
-                                        <span style="font-weight:600; font-size:.85rem; color:#1a1a2e;">@line.ItemCode</span>
-                                        <span style="color:#d1d5db;">—</span>
-                                        <span style="color:#6b7280; font-size:.82rem;">@TruncateName(line.ItemDescription,
-                                                                            30)</span>
-                                        }
-                                        else
-                                        {
-                                            <span style="color:#9ca3af; font-size:.82rem;">New Line Item</span>
-                                        }
-                                    </div>
-                                    <div class="d-flex align-items-center gap-2">
-                                        <span
-                                        style="font-weight:700; color:#059669; font-size:.92rem;">@CalculateLineTotal(line).ToString("N2")</span>
-                                        <button type="button"
-                                                style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:.75rem;"
-                                                @onclick="() => RemoveOrderLine(index)">
-                                            <i class="bi bi-x"></i>
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <!-- Item Code + Description -->
-                                <div class="row g-2 mb-2">
-                                    <div class="col-5">
-                                        <label
-                                            style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Item
-                                            Code <span style="color:#ef4444;">*</span></label>
-                                            <div class="position-relative">
-                                                <input type="text"
-                                                       style="width:100%; padding:.4rem .6rem; border:1px solid @(lineErrors.ContainsKey("ItemCode") ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
-                                                       value="@line.ItemCode" @oninput="(e) => OnItemCodeInput(index, e.Value?.ToString())"
-                                                       @onkeydown="(e) => OnItemCodeKeyDown(index, e)"
-                                                       @onfocus="() => OnItemCodeFocus(index)" @onblur="() => OnItemCodeBlur(index)"
-                                                       placeholder="Search item…" autocomplete="off" />
-                                                @if (lineState.ShowProductDropdown && lineState.FilteredProducts.Any())
-                                                {
-                                                    <div class="dropdown-autocomplete" @onmousedown:preventDefault>
-                                                        @foreach (var product in lineState.FilteredProducts.Take(10))
-                                                        {
-                                                            var isSelected = lineState.SuggestedProduct?.ItemCode == product.ItemCode;
-                                                            var displayPrice = GetPriceForItem(product.ItemCode, product.Price);
-                                                            <div class="dropdown-item @(isSelected ? "selected" : "")"
-                                                                 @onmousedown="async () => await SelectProduct(index, product)">
-                                                                <div class="d-flex justify-content-between align-items-center">
-                                                                    <div>
-                                                                        <div style="font-weight:600; font-size:.82rem;">@product.ItemCode</div>
-                                                                        <small
-                                                                            style="@(isSelected ? "color:rgba(255,255,255,.7);" : "color:#6b7280;")">@TruncateName(product.ItemName,
-                                                                                                                                25)</small>
-                                                                        </div>
-                                                                        <span
-                                                                            style="font-size:.75rem; font-weight:600; padding:.1rem .4rem; border-radius:4px; @(isSelected ? "background:rgba(255,255,255,.2); color:#fff;" : "background:#dbeafe; color:#1e40af;")">
-                                                                            @displayPrice.ToString("N2")
-                                                                        </span>
-                                                                    </div>
-                                                                </div>
-                                                            }
-                                                            @if (lineState.FilteredProducts.Count > 10)
-                                                            {
-                                                                <div class="dropdown-item"
-                                                                     style="color:#9ca3af; text-align:center; font-size:.78rem;">
-                                                                    +@(lineState.FilteredProducts.Count - 10) more…
-                                                                </div>
-                                                            }
-                                                        </div>
-                                                    }
-                                                </div>
-                                            </div>
-                                            <div class="col-7">
-                                                <label
-                                                style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Description</label>
-                                                @if (!string.IsNullOrEmpty(line.ItemDescription))
-                                                {
-                                                    <div
-                                                        style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:7px; padding:.4rem .6rem; font-size:.82rem; color:#0c4a6e;">
-                                                        <i class="bi bi-box-seam me-1"
-                                                           style="color:#667eea;"></i>@TruncateName(line.ItemDescription, 35)
-                                                    </div>
-                                                }
-                                                else
-                                                {
-                                                    <input type="text"
-                                                           style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem; background:#f3f4f6; cursor:default;"
-                                                           placeholder="Select an item" readonly />
-                                                }
-                                            </div>
-                                        </div>
-
-                                        <!-- Quantity + Price + Discount + Warehouse -->
-                                        <div class="row g-2">
-                                            <div class="col-3">
-                                                <label
-                                                    style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Qty
-                                                    <span style="color:#ef4444;">*</span></label>
-                                                    <input type="number"
-                                                           style="width:100%; padding:.4rem .6rem; border:1px solid @(lineErrors.ContainsKey("Quantity") ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
-                                                           value="@line.Quantity" @onchange="(e) => OnQuantityChange(index, e.Value?.ToString())"
-                                                           min="0.001" step="0.001" placeholder="0" />
-                                                </div>
-                                                <div class="col-3">
-                                                    <label
-                                                        style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Unit
-                                                        Price</label>
-                                                        <input type="text"
-                                                               style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem; background:#f3f4f6; cursor:default;"
-                                                               value="@line.UnitPrice.ToString("N2")" readonly />
-                                                    </div>
-                                                    <div class="col-3">
-                                                        <label
-                                                            style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Discount
-                                                            %</label>
-                                                            <input type="number"
-                                                                   style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
-                                                                   @bind="line.DiscountPercent" min="0" max="100" step="0.01" />
-                                                        </div>
-                                                        <div class="col-3">
-                                                            <label
-                                                            style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Warehouse</label>
-                                                            <select
-                                                                style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
-                                                                @bind="line.WarehouseCode">
-                                                                <option value="">Default</option>
-                                                                @foreach (var wh in cachedWarehouses)
-                                                                {
-                                                                    <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                                                                }
-                                                            </select>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            }
-                                        </div>
-
-                                        <!-- Add another line -->
-                                        <div style="text-align:center; margin-top:.5rem;">
-                                            <button type="button"
-                                                    style="background:none; border:1px dashed #d1d5db; color:#6b7280; padding:.4rem 1rem; border-radius:8px; font-size:.82rem; cursor:pointer;"
-                                                    @onclick="AddOrderLine">
-                                                <i class="bi bi-plus-lg me-1"></i>Add Another Line
-                                            </button>
-                                        </div>
-                                    }
-                else
-                                    {
-                                        <div
-                                            style="text-align:center; padding:2rem 1rem; background:#f9fafb; border-radius:10px; border:2px dashed #e5e7eb;">
-                                            <div style="font-size:1.5rem; color:#9ca3af; margin-bottom:.5rem;"><i class="bi bi-inbox"></i></div>
-                                            <p style="color:#6b7280; font-size:.85rem; margin-bottom:.25rem;">No order lines</p>
-                                            <p style="color:#9ca3af; font-size:.78rem; margin-bottom:.75rem;">Add products to this sales order</p>
-                                            <button type="button" class="btn-so-gradient" style="padding:.4rem 1rem; font-size:.82rem;"
-                                                    @onclick="AddOrderLine">
-                                                <i class="bi bi-plus-lg"></i> Add First Line
-                                            </button>
-                                        </div>
-                                    }
-                                    @if (validationErrors.ContainsKey("Lines"))
-                                    {
-                                        <div style="color:#ef4444; font-size:.78rem; margin-top:.4rem;">@validationErrors["Lines"]</div>
-                                    }
-
-                                    <!-- Order Summary -->
-                                    @if (editRequest.Lines.Any())
-                                    {
-                                        <div
-                                            style="background:linear-gradient(135deg,#667eea,#764ba2); border-radius:10px; padding:.85rem 1.15rem; margin-top:1rem; color:#fff;">
-                                            <div class="d-flex justify-content-between align-items-center">
-                                                <div>
-                                                    <div style="font-size:.78rem; opacity:.8;">@editRequest.Lines.Count line(s) ·
-                                                        @editRequest.Currency</div>
-                                                        <div style="font-size:.85rem; font-weight:500;">Subtotal</div>
-                                                    </div>
-                                                    <div style="font-size:1.3rem; font-weight:700;">@CalculateOrderTotal().ToString("N2")</div>
-                                                </div>
-                                            </div>
-                                        }
-                                    </div>
-
-                                    <!-- Footer Actions -->
-                                    <div class="form-footer">
-                                        <a href="/sales-orders" class="btn-secondary-action">Cancel</a>
-                                        <MudButton Class="btn-save" OnClick="SaveOrder" Disabled="@isSaving">
-                                            @if (isSaving)
-                                            {
-                                                <span class="spinner-border spinner-border-sm"></span>
-                                            }
-                                            <span>Save Changes</span>
-                                        </MudButton>
-                                    </div>
-                                }
-                            </div>
-                        </div>
 
 @code {
     [Parameter] public int Id { get; set; }
@@ -999,6 +1001,17 @@
 
             // Map SalesOrderDto to CreateSalesOrderRequest for editing
             MapOrderToEditRequest();
+
+            // If order has no warehouse, apply user's default
+            if (string.IsNullOrEmpty(editRequest.WarehouseCode))
+            {
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                var warehouseClaim = authState.User.FindFirst("warehouse")?.Value;
+                if (!string.IsNullOrEmpty(warehouseClaim) && cachedWarehouses.Any(w => w.WarehouseCode == warehouseClaim))
+                {
+                    editRequest.WarehouseCode = warehouseClaim;
+                }
+            }
         }
         catch (Exception ex)
         {

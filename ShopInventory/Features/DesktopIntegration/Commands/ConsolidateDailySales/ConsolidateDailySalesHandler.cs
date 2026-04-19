@@ -1,36 +1,52 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.DTOs;
+using ShopInventory.Hubs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 namespace ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
 
 public sealed class ConsolidateDailySalesHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
-    IBatchInventoryValidationService batchService,
-    IOptions<DailyStockSettings> settings,
+    IInvoiceQueueService queueService,
+    IHubContext<NotificationHub> hubContext,
     ILogger<ConsolidateDailySalesHandler> logger
 ) : IRequestHandler<ConsolidateDailySalesCommand, ErrorOr<ConsolidateDailySalesResult>>
 {
+    // Tracks queue entry IDs grouped by CardCode for post-consolidation marking
+    private readonly Dictionary<string, List<int>> _queueIdsByCardCode = new();
+
     public async Task<ErrorOr<ConsolidateDailySalesResult>> Handle(
         ConsolidateDailySalesCommand command,
         CancellationToken cancellationToken)
     {
         var consolidationDate = command.ConsolidationDate?.Date ?? DateTime.UtcNow.Date;
 
-        // Get all pending sales for the date
+        // Get all pending desktop sales for the date
         var pendingSales = await context.DesktopSales
             .Include(s => s.Lines)
             .Where(s => s.DocDate == consolidationDate &&
                         s.ConsolidationStatus == DesktopSaleConsolidationStatus.Pending)
             .ToListAsync(cancellationToken);
+
+        // Also get fiscalized queued invoices for the date
+        var fiscalizedQueueEntries = await queueService.GetFiscalizedInvoicesAsync(
+            consolidationDate, cancellationToken);
+
+        // Convert queue entries to DesktopSaleEntity-compatible format so they
+        // can be consolidated together with direct desktop sales
+        var queueSales = ConvertQueueEntriesToSales(fiscalizedQueueEntries);
+        pendingSales.AddRange(queueSales);
 
         if (pendingSales.Count == 0)
             return Errors.DesktopSales.NoPendingSales;
@@ -72,12 +88,23 @@ public sealed class ConsolidateDailySalesHandler(
             }
         }
 
-        return new ConsolidateDailySalesResult(
+        var consolidationResult = new ConsolidateDailySalesResult(
             consolidationDate,
             pendingSales.Count,
             successCount,
             failCount,
             results);
+
+        // Broadcast real-time event to connected Web clients
+        await hubContext.Clients.Group("all").SendAsync("ConsolidationCompleted", new
+        {
+            ConsolidationDate = consolidationDate,
+            TotalSales = pendingSales.Count,
+            SuccessCount = successCount,
+            FailCount = failCount
+        });
+
+        return consolidationResult;
     }
 
     private async Task<ConsolidationGroupResult> ConsolidateGroupAsync(
@@ -144,11 +171,18 @@ public sealed class ConsolidateDailySalesHandler(
             consolidation.PostedAt = DateTime.UtcNow;
             consolidation.Status = ConsolidationStatus.Posted;
 
-            // Mark all sales as consolidated
+            // Mark all desktop sales as consolidated
             foreach (var sale in sales)
             {
                 sale.ConsolidationStatus = DesktopSaleConsolidationStatus.Consolidated;
                 sale.ConsolidationId = consolidation.Id;
+            }
+
+            // Mark queue entries as completed after successful SAP posting
+            if (_queueIdsByCardCode.TryGetValue(cardCode, out var queueIds) && queueIds.Count > 0)
+            {
+                await queueService.MarkAsConsolidatedAsync(
+                    queueIds, sapInvoice.DocEntry.ToString(), sapInvoice.DocNum, ct);
             }
 
             logger.LogInformation(
@@ -248,5 +282,78 @@ public sealed class ConsolidateDailySalesHandler(
             cardCode, payment.DocNum, amount);
 
         return payment.DocNum;
+    }
+
+    /// <summary>
+    /// Converts fiscalized queue entries into transient DesktopSaleEntity objects
+    /// so they can be consolidated alongside direct desktop sales.
+    /// These entities are NOT tracked by EF Core.
+    /// </summary>
+    private List<DesktopSaleEntity> ConvertQueueEntriesToSales(List<InvoiceQueueEntity> queueEntries)
+    {
+        var sales = new List<DesktopSaleEntity>();
+        var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+        foreach (var entry in queueEntries)
+        {
+            try
+            {
+                var request = JsonSerializer.Deserialize<CreateStockReservationRequest>(
+                    entry.InvoicePayload, jsonOptions);
+
+                if (request == null) continue;
+
+                var sale = new DesktopSaleEntity
+                {
+                    ExternalReferenceId = entry.ExternalReference ?? entry.Id.ToString(),
+                    SourceSystem = entry.SourceSystem,
+                    CardCode = entry.CustomerCode ?? request.CardCode,
+                    CardName = request.CardName,
+                    DocDate = entry.CreatedAt.Date,
+                    SalesPersonCode = request.SalesPersonCode,
+                    TotalAmount = entry.TotalAmount,
+                    VatAmount = 0, // VAT calculated by SAP
+                    Currency = entry.Currency ?? "ZWG",
+                    WarehouseCode = entry.WarehouseCode ?? request.Lines.FirstOrDefault()?.WarehouseCode ?? "",
+                    PaymentMethod = "Cash",
+                    AmountPaid = entry.TotalAmount,
+                    CreatedAt = entry.CreatedAt,
+                    CreatedBy = entry.CreatedBy,
+                    // Mark as already fiscalized
+                    FiscalizationStatus = DesktopSaleFiscalizationStatus.Success,
+                    FiscalReceiptNumber = entry.FiscalReceiptNumber,
+                    FiscalDeviceNumber = entry.FiscalDeviceNumber,
+                    Lines = request.Lines.Select((l, idx) => new DesktopSaleLineEntity
+                    {
+                        LineNum = l.LineNum > 0 ? l.LineNum : idx,
+                        ItemCode = l.ItemCode,
+                        ItemDescription = l.ItemDescription,
+                        Quantity = l.Quantity,
+                        UnitPrice = l.UnitPrice,
+                        LineTotal = l.Quantity * l.UnitPrice,
+                        WarehouseCode = l.WarehouseCode,
+                        TaxCode = l.TaxCode,
+                        DiscountPercent = l.DiscountPercent,
+                        UoMCode = l.UoMCode
+                    }).ToList()
+                };
+
+                sales.Add(sale);
+
+                // Track queue entry ID for post-consolidation marking
+                if (!_queueIdsByCardCode.TryGetValue(sale.CardCode, out var ids))
+                {
+                    ids = new List<int>();
+                    _queueIdsByCardCode[sale.CardCode] = ids;
+                }
+                ids.Add(entry.Id);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to convert queue entry {QueueId} to sale, skipping", entry.Id);
+            }
+        }
+
+        return sales;
     }
 }

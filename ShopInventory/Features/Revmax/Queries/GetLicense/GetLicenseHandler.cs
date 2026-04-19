@@ -18,6 +18,8 @@ public sealed class GetLicenseHandler(
         try
         {
             var result = await revmaxClient.GetLicenseAsync(cancellationToken);
+            if (result is null)
+                return Errors.Revmax.DeviceError("No response from device");
             return result;
         }
         catch (Exception ex)

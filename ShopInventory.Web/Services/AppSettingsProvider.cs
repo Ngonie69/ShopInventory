@@ -26,7 +26,9 @@ public class AppSettingsProvider : IAppSettingsProvider
     private readonly IDbContextFactory<WebAppDbContext> _dbContextFactory;
     private readonly ILogger<AppSettingsProvider> _logger;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
+#pragma warning disable CS0414
     private bool _loaded;
+#pragma warning restore CS0414
 
     public string CompanyName { get; private set; } = "Shop Inventory";
     public string DefaultWarehouse { get; private set; } = "01";

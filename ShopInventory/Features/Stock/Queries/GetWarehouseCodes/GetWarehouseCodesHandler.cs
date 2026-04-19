@@ -25,7 +25,8 @@ public sealed class GetWarehouseCodesHandler(
             var warehouses = await sapClient.GetWarehousesAsync(cancellationToken);
             var warehouseCodes = warehouses
                 .Where(w => request.IncludeInactive || w.IsActive)
-                .Select(w => w.WarehouseCode)
+                .Where(w => w.WarehouseCode != null)
+                .Select(w => w.WarehouseCode!)
                 .ToList();
 
             logger.LogInformation("Retrieved {Count} warehouse codes (includeInactive: {IncludeInactive})",

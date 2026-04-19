@@ -9,8 +9,7 @@ namespace ShopInventory.Features.UserManagement.Commands.CreateUser;
 
 public sealed class CreateUserHandler(
     IUserManagementService userManagementService,
-    IAuditService auditService,
-    ILogger<CreateUserHandler> logger
+    IAuditService auditService
 ) : IRequestHandler<CreateUserCommand, ErrorOr<UserDetailDto>>
 {
     public async Task<ErrorOr<UserDetailDto>> Handle(

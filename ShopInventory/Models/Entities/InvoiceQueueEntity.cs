@@ -187,5 +187,8 @@ public enum InvoiceQueueStatus
     Cancelled = 5,
 
     /// <summary>Partially completed (posted but fiscalization pending)</summary>
-    PartiallyCompleted = 6
+    PartiallyCompleted = 6,
+
+    /// <summary>Fiscalized but not yet posted to SAP (awaiting end-of-day consolidation)</summary>
+    Fiscalized = 7
 }

@@ -40,7 +40,7 @@ public sealed class UploadPodHandler(
         }
 
         if (invoiceInfo != null && ExcludedPodCardCodes.Contains(invoiceInfo.CardCode ?? ""))
-            return Errors.Invoice.PodExcluded(invoiceInfo.CardName, invoiceInfo.CardCode);
+            return Errors.Invoice.PodExcluded(invoiceInfo.CardName ?? "", invoiceInfo.CardCode ?? "");
 
         var request = new UploadAttachmentRequest
         {
@@ -58,7 +58,7 @@ public sealed class UploadPodHandler(
             try
             {
                 await documentService.EnsureInvoiceCachedAsync(
-                    command.DocEntry, invoiceInfo.DocNum, invoiceInfo.CardCode, invoiceInfo.CardName, cancellationToken);
+                    command.DocEntry, invoiceInfo.DocNum, invoiceInfo.CardCode ?? "", invoiceInfo.CardName, cancellationToken);
             }
             catch (Exception ex)
             {

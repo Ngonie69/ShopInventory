@@ -23,6 +23,8 @@ public interface IReportExportService
     byte[] ExportSlowMovingProductsToExcel(SlowMovingProductsReport report);
     byte[] ExportPodUploadStatusToExcel(PodUploadStatusReport report);
     byte[] ExportTimesheetReportToExcel(TimesheetReportResponse report, DateTime? fromDate = null, DateTime? toDate = null);
+    byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null);
+    byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
     string GeneratePrintableHtml(string title, string content, DateTime? fromDate = null, DateTime? toDate = null);
 }
 
@@ -2231,5 +2233,174 @@ public class ReportExportService : IReportExportService
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();
+    }
+
+    // ─── Desktop Sales Export ─────────────────────────────────────
+
+    public byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null)
+    {
+        using var workbook = new XLWorkbook();
+        var ws = workbook.Worksheets.Add("Desktop Sales");
+        const int cols = 9;
+
+        var row = WriteReportHeader(ws, "Desktop Sales Report", cols, fromDate, toDate);
+
+        // KPI cards
+        if (report != null)
+        {
+            WriteKpiCard(ws, row, 1, "Total Sales", report.TotalSalesCount.ToString());
+            WriteKpiCard(ws, row, 3, "Total Amount", report.TotalSalesAmount.ToString("N2"));
+            WriteKpiCard(ws, row, 5, "Total VAT", report.TotalVatAmount.ToString("N2"));
+            WriteKpiCard(ws, row, 7, "Posted", report.PostedInvoiceCount.ToString(), SuccessGreen);
+            row += 3;
+        }
+
+        // Column headers
+        var headers = new[] { "Reference", "Customer", "Card Code", "Warehouse", "Amount", "VAT", "Paid", "Fiscal Status", "Consolidation" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(row, i + 1).Value = headers[i];
+            ws.Cell(row, i + 1).Style.Font.Bold = true;
+            ws.Cell(row, i + 1).Style.Font.FontColor = XLColor.White;
+            ws.Cell(row, i + 1).Style.Fill.BackgroundColor = NavyBlue;
+            ws.Cell(row, i + 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, i + 1).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        }
+        row++;
+
+        // Data rows
+        var isAlt = false;
+        foreach (var sale in sales)
+        {
+            ws.Cell(row, 1).Value = sale.ExternalReferenceId;
+            ws.Cell(row, 2).Value = sale.CardName ?? sale.CardCode;
+            ws.Cell(row, 3).Value = sale.CardCode;
+            ws.Cell(row, 4).Value = sale.WarehouseCode;
+            ws.Cell(row, 5).Value = sale.TotalAmount;
+            ws.Cell(row, 5).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 6).Value = sale.VatAmount;
+            ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 7).Value = sale.AmountPaid;
+            ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 8).Value = sale.FiscalizationStatus;
+            ws.Cell(row, 9).Value = sale.ConsolidationStatus;
+
+            if (isAlt)
+            {
+                ws.Range(row, 1, row, cols).Style.Fill.BackgroundColor = LightGray;
+            }
+
+            for (int c = 1; c <= cols; c++)
+                ws.Cell(row, c).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+
+            isAlt = !isAlt;
+            row++;
+        }
+
+        // Totals row
+        ws.Cell(row, 1).Value = "TOTALS";
+        ws.Cell(row, 1).Style.Font.Bold = true;
+        ws.Cell(row, 5).Value = sales.Sum(s => s.TotalAmount);
+        ws.Cell(row, 5).Style.NumberFormat.Format = "#,##0.00";
+        ws.Cell(row, 5).Style.Font.Bold = true;
+        ws.Cell(row, 6).Value = sales.Sum(s => s.VatAmount);
+        ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
+        ws.Cell(row, 6).Style.Font.Bold = true;
+        ws.Cell(row, 7).Value = sales.Sum(s => s.AmountPaid);
+        ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
+        ws.Cell(row, 7).Style.Font.Bold = true;
+        ws.Range(row, 1, row, cols).Style.Fill.BackgroundColor = TotalsBackground;
+
+        ws.Columns().AdjustToContents();
+        return WorkbookToBytes(workbook);
+    }
+
+    // ─── Local Stock Export ──────────────────────────────────────
+
+    public byte[] ExportLocalStockToExcel(LocalStockResultDto stock)
+    {
+        using var workbook = new XLWorkbook();
+        var ws = workbook.Worksheets.Add("Local Stock");
+        const int cols = 7;
+
+        var row = WriteReportHeader(ws, "Local Stock Snapshot", cols,
+            subtitle: $"Warehouse: {stock.WarehouseCode}  |  Date: {stock.SnapshotDate:dd MMM yyyy}  |  Status: {stock.SnapshotStatus}");
+
+        // KPI cards
+        var inStock = stock.Items.Count(i => i.AvailableQuantity > 0);
+        var outOfStock = stock.Items.Count(i => i.AvailableQuantity <= 0);
+        var adjusted = stock.Items.Count(i => i.TransferAdjustment != 0);
+        WriteKpiCard(ws, row, 1, "Total Items", stock.Items.Count.ToString());
+        WriteKpiCard(ws, row, 3, "In Stock", inStock.ToString(), SuccessGreen);
+        WriteKpiCard(ws, row, 5, "Out of Stock", outOfStock.ToString(), outOfStock > 0 ? DangerRed : SuccessGreen);
+        WriteKpiCard(ws, row, 7, "Transfer Adjusted", adjusted.ToString());
+        row += 3;
+
+        // Column headers
+        var headers = new[] { "Item Code", "Description", "Available Qty", "Original Qty", "Adjustment", "Batches", "Warehouse" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(row, i + 1).Value = headers[i];
+            ws.Cell(row, i + 1).Style.Font.Bold = true;
+            ws.Cell(row, i + 1).Style.Font.FontColor = XLColor.White;
+            ws.Cell(row, i + 1).Style.Fill.BackgroundColor = NavyBlue;
+            ws.Cell(row, i + 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, i + 1).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        }
+        row++;
+
+        // Data rows
+        var isAlt = false;
+        foreach (var item in stock.Items)
+        {
+            ws.Cell(row, 1).Value = item.ItemCode;
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 2).Value = item.ItemDescription ?? "";
+            ws.Cell(row, 3).Value = item.AvailableQuantity;
+            ws.Cell(row, 3).Style.NumberFormat.Format = "#,##0.00";
+            if (item.AvailableQuantity <= 0)
+                ws.Cell(row, 3).Style.Font.FontColor = DangerRed;
+            ws.Cell(row, 4).Value = item.OriginalQuantity;
+            ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 5).Value = item.TransferAdjustment;
+            ws.Cell(row, 5).Style.NumberFormat.Format = "+#,##0.00;-#,##0.00;0.00";
+            if (item.TransferAdjustment > 0) ws.Cell(row, 5).Style.Font.FontColor = SuccessGreen;
+            else if (item.TransferAdjustment < 0) ws.Cell(row, 5).Style.Font.FontColor = DangerRed;
+            ws.Cell(row, 6).Value = item.Batches.Count;
+            ws.Cell(row, 7).Value = item.WarehouseCode;
+
+            if (isAlt)
+                ws.Range(row, 1, row, cols).Style.Fill.BackgroundColor = LightGray;
+
+            for (int c = 1; c <= cols; c++)
+                ws.Cell(row, c).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+
+            isAlt = !isAlt;
+            row++;
+
+            // Batch detail rows
+            if (item.Batches.Count > 1)
+            {
+                foreach (var batch in item.Batches.OrderBy(b => b.ExpiryDate))
+                {
+                    ws.Cell(row, 1).Value = "";
+                    ws.Cell(row, 2).Value = $"  Batch: {batch.BatchNumber ?? "N/A"}" +
+                        (batch.ExpiryDate.HasValue ? $" — Expires: {batch.ExpiryDate.Value:dd MMM yyyy}" : "");
+                    ws.Cell(row, 2).Style.Font.FontSize = 9;
+                    ws.Cell(row, 2).Style.Font.FontColor = XLColor.FromHtml("#616161");
+                    ws.Cell(row, 3).Value = batch.AvailableQuantity;
+                    ws.Cell(row, 3).Style.NumberFormat.Format = "#,##0.00";
+                    ws.Cell(row, 3).Style.Font.FontSize = 9;
+                    ws.Cell(row, 4).Value = batch.OriginalQuantity;
+                    ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
+                    ws.Cell(row, 4).Style.Font.FontSize = 9;
+                    ws.Range(row, 1, row, cols).Style.Fill.BackgroundColor = AccentBlue;
+                    row++;
+                }
+            }
+        }
+
+        ws.Columns().AdjustToContents();
+        return WorkbookToBytes(workbook);
     }
 }

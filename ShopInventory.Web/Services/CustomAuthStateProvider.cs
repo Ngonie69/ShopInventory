@@ -158,6 +158,19 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
             }
         }
 
+        if (!string.IsNullOrEmpty(userInfo?.DefaultGLAccount))
+        {
+            claims.Add(new Claim("defaultglaccount", userInfo.DefaultGLAccount));
+        }
+
+        if (userInfo?.AllowedPaymentBusinessPartners != null)
+        {
+            foreach (var bp in userInfo.AllowedPaymentBusinessPartners)
+            {
+                claims.Add(new Claim("paymentbp", bp));
+            }
+        }
+
         var identity = new ClaimsIdentity(claims, "jwt");
         var user = new ClaimsPrincipal(identity);
 

@@ -1004,7 +1004,7 @@
                                 <MudTd DataLabel="Currency">
                                     <span
                                         style="font-size:.82rem;padding:.15rem .45rem;border-radius:4px;background:#f3f4f6;color:#374151;font-weight:600;">@(context.Currency
-                                                                                                                                                                                            ?? "USD")</span>
+                                                                                                                                                                                                                                    ?? "USD")</span>
                                     </MudTd>
                                     <MudTd DataLabel="Balance" Style="text-align:right">
                                         <span class="@(context.Balance > 0 ? "balance-positive" : "balance-zero")">
@@ -1024,10 +1024,10 @@
                                     <MudTd DataLabel="Actions">
                                         <div style="display:flex;gap:.3rem;">
                                             <MudIconButton Icon="@Icons.Material.Filled.Visibility" Class="action-btn primary"
-                                                           OnClick="@(() => ViewCustomer(context))" Title="View Details" />
+                                                           OnClick="@(() => ViewCustomer(context))" title="View Details" />
                                             <MudIconButton Icon="@Icons.Material.Filled.Receipt" Class="action-btn info"
                                                            OnClick="@(() => NavigateToInvoices(context.CardCode ?? string.Empty))"
-                                                           Title="View Invoices" />
+                                                           title="View Invoices" />
                                         </div>
                                     </MudTd>
                                 </RowTemplate>
@@ -1205,7 +1205,7 @@
                 }
 
 @code {
-    private MudTable<BusinessPartnerDto>? _table;
+    private MudTable<BusinessPartnerDto> _table = null!;
     private int _pageSize = 10;
     private List<BusinessPartnerDto>? customers;
     private BusinessPartnerDto? selectedCustomer;
@@ -1249,7 +1249,8 @@
 
     private void OnCustomerRowClicked(TableRowClickEventArgs<BusinessPartnerDto> args)
     {
-        ViewCustomer(args.Item);
+        if (args.Item is not null)
+            ViewCustomer(args.Item);
     }
 
     private void PageChanged(int i)

@@ -12,5 +12,6 @@ public sealed record GetAllSalesOrdersQuery(
     string? CardCode,
     DateTime? FromDate,
     DateTime? ToDate,
-    SalesOrderSource? Source
+    SalesOrderSource? Source,
+    string? Search = null
 ) : IRequest<ErrorOr<SalesOrderListResponseDto>>;

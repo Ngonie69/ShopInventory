@@ -8,8 +8,7 @@ using ShopInventory.Models.Entities;
 namespace ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 
 public sealed class GenerateEndOfDayReportHandler(
-    ApplicationDbContext context,
-    ILogger<GenerateEndOfDayReportHandler> logger
+    ApplicationDbContext context
 ) : IRequestHandler<GenerateEndOfDayReportQuery, ErrorOr<EndOfDayReportDto>>
 {
     public async Task<ErrorOr<EndOfDayReportDto>> Handle(

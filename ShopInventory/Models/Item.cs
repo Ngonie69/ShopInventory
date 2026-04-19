@@ -82,6 +82,9 @@ public class BatchNumber
     [JsonPropertyName("ItemCode")]
     public string? ItemCode { get; set; }
 
+    [JsonPropertyName("ItemName")]
+    public string? ItemName { get; set; }
+
     [JsonPropertyName("BatchNum")]
     public string? BatchNum { get; set; }
 

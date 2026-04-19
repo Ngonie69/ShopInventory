@@ -12,7 +12,7 @@ public interface ISalesOrderService
     Task<SalesOrderDto?> GetByOrderNumberAsync(string orderNumber, CancellationToken cancellationToken = default);
     Task<SalesOrderListResponseDto> GetAllAsync(int page, int pageSize, SalesOrderStatus? status = null,
         string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
-        SalesOrderSource? source = null, CancellationToken cancellationToken = default);
+        SalesOrderSource? source = null, string? search = null, CancellationToken cancellationToken = default);
     Task<SalesOrderDto> CreateAsync(CreateSalesOrderRequest request, Guid userId, CancellationToken cancellationToken = default);
     Task<SalesOrderDto> UpdateAsync(int id, CreateSalesOrderRequest request, CancellationToken cancellationToken = default);
     Task<SalesOrderDto> UpdateStatusAsync(int id, SalesOrderStatus status, Guid userId, string? comments = null, CancellationToken cancellationToken = default);

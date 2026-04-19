@@ -1,9 +1,11 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Hubs;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 using Microsoft.Extensions.Options;
@@ -13,6 +15,7 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
 public sealed class FetchDailyStockHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
+    IHubContext<NotificationHub> hubContext,
     IOptions<DailyStockSettings> settings,
     ILogger<FetchDailyStockHandler> logger
 ) : IRequestHandler<FetchDailyStockCommand, ErrorOr<FetchDailyStockResult>>
@@ -25,9 +28,23 @@ public sealed class FetchDailyStockHandler(
         var warehouses = command.Warehouses ?? settings.Value.MonitoredWarehouses;
         var results = new List<WarehouseSnapshotResult>();
         var totalItemCount = 0;
+        var completedCount = 0;
+
+        // Notify clients that fetch has started
+        await hubContext.Clients.Group("all").SendAsync("StockFetchProgress", new
+        {
+            CompletedCount = 0,
+            TotalCount = warehouses.Count,
+            CurrentWarehouse = warehouses.FirstOrDefault() ?? "",
+            Status = "Started",
+            CompletedWarehouses = new List<string>()
+        }, cancellationToken);
 
         foreach (var warehouseCode in warehouses)
         {
+            // Clear EF change tracker between warehouses to prevent identity conflicts
+            context.ChangeTracker.Clear();
+
             try
             {
                 var result = await FetchWarehouseStockAsync(snapshotDate, warehouseCode, cancellationToken);
@@ -39,9 +56,31 @@ public sealed class FetchDailyStockHandler(
                 logger.LogError(ex, "Failed to fetch stock for warehouse {Warehouse}", warehouseCode);
                 results.Add(new WarehouseSnapshotResult(warehouseCode, 0, "Failed"));
             }
+
+            completedCount++;
+
+            // Send per-warehouse progress update
+            await hubContext.Clients.Group("all").SendAsync("StockFetchProgress", new
+            {
+                CompletedCount = completedCount,
+                TotalCount = warehouses.Count,
+                CurrentWarehouse = warehouseCode,
+                Status = completedCount == warehouses.Count ? "Complete" : "InProgress",
+                CompletedWarehouses = results.Select(r => r.WarehouseCode).ToList()
+            }, cancellationToken);
         }
 
-        return new FetchDailyStockResult(snapshotDate, warehouses.Count, totalItemCount, results);
+        var fetchResult = new FetchDailyStockResult(snapshotDate, warehouses.Count, totalItemCount, results);
+
+        // Broadcast real-time event to connected Web clients
+        await hubContext.Clients.Group("all").SendAsync("StockSnapshotUpdated", new
+        {
+            SnapshotDate = snapshotDate,
+            WarehouseCount = warehouses.Count,
+            TotalItemCount = totalItemCount
+        });
+
+        return fetchResult;
     }
 
     public async Task<WarehouseSnapshotResult> FetchWarehouseStockAsync(
@@ -93,7 +132,7 @@ public sealed class FetchDailyStockHandler(
             {
                 SnapshotId = snapshot.Id,
                 ItemCode = b.ItemCode ?? string.Empty,
-                ItemDescription = null,
+                ItemDescription = b.ItemName,
                 WarehouseCode = warehouseCode,
                 BatchNumber = b.BatchNum,
                 OriginalQuantity = b.Quantity,

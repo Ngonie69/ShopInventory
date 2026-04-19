@@ -1,0 +1,1061 @@
+@page "/fiscalized-sales-report"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Services
+@using ShopInventory.Web.Models
+@attribute [Authorize(Roles = "Admin,Manager")]
+@inject IDesktopIntegrationService DesktopService
+@inject IMasterDataCacheService MasterDataCache
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<PageTitle>Fiscalized Sales Report - Shop Inventory</PageTitle>
+
+<style>
+    /* ── Page ────────────────────────────────────────── */
+    .fsr-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
+    }
+
+    .dark-theme .fsr-page { background: #1a1a2e; }
+
+    /* ── Header ──────────────────────────────────────── */
+    .fsr-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .fsr-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .fsr-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #6366f1, #4f46e5);
+        box-shadow: 0 4px 14px rgba(99, 102, 241, .3);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .fsr-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+        letter-spacing: -.3px;
+    }
+
+    .dark-theme .fsr-header h2 { color: #e2e8f0; }
+
+    .fsr-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: .88rem;
+    }
+
+    .fsr-header-actions {
+        display: flex;
+        gap: .5rem;
+        flex-wrap: wrap;
+    }
+
+    .btn-fsr-outline {
+        background: transparent;
+        border: 1.5px solid #d1d5db;
+        color: #374151;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .dark-theme .btn-fsr-outline { border-color: #4b5563; color: #d1d5db; }
+
+    /* ── Stat Cards ──────────────────────────────────── */
+    .stat-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .stat-card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 1.1rem 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .dark-theme .stat-card { background: #1e293b; border-color: #334155; }
+
+    .stat-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.2rem;
+    }
+
+    .stat-icon.green { background: #d1fae5; color: #059669; }
+    .stat-icon.blue { background: #dbeafe; color: #2563eb; }
+    .stat-icon.amber { background: #fef3c7; color: #d97706; }
+    .stat-icon.purple { background: #ede9fe; color: #7c3aed; }
+    .stat-icon.indigo { background: #e0e7ff; color: #4338ca; }
+
+    .stat-value { font-size: 1.35rem; font-weight: 700; color: #1a1a2e; }
+    .dark-theme .stat-value { color: #e2e8f0; }
+    .stat-label { font-size: .75rem; color: #6b7280; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+
+    /* ── Period Tabs ──────────────────────────────────── */
+    .period-tabs {
+        display: flex;
+        gap: .35rem;
+        margin-bottom: 1.25rem;
+        background: #fff;
+        padding: .5rem;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        width: fit-content;
+    }
+
+    .dark-theme .period-tabs { background: #1e293b; border-color: #334155; }
+
+    .period-tab {
+        padding: .5rem 1.25rem;
+        border: none;
+        border-radius: 8px;
+        font-size: .85rem;
+        font-weight: 600;
+        cursor: pointer;
+        background: transparent;
+        color: #6b7280;
+        transition: all .2s;
+    }
+
+    .period-tab:hover { background: #f3f4f6; }
+    .dark-theme .period-tab:hover { background: #334155; }
+
+    .period-tab.active {
+        background: linear-gradient(135deg, #6366f1, #4f46e5);
+        color: #fff;
+        box-shadow: 0 2px 8px rgba(99, 102, 241, .25);
+    }
+
+    /* ── Filter Bar ──────────────────────────────────── */
+    .filter-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .75rem;
+        align-items: flex-end;
+        padding: 1rem 1.25rem;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        margin-bottom: 1.25rem;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .dark-theme .filter-bar { background: #1e293b; border-color: #334155; }
+
+    .filter-field { display: flex; flex-direction: column; gap: .25rem; }
+    .filter-field label { font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; }
+    .filter-field select,
+    .filter-field input {
+        padding: .45rem .65rem;
+        border: 1.5px solid #d1d5db;
+        border-radius: 8px;
+        font-size: .85rem;
+        background: #fff;
+        color: #374151;
+        min-width: 140px;
+    }
+
+    .dark-theme .filter-field select,
+    .dark-theme .filter-field input { background: #0f172a; border-color: #475569; color: #e2e8f0; }
+
+    .filter-actions-row { display: flex; gap: .5rem; align-items: flex-end; }
+
+    .btn-search {
+        background: linear-gradient(135deg, #6366f1, #4f46e5);
+        color: #fff;
+        border: none;
+        padding: .45rem 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+    }
+
+    .btn-clear {
+        background: transparent;
+        border: 1.5px solid #d1d5db;
+        padding: .45rem 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .85rem;
+        cursor: pointer;
+        color: #6b7280;
+    }
+
+    /* ── Daily Breakdown ─────────────────────────────── */
+    .breakdown-section {
+        margin-bottom: 1.25rem;
+    }
+
+    .breakdown-title {
+        font-size: .85rem;
+        font-weight: 700;
+        color: #374151;
+        margin-bottom: .75rem;
+    }
+
+    .dark-theme .breakdown-title { color: #d1d5db; }
+
+    .breakdown-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: .75rem;
+    }
+
+    .breakdown-card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: .85rem 1rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, .03);
+    }
+
+    .dark-theme .breakdown-card { background: #1e293b; border-color: #334155; }
+
+    .breakdown-date {
+        font-size: .75rem;
+        font-weight: 700;
+        color: #6366f1;
+        text-transform: uppercase;
+        margin-bottom: .4rem;
+    }
+
+    .breakdown-stat {
+        display: flex;
+        justify-content: space-between;
+        font-size: .8rem;
+        color: #374151;
+        padding: .15rem 0;
+    }
+
+    .dark-theme .breakdown-stat { color: #cbd5e1; }
+    .breakdown-stat-label { color: #6b7280; }
+    .breakdown-stat-value { font-weight: 600; font-family: 'Space Grotesk', monospace; }
+
+    /* ── Table ───────────────────────────────────────── */
+    .fsr-table-wrap {
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        overflow: hidden;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .dark-theme .fsr-table-wrap { background: #1e293b; border-color: #334155; }
+
+    .fsr-table-header {
+        padding: .75rem 1rem;
+        border-bottom: 1px solid #e5e7eb;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .dark-theme .fsr-table-header { border-color: #334155; }
+
+    .fsr-table-header h6 { margin: 0; font-size: .85rem; font-weight: 600; color: #374151; }
+    .dark-theme .fsr-table-header h6 { color: #d1d5db; }
+
+    .fsr-count-badge {
+        background: #6366f1;
+        color: #fff;
+        padding: .15rem .5rem;
+        border-radius: 20px;
+        font-size: .7rem;
+        font-weight: 700;
+        margin-left: .35rem;
+    }
+
+    .fsr-table {
+        width: 100%;
+        font-size: .85rem;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .fsr-table th {
+        background: #f8fafc;
+        font-size: .72rem;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #6b7280;
+        font-weight: 600;
+        padding: .6rem .75rem;
+        border-bottom: 2px solid #e5e7eb;
+        white-space: nowrap;
+    }
+
+    .dark-theme .fsr-table th { background: #0f172a; color: #94a3b8; border-color: #334155; }
+
+    .fsr-table td {
+        padding: .55rem .75rem;
+        border-bottom: 1px solid #f3f4f6;
+        color: #374151;
+        vertical-align: middle;
+    }
+
+    .dark-theme .fsr-table td { color: #cbd5e1; border-color: #1e293b; }
+
+    .fsr-table tbody tr { cursor: pointer; transition: background .15s; }
+    .fsr-table tbody tr:hover { background: rgba(99, 102, 241, .04); }
+    .dark-theme .fsr-table tbody tr:hover { background: rgba(99, 102, 241, .08); }
+
+    .item-code { font-weight: 700; color: #6366f1; font-size: .88rem; font-family: 'Space Grotesk', monospace; }
+    .amount-cell { font-family: 'Space Grotesk', monospace; font-weight: 600; }
+
+    /* ── Status Badges ───────────────────────────────── */
+    .status-badge {
+        padding: 3px 10px;
+        border-radius: 6px;
+        font-size: .7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        display: inline-block;
+        white-space: nowrap;
+    }
+
+    .status-yes { background: #dbeafe; color: #1e40af; }
+    .status-no { background: #fef3c7; color: #92400e; }
+    .status-fiscal { background: #d1fae5; color: #065f46; }
+
+    /* ── Detail Drawer ───────────────────────────────── */
+    .modal-backdrop-custom {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0, 0, 0, .4);
+        z-index: 1000;
+    }
+
+    .detail-drawer {
+        position: fixed;
+        top: 0; right: 0; bottom: 0;
+        width: 560px;
+        max-width: 95vw;
+        background: #fff;
+        z-index: 1001;
+        box-shadow: -4px 0 24px rgba(0, 0, 0, .15);
+        display: flex;
+        flex-direction: column;
+        animation: slideIn .2s ease;
+    }
+
+    .dark-theme .detail-drawer { background: #1e293b; }
+
+    @@keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+    .drawer-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1.25rem 1.5rem;
+        border-bottom: 1px solid #e5e7eb;
+    }
+
+    .dark-theme .drawer-header { border-color: #334155; }
+    .drawer-header h5 { margin: 0; font-size: 1rem; font-weight: 700; }
+
+    .btn-close-drawer {
+        background: none;
+        border: none;
+        font-size: 1.2rem;
+        color: #6b7280;
+        cursor: pointer;
+        padding: .25rem;
+        border-radius: 6px;
+    }
+
+    .btn-close-drawer:hover { background: #f3f4f6; }
+
+    .drawer-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.25rem 1.5rem;
+    }
+
+    .detail-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .75rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .detail-item {
+        padding: .75rem;
+        border-radius: 8px;
+        background: #f8fafc;
+    }
+
+    .dark-theme .detail-item { background: #0f172a; }
+
+    .detail-label {
+        font-size: .68rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        color: #6b7280;
+        margin-bottom: .2rem;
+    }
+
+    .detail-value { font-size: .9rem; font-weight: 500; color: #1a1a2e; }
+    .dark-theme .detail-value { color: #e2e8f0; }
+
+    .lines-table {
+        width: 100%;
+        font-size: .8rem;
+        border-collapse: collapse;
+        margin-top: .75rem;
+    }
+
+    .lines-table th {
+        text-align: left;
+        padding: .5rem;
+        font-size: .68rem;
+        text-transform: uppercase;
+        color: #6b7280;
+        border-bottom: 2px solid #e5e7eb;
+    }
+
+    .lines-table td {
+        padding: .5rem;
+        border-bottom: 1px solid #f3f4f6;
+    }
+
+    .drawer-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        gap: .5rem;
+        justify-content: flex-end;
+    }
+
+    .dark-theme .drawer-footer { border-color: #334155; }
+
+    /* ── Pagination ───────────────────────────────────── */
+    .fsr-pagination {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem;
+    }
+
+    .fsr-pagination button {
+        padding: .4rem 1rem;
+        border: 1.5px solid #d1d5db;
+        border-radius: 8px;
+        background: #fff;
+        font-size: .85rem;
+        font-weight: 600;
+        cursor: pointer;
+        color: #374151;
+    }
+
+    .fsr-pagination button:disabled { opacity: .5; cursor: not-allowed; }
+    .page-indicator { font-size: .85rem; color: #6b7280; font-weight: 600; }
+
+    /* ── Loading / Empty ─────────────────────────────── */
+    .loading-state { text-align: center; padding: 3rem; color: #6b7280; font-size: .9rem; }
+    .empty-state { text-align: center; padding: 3rem; }
+    .empty-icon { font-size: 3rem; margin-bottom: .75rem; }
+    .empty-state h6 { color: #374151; font-weight: 600; }
+    .empty-state p { color: #6b7280; font-size: .85rem; }
+    .alert-banner { padding: .75rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: .85rem; }
+    .error-alert { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+
+    /* ── Date Range Info ──────────────────────────────── */
+    .date-range-info {
+        display: inline-flex;
+        align-items: center;
+        gap: .5rem;
+        font-size: .8rem;
+        color: #6b7280;
+        background: #f8fafc;
+        padding: .35rem .75rem;
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+        margin-bottom: 1rem;
+    }
+
+    .dark-theme .date-range-info { background: #0f172a; border-color: #334155; color: #94a3b8; }
+
+    /* ── Mobile Responsive ───────────────────────────── */
+    @@media (max-width: 768px) {
+        .fsr-page { padding: .75rem; }
+        .fsr-header { flex-direction: column; }
+        .fsr-header-actions { width: 100%; justify-content: stretch; }
+        .fsr-header-actions button { flex: 1; }
+        .stat-row { grid-template-columns: repeat(2, 1fr); }
+        .period-tabs { width: 100%; overflow-x: auto; }
+        .filter-bar { flex-direction: column; }
+        .filter-field { width: 100%; }
+        .filter-field select,
+        .filter-field input { width: 100%; min-width: unset; }
+        .filter-actions-row { width: 100%; }
+        .filter-actions-row button { flex: 1; }
+        .breakdown-grid { grid-template-columns: repeat(2, 1fr); }
+        .fsr-table { font-size: .78rem; }
+        .fsr-table th, .fsr-table td { padding: .4rem .5rem; }
+        .detail-drawer { width: 100% !important; }
+    }
+
+    @@media (max-width: 480px) {
+        .stat-row { grid-template-columns: 1fr; }
+        .breakdown-grid { grid-template-columns: 1fr; }
+        .fsr-header-icon { width: 40px; height: 40px; font-size: 1.1rem; }
+        .fsr-header h2 { font-size: 1.3rem; }
+    }
+</style>
+
+<div class="fsr-page">
+    <div class="container-fluid">
+        <!-- ━━━ Header ━━━ -->
+        <div class="fsr-header">
+            <div class="fsr-header-left">
+                <div class="fsr-header-icon"><i class="bi bi-receipt"></i></div>
+                <div>
+                    <h2>Fiscalized Sales Report</h2>
+                    <p>View detailed reports of fiscalized sales — daily, weekly, and monthly breakdowns</p>
+                </div>
+            </div>
+            <div class="fsr-header-actions">
+                <button class="btn-fsr-outline" @onclick="RefreshData" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-arrow-clockwise"></i>
+                    }
+                    Refresh
+                </button>
+            </div>
+        </div>
+
+        <!-- ━━━ Period Tabs ━━━ -->
+        <div class="period-tabs">
+            <button class="period-tab @(selectedPeriod == "Daily" ? "active" : "")" @onclick='() => SetPeriod("Daily")'>Daily</button>
+            <button class="period-tab @(selectedPeriod == "Weekly" ? "active" : "")" @onclick='() => SetPeriod("Weekly")'>Weekly</button>
+            <button class="period-tab @(selectedPeriod == "Monthly" ? "active" : "")" @onclick='() => SetPeriod("Monthly")'>Monthly</button>
+            <button class="period-tab @(selectedPeriod == "Custom" ? "active" : "")" @onclick='() => SetPeriod("Custom")'>Custom</button>
+        </div>
+
+        <!-- ━━━ Stat Cards ━━━ -->
+        @if (reportResult?.Summary != null)
+        {
+            <div class="stat-row">
+                <div class="stat-card">
+                    <div class="stat-icon indigo">📄</div>
+                    <div class="stat-info">
+                        <div class="stat-value">@reportResult.Summary.TotalFiscalizedSales</div>
+                        <div class="stat-label">Total Fiscalized</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon green">💰</div>
+                    <div class="stat-info">
+                        <div class="stat-value">@reportResult.Summary.TotalSalesAmount.ToString("N2")</div>
+                        <div class="stat-label">Total Amount</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon purple">🧾</div>
+                    <div class="stat-info">
+                        <div class="stat-value">@reportResult.Summary.TotalVatAmount.ToString("N2")</div>
+                        <div class="stat-label">Total VAT</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon blue">✓</div>
+                    <div class="stat-info">
+                        <div class="stat-value">@reportResult.Summary.ConsolidatedCount</div>
+                        <div class="stat-label">Consolidated</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon amber">⏳</div>
+                    <div class="stat-info">
+                        <div class="stat-value">@reportResult.Summary.AwaitingConsolidationCount</div>
+                        <div class="stat-label">Awaiting</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon green">👤</div>
+                    <div class="stat-info">
+                        <div class="stat-value">@reportResult.Summary.UniqueCustomers</div>
+                        <div class="stat-label">Customers</div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- ━━━ Filter Bar ━━━ -->
+        <div class="filter-bar">
+            @if (selectedPeriod is "Daily" or "Weekly" or "Monthly")
+            {
+                <div class="filter-field">
+                    <label>Date</label>
+                    <input type="date" @bind="filterDate" />
+                </div>
+            }
+            @if (selectedPeriod == "Custom")
+            {
+                <div class="filter-field">
+                    <label>From Date</label>
+                    <input type="date" @bind="filterFromDate" />
+                </div>
+                <div class="filter-field">
+                    <label>To Date</label>
+                    <input type="date" @bind="filterToDate" />
+                </div>
+            }
+            <div class="filter-field">
+                <label>Warehouse</label>
+                <select @bind="filterWarehouse">
+                    <option value="">-- All --</option>
+                    @foreach (var wh in warehouses)
+                    {
+                        <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
+                    }
+                </select>
+            </div>
+            <div class="filter-field">
+                <label>Customer Code</label>
+                <input type="text" placeholder="Card Code" @bind="filterCardCode" />
+            </div>
+            <div class="filter-field">
+                <label>Consolidation</label>
+                <select @bind="filterConsolidation">
+                    <option value="">-- All --</option>
+                    <option value="true">Consolidated</option>
+                    <option value="false">Awaiting</option>
+                </select>
+            </div>
+            <div class="filter-actions-row">
+                <button class="btn-search" @onclick="ApplyFilter" disabled="@isLoading">Search</button>
+                <button class="btn-clear" @onclick="ClearFilter">Clear</button>
+            </div>
+        </div>
+
+        <!-- ━━━ Date Range Info ━━━ -->
+        @if (reportResult != null)
+        {
+            <div class="date-range-info">
+                <i class="bi bi-calendar3"></i>
+                @reportResult.FromDate.ToString("dd MMM yyyy") — @reportResult.ToDate.ToString("dd MMM yyyy")
+                <span style="font-weight:600">(@reportResult.Period)</span>
+            </div>
+        }
+
+        <!-- ━━━ Daily Breakdown ━━━ -->
+        @if (reportResult?.DailyBreakdown?.Count > 1)
+        {
+            <div class="breakdown-section">
+                <div class="breakdown-title">Daily Breakdown</div>
+                <div class="breakdown-grid">
+                    @foreach (var day in reportResult.DailyBreakdown)
+                    {
+                        <div class="breakdown-card">
+                            <div class="breakdown-date">@day.Date.ToString("ddd, dd MMM")</div>
+                            <div class="breakdown-stat">
+                                <span class="breakdown-stat-label">Sales</span>
+                                <span class="breakdown-stat-value">@day.SalesCount</span>
+                            </div>
+                            <div class="breakdown-stat">
+                                <span class="breakdown-stat-label">Amount</span>
+                                <span class="breakdown-stat-value">@day.TotalAmount.ToString("N2")</span>
+                            </div>
+                            <div class="breakdown-stat">
+                                <span class="breakdown-stat-label">VAT</span>
+                                <span class="breakdown-stat-value">@day.VatAmount.ToString("N2")</span>
+                            </div>
+                            <div class="breakdown-stat">
+                                <span class="breakdown-stat-label">Consolidated</span>
+                                <span class="breakdown-stat-value">@day.ConsolidatedCount / @day.SalesCount</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- ━━━ Error ━━━ -->
+        @if (errorMessage != null)
+        {
+            <div class="alert-banner error-alert">@errorMessage</div>
+        }
+
+        <!-- ━━━ Data Table ━━━ -->
+        @if (isLoading)
+        {
+            <div class="loading-state">
+                <span class="spinner-border spinner-border-sm text-muted"></span> Loading fiscalized sales...
+            </div>
+        }
+        else if (reportResult?.Sales?.Any() == true)
+        {
+            <div class="fsr-table-wrap">
+                <div class="fsr-table-header">
+                    <h6>Fiscalized Sales <span class="fsr-count-badge">@reportResult.TotalCount</span></h6>
+                </div>
+                <div style="overflow-x:auto">
+                    <table class="fsr-table">
+                        <thead>
+                            <tr>
+                                <th>Ref</th>
+                                <th>Customer</th>
+                                <th>Warehouse</th>
+                                <th>Amount</th>
+                                <th>VAT</th>
+                                <th>Fiscal Receipt</th>
+                                <th>Consolidated</th>
+                                <th>SAP Doc#</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var sale in reportResult.Sales)
+                            {
+                                <tr @onclick="() => SelectSale(sale)">
+                                    <td><span class="item-code">@sale.ExternalReference</span></td>
+                                    <td>
+                                        <div>@(sale.CustomerName ?? sale.CustomerCode)</div>
+                                        @if (sale.CustomerName != null)
+                                        {
+                                            <div style="font-size:.72rem;color:#6b7280">@sale.CustomerCode</div>
+                                        }
+                                    </td>
+                                    <td>@sale.WarehouseCode</td>
+                                    <td><span class="amount-cell">@sale.Currency @sale.TotalAmount.ToString("N2")</span></td>
+                                    <td><span class="amount-cell">@sale.VatAmount.ToString("N2")</span></td>
+                                    <td>@(sale.FiscalReceiptNumber ?? "—")</td>
+                                    <td>
+                                        <span class="status-badge @(sale.IsConsolidated ? "status-yes" : "status-no")">
+                                            @(sale.IsConsolidated ? "Yes" : "Awaiting")
+                                        </span>
+                                    </td>
+                                    <td>@(sale.SapDocNum?.ToString() ?? "—")</td>
+                                    <td>@sale.CreatedAt.AddHours(2).ToString("dd MMM HH:mm")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="fsr-pagination">
+                <button @onclick="PreviousPage" disabled="@(currentPage == 1)">← Previous</button>
+                <span class="page-indicator">Page @currentPage of @totalPages</span>
+                <button @onclick="NextPage" disabled="@(!reportResult.HasMore)">Next →</button>
+            </div>
+        }
+        else if (!isLoading)
+        {
+            <div class="empty-state">
+                <div class="empty-icon">📋</div>
+                <h6>No Fiscalized Sales Found</h6>
+                <p>Try adjusting your filters or selecting a different date range</p>
+            </div>
+        }
+    </div>
+
+    <!-- ━━━ Detail Drawer ━━━ -->
+    @if (selectedSale != null)
+    {
+        <div class="modal-backdrop-custom" @onclick="CloseDrawer"></div>
+        <div class="detail-drawer">
+            <div class="drawer-header">
+                <h5>Sale — @selectedSale.ExternalReference</h5>
+                <button class="btn-close-drawer" @onclick="CloseDrawer">✕</button>
+            </div>
+            <div class="drawer-body">
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-label">Customer</div>
+                        <div class="detail-value">@(selectedSale.CustomerName ?? selectedSale.CustomerCode)</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Customer Code</div>
+                        <div class="detail-value">@selectedSale.CustomerCode</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Warehouse</div>
+                        <div class="detail-value">@(selectedSale.WarehouseCode ?? "—")</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Total Amount</div>
+                        <div class="detail-value">@selectedSale.Currency @selectedSale.TotalAmount.ToString("N2")</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">VAT Amount</div>
+                        <div class="detail-value">@selectedSale.VatAmount.ToString("N2")</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Status</div>
+                        <div class="detail-value"><span class="status-badge status-fiscal">@selectedSale.Status</span></div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Fiscal Device</div>
+                        <div class="detail-value">@(selectedSale.FiscalDeviceNumber ?? "—")</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Fiscal Receipt #</div>
+                        <div class="detail-value">@(selectedSale.FiscalReceiptNumber ?? "—")</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">SAP Doc Entry</div>
+                        <div class="detail-value">@(selectedSale.SapDocEntry ?? "—")</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">SAP Doc#</div>
+                        <div class="detail-value">@(selectedSale.SapDocNum?.ToString() ?? "—")</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Consolidated</div>
+                        <div class="detail-value">
+                            <span class="status-badge @(selectedSale.IsConsolidated ? "status-yes" : "status-no")">
+                                @(selectedSale.IsConsolidated ? "Yes" : "No")
+                            </span>
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Source System</div>
+                        <div class="detail-value">@(selectedSale.SourceSystem)</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Created By</div>
+                        <div class="detail-value">@(selectedSale.CreatedBy ?? "—")</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Created At</div>
+                        <div class="detail-value">@selectedSale.CreatedAt.AddHours(2).ToString("dd MMM yyyy HH:mm")</div>
+                    </div>
+                    @if (selectedSale.FiscalizedAt.HasValue)
+                    {
+                        <div class="detail-item">
+                            <div class="detail-label">Fiscalized At</div>
+                            <div class="detail-value">@selectedSale.FiscalizedAt.Value.AddHours(2).ToString("dd MMM yyyy HH:mm")</div>
+                        </div>
+                    }
+                    @if (selectedSale.ConsolidatedAt.HasValue)
+                    {
+                        <div class="detail-item">
+                            <div class="detail-label">Consolidated At</div>
+                            <div class="detail-value">@selectedSale.ConsolidatedAt.Value.AddHours(2).ToString("dd MMM yyyy HH:mm")</div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(selectedSale.Notes))
+                    {
+                        <div class="detail-item" style="grid-column: span 2">
+                            <div class="detail-label">Notes</div>
+                            <div class="detail-value">@selectedSale.Notes</div>
+                        </div>
+                    }
+                </div>
+
+                @if (selectedSale.Lines?.Any() == true)
+                {
+                    <h6 style="font-size:.8rem;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:.5rem">Line Items</h6>
+                    <table class="lines-table">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Qty</th>
+                                <th>Unit Price</th>
+                                <th>Disc %</th>
+                                <th>Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var line in selectedSale.Lines)
+                            {
+                                <tr>
+                                    <td>
+                                        <div style="font-weight:600;color:#6366f1">@line.ItemCode</div>
+                                        @if (!string.IsNullOrEmpty(line.ItemDescription))
+                                        {
+                                            <div style="font-size:.72rem;color:#6b7280">@line.ItemDescription</div>
+                                        }
+                                    </td>
+                                    <td>@line.Quantity</td>
+                                    <td>@line.UnitPrice.ToString("N2")</td>
+                                    <td>@(line.DiscountPercent > 0 ? line.DiscountPercent.ToString("N1") + "%" : "—")</td>
+                                    <td style="font-weight:600">@line.LineTotal.ToString("N2")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+            <div class="drawer-footer">
+                <MudButton Variant="Variant.Outlined" OnClick="CloseDrawer">Close</MudButton>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private FiscalizedSalesReportResult? reportResult;
+    private List<WarehouseDto> warehouses = new();
+    private FiscalizedSaleDto? selectedSale;
+
+    private bool isLoading = false;
+    private string? errorMessage;
+
+    // Period
+    private string selectedPeriod = "Daily";
+
+    // Filters
+    private DateTime? filterDate;
+    private DateTime? filterFromDate;
+    private DateTime? filterToDate;
+    private string filterWarehouse = "";
+    private string filterCardCode = "";
+    private string filterConsolidation = "";
+
+    // Pagination
+    private int currentPage = 1;
+    private int pageSize = 50;
+    private int totalPages => reportResult?.TotalCount > 0 ? (int)Math.Ceiling((double)reportResult.TotalCount / pageSize) : 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        filterDate = DateTime.Today;
+        filterFromDate = DateTime.Today.AddDays(-7);
+        filterToDate = DateTime.Today;
+
+        var warehouseList = await MasterDataCache.GetWarehousesAsync();
+        warehouses = warehouseList?.Where(w => w.IsActive).ToList() ?? new();
+
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            bool? isConsolidated = string.IsNullOrEmpty(filterConsolidation)
+                ? null
+                : bool.Parse(filterConsolidation);
+
+            reportResult = await DesktopService.GetFiscalizedSalesReportAsync(
+                period: selectedPeriod,
+                date: selectedPeriod != "Custom" ? filterDate : null,
+                fromDate: selectedPeriod == "Custom" ? filterFromDate : null,
+                toDate: selectedPeriod == "Custom" ? filterToDate : null,
+                cardCode: string.IsNullOrEmpty(filterCardCode) ? null : filterCardCode,
+                warehouseCode: string.IsNullOrEmpty(filterWarehouse) ? null : filterWarehouse,
+                isConsolidated: isConsolidated,
+                page: currentPage,
+                pageSize: pageSize);
+
+            if (reportResult == null)
+            {
+                errorMessage = "Failed to load the report. Check if the API is running.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SetPeriod(string period)
+    {
+        selectedPeriod = period;
+        currentPage = 1;
+        await LoadData();
+    }
+
+    private async Task RefreshData()
+    {
+        currentPage = 1;
+        await LoadData();
+    }
+
+    private async Task ApplyFilter()
+    {
+        currentPage = 1;
+        await LoadData();
+    }
+
+    private void ClearFilter()
+    {
+        filterDate = DateTime.Today;
+        filterFromDate = DateTime.Today.AddDays(-7);
+        filterToDate = DateTime.Today;
+        filterWarehouse = "";
+        filterCardCode = "";
+        filterConsolidation = "";
+        currentPage = 1;
+        reportResult = null;
+    }
+
+    private async Task NextPage()
+    {
+        if (reportResult?.HasMore == true)
+        {
+            currentPage++;
+            await LoadData();
+        }
+    }
+
+    private async Task PreviousPage()
+    {
+        if (currentPage > 1)
+        {
+            currentPage--;
+            await LoadData();
+        }
+    }
+
+    private void SelectSale(FiscalizedSaleDto sale) => selectedSale = sale;
+    private void CloseDrawer() => selectedSale = null;
+}

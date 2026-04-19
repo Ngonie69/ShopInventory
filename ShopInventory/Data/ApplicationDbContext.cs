@@ -965,9 +965,7 @@ public class ApplicationDbContext : DbContext
       entity.ToTable("DailyStockSnapshotItems");
       entity.HasKey(e => e.Id);
 
-      // PostgreSQL uses xmin for row versioning
-      entity.Property(e => e.RowVersion)
-            .IsRowVersion();
+      // PostgreSQL xmin concurrency is configured via [Timestamp] on uint Version property
 
       entity.ToTable(t =>
       {

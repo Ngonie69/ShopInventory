@@ -1190,19 +1190,19 @@
                                 <MudTd DataLabel="Actions">
                                     <div style="display:flex;gap:.3rem;">
                                         <MudIconButton Icon="@Icons.Material.Filled.Visibility"
-                                                       OnClick="() => ViewCreditNote(context)" Title="View Details" Class="action-btn view"
+                                                       OnClick="() => ViewCreditNote(context)" title="View Details" Class="action-btn view"
                                                        Size="Size.Small" />
                                         @if (context.Status == CreditNoteStatus.Pending)
                                         {
                                             <MudIconButton Icon="@Icons.Material.Filled.Check"
-                                                           OnClick="() => ApproveCreditNote(context.Id)" Title="Approve" Class="action-btn approve"
+                                                           OnClick="() => ApproveCreditNote(context.Id)" title="Approve" Class="action-btn approve"
                                                            Size="Size.Small" />
                                         }
                                         @if (context.Status == CreditNoteStatus.Draft || context.Status ==
-                                                                                                                                                    CreditNoteStatus.Cancelled)
+                                                                                                                                                                                            CreditNoteStatus.Cancelled)
                                         {
                                             <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                                           OnClick="() => DeleteCreditNote(context.Id)" Title="Delete" Class="action-btn delete"
+                                                           OnClick="() => DeleteCreditNote(context.Id)" title="Delete" Class="action-btn delete"
                                                            Size="Size.Small" />
                                         }
                                     </div>
@@ -1508,7 +1508,7 @@
                                                                     @if (!string.IsNullOrEmpty(line.ItemDescription))
                                                                     {
                                                                         <span style="font-size:.82rem;color:#374151;">@TruncateText(line.ItemDescription,
-                                                                                                                                                                                                25)</span>
+                                                                                                                                                                                                                                                                            25)</span>
                                                                         }
                                                             else
                                                                         {
@@ -1573,7 +1573,7 @@
                         }
 
 @code {
-    private MudTable<CreditNoteDto>? _table;
+    private MudTable<CreditNoteDto> _table = null!;
     private int _pageSize = 10;
     private List<CreditNoteDto>? creditNotes;
     private CreditNoteDto? selectedCreditNote;
@@ -1607,7 +1607,9 @@
     private List<ProductDto> cachedProducts = new();
     private List<WarehouseDto> cachedWarehouses = new();
     private List<BusinessPartnerDto> allBusinessPartners = new();
+#pragma warning disable CS0414
     private bool isMasterDataLoaded = false;
+#pragma warning restore CS0414
 
     // Business partner autocomplete
     private BusinessPartnerDto? selectedBusinessPartner;

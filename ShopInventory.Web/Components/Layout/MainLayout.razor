@@ -39,7 +39,7 @@
 
                 <MudPopover Open="@_notifPopoverOpen" AnchorOrigin="Origin.BottomRight"
                             TransformOrigin="Origin.TopRight" Class="notification-popover"
-                            Style="width: 380px; max-height: 480px;">
+                            Style="width: min(380px, 92vw); max-height: 480px;">
                     <div class="d-flex justify-space-between align-center pa-3"
                          style="border-bottom: 1px solid var(--mud-palette-divider);">
                         <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">Notifications</MudText>
@@ -107,8 +107,10 @@
 
             <AuthorizeView>
                 <Authorized>
-                    <MudText Class="mx-3" Style="color: white;">@L.Translate("common.welcome"), @context.User.Identity?.Name
-                    </MudText>
+                    <MudHidden Breakpoint="Breakpoint.SmAndDown" Invert="false">
+                        <MudText Class="mx-3" Style="color: white;">@L.Translate("common.welcome"), @context.User.Identity?.Name
+                        </MudText>
+                    </MudHidden>
                     <MudButton Variant="Variant.Outlined" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Logout"
                                OnClick="@Logout" Size="Size.Small">
                         @L.Translate("common.logout")

@@ -201,6 +201,10 @@ public class PasswordResetService : IPasswordResetService
 
         // Update password
         var user = resetToken.User;
+        if (user is null)
+        {
+            return ServiceResult.Failure("User not found");
+        }
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
         user.UpdatedAt = DateTime.UtcNow;
 

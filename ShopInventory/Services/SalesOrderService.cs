@@ -71,7 +71,7 @@ public class SalesOrderService : ISalesOrderService
 
     public async Task<SalesOrderListResponseDto> GetAllAsync(int page, int pageSize, SalesOrderStatus? status = null,
         string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
-        SalesOrderSource? source = null, CancellationToken cancellationToken = default)
+        SalesOrderSource? source = null, string? search = null, CancellationToken cancellationToken = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 10000);
@@ -86,12 +86,12 @@ public class SalesOrderService : ISalesOrderService
         if (source.HasValue)
         {
             _logger.LogInformation("Fetching {Source} orders from local DB", source.Value);
-            return await GetAllFromLocalAsync(page, pageSize, status, cardCode, fromDate, toDate, source, cancellationToken);
+            return await GetAllFromLocalAsync(page, pageSize, status, cardCode, fromDate, toDate, source, search, cancellationToken);
         }
 
         var localOffset = Math.Max(0, (page - 1) * pageSize);
-        var localUnsyncedCount = await GetLocalUnsyncedOrdersCountAsync(status, cardCode, fromDate, toDate, cancellationToken);
-        var localPage = await GetLocalUnsyncedOrdersPageAsync(localOffset, pageSize, status, cardCode, fromDate, toDate, cancellationToken);
+        var localUnsyncedCount = await GetLocalUnsyncedOrdersCountAsync(status, cardCode, fromDate, toDate, search, cancellationToken);
+        var localPage = await GetLocalUnsyncedOrdersPageAsync(localOffset, pageSize, status, cardCode, fromDate, toDate, search, cancellationToken);
         var remainingSlots = Math.Max(0, pageSize - localPage.Count);
         var sapOffset = Math.Max(0, localOffset - localUnsyncedCount);
 
@@ -152,13 +152,13 @@ public class SalesOrderService : ISalesOrderService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to fetch sales orders from SAP, falling back to local DB");
-            return await GetAllFromLocalAsync(page, pageSize, status, cardCode, fromDate, toDate, source, cancellationToken);
+            return await GetAllFromLocalAsync(page, pageSize, status, cardCode, fromDate, toDate, source, search, cancellationToken);
         }
     }
 
     private IQueryable<SalesOrderEntity> BuildLocalUnsyncedOrdersQuery(SalesOrderStatus? status = null,
         string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
-        CancellationToken cancellationToken = default)
+        string? search = null, CancellationToken cancellationToken = default)
     {
         var query = _context.SalesOrders
             .AsNoTracking()
@@ -177,25 +177,32 @@ public class SalesOrderService : ISalesOrderService
         if (toDate.HasValue)
             query = query.Where(o => o.OrderDate <= toDate.Value);
 
+        if (!string.IsNullOrEmpty(search))
+            query = query.Where(o =>
+                (o.OrderNumber != null && o.OrderNumber.Contains(search)) ||
+                (o.CardCode != null && o.CardCode.Contains(search)) ||
+                (o.CardName != null && o.CardName.Contains(search)) ||
+                (o.CustomerRefNo != null && o.CustomerRefNo.Contains(search)));
+
         return query;
     }
 
     private async Task<int> GetLocalUnsyncedOrdersCountAsync(SalesOrderStatus? status = null,
         string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
-        CancellationToken cancellationToken = default)
+        string? search = null, CancellationToken cancellationToken = default)
     {
-        return await BuildLocalUnsyncedOrdersQuery(status, cardCode, fromDate, toDate, cancellationToken)
+        return await BuildLocalUnsyncedOrdersQuery(status, cardCode, fromDate, toDate, search, cancellationToken)
             .CountAsync(cancellationToken);
     }
 
     private async Task<List<SalesOrderDto>> GetLocalUnsyncedOrdersPageAsync(int skip, int take,
         SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
-        CancellationToken cancellationToken = default)
+        string? search = null, CancellationToken cancellationToken = default)
     {
         if (take <= 0)
             return new List<SalesOrderDto>();
 
-        var orders = await BuildLocalUnsyncedOrdersQuery(status, cardCode, fromDate, toDate, cancellationToken)
+        var orders = await BuildLocalUnsyncedOrdersQuery(status, cardCode, fromDate, toDate, search, cancellationToken)
             .OrderByDescending(o => o.OrderDate)
             .ThenByDescending(o => o.Id)
             .Skip(skip)
@@ -262,7 +269,7 @@ public class SalesOrderService : ISalesOrderService
 
     private async Task<SalesOrderListResponseDto> GetAllFromLocalAsync(int page, int pageSize, SalesOrderStatus? status = null,
         string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
-        SalesOrderSource? source = null, CancellationToken cancellationToken = default)
+        SalesOrderSource? source = null, string? search = null, CancellationToken cancellationToken = default)
     {
         var query = _context.SalesOrders
             .AsNoTracking()
@@ -281,6 +288,13 @@ public class SalesOrderService : ISalesOrderService
 
         if (source.HasValue)
             query = query.Where(o => o.Source == source.Value);
+
+        if (!string.IsNullOrEmpty(search))
+            query = query.Where(o =>
+                (o.OrderNumber != null && o.OrderNumber.Contains(search)) ||
+                (o.CardCode != null && o.CardCode.Contains(search)) ||
+                (o.CardName != null && o.CardName.Contains(search)) ||
+                (o.CustomerRefNo != null && o.CustomerRefNo.Contains(search)));
 
         var totalCount = await query.CountAsync(cancellationToken);
         var orders = await query
@@ -357,6 +371,20 @@ public class SalesOrderService : ISalesOrderService
     public async Task<SalesOrderDto> CreateAsync(CreateSalesOrderRequest request, Guid userId, CancellationToken cancellationToken = default)
     {
         var orderNumber = await GenerateOrderNumberAsync(cancellationToken);
+
+        // If no warehouse specified, fall back to the user's assigned warehouse
+        if (string.IsNullOrEmpty(request.WarehouseCode))
+        {
+            var user = await _context.Users
+                .AsNoTracking()
+                .Where(u => u.Id == userId)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (user != null)
+            {
+                request.WarehouseCode = user.GetWarehouseCodes().FirstOrDefault();
+            }
+        }
 
         var order = new SalesOrderEntity
         {
@@ -448,7 +476,7 @@ public class SalesOrderService : ISalesOrderService
         }
 
         // Auto-post web orders to SAP immediately
-        if (request.Source == SalesOrderSource.Web || request.Source == null)
+        if (request.Source == SalesOrderSource.Web)
         {
             try
             {

@@ -10,6 +10,10 @@ namespace ShopInventory.Web.Services;
 public interface INotificationHubService : IAsyncDisposable
 {
     event Action<NotificationModel>? OnNotificationReceived;
+    event Action? OnDesktopSaleCreated;
+    event Action? OnStockSnapshotUpdated;
+    event Action<StockFetchProgressModel>? OnStockFetchProgress;
+    event Action? OnConsolidationCompleted;
     Task StartAsync(string accessToken);
     Task StopAsync();
     bool IsConnected { get; }
@@ -22,6 +26,10 @@ public class NotificationHubService : INotificationHubService, IAsyncDisposable
     private HubConnection? _hubConnection;
 
     public event Action<NotificationModel>? OnNotificationReceived;
+    public event Action? OnDesktopSaleCreated;
+    public event Action? OnStockSnapshotUpdated;
+    public event Action<StockFetchProgressModel>? OnStockFetchProgress;
+    public event Action? OnConsolidationCompleted;
     public bool IsConnected => _hubConnection?.State == HubConnectionState.Connected;
 
     public NotificationHubService(IConfiguration configuration, ILogger<NotificationHubService> logger)
@@ -54,6 +62,31 @@ public class NotificationHubService : INotificationHubService, IAsyncDisposable
         {
             _logger.LogInformation("Received real-time notification: {Title}", notification.Title);
             OnNotificationReceived?.Invoke(notification);
+        });
+
+        _hubConnection.On("DesktopSaleCreated", () =>
+        {
+            _logger.LogInformation("Real-time: DesktopSaleCreated");
+            OnDesktopSaleCreated?.Invoke();
+        });
+
+        _hubConnection.On("StockSnapshotUpdated", () =>
+        {
+            _logger.LogInformation("Real-time: StockSnapshotUpdated");
+            OnStockSnapshotUpdated?.Invoke();
+        });
+
+        _hubConnection.On<StockFetchProgressModel>("StockFetchProgress", progress =>
+        {
+            _logger.LogInformation("Real-time: StockFetchProgress {Completed}/{Total} — {Warehouse}",
+                progress.CompletedCount, progress.TotalCount, progress.CurrentWarehouse);
+            OnStockFetchProgress?.Invoke(progress);
+        });
+
+        _hubConnection.On("ConsolidationCompleted", () =>
+        {
+            _logger.LogInformation("Real-time: ConsolidationCompleted");
+            OnConsolidationCompleted?.Invoke();
         });
 
         _hubConnection.Reconnecting += ex =>

@@ -18,6 +18,8 @@ public sealed class GetDayStatusHandler(
         try
         {
             var result = await revmaxClient.GetDayStatusAsync(cancellationToken);
+            if (result is null)
+                return Errors.Revmax.DeviceError("No response from device");
             return result;
         }
         catch (Exception ex)

@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using Microsoft.Extensions.Logging;
+using ShopInventory.Web.Models;
 
 namespace ShopInventory.Web.Services;
 
@@ -35,8 +36,19 @@ public interface IDesktopIntegrationService
 
     // Local Stock Snapshots
     Task<LocalStockResultDto?> GetLocalStockAsync(string warehouseCode, DateTime? snapshotDate = null);
+    Task<List<string>?> GetMonitoredWarehousesAsync();
     Task<bool> TriggerStockFetchAsync();
     Task<bool> TriggerConsolidationAsync();
+
+    // Prices
+    Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum, bool forceRefresh = false);
+    Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode);
+
+    // Reports
+    Task<FiscalizedSalesReportResult?> GetFiscalizedSalesReportAsync(
+        string period = "Daily", DateTime? date = null, DateTime? fromDate = null,
+        DateTime? toDate = null, string? cardCode = null, string? warehouseCode = null,
+        bool? isConsolidated = null, int page = 1, int pageSize = 50);
 }
 
 public class DesktopIntegrationService : IDesktopIntegrationService
@@ -335,6 +347,19 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         }
     }
 
+    public async Task<List<string>?> GetMonitoredWarehousesAsync()
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<List<string>>("api/DesktopIntegration/stock/monitored-warehouses");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting monitored warehouses");
+            return null;
+        }
+    }
+
     public async Task<bool> TriggerStockFetchAsync()
     {
         try
@@ -360,6 +385,71 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         {
             _logger.LogError(ex, "Error triggering consolidation");
             return false;
+        }
+    }
+
+    #endregion
+
+    #region Prices
+
+    public async Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum, bool forceRefresh = false)
+    {
+        try
+        {
+            var url = $"api/DesktopIntegration/prices/pricelists/{priceListNum}";
+            if (forceRefresh) url += "?forceRefresh=true";
+            return await _httpClient.GetFromJsonAsync<ItemPricesByListResponse>(url);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching prices for price list {PriceListNum}", priceListNum);
+            return null;
+        }
+    }
+
+    public async Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode)
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<ItemPricesByListResponse>(
+                $"api/DesktopIntegration/prices/business-partner/{Uri.EscapeDataString(cardCode)}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching prices for business partner {CardCode}", cardCode);
+            return null;
+        }
+    }
+
+    public async Task<FiscalizedSalesReportResult?> GetFiscalizedSalesReportAsync(
+        string period = "Daily", DateTime? date = null, DateTime? fromDate = null,
+        DateTime? toDate = null, string? cardCode = null, string? warehouseCode = null,
+        bool? isConsolidated = null, int page = 1, int pageSize = 50)
+    {
+        try
+        {
+            var queryParams = new List<string> { $"period={Uri.EscapeDataString(period)}", $"page={page}", $"pageSize={pageSize}" };
+            if (date.HasValue) queryParams.Add($"date={date.Value:yyyy-MM-dd}");
+            if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+            if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+            if (!string.IsNullOrEmpty(cardCode)) queryParams.Add($"cardCode={Uri.EscapeDataString(cardCode)}");
+            if (!string.IsNullOrEmpty(warehouseCode)) queryParams.Add($"warehouseCode={Uri.EscapeDataString(warehouseCode)}");
+            if (isConsolidated.HasValue) queryParams.Add($"isConsolidated={isConsolidated.Value.ToString().ToLower()}");
+
+            var url = $"api/DesktopIntegration/reports/fiscalized-sales?{string.Join("&", queryParams)}";
+            var response = await _httpClient.GetAsync(url);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Fiscalized sales report API returned {StatusCode}: {Body}", response.StatusCode, body);
+                return null;
+            }
+            return await response.Content.ReadFromJsonAsync<FiscalizedSalesReportResult>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching fiscalized sales report");
+            return null;
         }
     }
 
@@ -600,6 +690,86 @@ public class LocalStockBatchDto
     public decimal AvailableQuantity { get; set; }
     public decimal OriginalQuantity { get; set; }
     public DateTime? ExpiryDate { get; set; }
+}
+
+// Fiscalized Sales Report DTOs
+public class FiscalizedSalesReportResult
+{
+    public DateTime GeneratedAtUtc { get; set; }
+    public string Period { get; set; } = string.Empty;
+    public DateTime FromDate { get; set; }
+    public DateTime ToDate { get; set; }
+    public FiscalizedSalesReportSummary Summary { get; set; } = new();
+    public List<DailyBreakdownDto> DailyBreakdown { get; set; } = new();
+    public List<FiscalizedSaleDto> Sales { get; set; } = new();
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public bool HasMore { get; set; }
+}
+
+public class FiscalizedSalesReportSummary
+{
+    public int TotalFiscalizedSales { get; set; }
+    public int ConsolidatedCount { get; set; }
+    public int AwaitingConsolidationCount { get; set; }
+    public decimal TotalSalesAmount { get; set; }
+    public decimal TotalVatAmount { get; set; }
+    public int UniqueCustomers { get; set; }
+    public int UniqueWarehouses { get; set; }
+    public Dictionary<string, decimal> AmountByWarehouse { get; set; } = new();
+    public Dictionary<string, decimal> AmountByCustomer { get; set; } = new();
+}
+
+public class DailyBreakdownDto
+{
+    public DateTime Date { get; set; }
+    public int SalesCount { get; set; }
+    public decimal TotalAmount { get; set; }
+    public decimal VatAmount { get; set; }
+    public int ConsolidatedCount { get; set; }
+    public int AwaitingConsolidationCount { get; set; }
+}
+
+public class FiscalizedSaleDto
+{
+    public int QueueId { get; set; }
+    public string ExternalReference { get; set; } = string.Empty;
+    public string ReservationId { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public string CustomerCode { get; set; } = string.Empty;
+    public string? CustomerName { get; set; }
+    public decimal TotalAmount { get; set; }
+    public decimal VatAmount { get; set; }
+    public string Currency { get; set; } = string.Empty;
+    public string? WarehouseCode { get; set; }
+    public string? FiscalDeviceNumber { get; set; }
+    public string? FiscalReceiptNumber { get; set; }
+    public bool? FiscalizationSuccess { get; set; }
+    public string? SapDocEntry { get; set; }
+    public int? SapDocNum { get; set; }
+    public bool IsConsolidated { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? FiscalizedAt { get; set; }
+    public DateTime? ConsolidatedAt { get; set; }
+    public string SourceSystem { get; set; } = string.Empty;
+    public string? CreatedBy { get; set; }
+    public string? Notes { get; set; }
+    public List<FiscalizedSaleLineDto> Lines { get; set; } = new();
+}
+
+public class FiscalizedSaleLineDto
+{
+    public int LineNum { get; set; }
+    public string ItemCode { get; set; } = string.Empty;
+    public string? ItemDescription { get; set; }
+    public decimal Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal LineTotal { get; set; }
+    public decimal DiscountPercent { get; set; }
+    public string? WarehouseCode { get; set; }
+    public string? TaxCode { get; set; }
+    public string? UoMCode { get; set; }
 }
 
 #endregion

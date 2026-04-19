@@ -9,8 +9,7 @@ namespace ShopInventory.Features.UserManagement.Commands.UpdateUserPermissions;
 
 public sealed class UpdateUserPermissionsHandler(
     IUserManagementService userManagementService,
-    IAuditService auditService,
-    ILogger<UpdateUserPermissionsHandler> logger
+    IAuditService auditService
 ) : IRequestHandler<UpdateUserPermissionsCommand, ErrorOr<Success>>
 {
     public async Task<ErrorOr<Success>> Handle(
