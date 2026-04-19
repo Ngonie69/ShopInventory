@@ -1,5 +1,7 @@
 using ShopInventory.Web.Models;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Blazored.LocalStorage;
 
 namespace ShopInventory.Web.Services;
 
@@ -21,11 +23,32 @@ public class SalesOrderService : ISalesOrderService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<SalesOrderService> _logger;
+    private readonly ILocalStorageService _localStorage;
 
-    public SalesOrderService(HttpClient httpClient, ILogger<SalesOrderService> logger)
+    public SalesOrderService(HttpClient httpClient, ILogger<SalesOrderService> logger, ILocalStorageService localStorage)
     {
         _httpClient = httpClient;
         _logger = logger;
+        _localStorage = localStorage;
+    }
+
+    private async Task EnsureAuthenticationAsync()
+    {
+        try
+        {
+            if (_httpClient.DefaultRequestHeaders.Authorization == null)
+            {
+                var token = await _localStorage.GetItemAsync<string>("authToken");
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                }
+            }
+        }
+        catch
+        {
+            // localStorage not available during prerendering
+        }
     }
 
     public async Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20,
@@ -33,6 +56,7 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var queryParams = new List<string> { $"page={page}", $"pageSize={pageSize}" };
 
             if (status.HasValue)
@@ -110,6 +134,7 @@ public class SalesOrderService : ISalesOrderService
 
     public async Task<SalesOrderDto?> CreateSalesOrderAsync(CreateSalesOrderRequest request)
     {
+        await EnsureAuthenticationAsync();
         var response = await _httpClient.PostAsJsonAsync("api/salesorder", request);
         if (response.IsSuccessStatusCode)
         {
@@ -173,6 +198,7 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var response = await _httpClient.PostAsync($"api/salesorder/{id}/approve", null);
             if (response.IsSuccessStatusCode)
             {
@@ -191,8 +217,7 @@ public class SalesOrderService : ISalesOrderService
     public async Task<InvoiceDto?> ConvertToInvoiceAsync(int id)
     {
         try
-        {
-            var response = await _httpClient.PostAsync($"api/salesorder/{id}/convert-to-invoice", null);
+        {            await EnsureAuthenticationAsync();            var response = await _httpClient.PostAsync($"api/salesorder/{id}/convert-to-invoice", null);
             if (response.IsSuccessStatusCode)
             {
                 return await response.Content.ReadFromJsonAsync<InvoiceDto>();
@@ -225,6 +250,7 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var response = await _httpClient.PostAsync($"api/salesorder/{id}/post-to-sap", null);
             if (response.IsSuccessStatusCode)
             {

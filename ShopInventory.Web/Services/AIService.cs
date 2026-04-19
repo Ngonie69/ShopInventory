@@ -573,11 +573,13 @@ Provide a clear, concise analysis.";
             max_tokens = _settings.MaxTokens
         };
 
-        _httpClient.DefaultRequestHeaders.Clear();
-        _httpClient.DefaultRequestHeaders.Add("api-key", _settings.ApiKey);
-
         var endpoint = $"{_settings.Endpoint}/openai/deployments/{_settings.AzureDeploymentName}/chat/completions?api-version=2024-02-15-preview";
-        var response = await _httpClient.PostAsJsonAsync(endpoint, request);
+
+        using var requestMessage = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        requestMessage.Headers.Add("api-key", _settings.ApiKey);
+        requestMessage.Content = JsonContent.Create(request);
+
+        var response = await _httpClient.SendAsync(requestMessage);
 
         response.EnsureSuccessStatusCode();
 
