@@ -1080,11 +1080,27 @@
 
     private async Task ApproveOrder(int id)
     {
-        var result = await SalesOrderService.ApproveAsync(id);
-        if (result != null)
+        try
         {
-            selectedOrder = result;
-            await LoadOrders();
+            var result = await SalesOrderService.ApproveAsync(id);
+            if (result != null)
+            {
+                Snackbar.Add($"Order {result.OrderNumber} approved successfully.", Severity.Success);
+                selectedOrder = result;
+                await LoadOrders();
+            }
+            else
+            {
+                Snackbar.Add("Failed to approve order. Please try again.", Severity.Error);
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error approving order: {ex.Message}", Severity.Error);
         }
     }
 

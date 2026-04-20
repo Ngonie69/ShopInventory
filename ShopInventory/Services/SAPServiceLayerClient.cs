@@ -1272,7 +1272,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         while (hasMore)
         {
             // Get items that are inventory items (sales items)
-            var endpoint = $"Items?$select=ItemCode,ItemName,BarCode,ItemType,ManageBatchNumbers,DefaultWarehouse&$filter=ItemType eq 'itItems' and Valid eq 'tYES'&$orderby=ItemCode&$top={pageSize}&$skip={skip}";
+            var endpoint = $"Items?$select=ItemCode,ItemName,BarCode,ItemType,ManageBatchNumbers,DefaultWarehouse,SalesUnit,U_ItemGroup&$filter=ItemType eq 'itItems' and Valid eq 'tYES'&$orderby=ItemCode&$top={pageSize}&$skip={skip}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -2518,6 +2518,43 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         }
 
         return (prices, nextLink);
+    }
+
+    /// <summary>
+    /// Gets prices for specific items using a customer's assigned price list (from OCRD.ListNum).
+    /// Combines BP lookup + price fetch into a single SAP SQL query for efficiency.
+    /// </summary>
+    public async Task<List<ItemPriceByListDto>> GetItemPricesForCustomerAsync(string cardCode, IEnumerable<string> itemCodes, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var codes = itemCodes.ToList();
+        if (codes.Count == 0) return [];
+
+        var safeCardCode = SanitizeSqlValue(cardCode);
+        var safeItemCodes = string.Join(", ", codes.Select(c => $"'{SanitizeSqlValue(c)}'"));
+
+        var suffix = Random.Shared.Next(100000, 999999);
+        var queryCode = $"SH_CustPrc_{suffix}";
+
+        var sqlText = $@"SELECT T0.""ItemCode"", T1.""ItemName"", T1.""FrgnName"", T0.""PriceList"", T0.""Price"", T0.""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" LEFT JOIN OCRD T2 ON T2.""CardCode"" = '{safeCardCode}' WHERE T0.""PriceList"" = COALESCE(T2.""ListNum"", 1) AND T0.""ItemCode"" IN ({safeItemCodes}) AND T0.""Price"" > 0";
+
+        List<ItemPriceByListDto> prices;
+        try
+        {
+            await CreateSqlQueryAsync(queryCode, $"Customer prices for {cardCode}", sqlText, cancellationToken);
+            // Small result set (only order items), no pagination needed
+            prices = await ExecutePriceListQueryAsync(queryCode, 0, cancellationToken);
+        }
+        finally
+        {
+            await TryDeleteQueryAsync(queryCode, cancellationToken);
+        }
+
+        _logger.LogInformation("Retrieved {Count} customer prices for {CardCode} ({ItemCount} items requested)",
+            prices.Count, cardCode, codes.Count);
+
+        return prices;
     }
 
     /// <summary>

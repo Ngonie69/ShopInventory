@@ -18,6 +18,9 @@ public class MerchandiserProductDto
     [JsonPropertyName("itemName")]
     public string? ItemName { get; set; }
 
+    [JsonPropertyName("category")]
+    public string? Category { get; set; }
+
     [JsonPropertyName("isActive")]
     public bool IsActive { get; set; }
 

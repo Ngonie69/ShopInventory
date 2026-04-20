@@ -48,6 +48,9 @@ public class Item
 
     [JsonPropertyName("DefaultWarehouse")]
     public string? DefaultWarehouse { get; set; }
+
+    [JsonPropertyName("U_ItemGroup")]
+    public string? U_ItemGroup { get; set; }
 }
 
 /// <summary>

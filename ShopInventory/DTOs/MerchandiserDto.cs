@@ -11,6 +11,7 @@ public class MerchandiserProductDto
     public Guid MerchandiserUserId { get; set; }
     public string ItemCode { get; set; } = string.Empty;
     public string? ItemName { get; set; }
+    public string? Category { get; set; }
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
@@ -87,6 +88,17 @@ public class MerchandiserActiveProductDto
     public decimal Price { get; set; }
     public string? UoM { get; set; }
     public string? Category { get; set; }
+}
+
+/// <summary>
+/// Paginated response for mobile active products endpoint
+/// </summary>
+public class MerchandiserActiveProductListResponseDto
+{
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public List<MerchandiserActiveProductDto> Products { get; set; } = new();
 }
 
 /// <summary>

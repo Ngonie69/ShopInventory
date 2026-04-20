@@ -102,6 +102,12 @@ public interface ISAPServiceLayerClient
     Task<ItemPriceByListDto?> GetItemPriceFromListAsync(string itemCode, int priceListNum, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets prices for specific items using a customer's assigned price list (from OCRD.ListNum).
+    /// Combines BP lookup + price fetch into a single SAP SQL query for efficiency.
+    /// </summary>
+    Task<List<ItemPriceByListDto>> GetItemPricesForCustomerAsync(string cardCode, IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets special prices assigned to a specific business partner from SAP (OSPP table).
     /// These override the BP's default price list prices for specific items.
     /// </summary>

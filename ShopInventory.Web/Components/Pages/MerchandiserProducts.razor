@@ -23,20 +23,7 @@
     .mp-stat-value { font-size: 1.5rem; font-weight: 700; color: #1a1a2e; }
     .mp-stat-label { font-size: .78rem; color: #64748b; margin-top: .1rem; }
 
-    .mp-layout { display: grid; grid-template-columns: 320px 1fr; gap: 1.5rem; }
-    .mp-sidebar { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); border: 1px solid #f1f5f9; overflow: hidden; }
-    .mp-sidebar-header { padding: 1rem 1.25rem; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #1a1a2e; font-size: .9rem; }
-    .mp-merch-list { max-height: 600px; overflow-y: auto; }
-    .mp-merch-item { padding: .75rem 1.25rem; cursor: pointer; border-bottom: 1px solid #f8fafc; transition: all .15s ease; display: flex; align-items: center; gap: .75rem; }
-    .mp-merch-item:hover { background: #f8fafc; }
-    .mp-merch-item.active { background: #ede9fe; border-left: 3px solid #7c3aed; }
-    .mp-merch-avatar { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; display: flex; align-items: center; justify-content: center; font-size: .8rem; font-weight: 600; flex-shrink: 0; }
-    .mp-merch-info { flex: 1; min-width: 0; }
-    .mp-merch-name { font-weight: 600; font-size: .85rem; color: #1a1a2e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .mp-merch-meta { font-size: .75rem; color: #94a3b8; display: flex; gap: .5rem; }
-    .mp-merch-badge { font-size: .7rem; padding: .1rem .4rem; border-radius: 6px; font-weight: 500; }
-    .mp-merch-badge.green { background: #dcfce7; color: #166534; }
-    .mp-merch-badge.gray { background: #f1f5f9; color: #64748b; }
+    .mp-layout { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
 
     .mp-main { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); border: 1px solid #f1f5f9; overflow: hidden; }
     .mp-main-header { padding: 1rem 1.5rem; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .75rem; }
@@ -56,6 +43,7 @@
     .mp-product-check { width: 18px; height: 18px; accent-color: #6366f1; cursor: pointer; flex-shrink: 0; }
     .mp-product-code { font-weight: 600; font-size: .82rem; color: #1a1a2e; min-width: 100px; }
     .mp-product-name { flex: 1; font-size: .85rem; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mp-product-category { font-size: .75rem; color: #6366f1; background: #ede9fe; padding: .15rem .5rem; border-radius: 6px; white-space: nowrap; min-width: 60px; text-align: center; }
     .mp-product-status { display: inline-flex; align-items: center; gap: .3rem; padding: .2rem .6rem; border-radius: 20px; font-size: .72rem; font-weight: 600; }
     .mp-product-status.active { background: #dcfce7; color: #166534; }
     .mp-product-status.inactive { background: #fee2e2; color: #991b1b; }
@@ -114,16 +102,12 @@
     .dark-theme .mp-main { background: #1e293b; border-color: #334155; }
     .dark-theme .mp-main-header { border-color: #334155; }
     .dark-theme .mp-main-title { color: #e2e8f0; }
-    .dark-theme .mp-merch-name { color: #e2e8f0; }
-    .dark-theme .mp-merch-item { border-color: #334155; }
-    .dark-theme .mp-merch-item:hover { background: #334155; }
-    .dark-theme .mp-merch-item.active { background: rgba(99,102,241,.2); border-color: #334155; }
-    .dark-theme .mp-merch-badge.gray { background: #334155; color: #94a3b8; }
     .dark-theme .mp-product-row { border-color: #334155; }
     .dark-theme .mp-product-row:hover { background: #334155; }
     .dark-theme .mp-product-check { outline: 1px solid #64748b; outline-offset: -1px; border-radius: 3px; }
     .dark-theme .mp-product-code { color: #e2e8f0; }
     .dark-theme .mp-product-name { color: #cbd5e1; }
+    .dark-theme .mp-product-category { background: rgba(99,102,241,.2); color: #a5b4fc; }
     .dark-theme .mp-toolbar { background: #0f172a; border-color: #334155; }
     .dark-theme .mp-search { background: #0f172a; border-color: #475569; color: #e2e8f0; }
     .dark-theme .mp-search::placeholder { color: #64748b; }
@@ -152,6 +136,20 @@
 <div class="mp-container">
     <div class="mp-header">
         <h1><i class="bi bi-person-badge"></i> Merchandiser Products</h1>
+        <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Size="Size.Small"
+                   StartIcon="@Icons.Material.Filled.Sync"
+                   Disabled="@isBackfilling"
+                   OnClick="BackfillProductDetails">
+            @if (isBackfilling)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                <span>Syncing...</span>
+            }
+            else
+            {
+                <span>Sync Product Details</span>
+            }
+        </MudButton>
     </div>
 
     @if (isLoading)
@@ -165,17 +163,10 @@
     {
         <div class="mp-stats-grid">
             <div class="mp-stat-card">
-                <div class="mp-stat-icon purple"><i class="bi bi-people-fill"></i></div>
-                <div>
-                    <div class="mp-stat-value">@merchandisers.Count</div>
-                    <div class="mp-stat-label">Merchandisers</div>
-                </div>
-            </div>
-            <div class="mp-stat-card">
                 <div class="mp-stat-icon blue"><i class="bi bi-box-seam-fill"></i></div>
                 <div>
                     <div class="mp-stat-value">@(productResponse?.TotalCount ?? 0)</div>
-                    <div class="mp-stat-label">Total Assigned Products</div>
+                    <div class="mp-stat-label">Total Products</div>
                 </div>
             </div>
             <div class="mp-stat-card">
@@ -185,49 +176,9 @@
                     <div class="mp-stat-label">Active Products</div>
                 </div>
             </div>
-            <div class="mp-stat-card">
-                <div class="mp-stat-icon amber"><i class="bi bi-building"></i></div>
-                <div>
-                    <div class="mp-stat-value">@merchandisers.Sum(m => m.AssignedCustomers)</div>
-                    <div class="mp-stat-label">Assigned Customers</div>
-                </div>
-            </div>
         </div>
 
         <div class="mp-layout">
-            <!-- Merchandiser Sidebar -->
-            <div class="mp-sidebar">
-                <div class="mp-sidebar-header">
-                    <i class="bi bi-people me-2"></i>Merchandisers
-                </div>
-                <div class="mp-merch-list">
-                    @if (merchandisers.Count == 0)
-                    {
-                        <div class="mp-empty" style="padding: 2rem;">
-                            <i class="bi bi-person-x"></i>
-                            <p>No merchandisers found</p>
-                        </div>
-                    }
-                    else
-                    {
-                        @foreach (var m in merchandisers)
-                        {
-                            var initials = GetInitials(m);
-                            <div class="mp-merch-item">
-                                <div class="mp-merch-avatar">@initials</div>
-                                <div class="mp-merch-info">
-                                    <div class="mp-merch-name">@(string.IsNullOrEmpty(m.FullName) ? m.Username : m.FullName)</div>
-                                    <div class="mp-merch-meta">
-                                        <span class="mp-merch-badge green">@m.ActiveProducts active</span>
-                                        <span class="mp-merch-badge gray">@m.TotalProducts total</span>
-                                    </div>
-                                </div>
-                            </div>
-                        }
-                    }
-                </div>
-            </div>
-
             <!-- Product Management Area (Global) -->
             <div class="mp-main">
                 <div class="mp-main-header">
@@ -248,6 +199,13 @@
                 <div class="mp-toolbar">
                     <input type="text" class="mp-search" placeholder="Search products..."
                            @bind="productSearchTerm" @bind:event="oninput" />
+                    <select class="mp-search" style="min-width: 150px;" @bind="categoryFilter">
+                        <option value="">All Categories</option>
+                        @foreach (var cat in AvailableCategories)
+                        {
+                            <option value="@cat">@cat</option>
+                        }
+                    </select>
                     <button class="mp-filter-btn @(statusFilter == "" ? "active" : "")" @onclick='() => statusFilter = ""'>All</button>
                     <button class="mp-filter-btn @(statusFilter == "active" ? "active" : "")" @onclick='() => statusFilter = "active"'>Active</button>
                     <button class="mp-filter-btn @(statusFilter == "inactive" ? "active" : "")" @onclick='() => statusFilter = "inactive"'>Inactive</button>
@@ -292,6 +250,10 @@
                                        @onchange="(e) => ToggleProductSelection(product.ItemCode, (bool)(e.Value ?? false))" />
                                 <span class="mp-product-code">@product.ItemCode</span>
                                 <span class="mp-product-name">@product.ItemName</span>
+                                @if (!string.IsNullOrEmpty(product.Category))
+                                {
+                                    <span class="mp-product-category">@product.Category</span>
+                                }
                                 <span class="mp-product-status @(product.IsActive ? "active" : "inactive")">
                                     <i class="bi @(product.IsActive ? "bi-check-circle-fill" : "bi-x-circle-fill")"></i>
                                     @(product.IsActive ? "Active" : "Inactive")
@@ -392,14 +354,15 @@
 }
 
 @code {
-    private List<MerchandiserSummaryDto> merchandisers = new();
     private MerchandiserProductListResponse? productResponse;
 
     private bool isLoading = true;
     private bool isLoadingProducts = false;
     private bool isSaving = false;
+    private bool isBackfilling = false;
     private string productSearchTerm = string.Empty;
     private string statusFilter = "active";
+    private string categoryFilter = string.Empty;
     private HashSet<string> selectedProductCodes = new();
 
     // Assign modal
@@ -418,26 +381,9 @@
         {
             _hasLoadedData = true;
             await AuthStateProvider.GetAuthenticationStateAsync();
-            await LoadMerchandisers();
             await LoadGlobalProducts();
-            StateHasChanged();
-        }
-    }
-
-    private async Task LoadMerchandisers()
-    {
-        isLoading = true;
-        try
-        {
-            merchandisers = await MerchandiserService.GetMerchandisersAsync();
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Error loading merchandisers: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
             isLoading = false;
+            StateHasChanged();
         }
     }
 
@@ -458,6 +404,19 @@
         }
     }
 
+    private IEnumerable<string> AvailableCategories
+    {
+        get
+        {
+            if (productResponse == null) return Enumerable.Empty<string>();
+            return productResponse.Products
+                .Where(p => !string.IsNullOrEmpty(p.Category))
+                .Select(p => p.Category!)
+                .Distinct()
+                .OrderBy(c => c);
+        }
+    }
+
     private IEnumerable<MerchandiserProductDto> FilteredProducts
     {
         get
@@ -471,6 +430,11 @@
                 products = products.Where(p =>
                     (p.ItemCode?.Contains(productSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
                     (p.ItemName?.Contains(productSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+            }
+
+            if (!string.IsNullOrWhiteSpace(categoryFilter))
+            {
+                products = products.Where(p => p.Category == categoryFilter);
             }
 
             if (statusFilter == "active")
@@ -499,7 +463,7 @@
             Snackbar.Add($"{itemCode} {(isActive ? "activated" : "deactivated")}", Severity.Success);
             // Reload from API to ensure we show the actual persisted state
             await LoadGlobalProducts();
-            await RefreshMerchandiserSummary();
+
             await AuditService.LogAsync(isActive ? "ActivateMerchandiserProduct" : "DeactivateMerchandiserProduct", "MerchandiserProduct", $"Global: {itemCode}");
         }
         catch (Exception ex)
@@ -523,7 +487,7 @@
             RecalculateCounts();
             selectedProductCodes.Remove(itemCode);
             Snackbar.Add($"{itemCode} removed", Severity.Success);
-            await RefreshMerchandiserSummary();
+
             await AuditService.LogAsync("RemoveMerchandiserProduct", "MerchandiserProduct", $"Global: {itemCode}");
         }
         catch (Exception ex)
@@ -551,7 +515,7 @@
             Snackbar.Add($"{codesToRemove.Count} products removed", Severity.Success);
             await AuditService.LogAsync("RemoveMerchandiserProducts", "MerchandiserProduct", $"Global: {codesToRemove.Count} products");
             selectedProductCodes.Clear();
-            await RefreshMerchandiserSummary();
+
         }
         catch (Exception ex)
         {
@@ -575,7 +539,6 @@
             Snackbar.Add($"{activateCodes.Count} products activated", Severity.Success);
             selectedProductCodes.Clear();
             await LoadGlobalProducts();
-            await RefreshMerchandiserSummary();
         }
         catch (Exception ex)
         {
@@ -599,7 +562,6 @@
             Snackbar.Add($"{deactivateCodes.Count} products deactivated", Severity.Success);
             selectedProductCodes.Clear();
             await LoadGlobalProducts();
-            await RefreshMerchandiserSummary();
         }
         catch (Exception ex)
         {
@@ -707,7 +669,7 @@
             Snackbar.Add($"{assignSelectedCodes.Count} products assigned to all merchandisers", Severity.Success);
             CloseAssignModal();
             await LoadGlobalProducts();
-            await RefreshMerchandiserSummary();
+
             await AuditService.LogAsync("AssignMerchandiserProducts", "MerchandiserProduct", $"Global: {assignSelectedCodes.Count} products");
         }
         catch (Exception ex)
@@ -720,15 +682,6 @@
         }
     }
 
-    private async Task RefreshMerchandiserSummary()
-    {
-        try
-        {
-            merchandisers = await MerchandiserService.GetMerchandisersAsync();
-        }
-        catch { }
-    }
-
     private void RecalculateCounts()
     {
         if (productResponse == null) return;
@@ -736,10 +689,24 @@
         productResponse.ActiveCount = productResponse.Products.Count(p => p.IsActive);
     }
 
-    private string GetInitials(MerchandiserSummaryDto m)
+    private async Task BackfillProductDetails()
     {
-        var first = m.FirstName?.FirstOrDefault().ToString().ToUpper() ?? "";
-        var last = m.LastName?.FirstOrDefault().ToString().ToUpper() ?? "";
-        return string.IsNullOrEmpty(first + last) ? m.Username[..1].ToUpper() : first + last;
+        isBackfilling = true;
+        StateHasChanged();
+
+        try
+        {
+            var updated = await MerchandiserService.BackfillProductDetailsAsync();
+            Snackbar.Add($"Synced product details for {updated} records from SAP", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to sync product details: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isBackfilling = false;
+            StateHasChanged();
+        }
     }
 }

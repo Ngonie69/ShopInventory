@@ -24,10 +24,12 @@ public sealed class GetCustomerProductsHandler(
         if (user == null)
             return Errors.Merchandiser.Unauthenticated;
 
+        // All merchandisers share the same active product list (no per-user filtering)
         var activeItemCodes = await context.MerchandiserProducts
             .AsNoTracking()
-            .Where(mp => mp.MerchandiserUserId == request.UserId && mp.IsActive)
+            .Where(mp => mp.IsActive)
             .Select(mp => mp.ItemCode)
+            .Distinct()
             .ToListAsync(cancellationToken);
 
         if (activeItemCodes.Count == 0)
@@ -87,10 +89,10 @@ public sealed class GetCustomerProductsHandler(
             {
                 ItemCode = r.GetValueOrDefault("ItemCode")?.ToString() ?? "",
                 ItemName = r.GetValueOrDefault("ItemName")?.ToString(),
-                BarCode = r.GetValueOrDefault("BarCode")?.ToString(),
-                UoM = r.GetValueOrDefault("UoM")?.ToString() ?? r.GetValueOrDefault("InventoryUOM")?.ToString(),
+                BarCode = (r.GetValueOrDefault("BarCode") ?? r.GetValueOrDefault("CodeBars"))?.ToString(),
+                UoM = (r.GetValueOrDefault("UoM") ?? r.GetValueOrDefault("SalUnitMsr"))?.ToString() ?? r.GetValueOrDefault("InventoryUOM")?.ToString(),
                 Price = decimal.TryParse(r.GetValueOrDefault("Price")?.ToString(), out var price) ? price : 0,
-                Category = r.GetValueOrDefault("Category")?.ToString()
+                Category = (r.GetValueOrDefault("Category") ?? r.GetValueOrDefault("U_ItemGroup"))?.ToString()
             }).ToList();
         }
         catch (Exception ex)

@@ -31,6 +31,24 @@ public class MerchandiserProductEntity
     public string? ItemName { get; set; }
 
     /// <summary>
+    /// Barcode (denormalized from SAP OITM.CodeBars)
+    /// </summary>
+    [MaxLength(100)]
+    public string? BarCode { get; set; }
+
+    /// <summary>
+    /// Unit of measure (denormalized from SAP OITM.SalUnitMsr)
+    /// </summary>
+    [MaxLength(50)]
+    public string? UoM { get; set; }
+
+    /// <summary>
+    /// Product category/group (denormalized from SAP OITM.U_ItemGroup)
+    /// </summary>
+    [MaxLength(100)]
+    public string? Category { get; set; }
+
+    /// <summary>
     /// Whether this product is active for the merchandiser
     /// </summary>
     public bool IsActive { get; set; } = true;

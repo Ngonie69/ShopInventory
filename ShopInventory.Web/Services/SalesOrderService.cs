@@ -196,22 +196,20 @@ public class SalesOrderService : ISalesOrderService
 
     public async Task<SalesOrderDto?> ApproveAsync(int id)
     {
-        try
+        await EnsureAuthenticationAsync();
+        var response = await _httpClient.PostAsync($"api/salesorder/{id}/approve", null);
+        if (response.IsSuccessStatusCode)
         {
-            await EnsureAuthenticationAsync();
-            var response = await _httpClient.PostAsync($"api/salesorder/{id}/approve", null);
-            if (response.IsSuccessStatusCode)
-            {
-                return await response.Content.ReadFromJsonAsync<SalesOrderDto>();
-            }
-            _logger.LogWarning("Failed to approve sales order {Id}: {StatusCode}", id, response.StatusCode);
-            return null;
+            return await response.Content.ReadFromJsonAsync<SalesOrderDto>();
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error approving sales order {Id}", id);
-            return null;
-        }
+
+        var body = await response.Content.ReadAsStringAsync();
+        _logger.LogWarning("Failed to approve sales order {Id}: {StatusCode} - {Body}", id, response.StatusCode, body);
+
+        var message = response.StatusCode == System.Net.HttpStatusCode.Forbidden
+            ? "You do not have permission to approve sales orders."
+            : $"Approval failed ({(int)response.StatusCode}): {(body.Length > 200 ? body[..200] : body)}";
+        throw new HttpRequestException(message);
     }
 
     public async Task<InvoiceDto?> ConvertToInvoiceAsync(int id)

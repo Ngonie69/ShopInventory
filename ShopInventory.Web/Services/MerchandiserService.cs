@@ -15,6 +15,7 @@ public interface IMerchandiserService
     Task UpdateProductStatusGlobalAsync(List<string> itemCodes, bool isActive);
     Task RemoveProductsGlobalAsync(List<string> itemCodes);
     Task RemoveProductsAsync(Guid userId, List<string> itemCodes);
+    Task<int> BackfillProductDetailsAsync();
 }
 
 public class MerchandiserService : IMerchandiserService
@@ -157,4 +158,18 @@ public class MerchandiserService : IMerchandiserService
             throw new Exception($"Failed to remove products: {error}");
         }
     }
+
+    public async Task<int> BackfillProductDetailsAsync()
+    {
+        var response = await _httpClient.PostAsync("api/merchandiser/backfill-product-details", null);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync();
+            throw new Exception($"Failed to backfill product details: {error}");
+        }
+        var result = await response.Content.ReadFromJsonAsync<BackfillResult>();
+        return result?.Updated ?? 0;
+    }
+
+    private record BackfillResult(int Updated);
 }

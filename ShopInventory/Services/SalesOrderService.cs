@@ -470,9 +470,12 @@ public class SalesOrderService : ISalesOrderService
         }
 
         // Resolve SAP prices for mobile orders (submitted with UnitPrice=0)
+        // Use a dedicated timeout instead of the HTTP request's CancellationToken,
+        // because the mobile client may disconnect before SAP returns prices.
         if (request.Source == SalesOrderSource.Mobile)
         {
-            await ResolveMobileOrderPricesAsync(order, cancellationToken);
+            using var priceCts = new CancellationTokenSource(TimeSpan.FromSeconds(180));
+            await ResolveMobileOrderPricesAsync(order, priceCts.Token);
         }
 
         // Auto-post web orders to SAP immediately
@@ -513,17 +516,14 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
-            var bp = await _businessPartnerService.GetBusinessPartnerByCodeAsync(order.CardCode, cancellationToken);
-            if (bp?.PriceListNum == null || bp.PriceListNum <= 0)
-            {
-                _logger.LogWarning("No price list found for customer {CardCode} on mobile order {OrderNumber}", order.CardCode, order.OrderNumber);
-                return;
-            }
+            var itemCodes = order.Lines.Select(l => l.ItemCode).Distinct().ToList();
 
-            var prices = await _sapClient.GetPricesByPriceListAsync(bp.PriceListNum.Value, cancellationToken);
+            // Single targeted SQL query: joins OCRD (customer price list) + ITM1 (prices)
+            // for only the items on this order — eliminates separate BP lookup + full list fetch
+            var prices = await _sapClient.GetItemPricesForCustomerAsync(order.CardCode, itemCodes, cancellationToken);
             if (prices == null || prices.Count == 0)
             {
-                _logger.LogWarning("No prices returned from price list {PriceListNum} for mobile order {OrderNumber}", bp.PriceListNum, order.OrderNumber);
+                _logger.LogWarning("No prices returned for customer {CardCode} items on mobile order {OrderNumber}", order.CardCode, order.OrderNumber);
                 return;
             }
 
@@ -555,8 +555,8 @@ public class SalesOrderService : ISalesOrderService
 
             await _context.SaveChangesAsync(cancellationToken);
 
-            _logger.LogInformation("Resolved prices for mobile order {OrderNumber}: {UpdatedLines}/{TotalLines} lines updated from price list {PriceListNum}",
-                order.OrderNumber, updatedLines, order.Lines.Count, bp.PriceListNum);
+            _logger.LogInformation("Resolved prices for mobile order {OrderNumber}: {UpdatedLines}/{TotalLines} lines updated for customer {CardCode}",
+                order.OrderNumber, updatedLines, order.Lines.Count, order.CardCode);
         }
         catch (Exception ex)
         {

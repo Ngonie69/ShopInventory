@@ -17,6 +17,7 @@ public class ProductDto
     public decimal Price { get; set; }
     public string? DefaultWarehouse { get; set; }
     public string? UoM { get; set; }
+    public string? Category { get; set; }
     public List<BatchDto>? Batches { get; set; }
 }
 

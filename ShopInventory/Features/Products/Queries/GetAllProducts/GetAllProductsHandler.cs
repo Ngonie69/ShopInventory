@@ -32,7 +32,9 @@ public sealed class GetAllProductsHandler(
                 BarCode = item.BarCode,
                 ItemType = item.ItemType,
                 ManagesBatches = item.ManageBatchNumbers == "tYES",
-                DefaultWarehouse = item.DefaultWarehouse
+                DefaultWarehouse = item.DefaultWarehouse,
+                UoM = item.SalesUnit ?? item.InventoryUOM,
+                Category = item.U_ItemGroup
             }).ToList();
 
             logger.LogInformation("Retrieved {Count} products from SAP", products.Count);

@@ -7,5 +7,7 @@ namespace ShopInventory.Features.Merchandiser.Queries.GetActiveProducts;
 public sealed record GetActiveProductsQuery(
     Guid UserId,
     string? Search,
-    string? Category
-) : IRequest<ErrorOr<List<MerchandiserActiveProductDto>>>;
+    string? Category,
+    int Page = 1,
+    int PageSize = 0
+) : IRequest<ErrorOr<MerchandiserActiveProductListResponseDto>>;

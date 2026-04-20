@@ -6,6 +6,7 @@ using ShopInventory.Authentication;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Merchandiser.Commands.AssignProducts;
 using ShopInventory.Features.Merchandiser.Commands.AssignProductsGlobal;
+using ShopInventory.Features.Merchandiser.Commands.BackfillProductDetails;
 using ShopInventory.Features.Merchandiser.Commands.RemoveProducts;
 using ShopInventory.Features.Merchandiser.Commands.RemoveProductsGlobal;
 using ShopInventory.Features.Merchandiser.Commands.SubmitMobileOrder;
@@ -119,13 +120,15 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
     public async Task<IActionResult> GetActiveProductsForMobile(
         [FromQuery] string? search = null,
         [FromQuery] string? category = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 0,
         CancellationToken cancellationToken = default)
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (!Guid.TryParse(userIdClaim, out var userId))
             return Forbid();
 
-        var result = await mediator.Send(new GetActiveProductsQuery(userId, search, category), cancellationToken);
+        var result = await mediator.Send(new GetActiveProductsQuery(userId, search, category, page, pageSize), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
@@ -180,5 +183,13 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
 
         var result = await mediator.Send(new GetMobileOrdersQuery(userId, page, pageSize, status), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpPost("backfill-product-details")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> BackfillProductDetails(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new BackfillProductDetailsCommand(), cancellationToken);
+        return result.Match(value => Ok(new { updated = value }), errors => Problem(errors));
     }
 }

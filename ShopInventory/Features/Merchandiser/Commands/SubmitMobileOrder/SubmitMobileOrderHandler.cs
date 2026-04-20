@@ -19,10 +19,12 @@ public sealed class SubmitMobileOrderHandler(
         SubmitMobileOrderCommand command,
         CancellationToken cancellationToken)
     {
+        // All merchandisers share the same active product list (no per-user filtering)
         var assignedItemCodes = await context.MerchandiserProducts
             .AsNoTracking()
-            .Where(mp => mp.MerchandiserUserId == command.UserId && mp.IsActive)
+            .Where(mp => mp.IsActive)
             .Select(mp => mp.ItemCode)
+            .Distinct()
             .ToListAsync(cancellationToken);
 
         var requestedItemCodes = command.Request.Items.Select(i => i.ItemCode).ToList();

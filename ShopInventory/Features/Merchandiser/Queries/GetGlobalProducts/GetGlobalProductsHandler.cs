@@ -17,44 +17,53 @@ public sealed class GetGlobalProductsHandler(
         GetGlobalProductsQuery request,
         CancellationToken cancellationToken)
     {
-        // Backfill any missing item names from SAP
-        var missingNames = await context.MerchandiserProducts
-            .Where(mp => mp.ItemName == null || mp.ItemName == "")
+        // Backfill any missing item names or categories from SAP
+        var missingData = await context.MerchandiserProducts
+            .Where(mp => (mp.ItemName == null || mp.ItemName == "") || (mp.Category == null || mp.Category == ""))
             .Select(mp => mp.ItemCode)
             .Distinct()
             .ToListAsync(cancellationToken);
 
-        if (missingNames.Count > 0)
+        if (missingData.Count > 0)
         {
             try
             {
-                var inClause = string.Join(",", missingNames.Select(c => $"'{c.Replace("'", "''")}'"));
-                var sqlText = $"SELECT T0.\"ItemCode\", T0.\"ItemName\" FROM OITM T0 WHERE T0.\"ItemCode\" IN ({inClause}) ORDER BY T0.\"ItemCode\"";
-                var rows = await sapClient.ExecuteRawSqlQueryAsync("MerchBackfill", "Backfill Item Names", sqlText, cancellationToken);
-                var nameMap = rows
+                var inClause = string.Join(",", missingData.Select(c => $"'{c.Replace("'", "''")}'"));
+                var sqlText = $@"SELECT T0.""ItemCode"", T0.""ItemName"", T0.""U_ItemGroup"" AS ""Category"", T0.""SalUnitMsr"" AS ""UoM"" FROM OITM T0 WHERE T0.""ItemCode"" IN ({inClause}) ORDER BY T0.""ItemCode""";
+                var rows = await sapClient.ExecuteRawSqlQueryAsync("MerchBackfill", "Backfill Item Names/Categories", sqlText, cancellationToken);
+                var detailMap = rows
                     .Where(r => r.GetValueOrDefault("ItemCode") != null)
                     .ToDictionary(
                         r => r["ItemCode"]!.ToString()!,
-                        r => r.GetValueOrDefault("ItemName")?.ToString() ?? "",
+                        r => (
+                            ItemName: r.GetValueOrDefault("ItemName")?.ToString() ?? "",
+                            Category: (r.GetValueOrDefault("Category") ?? r.GetValueOrDefault("U_ItemGroup"))?.ToString(),
+                            UoM: (r.GetValueOrDefault("UoM") ?? r.GetValueOrDefault("SalUnitMsr"))?.ToString()
+                        ),
                         StringComparer.OrdinalIgnoreCase);
 
                 var toUpdate = await context.MerchandiserProducts
-                    .Where(mp => mp.ItemName == null || mp.ItemName == "")
+                    .Where(mp => (mp.ItemName == null || mp.ItemName == "") || (mp.Category == null || mp.Category == ""))
                     .ToListAsync(cancellationToken);
 
                 foreach (var mp in toUpdate)
                 {
-                    if (nameMap.TryGetValue(mp.ItemCode, out var name))
+                    if (detailMap.TryGetValue(mp.ItemCode, out var detail))
                     {
-                        mp.ItemName = name;
+                        if (string.IsNullOrEmpty(mp.ItemName))
+                            mp.ItemName = detail.ItemName;
+                        if (string.IsNullOrEmpty(mp.Category))
+                            mp.Category = detail.Category;
+                        if (string.IsNullOrEmpty(mp.UoM))
+                            mp.UoM = detail.UoM;
                     }
                 }
                 await context.SaveChangesAsync(cancellationToken);
-                logger.LogInformation("Backfilled {Count} merchandiser product names from SAP", toUpdate.Count);
+                logger.LogInformation("Backfilled {Count} merchandiser product records from SAP", toUpdate.Count);
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Failed to backfill item names from SAP");
+                logger.LogWarning(ex, "Failed to backfill item details from SAP");
             }
         }
 
@@ -79,6 +88,7 @@ public sealed class GetGlobalProductsHandler(
                 Id = mp.Id,
                 ItemCode = mp.ItemCode,
                 ItemName = mp.ItemName,
+                Category = mp.Category,
                 IsActive = mp.IsActive,
                 CreatedAt = mp.CreatedAt,
                 UpdatedAt = mp.UpdatedAt,

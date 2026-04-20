@@ -80,10 +80,10 @@ public sealed class GetActiveProductsByUserHandler(
             {
                 ItemCode = r.GetValueOrDefault("ItemCode")?.ToString() ?? "",
                 ItemName = r.GetValueOrDefault("ItemName")?.ToString(),
-                BarCode = r.GetValueOrDefault("BarCode")?.ToString(),
-                UoM = r.GetValueOrDefault("UoM")?.ToString() ?? r.GetValueOrDefault("InventoryUOM")?.ToString(),
+                BarCode = (r.GetValueOrDefault("BarCode") ?? r.GetValueOrDefault("CodeBars"))?.ToString(),
+                UoM = (r.GetValueOrDefault("UoM") ?? r.GetValueOrDefault("SalUnitMsr"))?.ToString() ?? r.GetValueOrDefault("InventoryUOM")?.ToString(),
                 Price = decimal.TryParse(r.GetValueOrDefault("Price")?.ToString(), out var price) ? price : 0,
-                Category = r.GetValueOrDefault("Category")?.ToString()
+                Category = (r.GetValueOrDefault("Category") ?? r.GetValueOrDefault("U_ItemGroup"))?.ToString()
             }).ToList();
         }
         catch (Exception ex)
