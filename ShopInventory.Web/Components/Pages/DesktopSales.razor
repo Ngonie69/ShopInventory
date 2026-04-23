@@ -764,7 +764,7 @@
                                             <div style="font-size:.72rem;color:#6b7280">@line.ItemDescription</div>
                                         }
                                     </td>
-                                    <td>@line.Quantity</td>
+                                    <td>@QuantityDisplay.Format(line.Quantity)</td>
                                     <td>@line.UnitPrice.ToString("N2")</td>
                                     <td style="font-weight:600">@line.LineTotal.ToString("N2")</td>
                                 </tr>

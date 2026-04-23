@@ -1,4 +1,6 @@
 using System.Text.Json;
+using ShopInventory.Common.Validation;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -80,6 +82,7 @@ public class InventoryTransferPostingBackgroundService : BackgroundService
         try
         {
             using var scope = _serviceProvider.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             var queueService = scope.ServiceProvider.GetRequiredService<IInventoryTransferQueueService>();
             var sapService = scope.ServiceProvider.GetRequiredService<ISAPServiceLayerClient>();
 
@@ -106,6 +109,7 @@ public class InventoryTransferPostingBackgroundService : BackgroundService
                     queueEntry,
                     queueService,
                     sapService,
+                    context,
                     stoppingToken);
             }
         }
@@ -119,6 +123,7 @@ public class InventoryTransferPostingBackgroundService : BackgroundService
         InventoryTransferQueueEntity queueEntry,
         IInventoryTransferQueueService queueService,
         ISAPServiceLayerClient sapService,
+        ApplicationDbContext context,
         CancellationToken stoppingToken)
     {
         var startTime = DateTime.UtcNow;
@@ -145,11 +150,11 @@ public class InventoryTransferPostingBackgroundService : BackgroundService
             // Build the SAP transfer/request object
             if (queueEntry.IsTransferRequest)
             {
-                await PostTransferRequestAsync(queueEntry, request, queueService, sapService, stoppingToken);
+                await PostTransferRequestAsync(queueEntry, request, queueService, sapService, context, stoppingToken);
             }
             else
             {
-                await PostDirectTransferAsync(queueEntry, request, queueService, sapService, stoppingToken);
+                await PostDirectTransferAsync(queueEntry, request, queueService, sapService, context, stoppingToken);
             }
 
             var duration = DateTime.UtcNow - startTime;
@@ -173,6 +178,7 @@ public class InventoryTransferPostingBackgroundService : BackgroundService
         CreateDesktopTransferRequest request,
         IInventoryTransferQueueService queueService,
         ISAPServiceLayerClient sapService,
+        ApplicationDbContext context,
         CancellationToken stoppingToken)
     {
         // Build inventory transfer request DTO for SAP
@@ -187,10 +193,23 @@ public class InventoryTransferPostingBackgroundService : BackgroundService
             {
                 ItemCode = l.ItemCode,
                 Quantity = l.Quantity,
+                UoMCode = l.UoMCode,
                 FromWarehouseCode = l.FromWarehouseCode ?? request.FromWarehouse,
                 ToWarehouseCode = l.WarehouseCode ?? request.ToWarehouse
             }).ToList()
         };
+
+        var quantityErrors = await UomQuantityValidation.ValidateAndNormalizeLineQuantitiesAsync(
+            context,
+            transferRequestDto.Lines,
+            line => line.ItemCode,
+            line => line.Quantity,
+            line => line.UoMCode,
+            (line, uomCode) => line.UoMCode = uomCode,
+            stoppingToken);
+
+        if (quantityErrors.Count > 0)
+            throw new InvalidOperationException($"Transfer request validation failed: {string.Join("; ", quantityErrors)}");
 
         // Post to SAP as transfer request
         var result = await sapService.CreateInventoryTransferRequestAsync(transferRequestDto, stoppingToken);
@@ -209,6 +228,7 @@ public class InventoryTransferPostingBackgroundService : BackgroundService
         CreateDesktopTransferRequest request,
         IInventoryTransferQueueService queueService,
         ISAPServiceLayerClient sapService,
+        ApplicationDbContext context,
         CancellationToken stoppingToken)
     {
         // Build inventory transfer request for SAP
@@ -223,10 +243,23 @@ public class InventoryTransferPostingBackgroundService : BackgroundService
             {
                 ItemCode = l.ItemCode,
                 Quantity = l.Quantity,
+                UoMCode = l.UoMCode,
                 FromWarehouseCode = l.FromWarehouseCode ?? request.FromWarehouse,
                 ToWarehouseCode = l.WarehouseCode ?? request.ToWarehouse
             }).ToList()
         };
+
+        var quantityErrors = await UomQuantityValidation.ValidateAndNormalizeLineQuantitiesAsync(
+            context,
+            transferDto.Lines,
+            line => line.ItemCode,
+            line => line.Quantity,
+            line => line.UoMCode,
+            (line, uomCode) => line.UoMCode = uomCode,
+            stoppingToken);
+
+        if (quantityErrors.Count > 0)
+            throw new InvalidOperationException($"Direct transfer validation failed: {string.Join("; ", quantityErrors)}");
 
         // Post to SAP as direct transfer
         var result = await sapService.CreateInventoryTransferAsync(transferDto, stoppingToken);

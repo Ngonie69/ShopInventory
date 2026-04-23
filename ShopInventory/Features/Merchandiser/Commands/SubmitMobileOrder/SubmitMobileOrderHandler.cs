@@ -46,7 +46,8 @@ public sealed class SubmitMobileOrderHandler(
                 ItemCode = item.ItemCode,
                 ItemDescription = item.ItemName,
                 Quantity = item.Quantity,
-                UnitPrice = item.UnitPrice
+                UnitPrice = item.UnitPrice,
+                UoMCode = item.UoMCode
             }).ToList()
         };
 

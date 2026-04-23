@@ -10,6 +10,8 @@ public class CreateDesktopTransferRequestLineDto
     [Range(0.000001, double.MaxValue, ErrorMessage = "Quantity must be greater than zero")]
     public decimal Quantity { get; set; }
 
+    public string? UoMCode { get; set; }
+
     public string? FromWarehouseCode { get; set; }
     public string? ToWarehouseCode { get; set; }
 }

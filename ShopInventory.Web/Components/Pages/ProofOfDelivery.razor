@@ -424,7 +424,7 @@
                                         <td>@(line.LineNum + 1)</td>
                                         <td><code>@line.ItemCode</code></td>
                                         <td>@line.ItemDescription</td>
-                                        <td class="text-end">@line.Quantity.ToString("N2") @line.UoMCode</td>
+                                        <td class="text-end">@QuantityDisplay.FormatWithUom(line.Quantity, line.UoMCode)</td>
                                         <td class="text-end">@line.UnitPrice.ToString("N2")</td>
                                         <td class="text-end">@(line.DiscountPercent > 0 ? $"{line.DiscountPercent:N1}%" : "-")</td>
                                         <td class="text-end fw-semibold">@line.LineTotal.ToString("N2")</td>

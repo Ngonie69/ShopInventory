@@ -386,7 +386,7 @@ public class SalesOrderService : ISalesOrderService
 
     public async Task<SalesOrderDto> CreateAsync(CreateSalesOrderRequest request, Guid userId, CancellationToken cancellationToken = default)
     {
-        ValidateSalesOrderRequestOrThrow(request);
+        await ValidateAndNormalizeSalesOrderRequestAsync(request, cancellationToken);
 
         // If no warehouse specified, fall back to the user's assigned warehouse
         if (string.IsNullOrEmpty(request.WarehouseCode))
@@ -769,7 +769,7 @@ public class SalesOrderService : ISalesOrderService
 
     public async Task<SalesOrderDto> UpdateAsync(int id, CreateSalesOrderRequest request, CancellationToken cancellationToken = default)
     {
-        ValidateSalesOrderRequestOrThrow(request);
+        await ValidateAndNormalizeSalesOrderRequestAsync(request, cancellationToken);
 
         var order = await _context.SalesOrders
             .AsTracking()
@@ -1019,7 +1019,7 @@ public class SalesOrderService : ISalesOrderService
         if (order.Status != SalesOrderStatus.Approved)
             throw new InvalidOperationException("Only approved orders can be converted to invoices");
 
-        EnsureOrderHasPositiveQuantities(order, "conversion to invoice");
+        await EnsureOrderHasValidQuantitiesAsync(order, "conversion to invoice", cancellationToken);
 
         // Create invoice entity
         var invoice = new InvoiceEntity
@@ -1212,7 +1212,7 @@ public class SalesOrderService : ISalesOrderService
 
     private async Task PostApprovedOrderToSapAsync(SalesOrderEntity order, CancellationToken cancellationToken)
     {
-        EnsureOrderHasPositiveQuantities(order, "posting to SAP");
+        await EnsureOrderHasValidQuantitiesAsync(order, "posting to SAP", cancellationToken);
 
         var sapOrder = await _sapClient.CreateSalesOrderAsync(order, cancellationToken);
 
@@ -1237,16 +1237,36 @@ public class SalesOrderService : ISalesOrderService
     private static string TruncateMobileQueueError(string message)
         => message.Length > 2000 ? message[..2000] : message;
 
-    private static void ValidateSalesOrderRequestOrThrow(CreateSalesOrderRequest request)
+    private async Task ValidateAndNormalizeSalesOrderRequestAsync(CreateSalesOrderRequest request, CancellationToken cancellationToken)
     {
         var validationErrors = RecursiveDataAnnotationsValidator.Validate(request);
+        var lineUomLookup = await UomQuantityValidation.ResolveUomLookupAsync(
+            _context,
+            request.Lines.Select(line => (ItemCode: (string?)line.ItemCode, line.UoMCode)),
+            cancellationToken);
+
+        foreach (var (line, index) in request.Lines.Select((line, index) => (line, index)))
+        {
+            var resolvedUomCode = UomQuantityValidation.ResolveLineUomCode(line.UoMCode, line.ItemCode, lineUomLookup);
+            if (string.IsNullOrWhiteSpace(line.UoMCode) && !string.IsNullOrWhiteSpace(resolvedUomCode))
+            {
+                line.UoMCode = resolvedUomCode;
+            }
+
+            var quantityError = UomQuantityValidation.BuildFractionalQuantityValidationError(index + 1, line.ItemCode, line.Quantity, resolvedUomCode);
+            if (!string.IsNullOrWhiteSpace(quantityError))
+            {
+                validationErrors.Add(quantityError);
+            }
+        }
+
         if (validationErrors.Count == 0)
             return;
 
         throw new InvalidOperationException($"Sales order validation failed: {string.Join("; ", validationErrors)}");
     }
 
-    private static void EnsureOrderHasPositiveQuantities(SalesOrderEntity order, string operation)
+    private async Task EnsureOrderHasValidQuantitiesAsync(SalesOrderEntity order, string operation, CancellationToken cancellationToken)
     {
         var validationErrors = new List<string>();
 
@@ -1256,12 +1276,30 @@ public class SalesOrderService : ISalesOrderService
         }
         else
         {
+            var lineUomLookup = await UomQuantityValidation.ResolveUomLookupAsync(
+                _context,
+                order.Lines.Select(line => (ItemCode: (string?)line.ItemCode, line.UoMCode)),
+                cancellationToken);
+
             foreach (var (line, index) in order.Lines.Select((line, index) => (line, index)))
             {
+                var resolvedUomCode = UomQuantityValidation.ResolveLineUomCode(line.UoMCode, line.ItemCode, lineUomLookup);
+                if (string.IsNullOrWhiteSpace(line.UoMCode) && !string.IsNullOrWhiteSpace(resolvedUomCode))
+                {
+                    line.UoMCode = resolvedUomCode;
+                }
+
                 if (line.Quantity <= 0)
                 {
                     validationErrors.Add(
                         $"Line {index + 1} (Item: {line.ItemCode ?? "unknown"}): Quantity must be greater than zero. Current value: {line.Quantity}");
+                    continue;
+                }
+
+                var quantityError = UomQuantityValidation.BuildFractionalQuantityValidationError(index + 1, line.ItemCode, line.Quantity, resolvedUomCode);
+                if (!string.IsNullOrWhiteSpace(quantityError))
+                {
+                    validationErrors.Add(quantityError);
                 }
             }
         }

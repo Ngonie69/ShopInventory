@@ -1153,167 +1153,172 @@
                                     <MudTd DataLabel="Item Code"><span class="item-code">@context.ItemCode</span></MudTd>
                                     <MudTd DataLabel="Item Name"><span class="item-name">@context.ItemName</span></MudTd>
                                     <MudTd DataLabel="In Stock" Style="text-align:right">
-                                        <span class="qty-cell">@FormatQuantity(context.QuantityInStock)</span>
+                                        <span class="qty-cell">@FormatQuantity(context.QuantityInStock, context.UoM)</span>
                                     </MudTd>
                                     <MudTd DataLabel="Available" Style="text-align:right">
                                         <span
-                                        class="qty-cell @(context.QuantityAvailable > 0 ? "available" : "zero")">@FormatQuantity(context.QuantityAvailable)</span>
-                                    </MudTd>
-                                    <MudTd DataLabel="Committed" Style="text-align:right">
-                                        <span
-                                        class="qty-cell @(context.QuantityCommitted > 0 ? "committed" : "zero")">@FormatQuantity(context.QuantityCommitted)</span>
-                                    </MudTd>
-                                    <MudTd DataLabel="UoM"><span class="uom-badge">@context.UoM</span></MudTd>
-                                    <MudTd>
-                                        <MudButton Class="action-btn" OnClick="() => ViewProduct(context)" title="View details">
-                                            <i class="bi bi-chevron-right"></i>
-                                        </MudButton>
-                                    </MudTd>
-                                </RowTemplate>
-                                <PagerContent>
-                                    <div class="pager-row">
-                                        <div class="page-size-wrap">
-                                            <span>Show</span>
-                                            <select @bind="_pageSize">
-                                                <option value="10">10</option>
-                                                <option value="25">25</option>
-                                                <option value="50">50</option>
-                                                <option value="100">100</option>
-                                            </select>
-                                            <span>per page</span>
-                                        </div>
-                                        <MudPagination SelectedChanged="PageChanged"
-                                                       Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
-                                                       Class="pa-4" />
-                                    </div>
-                                </PagerContent>
-                            </MudTable>
-                        </div>
-                    }
+                                            class="qty-cell @(context.QuantityAvailable > 0 ? "available" : "zero")">@FormatQuantity(context.QuantityAvailable,
+                                                                        context.UoM)</span>
+                                        </MudTd>
+                                        <MudTd DataLabel="Committed" Style="text-align:right">
+                                            <span
+                                                class="qty-cell @(context.QuantityCommitted > 0 ? "committed" : "zero")">@FormatQuantity(context.QuantityCommitted,
+                                                                            context.UoM)</span>
+                                            </MudTd>
+                                            <MudTd DataLabel="UoM"><span class="uom-badge">@context.UoM</span></MudTd>
+                                            <MudTd>
+                                                <MudButton Class="action-btn" OnClick="() => ViewProduct(context)" title="View details">
+                                                    <i class="bi bi-chevron-right"></i>
+                                                </MudButton>
+                                            </MudTd>
+                                        </RowTemplate>
+                                        <PagerContent>
+                                            <div class="pager-row">
+                                                <div class="page-size-wrap">
+                                                    <span>Show</span>
+                                                    <select @bind="_pageSize">
+                                                        <option value="10">10</option>
+                                                        <option value="25">25</option>
+                                                        <option value="50">50</option>
+                                                        <option value="100">100</option>
+                                                    </select>
+                                                    <span>per page</span>
+                                                </div>
+                                                <MudPagination SelectedChanged="PageChanged"
+                                                               Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
+                                                               Class="pa-4" />
+                                            </div>
+                                        </PagerContent>
+                                    </MudTable>
+                                </div>
+                            }
         else if (_hasSearched && !isLoading)
-                    {
-                        <div class="empty-state">
-                            <div class="empty-icon"><i class="bi bi-inbox"></i></div>
-                            <h6>No products found</h6>
-                            <p>No products found in warehouse <strong>@selectedWarehouse?.WarehouseCode</strong>. Try a different
-                                warehouse or check your connection.</p>
-                                <div style="display:flex;gap:.5rem;justify-content:center;margin-top:1rem;">
-                                    <MudButton Class="btn-small-primary" OnClick="SearchProducts"><i class="bi bi-arrow-clockwise"></i>
-                                        Retry</MudButton>
-                                        <MudButton Class="btn-small-action" OnClick="ClearSearch"><i class="bi bi-x-circle"></i> Reset
-                                        </MudButton>
-                                    </div>
-                                </div>
-                            }
-        else if (!isLoading)
                             {
-                                <div class="initial-state">
-                                    <div class="initial-icon"><i class="bi bi-search"></i></div>
-                                    <h6>Search Products</h6>
-                                    <p>Select a warehouse above and click <strong>Search</strong> to browse inventory.</p>
-                                </div>
-                            }
-                        </div>
-                    </div>
-
-                    <!-- ━━━ Product Detail Drawer ━━━ -->
-                    @if (selectedProduct != null)
-                    {
-                        <div class="modal-backdrop-custom" @onclick="CloseModal"></div>
-                        <div class="detail-drawer">
-                            <div class="drawer-header">
-                                <div class="drawer-header-top">
-                                    <h5>@selectedProduct.ItemName</h5>
-                                    <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer" OnClick="CloseModal" />
-                                </div>
-                                <div class="drawer-header-chips">
-                                    <span class="drawer-chip">@selectedProduct.ItemCode</span>
-                                    @if (!string.IsNullOrWhiteSpace(selectedProduct.BarCode))
-                                    {
-                                        <span class="drawer-chip" style="font-family:'Space Grotesk',monospace;">@selectedProduct.BarCode</span>
+                                <div class="empty-state">
+                                    <div class="empty-icon"><i class="bi bi-inbox"></i></div>
+                                    <h6>No products found</h6>
+                                    <p>No products found in warehouse <strong>@selectedWarehouse?.WarehouseCode</strong>. Try a different
+                                        warehouse or check your connection.</p>
+                                        <div style="display:flex;gap:.5rem;justify-content:center;margin-top:1rem;">
+                                            <MudButton Class="btn-small-primary" OnClick="SearchProducts"><i class="bi bi-arrow-clockwise"></i>
+                                                Retry</MudButton>
+                                                <MudButton Class="btn-small-action" OnClick="ClearSearch"><i class="bi bi-x-circle"></i> Reset
+                                                </MudButton>
+                                            </div>
+                                        </div>
                                     }
-                                    @if (!string.IsNullOrWhiteSpace(selectedProduct.UoM))
+        else if (!isLoading)
                                     {
-                                        <span class="drawer-chip">@selectedProduct.UoM</span>
-                                    }
-                                </div>
-                            </div>
-                            <div class="drawer-body">
-                                <!-- Stock Level Cards -->
-                                <div class="stock-cards">
-                                    <div class="stock-card in-stock">
-                                        <div class="stock-card-icon"><i class="bi bi-archive"></i></div>
-                                        <div class="stock-card-label">In Stock</div>
-                                        <div class="stock-card-value">@FormatQuantity(selectedProduct.QuantityInStock)</div>
-                                    </div>
-                                    <div class="stock-card available">
-                                        <div class="stock-card-icon"><i class="bi bi-check-circle"></i></div>
-                                        <div class="stock-card-label">Available</div>
-                                        <div class="stock-card-value">@FormatQuantity(selectedProduct.QuantityAvailable)</div>
-                                    </div>
-                                    <div class="stock-card committed">
-                                        <div class="stock-card-icon"><i class="bi bi-clock-history"></i></div>
-                                        <div class="stock-card-label">Committed</div>
-                                        <div class="stock-card-value">@FormatQuantity(selectedProduct.QuantityCommitted)</div>
-                                    </div>
-                                </div>
-
-                                @if (selectedProduct.ManagesBatches && selectedProduct.Batches?.Any() == true)
-                                {
-                                    <div class="batch-section-title">
-                                        <span><i class="bi bi-layers me-2"></i>Batch Information</span>
-                                        <span class="batch-count-chip">@selectedProduct.Batches.Count batches</span>
-                                    </div>
-
-                                    <table class="batch-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Batch #</th>
-                                                <th style="text-align:right">Quantity</th>
-                                                <th>Status</th>
-                                                <th>Expiry</th>
-                                                <th>Manufacturing</th>
-                                                <th>Location</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach (var batch in selectedProduct.Batches)
-                                            {
-                                                <tr>
-                                                    <td><span class="batch-number">@batch.BatchNumber</span></td>
-                                                    <td style="text-align:right;font-weight:600;">@batch.Quantity</td>
-                                                    <td>
-                                                        <span class="batch-status @GetBatchStatusCssClass(batch.Status)">@batch.Status</span>
-                                                    </td>
-                                                    <td style="color:#6b7280;">@batch.ExpiryDate</td>
-                                                    <td style="color:#6b7280;">@batch.ManufacturingDate</td>
-                                                    <td style="color:#6b7280;">@batch.Location</td>
-                                                </tr>
-                                            }
-                                        </tbody>
-                                        <tfoot>
-                                            <tr>
-                                                <td style="font-weight:700;color:#667eea;">Total</td>
-                                                <td style="text-align:right;font-weight:700;color:#667eea;">@selectedProduct.Batches.Sum(b =>
-                                                                                                                                                                                                                                                                                                b.Quantity)</td>
-                                                    <td colspan="4"></td>
-                                                </tr>
-                                            </tfoot>
-                                        </table>
-                                    }
-        else if (selectedProduct.ManagesBatches)
-                                    {
-                                        <div class="no-batches">
-                                            <i class="bi bi-layers"></i>
-                                            <p>This product manages batches, but no batches were found.</p>
+                                        <div class="initial-state">
+                                            <div class="initial-icon"><i class="bi bi-search"></i></div>
+                                            <h6>Search Products</h6>
+                                            <p>Select a warehouse above and click <strong>Search</strong> to browse inventory.</p>
                                         </div>
                                     }
                                 </div>
-                                <div class="drawer-footer">
-                                    <MudButton Class="btn-secondary-action" OnClick="CloseModal">Close</MudButton>
-                                </div>
                             </div>
-                        }
+
+                            <!-- ━━━ Product Detail Drawer ━━━ -->
+                            @if (selectedProduct != null)
+                            {
+                                <div class="modal-backdrop-custom" @onclick="CloseModal"></div>
+                                <div class="detail-drawer">
+                                    <div class="drawer-header">
+                                        <div class="drawer-header-top">
+                                            <h5>@selectedProduct.ItemName</h5>
+                                            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer" OnClick="CloseModal" />
+                                        </div>
+                                        <div class="drawer-header-chips">
+                                            <span class="drawer-chip">@selectedProduct.ItemCode</span>
+                                            @if (!string.IsNullOrWhiteSpace(selectedProduct.BarCode))
+                                            {
+                                                <span class="drawer-chip" style="font-family:'Space Grotesk',monospace;">@selectedProduct.BarCode</span>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(selectedProduct.UoM))
+                                            {
+                                                <span class="drawer-chip">@selectedProduct.UoM</span>
+                                            }
+                                        </div>
+                                    </div>
+                                    <div class="drawer-body">
+                                        <!-- Stock Level Cards -->
+                                        <div class="stock-cards">
+                                            <div class="stock-card in-stock">
+                                                <div class="stock-card-icon"><i class="bi bi-archive"></i></div>
+                                                <div class="stock-card-label">In Stock</div>
+                                                <div class="stock-card-value">@FormatQuantity(selectedProduct.QuantityInStock, selectedProduct.UoM)
+                                                </div>
+                                            </div>
+                                            <div class="stock-card available">
+                                                <div class="stock-card-icon"><i class="bi bi-check-circle"></i></div>
+                                                <div class="stock-card-label">Available</div>
+                                                <div class="stock-card-value">@FormatQuantity(selectedProduct.QuantityAvailable, selectedProduct.UoM)
+                                                </div>
+                                            </div>
+                                            <div class="stock-card committed">
+                                                <div class="stock-card-icon"><i class="bi bi-clock-history"></i></div>
+                                                <div class="stock-card-label">Committed</div>
+                                                <div class="stock-card-value">@FormatQuantity(selectedProduct.QuantityCommitted, selectedProduct.UoM)
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        @if (selectedProduct.ManagesBatches && selectedProduct.Batches?.Any() == true)
+                                        {
+                                            <div class="batch-section-title">
+                                                <span><i class="bi bi-layers me-2"></i>Batch Information</span>
+                                                <span class="batch-count-chip">@selectedProduct.Batches.Count batches</span>
+                                            </div>
+
+                                            <table class="batch-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Batch #</th>
+                                                        <th style="text-align:right">Quantity</th>
+                                                        <th>Status</th>
+                                                        <th>Expiry</th>
+                                                        <th>Manufacturing</th>
+                                                        <th>Location</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach (var batch in selectedProduct.Batches)
+                                                    {
+                                                        <tr>
+                                                            <td><span class="batch-number">@batch.BatchNumber</span></td>
+                                                            <td style="text-align:right;font-weight:600;">@batch.Quantity</td>
+                                                            <td>
+                                                                <span class="batch-status @GetBatchStatusCssClass(batch.Status)">@batch.Status</span>
+                                                            </td>
+                                                            <td style="color:#6b7280;">@batch.ExpiryDate</td>
+                                                            <td style="color:#6b7280;">@batch.ManufacturingDate</td>
+                                                            <td style="color:#6b7280;">@batch.Location</td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                                <tfoot>
+                                                    <tr>
+                                                        <td style="font-weight:700;color:#667eea;">Total</td>
+                                                        <td style="text-align:right;font-weight:700;color:#667eea;">@selectedProduct.Batches.Sum(b =>
+                                                                                                                                                                                                                                                                                                                                                            b.Quantity)</td>
+                                                            <td colspan="4"></td>
+                                                        </tr>
+                                                    </tfoot>
+                                                </table>
+                                            }
+        else if (selectedProduct.ManagesBatches)
+                                            {
+                                                <div class="no-batches">
+                                                    <i class="bi bi-layers"></i>
+                                                    <p>This product manages batches, but no batches were found.</p>
+                                                </div>
+                                            }
+                                        </div>
+                                        <div class="drawer-footer">
+                                            <MudButton Class="btn-secondary-action" OnClick="CloseModal">Close</MudButton>
+                                        </div>
+                                    </div>
+                                }
 
 @code {
     private MudTable<ProductDto> _table = null!;
@@ -1613,9 +1618,9 @@
         selectedProduct = null;
     }
 
-    private string FormatQuantity(decimal quantity)
+    private static string FormatQuantity(decimal quantity, string? uomCode)
     {
-        return quantity.ToString("N2");
+        return QuantityDisplay.Format(quantity, uomCode);
     }
 
     private Color GetBatchStatusColor(string? status)

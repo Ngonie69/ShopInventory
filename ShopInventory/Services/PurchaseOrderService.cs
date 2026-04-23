@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Validation;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
@@ -86,6 +87,8 @@ public class PurchaseOrderService : IPurchaseOrderService
 
     public async Task<PurchaseOrderDto> CreateAsync(CreatePurchaseOrderRequest request, Guid? userId, CancellationToken cancellationToken = default)
     {
+        await ValidateAndNormalizePurchaseOrderRequestAsync(request, cancellationToken);
+
         var orderNumber = await GenerateOrderNumberAsync(cancellationToken);
 
         var order = new PurchaseOrderEntity
@@ -152,6 +155,8 @@ public class PurchaseOrderService : IPurchaseOrderService
 
     public async Task<PurchaseOrderDto> UpdateAsync(int id, CreatePurchaseOrderRequest request, CancellationToken cancellationToken = default)
     {
+        await ValidateAndNormalizePurchaseOrderRequestAsync(request, cancellationToken);
+
         var order = await _context.PurchaseOrders
             .Include(o => o.Lines)
             .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
@@ -284,6 +289,8 @@ public class PurchaseOrderService : IPurchaseOrderService
         if (order.Status != PurchaseOrderStatus.Approved && order.Status != PurchaseOrderStatus.PartiallyReceived)
             throw new InvalidOperationException("Only approved or partially received orders can receive items");
 
+        await ValidatePurchaseOrderReceiptAsync(order, request, cancellationToken);
+
         foreach (var receiveLine in request.Lines)
         {
             var orderLine = order.Lines.FirstOrDefault(l => l.LineNum == receiveLine.LineNum && l.ItemCode == receiveLine.ItemCode);
@@ -342,6 +349,69 @@ public class PurchaseOrderService : IPurchaseOrderService
         }
 
         return $"{prefix}{sequence:D4}";
+    }
+
+    private async Task ValidateAndNormalizePurchaseOrderRequestAsync(CreatePurchaseOrderRequest request, CancellationToken cancellationToken)
+    {
+        var validationErrors = RecursiveDataAnnotationsValidator.Validate(request);
+        validationErrors.AddRange(await UomQuantityValidation.ValidateAndNormalizeLineQuantitiesAsync(
+            _context,
+            request.Lines,
+            line => line.ItemCode,
+            line => line.Quantity,
+            line => line.UoMCode,
+            (line, uomCode) => line.UoMCode = uomCode,
+            cancellationToken,
+            requireAtLeastOneLine: false));
+
+        if (validationErrors.Count == 0)
+            return;
+
+        throw new InvalidOperationException($"Purchase order validation failed: {string.Join("; ", validationErrors)}");
+    }
+
+    private async Task ValidatePurchaseOrderReceiptAsync(
+        PurchaseOrderEntity order,
+        ReceivePurchaseOrderRequest request,
+        CancellationToken cancellationToken)
+    {
+        var validationErrors = RecursiveDataAnnotationsValidator.Validate(request);
+        var lineUomLookup = await UomQuantityValidation.ResolveUomLookupAsync(
+            _context,
+            order.Lines.Select(line => (ItemCode: (string?)line.ItemCode, line.UoMCode)),
+            cancellationToken);
+
+        foreach (var (receiveLine, index) in request.Lines.Select((line, index) => (line, index)))
+        {
+            var orderLine = order.Lines.FirstOrDefault(line =>
+                line.LineNum == receiveLine.LineNum &&
+                string.Equals(line.ItemCode, receiveLine.ItemCode, StringComparison.OrdinalIgnoreCase));
+
+            if (orderLine == null)
+                continue;
+
+            var resolvedUomCode = UomQuantityValidation.ResolveLineUomCode(orderLine.UoMCode, orderLine.ItemCode, lineUomLookup);
+            if (string.IsNullOrWhiteSpace(orderLine.UoMCode) && !string.IsNullOrWhiteSpace(resolvedUomCode))
+            {
+                orderLine.UoMCode = resolvedUomCode;
+            }
+
+            var quantityError = UomQuantityValidation.BuildFractionalQuantityValidationError(
+                index + 1,
+                receiveLine.ItemCode,
+                receiveLine.QuantityReceived,
+                resolvedUomCode);
+
+            if (!string.IsNullOrWhiteSpace(quantityError))
+            {
+                validationErrors.Add(quantityError.Replace("Quantity", "Quantity received", StringComparison.Ordinal));
+            }
+        }
+
+        if (validationErrors.Count == 0)
+            return;
+
+        throw new InvalidOperationException($"Purchase order receipt validation failed: {string.Join("; ", validationErrors)}");
     }
 
     #region Mapping Methods

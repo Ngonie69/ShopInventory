@@ -1199,7 +1199,7 @@
                                                            Size="Size.Small" />
                                         }
                                         @if (context.Status == CreditNoteStatus.Draft || context.Status ==
-                                                                                                                                                                                            CreditNoteStatus.Cancelled)
+                                                                                                                                                                                                                                    CreditNoteStatus.Cancelled)
                                         {
                                             <MudIconButton Icon="@Icons.Material.Filled.Delete"
                                                            OnClick="() => DeleteCreditNote(context.Id)" title="Delete" Class="action-btn delete"
@@ -1309,7 +1309,7 @@
                                     <tr>
                                         <td><span style="font-weight:600;color:#667eea;">@line.ItemCode</span></td>
                                         <td>@line.ItemDescription</td>
-                                        <td style="text-align:right;font-weight:600;">@line.Quantity</td>
+                                        <td style="text-align:right;font-weight:600;">@QuantityDisplay.Format(line.Quantity)</td>
                                         <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
                                         <td style="text-align:right;font-weight:600;">@line.LineTotal.ToString("N2")</td>
                                         <td style="text-align:center;">
@@ -1508,7 +1508,7 @@
                                                                     @if (!string.IsNullOrEmpty(line.ItemDescription))
                                                                     {
                                                                         <span style="font-size:.82rem;color:#374151;">@TruncateText(line.ItemDescription,
-                                                                                                                                                                                                                                                                            25)</span>
+                                                                                                                                                                                                                                                                                                                                                        25)</span>
                                                                         }
                                                             else
                                                                         {

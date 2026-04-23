@@ -426,15 +426,17 @@ public class SyncStatusService : ISyncStatusService
         await _context.SaveChangesAsync(cancellationToken);
 
         // Keep only last 100 logs
-        var oldLogs = await _context.SapConnectionLogs
+        var oldLogIds = await _context.SapConnectionLogs
             .OrderByDescending(l => l.CheckedAt)
             .Skip(100)
+            .Select(l => l.Id)
             .ToListAsync(cancellationToken);
 
-        if (oldLogs.Any())
+        if (oldLogIds.Count > 0)
         {
-            _context.SapConnectionLogs.RemoveRange(oldLogs);
-            await _context.SaveChangesAsync(cancellationToken);
+            await _context.SapConnectionLogs
+                .Where(l => oldLogIds.Contains(l.Id))
+                .ExecuteDeleteAsync(cancellationToken);
         }
     }
 

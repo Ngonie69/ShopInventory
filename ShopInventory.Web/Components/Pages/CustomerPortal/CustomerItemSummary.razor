@@ -198,17 +198,17 @@
                                                 @(item.ItemDescription ?? "-")</td>
                                             @if (showBreakdown)
                                             {
-                                                <td class="text-end">@item.InvoicedQuantity.ToString("N2")</td>
+                                                <td class="text-end">@QuantityDisplay.Format(item.InvoicedQuantity)</td>
                                                 <td class="text-end">@FormatCurrency(item.InvoicedAmount)</td>
                                                 <td class="text-end @(item.CreditedQuantity > 0 ? "text-danger" : "")">
-                                                    @(item.CreditedQuantity > 0 ? $"-{item.CreditedQuantity:N2}" : "0.00")
+                                                    @(item.CreditedQuantity > 0 ? $"-{QuantityDisplay.Format(item.CreditedQuantity)}" : "0")
                                                 </td>
                                                 <td class="text-end @(item.CreditedAmount > 0 ? "text-danger" : "")">
                                                     @(item.CreditedAmount > 0 ? $"-{FormatCurrency(item.CreditedAmount)}" :
                                                         FormatCurrency(0))
                                                 </td>
                                             }
-                                            <td class="text-end fw-semibold">@item.NetQuantity.ToString("N2")</td>
+                                            <td class="text-end fw-semibold">@QuantityDisplay.Format(item.NetQuantity)</td>
                                             <td class="text-end fw-semibold">@FormatCurrency(item.NetAmount)</td>
                                         </tr>
                                     }
@@ -218,12 +218,12 @@
                                             <td colspan="2">Total</td>
                                             @if (showBreakdown)
                                             {
-                                                <td class="text-end">@filteredItems.Sum(i => i.InvoicedQuantity).ToString("N2")</td>
+                                                <td class="text-end">@QuantityDisplay.Format(filteredItems.Sum(i => i.InvoicedQuantity))</td>
                                                 <td class="text-end">@FormatCurrency(filteredItems.Sum(i => i.InvoicedAmount))</td>
-                                                <td class="text-end text-danger">-@filteredItems.Sum(i => i.CreditedQuantity).ToString("N2")</td>
+                                                <td class="text-end text-danger">-@QuantityDisplay.Format(filteredItems.Sum(i => i.CreditedQuantity))</td>
                                                 <td class="text-end text-danger">-@FormatCurrency(filteredItems.Sum(i => i.CreditedAmount))</td>
                                             }
-                                            <td class="text-end">@filteredItems.Sum(i => i.NetQuantity).ToString("N2")</td>
+                                            <td class="text-end">@QuantityDisplay.Format(filteredItems.Sum(i => i.NetQuantity))</td>
                                             <td class="text-end">@FormatCurrency(filteredItems.Sum(i => i.NetAmount))</td>
                                         </tr>
                                     </tfoot>

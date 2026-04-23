@@ -65,7 +65,7 @@
                         {
                             <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
                                 Filtered &mdash; @(linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName
-                                                    ?? selectedAccountFilter)
+                                                                                    ?? selectedAccountFilter)
                             </span>
                         }
                     }
@@ -245,7 +245,7 @@
                             <div class="invoices-pagination">
                                 <div class="pagination-info">
                                     Showing @(((currentPage - 1) * pageSize) + 1)&ndash;@(Math.Min(currentPage * pageSize,
-                                                                                                                                filteredInvoices.Count)) of @filteredInvoices.Count invoices
+                                                                                                                                                                    filteredInvoices.Count)) of @filteredInvoices.Count invoices
                                 </div>
                                 <nav>
                                     <ul class="pagination pagination-sm mb-0">
@@ -335,7 +335,7 @@
                         </div>
                         <div>
                             <h5 class="modal-title mb-0">Invoice #@(selectedInvoice?.DocNum ??
-                                                                                                                            selectedInvoiceSummary?.DocNum)</h5>
+                                                                                                                                                            selectedInvoiceSummary?.DocNum)</h5>
                             </div>
                         </div>
                         <button type="button" class="invoice-modal-close" @onclick="CloseInvoiceModal">
@@ -378,12 +378,12 @@
                                 <div class="invoice-detail-card">
                                     <div class="detail-label">Amount</div>
                                     <div class="detail-value detail-value-lg">@FormatCurrencyWithCode(selectedInvoice.DocTotal,
-                                                                                                                                                    selectedInvoice.DocCurrency)</div>
+                                                                                                                                                                                            selectedInvoice.DocCurrency)</div>
                                     </div>
                                     <div class="invoice-detail-card">
                                         <div class="detail-label">VAT</div>
                                         <div class="detail-value">@FormatCurrencyWithCode(selectedInvoice.VatSum,
-                                                                                                                                                                selectedInvoice.DocCurrency)</div>
+                                                                                                                                                                                                            selectedInvoice.DocCurrency)</div>
                                         </div>
                                         <div class="invoice-detail-card">
                                             <div class="detail-label">Reference</div>
@@ -428,12 +428,12 @@
                                                             <td>@line.LineNum</td>
                                                             <td><code class="item-code">@line.ItemCode</code></td>
                                                             <td>@line.ItemDescription</td>
-                                                            <td class="text-end">@line.Quantity.ToString("N2")</td>
+                                                            <td class="text-end">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
                                                             <td>@(line.UoMCode ?? "-")</td>
                                                             <td class="text-end">@FormatCurrencyWithCode(line.GrossPrice,
-                                                                                                                                                                                                                                    selectedInvoice.DocCurrency)</td>
+                                                                                                                                                                                                                                                                                                    selectedInvoice.DocCurrency)</td>
                                                                 <td class="text-end fw-semibold">@FormatCurrencyWithCode(line.LineTotal,
-                                                                                                                                                                                                                                                selectedInvoice.DocCurrency)</td>
+                                                                                                                                                                                                                                                                                                                    selectedInvoice.DocCurrency)</td>
                                                                 </tr>
                                                             }
                                                         </tbody>

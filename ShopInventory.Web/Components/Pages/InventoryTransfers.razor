@@ -1254,124 +1254,8 @@
                                     </td>
                                     <td><span class="wh-badge from" style="font-size:0.72rem;">@line.FromWarehouseCode</span></td>
                                     <td><span class="wh-badge to" style="font-size:0.72rem;">@line.ToWarehouseCode</span></td>
-                                    <td style="text-align:right;font-weight:700;">@line.Quantity</td>
-                                    <td style="color:#6b7280;">@line.UoMCode</td>
-                                </tr>
-                            }
-                        </tbody>
-                        <tfoot>
-                            <tr style="background:#f8fafc;">
-                                <td colspan="4" style="text-align:right;font-weight:600;color:#6b7280;">Total</td>
-                                <td style="text-align:right;font-weight:700;color:#2563eb;">@selectedTransfer.Lines.Sum(l =>
-                                                                                                    l.Quantity)</td>
-                                    <td></td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-                }
-            </div>
-            <div class="drawer-footer">
-                <MudButton Class="btn-clear" OnClick="CloseModal">Close</MudButton>
-            </div>
-        </div>
-    }
-
-    <!-- ━━━ Transfer Request Detail Drawer ━━━ -->
-    @if (selectedTransferRequest != null)
-    {
-        <div class="modal-backdrop" @onclick="CloseRequestModal"></div>
-        <div class="detail-drawer">
-            <div class="drawer-header" style="background: linear-gradient(135deg, #7c3aed, #a855f7);">
-                <h5><i class="bi bi-file-earmark-text me-2"></i>Transfer Request #@selectedTransferRequest.DocNum</h5>
-                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer" OnClick="CloseRequestModal"
-                               Size="Size.Small" />
-            </div>
-            <div class="drawer-body">
-                <!-- Route visual -->
-                <div class="d-flex align-items-center gap-2 mb-3 p-3"
-                     style="background:#f8fafc; border-radius:10px; border:1px solid #e5e7eb;">
-                    <div class="text-center flex-fill">
-                        <div style="font-size:0.7rem;font-weight:600;color:#9ca3af;text-transform:uppercase;">Source</div>
-                        <div style="font-size:1.1rem;font-weight:700;color:#92400e;">@selectedTransferRequest.FromWarehouse
-                        </div>
-                    </div>
-                    <i class="bi bi-arrow-right-circle-fill" style="font-size:1.5rem;color:#7c3aed;"></i>
-                    <div class="text-center flex-fill">
-                        <div style="font-size:0.7rem;font-weight:600;color:#9ca3af;text-transform:uppercase;">Destination</div>
-                        <div style="font-size:1.1rem;font-weight:700;color:#065f46;">@selectedTransferRequest.ToWarehouse</div>
-                    </div>
-                </div>
-
-                <div class="detail-grid">
-                    <div class="detail-item">
-                        <div class="detail-label">Doc Number</div>
-                        <div class="detail-value">#@selectedTransferRequest.DocNum</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Status</div>
-                        <div class="detail-value">
-                            <span class="status-badge @GetStatusCssClass(selectedTransferRequest.DocumentStatus)">
-                                @GetFriendlyStatus(selectedTransferRequest.DocumentStatus)
-                            </span>
-                        </div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Document Date</div>
-                        <div class="detail-value">@FormatDate(selectedTransferRequest.DocDate)</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Due Date</div>
-                        <div class="detail-value">@FormatDate(selectedTransferRequest.DueDate)</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Requester</div>
-                        <div class="detail-value">@(selectedTransferRequest.RequesterName ?? "—")</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Email</div>
-                        <div class="detail-value" style="font-weight:400;">@(selectedTransferRequest.RequesterEmail ?? "—")
-                        </div>
-                    </div>
-                    @if (!string.IsNullOrWhiteSpace(selectedTransferRequest.Comments))
-                    {
-                        <div class="detail-item" style="grid-column: span 2;">
-                            <div class="detail-label">Comments</div>
-                            <div class="detail-value" style="font-weight:400;">@selectedTransferRequest.Comments</div>
-                        </div>
-                    }
-                </div>
-
-                @if (selectedTransferRequest.Lines?.Any() == true)
-                {
-                    <div class="detail-section-title">
-                        <i class="bi bi-list-check" style="color:#7c3aed;"></i>
-                        Request Lines (@selectedTransferRequest.Lines.Count)
-                    </div>
-                    <div class="it-table-wrapper">
-                        <table class="it-table" style="font-size:0.82rem;">
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Item</th>
-                                    <th>From</th>
-                                    <th>To</th>
-                                    <th style="text-align:right;">Qty</th>
-                                    <th>UoM</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var line in selectedTransferRequest.Lines)
-                                {
-                                    <tr>
-                                        <td>@line.LineNum</td>
-                                        <td>
-                                            <div style="font-weight:600;">@line.ItemCode</div>
-                                            <div style="font-size:0.78rem;color:#6b7280;">@line.ItemDescription</div>
-                                        </td>
-                                        <td><span class="wh-badge from" style="font-size:0.72rem;">@line.FromWarehouseCode</span></td>
-                                        <td><span class="wh-badge to" style="font-size:0.72rem;">@line.ToWarehouseCode</span></td>
-                                        <td style="text-align:right;font-weight:700;">@line.Quantity</td>
+                                    <td style="text-align:right;font-weight:700;">@QuantityDisplay.Format(line.Quantity,
+                                                                    line.UoMCode)</td>
                                         <td style="color:#6b7280;">@line.UoMCode</td>
                                     </tr>
                                 }
@@ -1379,8 +1263,9 @@
                             <tfoot>
                                 <tr style="background:#f8fafc;">
                                     <td colspan="4" style="text-align:right;font-weight:600;color:#6b7280;">Total</td>
-                                    <td style="text-align:right;font-weight:700;color:#7c3aed;">@selectedTransferRequest.Lines.Sum(l
-                                                                                                            => l.Quantity)</td>
+                                    <td style="text-align:right;font-weight:700;color:#2563eb;">
+                                        @QuantityDisplay.Format(selectedTransfer.Lines.Sum(l =>
+                                                                                                                l.Quantity))</td>
                                         <td></td>
                                     </tr>
                                 </tfoot>
@@ -1389,26 +1274,145 @@
                     }
                 </div>
                 <div class="drawer-footer">
-                    @if (IsRequestConvertible(selectedTransferRequest))
-                    {
-                        <MudButton Class="btn-gradient" OnClick="() => ConvertRequest(selectedTransferRequest)" Disabled="@isConverting"
-                                   Style="@(isConverting ? "opacity:0.5;" : "")">
-                            @if (isConverting)
-                            {
-                                <span class="spinner-border spinner-border-sm"></span>
-                                <span>Converting…</span>
-                            }
-                            else
-                            {
-                                <i class="bi bi-arrow-left-right"></i>
-                                <span>Convert to Transfer</span>
-                            }
-                        </MudButton>
-                    }
-                    <MudButton Class="btn-clear" OnClick="CloseRequestModal">Close</MudButton>
+                    <MudButton Class="btn-clear" OnClick="CloseModal">Close</MudButton>
                 </div>
             </div>
         }
+
+        <!-- ━━━ Transfer Request Detail Drawer ━━━ -->
+        @if (selectedTransferRequest != null)
+        {
+            <div class="modal-backdrop" @onclick="CloseRequestModal"></div>
+            <div class="detail-drawer">
+                <div class="drawer-header" style="background: linear-gradient(135deg, #7c3aed, #a855f7);">
+                    <h5><i class="bi bi-file-earmark-text me-2"></i>Transfer Request #@selectedTransferRequest.DocNum</h5>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer" OnClick="CloseRequestModal"
+                                   Size="Size.Small" />
+                </div>
+                <div class="drawer-body">
+                    <!-- Route visual -->
+                    <div class="d-flex align-items-center gap-2 mb-3 p-3"
+                         style="background:#f8fafc; border-radius:10px; border:1px solid #e5e7eb;">
+                        <div class="text-center flex-fill">
+                            <div style="font-size:0.7rem;font-weight:600;color:#9ca3af;text-transform:uppercase;">Source</div>
+                            <div style="font-size:1.1rem;font-weight:700;color:#92400e;">@selectedTransferRequest.FromWarehouse
+                            </div>
+                        </div>
+                        <i class="bi bi-arrow-right-circle-fill" style="font-size:1.5rem;color:#7c3aed;"></i>
+                        <div class="text-center flex-fill">
+                            <div style="font-size:0.7rem;font-weight:600;color:#9ca3af;text-transform:uppercase;">Destination</div>
+                            <div style="font-size:1.1rem;font-weight:700;color:#065f46;">@selectedTransferRequest.ToWarehouse</div>
+                        </div>
+                    </div>
+
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <div class="detail-label">Doc Number</div>
+                            <div class="detail-value">#@selectedTransferRequest.DocNum</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Status</div>
+                            <div class="detail-value">
+                                <span class="status-badge @GetStatusCssClass(selectedTransferRequest.DocumentStatus)">
+                                    @GetFriendlyStatus(selectedTransferRequest.DocumentStatus)
+                                </span>
+                            </div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Document Date</div>
+                            <div class="detail-value">@FormatDate(selectedTransferRequest.DocDate)</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Due Date</div>
+                            <div class="detail-value">@FormatDate(selectedTransferRequest.DueDate)</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Requester</div>
+                            <div class="detail-value">@(selectedTransferRequest.RequesterName ?? "—")</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Email</div>
+                            <div class="detail-value" style="font-weight:400;">@(selectedTransferRequest.RequesterEmail ?? "—")
+                            </div>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(selectedTransferRequest.Comments))
+                        {
+                            <div class="detail-item" style="grid-column: span 2;">
+                                <div class="detail-label">Comments</div>
+                                <div class="detail-value" style="font-weight:400;">@selectedTransferRequest.Comments</div>
+                            </div>
+                        }
+                    </div>
+
+                    @if (selectedTransferRequest.Lines?.Any() == true)
+                    {
+                        <div class="detail-section-title">
+                            <i class="bi bi-list-check" style="color:#7c3aed;"></i>
+                            Request Lines (@selectedTransferRequest.Lines.Count)
+                        </div>
+                        <div class="it-table-wrapper">
+                            <table class="it-table" style="font-size:0.82rem;">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Item</th>
+                                        <th>From</th>
+                                        <th>To</th>
+                                        <th style="text-align:right;">Qty</th>
+                                        <th>UoM</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var line in selectedTransferRequest.Lines)
+                                    {
+                                        <tr>
+                                            <td>@line.LineNum</td>
+                                            <td>
+                                                <div style="font-weight:600;">@line.ItemCode</div>
+                                                <div style="font-size:0.78rem;color:#6b7280;">@line.ItemDescription</div>
+                                            </td>
+                                            <td><span class="wh-badge from" style="font-size:0.72rem;">@line.FromWarehouseCode</span></td>
+                                            <td><span class="wh-badge to" style="font-size:0.72rem;">@line.ToWarehouseCode</span></td>
+                                            <td style="text-align:right;font-weight:700;">@QuantityDisplay.Format(line.Quantity,
+                                                                            line.UoMCode)</td>
+                                                <td style="color:#6b7280;">@line.UoMCode</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                    <tfoot>
+                                        <tr style="background:#f8fafc;">
+                                            <td colspan="4" style="text-align:right;font-weight:600;color:#6b7280;">Total</td>
+                                            <td style="text-align:right;font-weight:700;color:#7c3aed;">
+                                                @QuantityDisplay.Format(selectedTransferRequest.Lines.Sum(l
+                                                                                                                                => l.Quantity))</td>
+                                                <td></td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                        <div class="drawer-footer">
+                            @if (IsRequestConvertible(selectedTransferRequest))
+                            {
+                                <MudButton Class="btn-gradient" OnClick="() => ConvertRequest(selectedTransferRequest)" Disabled="@isConverting"
+                                           Style="@(isConverting ? "opacity:0.5;" : "")">
+                                    @if (isConverting)
+                                    {
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                        <span>Converting…</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-arrow-left-right"></i>
+                                        <span>Convert to Transfer</span>
+                                    }
+                                </MudButton>
+                            }
+                            <MudButton Class="btn-clear" OnClick="CloseRequestModal">Close</MudButton>
+                        </div>
+                    </div>
+                }
 
 @code {
     // ── Tab state ───────────────────────────────────────
@@ -1593,7 +1597,8 @@
                     transfers = response.Transfers;
                     hasMore = response.HasMore;
                     totalCount = response.TotalCount > 0 ? response.TotalCount : response.Count;
-                    totalPages = response.TotalPages > 0 ? response.TotalPages : (pageSize > 0 ? (int)Math.Ceiling((double)totalCount / pageSize) : 1);
+                    totalPages = response.TotalPages > 0 ? response.TotalPages : (pageSize > 0 ? (int)Math.Ceiling((double)totalCount /
+pageSize) : 1);
                 }
                 else
                 {

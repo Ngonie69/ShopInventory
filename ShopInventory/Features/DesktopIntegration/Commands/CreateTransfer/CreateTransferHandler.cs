@@ -1,7 +1,9 @@
 using ErrorOr;
 using MediatR;
+using ShopInventory.Common.Validation;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Mappings;
 using ShopInventory.Services;
@@ -10,6 +12,7 @@ using Microsoft.Extensions.Options;
 namespace ShopInventory.Features.DesktopIntegration.Commands.CreateTransfer;
 
 public sealed class CreateTransferHandler(
+    ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
     IStockValidationService stockValidation,
     IOptions<SAPSettings> sapSettings,
@@ -41,11 +44,24 @@ public sealed class CreateTransferHandler(
                 {
                     ItemCode = l.ItemCode,
                     Quantity = l.Quantity,
+                    UoMCode = l.UoMCode,
                     FromWarehouseCode = l.FromWarehouseCode ?? request.FromWarehouse,
                     ToWarehouseCode = l.WarehouseCode ?? request.ToWarehouse,
                     BatchNumbers = l.BatchNumbers,
                 }).ToList()
             };
+
+            var quantityErrors = await UomQuantityValidation.ValidateAndNormalizeLineQuantitiesAsync(
+                context,
+                sapRequest.Lines,
+                line => line.ItemCode,
+                line => line.Quantity,
+                line => line.UoMCode,
+                (line, uomCode) => line.UoMCode = uomCode,
+                cancellationToken);
+
+            if (quantityErrors.Count > 0)
+                return Errors.DesktopIntegration.ValidationFailed(string.Join("; ", quantityErrors));
 
             var validationResult = await stockValidation.ValidateInventoryTransferStockAsync(
                 sapRequest, cancellationToken);

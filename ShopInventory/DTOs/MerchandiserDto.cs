@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using ShopInventory.Common.Validation;
 
 namespace ShopInventory.DTOs;
 
@@ -88,6 +89,7 @@ public class MerchandiserActiveProductDto
     public decimal Price { get; set; }
     public string? UoM { get; set; }
     public string? Category { get; set; }
+    public bool AllowDecimalQuantity => UomQuantityValidation.AllowDecimalQuantity(UoM);
 }
 
 /// <summary>
@@ -146,4 +148,6 @@ public class MerchandiserOrderLineRequest
     public decimal Quantity { get; set; }
 
     public decimal UnitPrice { get; set; }
+
+    public string? UoMCode { get; set; }
 }

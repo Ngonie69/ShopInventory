@@ -1258,7 +1258,7 @@
                                             <td><strong>@line.ItemCode</strong></td>
                                             <td>@line.ItemDescription</td>
                                             <td>@line.WarehouseCode</td>
-                                            <td style="text-align:right;">@line.Quantity</td>
+                                            <td style="text-align:right;">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
                                             <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
                                             <td style="text-align:right;">@line.DiscountPercent%</td>
                                             <td style="text-align:right; font-weight:600;">@line.LineTotal.ToString("N2")</td>

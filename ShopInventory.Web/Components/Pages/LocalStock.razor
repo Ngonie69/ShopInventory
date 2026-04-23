@@ -653,15 +653,15 @@
                                 </td>
                                 <td><span class="item-code">@item.ItemCode</span></td>
                                 <td>@(item.ItemDescription ?? "—")</td>
-                                <td><span class="qty-cell @GetQtyClass(item.AvailableQuantity)">@item.AvailableQuantity.ToString("N2")</span></td>
-                                <td><span class="qty-cell" style="color:#6b7280">@item.OriginalQuantity.ToString("N2")</span></td>
+                                <td><span class="qty-cell @GetQtyClass(item.AvailableQuantity)">@QuantityDisplay.Format(item.AvailableQuantity)</span></td>
+                                <td><span class="qty-cell" style="color:#6b7280">@QuantityDisplay.Format(item.OriginalQuantity)</span></td>
                                 <td>
                                     @{
                                         var adj = item.TransferAdjustment;
                                         var adjClass = adj > 0 ? "adjustment-pos" : adj < 0 ? "adjustment-neg" : "adjustment-zero";
                                         var adjPrefix = adj > 0 ? "+" : "";
                                     }
-                                    <span class="@adjClass">@adjPrefix@adj.ToString("N2")</span>
+                                    <span class="@adjClass">@adjPrefix@QuantityDisplay.Format(Math.Abs(adj))</span>
                                 </td>
                                 <td>@item.Batches.Count</td>
                             </tr>
@@ -678,8 +678,8 @@
                                                 <span> — Expires: @batch.ExpiryDate.Value.ToString("dd MMM yyyy")</span>
                                             }
                                         </td>
-                                        <td><span class="qty-cell @GetQtyClass(batch.AvailableQuantity)">@batch.AvailableQuantity.ToString("N2")</span></td>
-                                        <td><span class="qty-cell" style="color:#6b7280">@batch.OriginalQuantity.ToString("N2")</span></td>
+                                        <td><span class="qty-cell @GetQtyClass(batch.AvailableQuantity)">@QuantityDisplay.Format(batch.AvailableQuantity)</span></td>
+                                        <td><span class="qty-cell" style="color:#6b7280">@QuantityDisplay.Format(batch.OriginalQuantity)</span></td>
                                         <td></td>
                                         <td></td>
                                     </tr>

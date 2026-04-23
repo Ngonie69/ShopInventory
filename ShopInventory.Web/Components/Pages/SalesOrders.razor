@@ -1211,7 +1211,7 @@
                                                 <tr>
                                                     <td><span style="font-weight:600;color:#667eea;">@line.ItemCode</span></td>
                                                     <td>@line.ItemDescription</td>
-                                                    <td style="text-align:right;font-weight:600;">@line.Quantity</td>
+                                                    <td style="text-align:right;font-weight:600;">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
                                                     <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
                                                     <td style="text-align:right;font-weight:600;">@line.LineTotal.ToString("N2")</td>
                                                 </tr>

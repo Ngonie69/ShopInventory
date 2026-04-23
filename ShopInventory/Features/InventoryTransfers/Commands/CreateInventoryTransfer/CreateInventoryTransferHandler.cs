@@ -1,7 +1,9 @@
 using ErrorOr;
 using MediatR;
+using ShopInventory.Common.Validation;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Mappings;
 using ShopInventory.Models;
@@ -12,6 +14,7 @@ using Microsoft.Extensions.Options;
 namespace ShopInventory.Features.InventoryTransfers.Commands.CreateInventoryTransfer;
 
 public sealed class CreateInventoryTransferHandler(
+    ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
     IStockValidationService stockValidation,
     IAuditService auditService,
@@ -29,12 +32,12 @@ public sealed class CreateInventoryTransferHandler(
         var request = command.Request;
 
         // Validate positive quantities
-        var quantityErrors = ValidateTransferQuantities(request);
+        var quantityErrors = await ValidateTransferQuantitiesAsync(request, cancellationToken);
         if (quantityErrors.Count > 0)
         {
             logger.LogWarning("Transfer quantity validation failed: {Errors}", string.Join(", ", quantityErrors));
             return Errors.InventoryTransfer.ValidationFailed(
-                $"Quantity validation failed - negative or zero quantities are not allowed: {string.Join("; ", quantityErrors)}");
+            $"Quantity validation failed: {string.Join("; ", quantityErrors)}");
         }
 
         try
@@ -111,22 +114,23 @@ public sealed class CreateInventoryTransferHandler(
         }
     }
 
-    private static List<string> ValidateTransferQuantities(CreateInventoryTransferRequest request)
+    private async Task<List<string>> ValidateTransferQuantitiesAsync(CreateInventoryTransferRequest request, CancellationToken cancellationToken)
     {
-        var errors = new List<string>();
+        var errors = await UomQuantityValidation.ValidateAndNormalizeLineQuantitiesAsync(
+            context,
+            request.Lines,
+            line => line.ItemCode,
+            line => line.Quantity,
+            line => line.UoMCode,
+            (line, uomCode) => line.UoMCode = uomCode,
+            cancellationToken);
 
-        if (request.Lines == null || request.Lines.Count == 0)
-        {
-            errors.Add("At least one line item is required");
+        if (request.Lines == null)
             return errors;
-        }
 
         for (int i = 0; i < request.Lines.Count; i++)
         {
             var line = request.Lines[i];
-
-            if (line.Quantity <= 0)
-                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Quantity must be greater than zero. Current value: {line.Quantity}");
 
             if (line.BatchNumbers != null)
             {
@@ -136,6 +140,15 @@ public sealed class CreateInventoryTransferHandler(
                     var batch = line.BatchNumbers[j];
                     if (batch.Quantity <= 0)
                         errors.Add($"Line {i + 1}, Batch {j + 1} (Batch: {batch.BatchNumber ?? "unknown"}): Quantity must be greater than zero. Current value: {batch.Quantity}");
+
+                    var batchQuantityError = UomQuantityValidation.BuildFractionalQuantityValidationError(
+                        i + 1,
+                        $"{line.ItemCode ?? "unknown"} / Batch {batch.BatchNumber ?? "unknown"}",
+                        batch.Quantity,
+                        line.UoMCode);
+                    if (!string.IsNullOrWhiteSpace(batchQuantityError))
+                        errors.Add(batchQuantityError);
+
                     batchTotal += batch.Quantity;
                 }
 

@@ -478,7 +478,7 @@
                             <td>@(line.LineNum + 1)</td>
                             <td style="font-weight:600;">@line.ItemCode</td>
                             <td>@line.ItemDescription</td>
-                            <td style="text-align:right">@line.Quantity.ToString("N2")</td>
+                            <td style="text-align:right">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
                             <td style="text-align:right">@line.UnitPrice.ToString("N2")</td>
                             <td style="text-align:right">@(line.DiscountPercent > 0 ? line.DiscountPercent.ToString("N1") + "%" : "—")</td>
                             <td style="text-align:right;font-weight:600;">@line.LineTotal.ToString("N2")</td>

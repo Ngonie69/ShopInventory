@@ -185,6 +185,11 @@ public class CreateTransferRequestLineDto
     public decimal Quantity { get; set; }
 
     /// <summary>
+    /// Optional UoM code for decimal quantity validation.
+    /// </summary>
+    public string? UoMCode { get; set; }
+
+    /// <summary>
     /// Source warehouse for this line (overrides header FromWarehouse)
     /// </summary>
     public string? FromWarehouseCode { get; set; }

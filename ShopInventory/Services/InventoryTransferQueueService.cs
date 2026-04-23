@@ -109,6 +109,16 @@ public class InventoryTransferQueueService : IInventoryTransferQueueService
         try
         {
             var requestValidationErrors = RecursiveDataAnnotationsValidator.Validate(request);
+            requestValidationErrors.AddRange(await UomQuantityValidation.ValidateAndNormalizeLineQuantitiesAsync(
+                _context,
+                request.Lines,
+                line => line.ItemCode,
+                line => line.Quantity,
+                line => line.UoMCode,
+                (line, uomCode) => line.UoMCode = uomCode,
+                cancellationToken,
+                requireAtLeastOneLine: false));
+
             if (requestValidationErrors.Count > 0)
             {
                 return new InventoryTransferQueueResultDto

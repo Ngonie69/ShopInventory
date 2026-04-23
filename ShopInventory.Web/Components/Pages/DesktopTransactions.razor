@@ -2240,7 +2240,7 @@
                                                 <div class="dt-mini-field__label">Total Quantity</div>
 
 
-                                                <div class="dt-mini-field__value">@context.Item.TotalQuantity.ToString("N2")</div>
+                                                <div class="dt-mini-field__value">@QuantityDisplay.Format(context.Item.TotalQuantity)</div>
 
 
                                             </div>
@@ -2819,7 +2819,7 @@
                                                 <div class="dt-mini-field__label">Total Quantity</div>
 
 
-                                                <div class="dt-mini-field__value">@context.Item.TotalQuantity.ToString("N2")</div>
+                                                <div class="dt-mini-field__value">@QuantityDisplay.Format(context.Item.TotalQuantity)</div>
 
 
                                             </div>
@@ -3575,7 +3575,7 @@
                                                             <td>@line.ItemDescription</td>
 
 
-                                                            <td style="font-variant-numeric: tabular-nums;">@line.Quantity.ToString("N2")</td>
+                                                            <td style="font-variant-numeric: tabular-nums;">@QuantityDisplay.Format(line.Quantity)</td>
 
 
                                                             <td>@line.WarehouseCode</td>

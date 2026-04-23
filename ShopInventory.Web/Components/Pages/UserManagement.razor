@@ -3399,12 +3399,14 @@ new();
         isSaving = true;
         try
         {
+            var userId = selectedUserForPermissions.Id;
+            var username = selectedUserForPermissions.Username;
             var permissions = useRoleDefaults ? new List<string>() : selectedPermissions.ToList();
-            await UserService.UpdateUserPermissionsAsync(selectedUserForPermissions.Id, permissions);
+            await UserService.UpdateUserPermissionsAsync(userId, permissions);
             Snackbar.Add("Permissions updated successfully", Severity.Success);
             ClosePermissionsModal();
             await LoadUsers();
-            await AuditService.LogAsync("UpdatePermissions", "User", selectedUserForPermissions.Username);
+            await AuditService.LogAsync("UpdatePermissions", "User", username);
         }
         catch (Exception ex)
         {

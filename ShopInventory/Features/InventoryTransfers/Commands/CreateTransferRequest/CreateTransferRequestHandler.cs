@@ -1,7 +1,9 @@
 using ErrorOr;
 using MediatR;
+using ShopInventory.Common.Validation;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Mappings;
 using ShopInventory.Models;
@@ -12,6 +14,7 @@ using Microsoft.Extensions.Options;
 namespace ShopInventory.Features.InventoryTransfers.Commands.CreateTransferRequest;
 
 public sealed class CreateTransferRequestHandler(
+    ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
     IAuditService auditService,
     IOptions<SAPSettings> settings,
@@ -28,12 +31,12 @@ public sealed class CreateTransferRequestHandler(
         var request = command.Request;
 
         // Validate positive quantities
-        var quantityErrors = ValidateTransferRequestQuantities(request);
+        var quantityErrors = await ValidateTransferRequestQuantitiesAsync(request, cancellationToken);
         if (quantityErrors.Count > 0)
         {
             logger.LogWarning("Transfer request quantity validation failed: {Errors}", string.Join(", ", quantityErrors));
             return Errors.InventoryTransfer.ValidationFailed(
-                $"Quantity validation failed - negative or zero quantities are not allowed: {string.Join("; ", quantityErrors)}");
+            $"Quantity validation failed: {string.Join("; ", quantityErrors)}");
         }
 
         try
@@ -124,23 +127,13 @@ public sealed class CreateTransferRequestHandler(
         }
     }
 
-    private static List<string> ValidateTransferRequestQuantities(CreateTransferRequestDto request)
-    {
-        var errors = new List<string>();
-
-        if (request.Lines == null || request.Lines.Count == 0)
-        {
-            errors.Add("At least one line item is required");
-            return errors;
-        }
-
-        for (int i = 0; i < request.Lines.Count; i++)
-        {
-            var line = request.Lines[i];
-            if (line.Quantity <= 0)
-                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Quantity must be greater than zero. Current value: {line.Quantity}");
-        }
-
-        return errors;
-    }
+    private Task<List<string>> ValidateTransferRequestQuantitiesAsync(CreateTransferRequestDto request, CancellationToken cancellationToken)
+        => UomQuantityValidation.ValidateAndNormalizeLineQuantitiesAsync(
+            context,
+            request.Lines,
+            line => line.ItemCode,
+            line => line.Quantity,
+            line => line.UoMCode,
+            (line, uomCode) => line.UoMCode = uomCode,
+            cancellationToken);
 }

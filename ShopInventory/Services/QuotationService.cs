@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Validation;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
@@ -81,6 +82,8 @@ public class QuotationService : IQuotationService
 
     public async Task<QuotationDto> CreateAsync(CreateQuotationRequest request, Guid userId, CancellationToken cancellationToken = default)
     {
+        await ValidateAndNormalizeQuotationRequestAsync(request, cancellationToken);
+
         var quotationNumber = await GenerateQuotationNumberAsync(cancellationToken);
 
         var quotation = new QuotationEntity
@@ -150,6 +153,8 @@ public class QuotationService : IQuotationService
 
     public async Task<QuotationDto> UpdateAsync(int id, CreateQuotationRequest request, CancellationToken cancellationToken = default)
     {
+        await ValidateAndNormalizeQuotationRequestAsync(request, cancellationToken);
+
         var quotation = await _context.Quotations
             .Include(q => q.Lines)
             .FirstOrDefaultAsync(q => q.Id == id, cancellationToken);
@@ -401,6 +406,25 @@ public class QuotationService : IQuotationService
         }
 
         return $"{prefix}{sequence:D4}";
+    }
+
+    private async Task ValidateAndNormalizeQuotationRequestAsync(CreateQuotationRequest request, CancellationToken cancellationToken)
+    {
+        var validationErrors = RecursiveDataAnnotationsValidator.Validate(request);
+        validationErrors.AddRange(await UomQuantityValidation.ValidateAndNormalizeLineQuantitiesAsync(
+            _context,
+            request.Lines,
+            line => line.ItemCode,
+            line => line.Quantity,
+            line => line.UoMCode,
+            (line, uomCode) => line.UoMCode = uomCode,
+            cancellationToken,
+            requireAtLeastOneLine: false));
+
+        if (validationErrors.Count == 0)
+            return;
+
+        throw new InvalidOperationException($"Quotation validation failed: {string.Join("; ", validationErrors)}");
     }
 
     #region Mapping Methods
