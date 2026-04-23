@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Validation;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
@@ -107,6 +108,17 @@ public class InventoryTransferQueueService : IInventoryTransferQueueService
     {
         try
         {
+            var requestValidationErrors = RecursiveDataAnnotationsValidator.Validate(request);
+            if (requestValidationErrors.Count > 0)
+            {
+                return new InventoryTransferQueueResultDto
+                {
+                    Success = false,
+                    ErrorCode = "VALIDATION_ERROR",
+                    ErrorMessage = $"Transfer validation failed: {string.Join("; ", requestValidationErrors)}"
+                };
+            }
+
             var externalRef = request.ExternalReference ??
                 $"DESKTOP-TRF-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString()[..8]}";
 

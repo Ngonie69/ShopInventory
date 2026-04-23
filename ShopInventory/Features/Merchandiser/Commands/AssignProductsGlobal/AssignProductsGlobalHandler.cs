@@ -104,8 +104,8 @@ public sealed class AssignProductsGlobalHandler(
         {
             var inClause = string.Join(",", itemCodes.Select(c => $"'{c.Replace("'", "''")}'"));
             var sqlText = $@"
-                SELECT T0.""ItemCode"", T0.""ItemName"", T0.""U_ItemGroup"" AS ""Category"",
-                       T0.""CodeBars"" AS ""BarCode"", T0.""SalUnitMsr"" AS ""UoM""
+                SELECT T0.""ItemCode"", T0.""ItemName"", T0.""U_ItemGroup"",
+                       T0.""CodeBars"", T0.""SalUnitMsr""
                 FROM OITM T0
                 WHERE T0.""ItemCode"" IN ({inClause})";
 
@@ -117,9 +117,9 @@ public sealed class AssignProductsGlobalHandler(
                 r => new ProductDetailInfo
                 {
                     ItemName = r.GetValueOrDefault("ItemName")?.ToString(),
-                    BarCode = (r.GetValueOrDefault("BarCode") ?? r.GetValueOrDefault("CodeBars"))?.ToString(),
-                    UoM = (r.GetValueOrDefault("UoM") ?? r.GetValueOrDefault("SalUnitMsr"))?.ToString(),
-                    Category = (r.GetValueOrDefault("Category") ?? r.GetValueOrDefault("U_ItemGroup"))?.ToString()
+                    BarCode = r.GetValueOrDefault("CodeBars")?.ToString(),
+                    UoM = r.GetValueOrDefault("SalUnitMsr")?.ToString(),
+                    Category = r.GetValueOrDefault("U_ItemGroup")?.ToString()
                 });
         }
         catch (Exception ex)

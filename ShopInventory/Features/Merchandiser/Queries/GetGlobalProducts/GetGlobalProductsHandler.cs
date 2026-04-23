@@ -29,20 +29,22 @@ public sealed class GetGlobalProductsHandler(
             try
             {
                 var inClause = string.Join(",", missingData.Select(c => $"'{c.Replace("'", "''")}'"));
-                var sqlText = $@"SELECT T0.""ItemCode"", T0.""ItemName"", T0.""U_ItemGroup"" AS ""Category"", T0.""SalUnitMsr"" AS ""UoM"" FROM OITM T0 WHERE T0.""ItemCode"" IN ({inClause}) ORDER BY T0.""ItemCode""";
+                var sqlText = $@"SELECT T0.""ItemCode"", T0.""ItemName"", T0.""U_ItemGroup"", T0.""SalUnitMsr"" FROM OITM T0 WHERE T0.""ItemCode"" IN ({inClause}) ORDER BY T0.""ItemCode""";
                 var rows = await sapClient.ExecuteRawSqlQueryAsync("MerchBackfill", "Backfill Item Names/Categories", sqlText, cancellationToken);
+
                 var detailMap = rows
                     .Where(r => r.GetValueOrDefault("ItemCode") != null)
                     .ToDictionary(
                         r => r["ItemCode"]!.ToString()!,
                         r => (
                             ItemName: r.GetValueOrDefault("ItemName")?.ToString() ?? "",
-                            Category: (r.GetValueOrDefault("Category") ?? r.GetValueOrDefault("U_ItemGroup"))?.ToString(),
-                            UoM: (r.GetValueOrDefault("UoM") ?? r.GetValueOrDefault("SalUnitMsr"))?.ToString()
+                            Category: r.GetValueOrDefault("U_ItemGroup")?.ToString(),
+                            UoM: r.GetValueOrDefault("SalUnitMsr")?.ToString()
                         ),
                         StringComparer.OrdinalIgnoreCase);
 
                 var toUpdate = await context.MerchandiserProducts
+                    .AsTracking()
                     .Where(mp => (mp.ItemName == null || mp.ItemName == "") || (mp.Category == null || mp.Category == ""))
                     .ToListAsync(cancellationToken);
 

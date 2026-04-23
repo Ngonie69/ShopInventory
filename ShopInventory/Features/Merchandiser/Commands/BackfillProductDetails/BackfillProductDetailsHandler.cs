@@ -20,6 +20,7 @@ public sealed class BackfillProductDetailsHandler(
         var itemCodes = await context.MerchandiserProducts
             .AsNoTracking()
             .Where(mp => mp.Category == null || mp.Category == ""
+                || mp.ItemName == null || mp.ItemName == ""
                 || mp.BarCode == null || mp.BarCode == ""
                 || mp.UoM == null || mp.UoM == "")
             .Select(mp => mp.ItemCode)
@@ -42,8 +43,8 @@ public sealed class BackfillProductDetailsHandler(
             {
                 var inClause = string.Join(",", batch.Select(c => $"'{c.Replace("'", "''")}'"));
                 var sqlText = $@"
-                    SELECT T0.""ItemCode"", T0.""CodeBars"" AS ""BarCode"",
-                           T0.""SalUnitMsr"" AS ""UoM"", T0.""U_ItemGroup"" AS ""Category""
+                    SELECT T0.""ItemCode"", T0.""ItemName"", T0.""CodeBars"",
+                           T0.""SalUnitMsr"", T0.""U_ItemGroup""
                     FROM OITM T0
                     WHERE T0.""ItemCode"" IN ({inClause})";
 
@@ -56,9 +57,10 @@ public sealed class BackfillProductDetailsHandler(
                     if (!string.IsNullOrEmpty(code))
                     {
                         allDetails[code] = new ProductDetail(
-                            (row.GetValueOrDefault("BarCode") ?? row.GetValueOrDefault("CodeBars"))?.ToString(),
-                            (row.GetValueOrDefault("UoM") ?? row.GetValueOrDefault("SalUnitMsr"))?.ToString(),
-                            (row.GetValueOrDefault("Category") ?? row.GetValueOrDefault("U_ItemGroup"))?.ToString());
+                            row.GetValueOrDefault("ItemName")?.ToString(),
+                            row.GetValueOrDefault("CodeBars")?.ToString(),
+                            row.GetValueOrDefault("SalUnitMsr")?.ToString(),
+                            row.GetValueOrDefault("U_ItemGroup")?.ToString());
                     }
                 }
             }
@@ -71,7 +73,9 @@ public sealed class BackfillProductDetailsHandler(
         // Update all matching rows
         int updated = 0;
         var productsToUpdate = await context.MerchandiserProducts
+            .AsTracking()
             .Where(mp => mp.Category == null || mp.Category == ""
+                || mp.ItemName == null || mp.ItemName == ""
                 || mp.BarCode == null || mp.BarCode == ""
                 || mp.UoM == null || mp.UoM == "")
             .ToListAsync(cancellationToken);
@@ -80,6 +84,8 @@ public sealed class BackfillProductDetailsHandler(
         {
             if (allDetails.TryGetValue(product.ItemCode, out var detail))
             {
+                if (string.IsNullOrEmpty(product.ItemName))
+                    product.ItemName = detail.ItemName;
                 if (string.IsNullOrEmpty(product.BarCode))
                     product.BarCode = detail.BarCode;
                 if (string.IsNullOrEmpty(product.UoM))
@@ -96,5 +102,5 @@ public sealed class BackfillProductDetailsHandler(
         return updated;
     }
 
-    private sealed record ProductDetail(string? BarCode, string? UoM, string? Category);
+    private sealed record ProductDetail(string? ItemName, string? BarCode, string? UoM, string? Category);
 }

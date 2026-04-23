@@ -33,6 +33,9 @@ public static partial class Errors
         public static Error UploadFailed(string message) =>
             Error.Failure("PurchaseOrder.UploadFailed", message);
 
+        public static Error UploadValidationFailed(string message) =>
+            Error.Validation("PurchaseOrder.UploadValidationFailed", message);
+
         public static readonly Error SapDisabled =
             Error.Failure("PurchaseOrder.SapDisabled", "SAP integration is disabled");
 

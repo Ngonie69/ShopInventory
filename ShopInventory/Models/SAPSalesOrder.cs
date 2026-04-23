@@ -28,6 +28,9 @@ public class SAPSalesOrder
     [JsonPropertyName("NumAtCard")]
     public string? NumAtCard { get; set; } // Customer reference number
 
+    [JsonPropertyName("U_OrderNumber")]
+    public string? U_OrderNumber { get; set; }
+
     [JsonPropertyName("Comments")]
     public string? Comments { get; set; }
 

@@ -329,14 +329,15 @@ public class PurchaseOrderService : IPurchaseOrderService
 
         var lastOrder = await _context.PurchaseOrders
             .Where(o => o.OrderNumber.StartsWith(prefix))
-            .OrderByDescending(o => o.OrderNumber)
+            .OrderByDescending(o => o.OrderNumber.Length)
+            .ThenByDescending(o => o.OrderNumber)
             .FirstOrDefaultAsync(cancellationToken);
 
-        var sequence = 1;
+        var sequence = 1L;
         if (lastOrder != null)
         {
             var lastSequence = lastOrder.OrderNumber.Replace(prefix, "");
-            if (int.TryParse(lastSequence, out int parsed))
+            if (long.TryParse(lastSequence, out var parsed))
                 sequence = parsed + 1;
         }
 

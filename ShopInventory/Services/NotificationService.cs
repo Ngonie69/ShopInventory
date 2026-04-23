@@ -120,8 +120,10 @@ public class NotificationService : INotificationService
     /// </summary>
     public async Task<NotificationListResponseDto> GetNotificationsAsync(string? username, string? role, int page = 1, int pageSize = 20, bool unreadOnly = false, string? category = null, CancellationToken cancellationToken = default)
     {
+        var now = DateTime.UtcNow;
         var query = _context.Notifications
-            .Where(n => n.ExpiresAt == null || n.ExpiresAt > DateTime.UtcNow)
+            .AsNoTracking()
+            .Where(n => n.ExpiresAt == null || n.ExpiresAt > now)
             .Where(n =>
                 (n.TargetUsername == null && n.TargetRole == null) || // Broadcast
                 n.TargetUsername == username || // Direct to user
@@ -138,12 +140,10 @@ public class NotificationService : INotificationService
             query = query.Where(n => n.Category == category);
         }
 
-        var counts = await query
-            .GroupBy(n => 1)
-            .Select(g => new { Total = g.Count(), Unread = g.Count(n => !n.IsRead) })
-            .FirstOrDefaultAsync(cancellationToken);
-        var totalCount = counts?.Total ?? 0;
-        var unreadCount = counts?.Unread ?? 0;
+        var totalCount = await query.CountAsync(cancellationToken);
+        var unreadCount = unreadOnly
+            ? totalCount
+            : await query.Where(n => !n.IsRead).CountAsync(cancellationToken);
 
         var notifications = (await query
             .OrderByDescending(n => n.CreatedAt)
@@ -168,8 +168,11 @@ public class NotificationService : INotificationService
     /// </summary>
     public async Task<int> GetUnreadCountAsync(string? username, string? role, CancellationToken cancellationToken = default)
     {
+        var now = DateTime.UtcNow;
+
         return await _context.Notifications
-            .Where(n => n.ExpiresAt == null || n.ExpiresAt > DateTime.UtcNow)
+            .AsNoTracking()
+            .Where(n => n.ExpiresAt == null || n.ExpiresAt > now)
             .Where(n => !n.IsRead)
             .Where(n =>
                 (n.TargetUsername == null && n.TargetRole == null) ||
@@ -273,33 +276,53 @@ public class NotificationService : INotificationService
     /// </summary>
     public async Task CreateSalesOrderNotificationAsync(string orderNumber, string customerName, decimal docTotal, string source, string? createdByUsername, CancellationToken cancellationToken = default)
     {
-        var sourceLabel = source == "Mobile" ? "Mobile App" : "Web";
+        var isMobileOrder = string.Equals(source, "Mobile", StringComparison.OrdinalIgnoreCase);
+        var sourceLabel = isMobileOrder ? "Mobile App" : "Web";
+        var actionUrl = isMobileOrder ? "/mobile-drafts" : "/sales-orders";
+        var title = $"New Sales Order: {orderNumber}";
+        var message = $"Order {orderNumber} for {customerName} (${docTotal:N2}) submitted from {sourceLabel}" +
+                      (createdByUsername != null ? $" by {createdByUsername}" : "");
+
+        await CreateSalesOrderRoleNotificationIfMissingAsync(orderNumber, title, message, actionUrl, "Admin", cancellationToken);
+        await CreateSalesOrderRoleNotificationIfMissingAsync(orderNumber, title, message, actionUrl, "Cashier", cancellationToken);
+    }
+
+    private async Task CreateSalesOrderRoleNotificationIfMissingAsync(
+        string orderNumber,
+        string title,
+        string message,
+        string actionUrl,
+        string targetRole,
+        CancellationToken cancellationToken)
+    {
+        var exists = await _context.Notifications
+            .AsNoTracking()
+            .AnyAsync(n => n.Category == "SalesOrder" &&
+                           n.EntityType == "SalesOrder" &&
+                           n.EntityId == orderNumber &&
+                           n.TargetRole == targetRole &&
+                           n.Title == title,
+                cancellationToken);
+
+        if (exists)
+        {
+            _logger.LogDebug(
+                "Skipping duplicate sales order notification for {OrderNumber} and role {Role}",
+                orderNumber,
+                targetRole);
+            return;
+        }
 
         await CreateNotificationAsync(new CreateNotificationRequest
         {
-            Title = $"New Sales Order: {orderNumber}",
-            Message = $"Order {orderNumber} for {customerName} (${docTotal:N2}) submitted from {sourceLabel}" +
-                      (createdByUsername != null ? $" by {createdByUsername}" : ""),
+            Title = title,
+            Message = message,
             Type = "Success",
             Category = "SalesOrder",
             EntityType = "SalesOrder",
             EntityId = orderNumber,
-            ActionUrl = $"/sales-orders",
-            TargetRole = "Admin"
-        }, cancellationToken);
-
-        // Also notify Cashier role
-        await CreateNotificationAsync(new CreateNotificationRequest
-        {
-            Title = $"New Sales Order: {orderNumber}",
-            Message = $"Order {orderNumber} for {customerName} (${docTotal:N2}) submitted from {sourceLabel}" +
-                      (createdByUsername != null ? $" by {createdByUsername}" : ""),
-            Type = "Success",
-            Category = "SalesOrder",
-            EntityType = "SalesOrder",
-            EntityId = orderNumber,
-            ActionUrl = source == "Mobile" ? "/mobile-drafts" : "/sales-orders",
-            TargetRole = "Cashier"
+            ActionUrl = actionUrl,
+            TargetRole = targetRole
         }, cancellationToken);
     }
 

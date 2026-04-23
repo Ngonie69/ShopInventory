@@ -105,19 +105,20 @@ public class MasterDataCacheService : IMasterDataCacheService
     {
         try
         {
-            // Only set if not already present
-            if (_httpClient.DefaultRequestHeaders.Authorization == null)
+            var token = await _localStorage.GetItemAsync<string>("authToken");
+            var currentToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
+
+            if (string.IsNullOrWhiteSpace(token))
             {
-                var token = await _localStorage.GetItemAsync<string>("authToken");
-                if (!string.IsNullOrWhiteSpace(token))
-                {
-                    _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                    _logger.LogDebug("Set auth header from localStorage for API call");
-                }
-                else
-                {
-                    _logger.LogWarning("No auth token found in localStorage - API calls may fail");
-                }
+                _httpClient.DefaultRequestHeaders.Authorization = null;
+                _logger.LogWarning("No auth token found in localStorage - API calls may fail");
+                return;
+            }
+
+            if (!string.Equals(currentToken, token, StringComparison.Ordinal))
+            {
+                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                _logger.LogDebug("Updated auth header from localStorage for API call");
             }
         }
         catch (Exception ex)

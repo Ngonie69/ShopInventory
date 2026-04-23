@@ -388,14 +388,15 @@ public class QuotationService : IQuotationService
 
         var lastQuotation = await _context.Quotations
             .Where(q => q.QuotationNumber.StartsWith(prefix))
-            .OrderByDescending(q => q.QuotationNumber)
+            .OrderByDescending(q => q.QuotationNumber.Length)
+            .ThenByDescending(q => q.QuotationNumber)
             .FirstOrDefaultAsync(cancellationToken);
 
-        var sequence = 1;
+        var sequence = 1L;
         if (lastQuotation != null)
         {
             var lastSequence = lastQuotation.QuotationNumber.Replace(prefix, "");
-            if (int.TryParse(lastSequence, out int parsed))
+            if (long.TryParse(lastSequence, out var parsed))
                 sequence = parsed + 1;
         }
 

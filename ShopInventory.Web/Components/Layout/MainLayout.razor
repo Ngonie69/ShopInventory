@@ -108,7 +108,8 @@
             <AuthorizeView>
                 <Authorized>
                     <MudHidden Breakpoint="Breakpoint.SmAndDown" Invert="false">
-                        <MudText Class="mx-3" Style="color: white;">@L.Translate("common.welcome"), @context.User.Identity?.Name
+                        <MudText Class="mx-3" Style="color: white;">@L.Translate("common.welcome"),
+                            @context.User.Identity?.Name
                         </MudText>
                     </MudHidden>
                     <MudButton Variant="Variant.Outlined" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Logout"
@@ -386,9 +387,9 @@
 
         _notifPopoverOpen = false;
 
-        if (!string.IsNullOrEmpty(notification.ActionUrl))
+        if (!string.IsNullOrEmpty(notification.EffectiveActionUrl))
         {
-            NavigationManager.NavigateTo(notification.ActionUrl);
+            NavigationManager.NavigateTo(notification.EffectiveActionUrl);
         }
     }
 

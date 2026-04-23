@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Http.Metadata;
 
 namespace ShopInventory.Middleware;
 
@@ -546,7 +547,8 @@ public class RequestSizeLimitMiddleware
     {
         var contentLength = context.Request.ContentLength;
         var isMultipart = context.Request.ContentType?.Contains("multipart/form-data") == true;
-        var maxSize = isMultipart ? MaxMultipartRequestSize : MaxRequestSize;
+        var endpointMaxSize = context.GetEndpoint()?.Metadata.GetMetadata<IRequestSizeLimitMetadata>()?.MaxRequestBodySize;
+        var maxSize = endpointMaxSize ?? (isMultipart ? MaxMultipartRequestSize : MaxRequestSize);
 
         if (contentLength > maxSize)
         {

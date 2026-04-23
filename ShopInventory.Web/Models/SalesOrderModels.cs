@@ -21,9 +21,9 @@ public enum SalesOrderStatus
     Approved = 2,
     PartiallyFulfilled = 3,
     Fulfilled = 4,
-    Invoiced = 5,
-    Cancelled = 6,
-    OnHold = 7
+    Invoiced = Fulfilled,
+    Cancelled = 5,
+    OnHold = 6
 }
 
 /// <summary>

@@ -1073,37 +1073,48 @@
                                             </MudTd>
                                             <MudTd DataLabel="Actions">
                                                 <MudStack Row="true" Spacing="1">
-                                                    <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small"
+                                                    <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.View) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Visibility)" Size="Size.Small"
                                                                    Variant="Variant.Outlined" Color="Color.Primary" aria-label="View Details"
+                                                                   Disabled="@IsOrderActionBusy(context.Id)"
                                                                    OnClick="async () => await ViewOrder(context)" />
                                                     @if ((context.Status == SalesOrderStatus.Draft || context.Status ==
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     SalesOrderStatus.Pending) && !context.IsSynced)
                                                     {
                                                         <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
                                                                        Variant="Variant.Outlined" Color="Color.Warning" aria-label="Edit"
+                                                                       Disabled="@IsOrderActionBusy(context.Id)"
                                                                        OnClick="() => NavigateToEdit(context.Id)" />
                                                     }
                                                     @if (context.Status == SalesOrderStatus.Approved && context.InvoiceId == null)
                                                     {
                                                         <MudIconButton
-                                                        Icon="@(convertingOrderId == context.Id ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Receipt)"
+                                                        Icon="@(IsOrderActionBusy(context.Id, OrderActionType.ConvertToInvoice) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Receipt)"
                                                         Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
-                                                        aria-label="Convert to Invoice" Disabled="@(convertingOrderId == context.Id)"
+                                                        aria-label="Convert to Invoice" Disabled="@IsOrderActionBusy(context.Id)"
                                                         OnClick="() => ConvertToInvoice(context)" />
                                                     }
                                                     @if (!context.IsSynced)
                                                     {
                                                         @if (context.Status == SalesOrderStatus.Pending)
                                                         {
-                                                            <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small"
-                                                                           Variant="Variant.Outlined" Color="Color.Success" aria-label="Approve"
-                                                                           OnClick="() => ApproveOrder(context.Id)" />
+                                                            @if (IsOrderActionBusy(context.Id, OrderActionType.Approve))
+                                                            {
+                                                                <span class="spinner-border spinner-border-sm text-success" style="width:1rem;height:1rem;" role="status" aria-label="Approving order"></span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small"
+                                                                               Variant="Variant.Outlined" Color="Color.Success" aria-label="Approve"
+                                                                               Disabled="@IsOrderActionBusy(context.Id)"
+                                                                               OnClick="() => ApproveOrder(context.Id)" />
+                                                            }
                                                         }
                                                         @if (context.Status == SalesOrderStatus.Draft || context.Status ==
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             SalesOrderStatus.Cancelled)
                                                         {
-                                                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                                            <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.Delete) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Delete)" Size="Size.Small"
                                                                            Variant="Variant.Outlined" Color="Color.Error" aria-label="Delete"
+                                                                           Disabled="@IsOrderActionBusy(context.Id)"
                                                                            OnClick="() => DeleteOrder(context.Id)" />
                                                         }
                                                     }
@@ -1229,6 +1240,7 @@
                                                                                                                                                                                                                                                                                                                         !selectedOrder.IsSynced)
                                 {
                                     <MudButton Class="btn-so-gradient" Style="font-size:.82rem; padding:.45rem 1rem;"
+                                               Disabled="@IsOrderActionBusy(selectedOrder.Id)"
                                                OnClick="() => NavigateToEdit(selectedOrder.Id)">
                                         <i class="bi bi-pencil-square me-1"></i> Edit
                                     </MudButton>
@@ -1237,12 +1249,17 @@
                                 {
                                     <MudButton Class="btn-so-gradient"
                                                Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#059669,#047857);"
-                                               Disabled="@isPostingToSAP" OnClick="() => PostOrderToSAP(selectedOrder.Id)">
-                                        @if (isPostingToSAP)
+                                               Disabled="@IsOrderActionBusy(selectedOrder.Id)" OnClick="() => PostOrderToSAP(selectedOrder.Id)">
+                                        @if (IsOrderActionBusy(selectedOrder.Id, OrderActionType.PostToSap))
                                         {
                                             <span class="spinner-border spinner-border-sm me-1"></span>
+                                            <span>Posting...</span>
                                         }
-                                        <i class="bi bi-cloud-upload me-1"></i> Post to SAP
+                                        else
+                                        {
+                                            <i class="bi bi-cloud-upload me-1"></i>
+                                            <span>Post to SAP</span>
+                                        }
                                     </MudButton>
                                 }
                                 <MudButton Class="btn-secondary-action" OnClick="() => selectedOrder = null">Close</MudButton>
@@ -1630,8 +1647,7 @@
     private bool isCreating = false;
     private bool showCreateModal = false;
     private string? errorMessage;
-    private int? convertingOrderId;
-    private bool isPostingToSAP = false;
+    private readonly Dictionary<int, OrderActionType> orderActionStates = new();
 
     // Filters
     private string? orderNumberFilter;
@@ -1646,6 +1662,15 @@
     private int pageSize = 10000;
     private int totalPages = 1;
     private int totalCount = 0;
+
+    private enum OrderActionType
+    {
+        View,
+        Approve,
+        PostToSap,
+        ConvertToInvoice,
+        Delete
+    }
 
     // New order
     private CreateSalesOrderRequest newOrder = new();
@@ -1738,6 +1763,7 @@
                 orders = response.Orders;
                 totalCount = response.TotalCount;
                 totalPages = response.TotalPages;
+                await RefreshSelectedOrderAsync();
             }
             else
             {
@@ -1787,6 +1813,9 @@
 
     private async Task ViewOrder(SalesOrderDto order)
     {
+        if (!TryBeginOrderAction(order.Id, OrderActionType.View))
+            return;
+
         // Show drawer immediately with list data (header info)
         selectedOrder = order;
         StateHasChanged();
@@ -1805,6 +1834,37 @@
         {
             Logger.LogWarning(ex, "Failed to fetch full order details for {OrderId}", order.Id);
         }
+        finally
+        {
+            EndOrderAction(order.Id);
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshSelectedOrderAsync()
+    {
+        if (selectedOrder == null)
+            return;
+
+        var refreshedOrder = orders?.FirstOrDefault(o => o.Id == selectedOrder.Id);
+        if (refreshedOrder != null)
+        {
+            selectedOrder = refreshedOrder;
+            return;
+        }
+
+        try
+        {
+            var fullOrder = await SalesOrderService.GetSalesOrderByIdAsync(selectedOrder.Id);
+            if (fullOrder != null)
+            {
+                selectedOrder = fullOrder;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to refresh selected sales order {OrderId}", selectedOrder.Id);
+        }
     }
 
     private void NavigateToEdit(int id)
@@ -1812,19 +1872,75 @@
         NavigationManager.NavigateTo($"/sales-orders/edit/{id}");
     }
 
+    private bool TryBeginOrderAction(int id, OrderActionType action)
+    {
+        if (orderActionStates.ContainsKey(id))
+            return false;
+
+        orderActionStates[id] = action;
+        return true;
+    }
+
+    private void EndOrderAction(int id)
+    {
+        orderActionStates.Remove(id);
+    }
+
+    private bool IsOrderActionBusy(int id) => orderActionStates.ContainsKey(id);
+
+    private bool IsOrderActionBusy(int id, OrderActionType action)
+        => orderActionStates.TryGetValue(id, out var currentAction) && currentAction == action;
+
     private async Task ApproveOrder(int id)
     {
-        var result = await SalesOrderService.ApproveAsync(id);
-        if (result != null)
+        if (!TryBeginOrderAction(id, OrderActionType.Approve))
+            return;
+
+        StateHasChanged();
+
+        try
         {
-            await AuditService.LogAsync(AuditActions.ApproveSalesOrder, "SalesOrder", id.ToString());
-            await LoadOrders();
+            var result = await SalesOrderService.ApproveAsync(id);
+            if (result != null)
+            {
+                selectedOrder = result;
+                var approvalMessage = result.IsSynced
+                    ? result.SAPDocNum.HasValue
+                        ? $"Order {result.OrderNumber} approved and posted to SAP successfully! (Doc #{result.SAPDocNum})"
+                        : $"Order {result.OrderNumber} approved and posted to SAP successfully."
+                    : $"Order {result.OrderNumber} approved successfully.";
+                Snackbar.Add(approvalMessage, Severity.Success);
+                var auditMessage = result.IsSynced && result.SAPDocNum.HasValue
+                    ? $"Approved and posted to SAP as Doc #{result.SAPDocNum}"
+                    : "Approved";
+                await AuditService.LogAsync(AuditActions.ApproveSalesOrder, "SalesOrder", id.ToString(), auditMessage, true);
+                await LoadOrders();
+            }
+            else
+            {
+                Snackbar.Add("Failed to approve order. Please try again.", Severity.Error);
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error approving order: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            EndOrderAction(id);
+            StateHasChanged();
         }
     }
 
     private async Task PostOrderToSAP(int id)
     {
-        isPostingToSAP = true;
+        if (!TryBeginOrderAction(id, OrderActionType.PostToSap))
+            return;
+
         StateHasChanged();
 
         try
@@ -1852,7 +1968,7 @@
         }
         finally
         {
-            isPostingToSAP = false;
+            EndOrderAction(id);
             StateHasChanged();
         }
     }
@@ -1867,7 +1983,9 @@
 
         if (result != true) return;
 
-        convertingOrderId = order.Id;
+        if (!TryBeginOrderAction(order.Id, OrderActionType.ConvertToInvoice))
+            return;
+
         StateHasChanged();
 
         try
@@ -1890,18 +2008,40 @@
         }
         finally
         {
-            convertingOrderId = null;
+            EndOrderAction(order.Id);
             StateHasChanged();
         }
     }
 
     private async Task DeleteOrder(int id)
     {
-        var success = await SalesOrderService.DeleteSalesOrderAsync(id);
-        if (success)
+        if (!TryBeginOrderAction(id, OrderActionType.Delete))
+            return;
+
+        StateHasChanged();
+
+        try
         {
-            await AuditService.LogAsync(AuditActions.DeleteSalesOrder, "SalesOrder", id.ToString());
-            await LoadOrders();
+            var success = await SalesOrderService.DeleteSalesOrderAsync(id);
+            if (success)
+            {
+                Snackbar.Add("Order deleted successfully.", Severity.Success);
+                await AuditService.LogAsync(AuditActions.DeleteSalesOrder, "SalesOrder", id.ToString());
+                await LoadOrders();
+            }
+            else
+            {
+                Snackbar.Add("Failed to delete order. Please try again.", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error deleting order: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            EndOrderAction(id);
+            StateHasChanged();
         }
     }
 
@@ -2376,7 +2516,6 @@
         SalesOrderStatus.Approved => "approved",
         SalesOrderStatus.PartiallyFulfilled => "partial",
         SalesOrderStatus.Fulfilled => "fulfilled",
-        SalesOrderStatus.Invoiced => "invoiced",
         SalesOrderStatus.Cancelled => "cancelled",
         SalesOrderStatus.OnHold => "on-hold",
         _ => "draft"

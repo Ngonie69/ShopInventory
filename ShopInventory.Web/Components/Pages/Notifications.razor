@@ -365,9 +365,9 @@
             unreadCount = Math.Max(0, unreadCount - 1);
         }
 
-        if (!string.IsNullOrEmpty(notification.ActionUrl))
+        if (!string.IsNullOrEmpty(notification.EffectiveActionUrl))
         {
-            Navigation.NavigateTo(notification.ActionUrl);
+            Navigation.NavigateTo(notification.EffectiveActionUrl);
         }
     }
 

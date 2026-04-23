@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -2536,8 +2537,9 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var suffix = Random.Shared.Next(100000, 999999);
         var queryCode = $"SH_CustPrc_{suffix}";
+        var customerPriceListPredicate = SapSqlPriceListExpressions.BuildFallbackPredicate(@"T0.""PriceList""", @"T2.""ListNum""");
 
-        var sqlText = $@"SELECT T0.""ItemCode"", T1.""ItemName"", T1.""FrgnName"", T0.""PriceList"", T0.""Price"", T0.""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" LEFT JOIN OCRD T2 ON T2.""CardCode"" = '{safeCardCode}' WHERE T0.""PriceList"" = COALESCE(T2.""ListNum"", 1) AND T0.""ItemCode"" IN ({safeItemCodes}) AND T0.""Price"" > 0";
+        var sqlText = $@"SELECT T0.""ItemCode"", T1.""ItemName"", T1.""FrgnName"", T0.""PriceList"", T0.""Price"", T0.""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" LEFT JOIN OCRD T2 ON T2.""CardCode"" = '{safeCardCode}' WHERE {customerPriceListPredicate} AND T0.""ItemCode"" IN ({safeItemCodes}) AND T0.""Price"" > 0";
 
         List<ItemPriceByListDto> prices;
         try
@@ -2642,21 +2644,39 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     }
 
     public async Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, CancellationToken cancellationToken = default)
+        => await GetSpecialPricesForBPAsync(cardCode, itemCodes: null, cancellationToken);
+
+    public async Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, IEnumerable<string>? itemCodes, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
+        var safeCardCode = SanitizeODataValue(cardCode);
+        var safeItemCodes = itemCodes?
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(SanitizeODataValue)
+            .ToList();
 
-        // Use OData SpecialPrices endpoint — OSPP is not on the SQL table allowlist
+        // Use OData SpecialPrices endpoint — OSPP is not on the SQL table allowlist.
+        // Fetch the full entity so we can honor validity windows and ignore expired BP overrides.
         var result = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
         var skip = 0;
         const int pageSize = 100;
+        var todayUtc = DateTime.UtcNow.Date;
+        var filteredOutCount = 0;
 
         try
         {
             while (true)
             {
-                var encodedCardCode = Uri.EscapeDataString(cardCode);
-                var url = $"SpecialPrices?$filter=CardCode eq '{encodedCardCode}'&$select=ItemCode,Price&$top={pageSize}&$skip={skip}";
+                var filter = $"CardCode eq '{safeCardCode}'";
+                if (safeItemCodes is { Count: > 0 })
+                {
+                    var itemFilter = string.Join(" or ", safeItemCodes.Select(code => $"ItemCode eq '{code}'"));
+                    filter = $"{filter} and ({itemFilter})";
+                }
+
+                var url = $"SpecialPrices?$filter={filter}&$top={pageSize}&$skip={skip}";
 
                 var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
                 httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -2694,9 +2714,16 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                     {
                         count++;
                         var itemCode = item.TryGetProperty("ItemCode", out var ic) ? ic.GetString() : null;
-                        var price = item.TryGetProperty("Price", out var p) ? p.GetDecimal() : 0m;
-                        if (!string.IsNullOrEmpty(itemCode) && price > 0)
-                            result[itemCode] = price;
+                        if (string.IsNullOrWhiteSpace(itemCode))
+                            continue;
+
+                        if (!TryExtractCurrentSpecialPrice(item, todayUtc, out var price))
+                        {
+                            filteredOutCount++;
+                            continue;
+                        }
+
+                        result[itemCode] = price;
                     }
                 }
 
@@ -2712,8 +2739,255 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             _logger.LogWarning(ex, "Error fetching special prices for BP {CardCode}", cardCode);
         }
 
-        _logger.LogInformation("Retrieved {Count} special prices for BP {CardCode}", result.Count, cardCode);
+        if (filteredOutCount > 0)
+        {
+            _logger.LogInformation(
+                "Filtered out {Count} inactive or expired special prices for BP {CardCode}",
+                filteredOutCount,
+                cardCode);
+        }
+
+        _logger.LogInformation(
+            "Retrieved {Count} active special prices for BP {CardCode}{Scope}",
+            result.Count,
+            cardCode,
+            safeItemCodes is { Count: > 0 } ? $" across {safeItemCodes.Count} requested items" : string.Empty);
         return result;
+    }
+
+    private static bool TryExtractCurrentSpecialPrice(JsonElement item, DateTime todayUtc, out decimal price)
+    {
+        price = 0m;
+
+        if (TryGetSpecialPriceActiveFlag(item, out var isActive) && !isActive)
+            return false;
+
+        if (TryGetSpecialPriceFromDataAreas(item, todayUtc, out price))
+            return true;
+
+        if (TryGetSpecialPriceDateRange(item, out var validFrom, out var validTo) &&
+            !IsSpecialPriceDateRangeActive(validFrom, validTo, todayUtc))
+        {
+            return false;
+        }
+
+        return TryGetSpecialPriceValue(item, out price);
+    }
+
+    private static bool TryGetSpecialPriceFromDataAreas(JsonElement item, DateTime todayUtc, out decimal price)
+    {
+        price = 0m;
+
+        if (!item.TryGetProperty("SpecialPricesDataAreas", out var dataAreas) ||
+            dataAreas.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        var hasAreas = false;
+
+        foreach (var area in dataAreas.EnumerateArray())
+        {
+            hasAreas = true;
+
+            if (TryGetSpecialPriceActiveFlag(area, out var isAreaActive) && !isAreaActive)
+                continue;
+
+            if (TryGetSpecialPriceDateRange(area, out var validFrom, out var validTo) &&
+                !IsSpecialPriceDateRangeActive(validFrom, validTo, todayUtc))
+            {
+                continue;
+            }
+
+            if (TryGetSpecialPriceValue(area, out price))
+                return true;
+
+            if (TryGetSpecialPriceValue(item, out price))
+                return true;
+        }
+
+        return hasAreas ? false : TryGetSpecialPriceValue(item, out price);
+    }
+
+    private static bool TryGetSpecialPriceValue(JsonElement element, out decimal price)
+    {
+        foreach (var propertyName in new[] { "PriceAfterDiscount", "SpecialPrice", "Price" })
+        {
+            if (!element.TryGetProperty(propertyName, out var value))
+                continue;
+
+            if (TryGetDecimalValue(value, out price) && price > 0)
+                return true;
+        }
+
+        price = 0m;
+        return false;
+    }
+
+    private static bool TryGetSpecialPriceDateRange(JsonElement element, out DateTime? validFrom, out DateTime? validTo)
+    {
+        validFrom = TryGetNamedDate(element, "DateFrom", "ValidFrom", "EffectiveFrom", "FromDate", "StartDate");
+        validTo = TryGetNamedDate(element, "DateTo", "ValidTo", "EffectiveTo", "ToDate", "EndDate");
+        return validFrom.HasValue || validTo.HasValue;
+    }
+
+    private static DateTime? TryGetNamedDate(JsonElement element, params string[] propertyNames)
+    {
+        foreach (var propertyName in propertyNames)
+        {
+            if (!element.TryGetProperty(propertyName, out var value))
+                continue;
+
+            var parsed = TryParseServiceLayerDate(value);
+            if (parsed.HasValue)
+                return parsed.Value;
+        }
+
+        return null;
+    }
+
+    private static bool IsSpecialPriceDateRangeActive(DateTime? validFrom, DateTime? validTo, DateTime todayUtc)
+    {
+        if (validFrom.HasValue && validFrom.Value.Date > todayUtc)
+            return false;
+
+        if (validTo.HasValue && validTo.Value.Date < todayUtc)
+            return false;
+
+        return true;
+    }
+
+    private static DateTime? TryParseServiceLayerDate(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Null || value.ValueKind == JsonValueKind.Undefined)
+            return null;
+
+        if (value.ValueKind == JsonValueKind.String)
+        {
+            return TryParseServiceLayerDate(value.GetString());
+        }
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var unixMilliseconds))
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(unixMilliseconds).UtcDateTime.Date;
+        }
+
+        return null;
+    }
+
+    private static DateTime? TryParseServiceLayerDate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        value = value.Trim();
+
+        const string sapDatePrefix = "/Date(";
+        if (value.StartsWith(sapDatePrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var endIndex = value.IndexOf(')', sapDatePrefix.Length);
+            if (endIndex > sapDatePrefix.Length)
+            {
+                var timestamp = value[sapDatePrefix.Length..endIndex];
+                var plusIndex = timestamp.IndexOf('+', 1);
+                var minusIndex = timestamp.IndexOf('-', 1);
+                var offsetIndex = plusIndex > 0
+                    ? plusIndex
+                    : minusIndex > 0
+                        ? minusIndex
+                        : -1;
+
+                if (offsetIndex > 0)
+                    timestamp = timestamp[..offsetIndex];
+
+                if (long.TryParse(timestamp, NumberStyles.Integer, CultureInfo.InvariantCulture, out var unixMilliseconds))
+                    return DateTimeOffset.FromUnixTimeMilliseconds(unixMilliseconds).UtcDateTime.Date;
+            }
+        }
+
+        if (DateTimeOffset.TryParse(
+                value,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var dateTimeOffset))
+        {
+            return dateTimeOffset.UtcDateTime.Date;
+        }
+
+        if (DateTime.TryParse(
+                value,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var dateTime))
+        {
+            return dateTime.Date;
+        }
+
+        return null;
+    }
+
+    private static bool TryGetSpecialPriceActiveFlag(JsonElement element, out bool isActive)
+    {
+        foreach (var propertyName in new[] { "Active", "Valid" })
+        {
+            if (!element.TryGetProperty(propertyName, out var value))
+                continue;
+
+            if (TryGetBooleanValue(value, out isActive))
+                return true;
+        }
+
+        isActive = false;
+        return false;
+    }
+
+    private static bool TryGetBooleanValue(JsonElement value, out bool result)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.True:
+                result = true;
+                return true;
+            case JsonValueKind.False:
+                result = false;
+                return true;
+            case JsonValueKind.String:
+                var rawValue = value.GetString();
+                if (string.Equals(rawValue, "tYES", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(rawValue, "Y", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(rawValue, "Yes", StringComparison.OrdinalIgnoreCase))
+                {
+                    result = true;
+                    return true;
+                }
+
+                if (string.Equals(rawValue, "tNO", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(rawValue, "N", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(rawValue, "No", StringComparison.OrdinalIgnoreCase))
+                {
+                    result = false;
+                    return true;
+                }
+
+                return bool.TryParse(rawValue, out result);
+            default:
+                result = false;
+                return false;
+        }
+    }
+
+    private static bool TryGetDecimalValue(JsonElement value, out decimal result)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Number:
+                return value.TryGetDecimal(out result);
+            case JsonValueKind.String:
+                return decimal.TryParse(value.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out result);
+            default:
+                result = 0m;
+                return false;
+        }
     }
 
     #endregion
@@ -6981,6 +7255,21 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
+        if (!string.IsNullOrWhiteSpace(order.OrderNumber))
+        {
+            var existingOrder = await GetSalesOrderByOrderNumberAsync(order.OrderNumber, cancellationToken);
+            if (existingOrder != null)
+            {
+                _logger.LogWarning(
+                    "Skipping SAP sales order create for {OrderNumber} because U_OrderNumber already exists in SAP as DocEntry={DocEntry}, DocNum={DocNum}",
+                    order.OrderNumber,
+                    existingOrder.DocEntry,
+                    existingOrder.DocNum);
+
+                return existingOrder;
+            }
+        }
+
         var docCurrency = !string.IsNullOrWhiteSpace(order.Currency) && order.Currency != "USD"
             ? order.Currency
             : (string?)null;
@@ -6997,6 +7286,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             DiscountPercent = order.DiscountPercent,
             Address = order.ShipToAddress,
             Address2 = order.BillToAddress,
+            U_OrderNumber = order.OrderNumber,
             DocumentLines = order.Lines.OrderBy(l => l.LineNum).Select((line, index) => new
             {
                 LineNum = index,
@@ -7049,6 +7339,45 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             sapOrder?.DocEntry, sapOrder?.DocNum);
 
         return sapOrder ?? throw new Exception("Failed to deserialize created sales order from SAP");
+    }
+
+    private async Task<SAPSalesOrder?> GetSalesOrderByOrderNumberAsync(
+        string orderNumber,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var safeValue = SanitizeODataValue(orderNumber);
+        var url = $"Orders?$filter=U_OrderNumber eq '{safeValue}'&$top=1&$select=DocEntry,DocNum,CardCode,CardName,DocDate,DocTotal,U_OrderNumber";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to check sales order by U_OrderNumber '{OrderNumber}': {StatusCode} - {Error}", orderNumber, response.StatusCode, errorContent);
+            throw new Exception($"Failed to check sales order by U_OrderNumber: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var result = JsonSerializer.Deserialize<SAPResponse<SAPSalesOrder>>(content);
+
+        return result?.Value?.FirstOrDefault();
     }
 
     #endregion

@@ -43,6 +43,7 @@ public class SalesOrderDto
     public DateTime UpdatedAt { get; set; }
     public int? InvoiceId { get; set; }
     public bool IsSynced { get; set; }
+    public string? SyncError { get; set; }
     public SalesOrderSource Source { get; set; }
     public string? MerchandiserNotes { get; set; }
     public string? DeviceInfo { get; set; }

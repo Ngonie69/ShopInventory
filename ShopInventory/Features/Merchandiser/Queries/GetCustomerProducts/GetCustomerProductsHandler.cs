@@ -53,8 +53,9 @@ public sealed class GetCustomerProductsHandler(
             if (!string.IsNullOrEmpty(cardCode))
             {
                 var safeCardCode = cardCode.Replace("'", "''");
+                var customerPriceListPredicate = SapSqlPriceListExpressions.BuildFallbackPredicate(@"T1.""PriceList""", @"T2.""ListNum""");
                 priceListJoin = $@"LEFT JOIN OCRD T2 ON T2.""CardCode"" = '{safeCardCode}'
-                LEFT JOIN ITM1 T1 ON T0.""ItemCode"" = T1.""ItemCode"" AND T1.""PriceList"" = COALESCE(T2.""ListNum"", 1)";
+                LEFT JOIN ITM1 T1 ON T0.""ItemCode"" = T1.""ItemCode"" AND {customerPriceListPredicate}";
             }
 
             var searchFilter = "";

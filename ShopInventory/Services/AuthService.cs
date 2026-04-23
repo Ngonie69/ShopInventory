@@ -4,6 +4,8 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
+using System.Net;
+using System.Net.Sockets;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -69,6 +71,8 @@ public interface IAuthService
 /// </summary>
 public class AuthService : IAuthService
 {
+    private const string UnknownIpAddress = "unknown";
+
     private readonly ApplicationDbContext _dbContext;
     private readonly JwtSettings _jwtSettings;
     private readonly SecuritySettings _securitySettings;
@@ -385,7 +389,12 @@ public class AuthService : IAuthService
 
     public bool IsLockedOut(string ipAddress)
     {
-        if (!_failedAttempts.TryGetValue(ipAddress, out var info))
+        if (!TryGetTrackedIpAddress(ipAddress, out var trackedIpAddress))
+        {
+            return false;
+        }
+
+        if (!_failedAttempts.TryGetValue(trackedIpAddress, out var info))
         {
             return false;
         }
@@ -406,7 +415,12 @@ public class AuthService : IAuthService
 
     public void RecordFailedAttempt(string ipAddress)
     {
-        var info = _failedAttempts.GetOrAdd(ipAddress, _ => new FailedLoginInfo());
+        if (!TryGetTrackedIpAddress(ipAddress, out var trackedIpAddress))
+        {
+            return;
+        }
+
+        var info = _failedAttempts.GetOrAdd(trackedIpAddress, _ => new FailedLoginInfo());
 
         info.AttemptCount++;
         info.LastAttempt = DateTime.UtcNow;
@@ -415,13 +429,91 @@ public class AuthService : IAuthService
         {
             info.LockoutEnd = DateTime.UtcNow.AddMinutes(_securitySettings.LockoutDurationMinutes);
             _logger.LogWarning("IP {IpAddress} locked out after {AttemptCount} failed attempts",
-                ipAddress, info.AttemptCount);
+                trackedIpAddress, info.AttemptCount);
         }
     }
 
     public void ClearFailedAttempts(string ipAddress)
     {
-        _failedAttempts.TryRemove(ipAddress, out _);
+        if (!string.IsNullOrWhiteSpace(ipAddress))
+        {
+            _failedAttempts.TryRemove(ipAddress, out _);
+        }
+
+        if (TryGetTrackedIpAddress(ipAddress, out var trackedIpAddress))
+        {
+            _failedAttempts.TryRemove(trackedIpAddress, out _);
+        }
+    }
+
+    private static bool TryGetTrackedIpAddress(string? ipAddress, out string trackedIpAddress)
+    {
+        trackedIpAddress = UnknownIpAddress;
+
+        if (string.IsNullOrWhiteSpace(ipAddress) ||
+            string.Equals(ipAddress, UnknownIpAddress, StringComparison.OrdinalIgnoreCase) ||
+            !IPAddress.TryParse(ipAddress, out var parsedAddress))
+        {
+            return false;
+        }
+
+        parsedAddress = NormalizeIpAddress(parsedAddress);
+        if (IsInternalOrReservedAddress(parsedAddress))
+        {
+            return false;
+        }
+
+        trackedIpAddress = parsedAddress.ToString();
+        return true;
+    }
+
+    private static IPAddress NormalizeIpAddress(IPAddress address)
+    {
+        if (address.AddressFamily != AddressFamily.InterNetworkV6)
+        {
+            return address;
+        }
+
+        var bytes = address.GetAddressBytes();
+        var hasEmbeddedIpv4 = bytes.Take(12).All(static value => value == 0) ||
+                              (bytes.Take(10).All(static value => value == 0) && bytes[10] == 0xFF && bytes[11] == 0xFF);
+
+        return hasEmbeddedIpv4 ? new IPAddress(bytes[^4..]) : address;
+    }
+
+    private static bool IsInternalOrReservedAddress(IPAddress address)
+    {
+        if (IPAddress.IsLoopback(address) || address.Equals(IPAddress.None) || address.Equals(IPAddress.IPv6None))
+        {
+            return true;
+        }
+
+        if (address.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var bytes = address.GetAddressBytes();
+            return bytes[0] switch
+            {
+                0 => true,
+                10 => true,
+                127 => true,
+                169 when bytes[1] == 254 => true,
+                172 when bytes[1] >= 16 && bytes[1] <= 31 => true,
+                192 when bytes[1] == 168 => true,
+                _ => false
+            };
+        }
+
+        if (address.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            var bytes = address.GetAddressBytes();
+            return address.IsIPv6LinkLocal ||
+                   address.IsIPv6SiteLocal ||
+                   address.IsIPv6Multicast ||
+                   address.Equals(IPAddress.IPv6Loopback) ||
+                   (bytes[0] & 0xFE) == 0xFC;
+        }
+
+        return false;
     }
 
     private string GenerateAccessToken(User user)

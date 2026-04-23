@@ -14,6 +14,7 @@ public interface ISalesOrderService
         string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
         SalesOrderSource? source = null, string? search = null, CancellationToken cancellationToken = default);
     Task<SalesOrderDto> CreateAsync(CreateSalesOrderRequest request, Guid userId, CancellationToken cancellationToken = default);
+    Task ProcessMobileOrderPostSaveAsync(int id, CancellationToken cancellationToken = default);
     Task<SalesOrderDto> UpdateAsync(int id, CreateSalesOrderRequest request, CancellationToken cancellationToken = default);
     Task<SalesOrderDto> UpdateStatusAsync(int id, SalesOrderStatus status, Guid userId, string? comments = null, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(int id, CancellationToken cancellationToken = default);

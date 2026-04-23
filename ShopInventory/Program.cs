@@ -410,6 +410,7 @@ try
     // Register email queue service for password reset
     builder.Services.AddScoped<IEmailQueueService, EmailQueueService>();
     // Register sales order, purchase order, credit note, and quotation services
+    builder.Services.AddScoped<IMobileOrderPostProcessingQueue, MobileOrderPostProcessingQueue>();
     builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
     builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
     builder.Services.AddScoped<ICreditNoteService, CreditNoteService>();
@@ -437,6 +438,9 @@ try
 
     // Register background service for cleaning up expired reservations
     builder.Services.AddHostedService<ReservationCleanupService>();
+
+    // Register background service for mobile sales order enrichment
+    builder.Services.AddHostedService<MobileOrderPostProcessingBackgroundService>();
 
     // Register background service for processing queued invoices
     builder.Services.AddHostedService<InvoicePostingBackgroundService>();

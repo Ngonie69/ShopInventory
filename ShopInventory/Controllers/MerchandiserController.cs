@@ -6,6 +6,7 @@ using ShopInventory.Authentication;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Merchandiser.Commands.AssignProducts;
 using ShopInventory.Features.Merchandiser.Commands.AssignProductsGlobal;
+using ShopInventory.Features.Merchandiser.Commands.BackfillMobileOrderTax;
 using ShopInventory.Features.Merchandiser.Commands.BackfillProductDetails;
 using ShopInventory.Features.Merchandiser.Commands.RemoveProducts;
 using ShopInventory.Features.Merchandiser.Commands.RemoveProductsGlobal;
@@ -159,6 +160,7 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpPost("mobile/order")]
+    [RequestSizeLimit(5 * 1024 * 1024)]
     [RequirePermission(Permission.CreateSalesOrders)]
     public async Task<IActionResult> SubmitMobileOrder([FromBody] MerchandiserOrderRequest request, CancellationToken cancellationToken)
     {
@@ -191,5 +193,13 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
     {
         var result = await mediator.Send(new BackfillProductDetailsCommand(), cancellationToken);
         return result.Match(value => Ok(new { updated = value }), errors => Problem(errors));
+    }
+
+    [HttpPost("backfill-mobile-order-tax")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> BackfillMobileOrderTax(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new BackfillMobileOrderTaxCommand(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 }

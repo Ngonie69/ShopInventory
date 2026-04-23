@@ -36,13 +36,18 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
-            if (_httpClient.DefaultRequestHeaders.Authorization == null)
+            var token = await _localStorage.GetItemAsync<string>("authToken");
+            var currentToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
+
+            if (string.IsNullOrWhiteSpace(token))
             {
-                var token = await _localStorage.GetItemAsync<string>("authToken");
-                if (!string.IsNullOrWhiteSpace(token))
-                {
-                    _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                }
+                _httpClient.DefaultRequestHeaders.Authorization = null;
+                return;
+            }
+
+            if (!string.Equals(currentToken, token, StringComparison.Ordinal))
+            {
+                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
             }
         }
         catch
@@ -215,7 +220,8 @@ public class SalesOrderService : ISalesOrderService
     public async Task<InvoiceDto?> ConvertToInvoiceAsync(int id)
     {
         try
-        {            await EnsureAuthenticationAsync();            var response = await _httpClient.PostAsync($"api/salesorder/{id}/convert-to-invoice", null);
+        {
+            await EnsureAuthenticationAsync(); var response = await _httpClient.PostAsync($"api/salesorder/{id}/convert-to-invoice", null);
             if (response.IsSuccessStatusCode)
             {
                 return await response.Content.ReadFromJsonAsync<InvoiceDto>();

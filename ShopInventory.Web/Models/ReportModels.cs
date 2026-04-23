@@ -540,6 +540,13 @@ public class NotificationModel
     public DateTime CreatedAt { get; set; }
     public DateTime? ReadAt { get; set; }
 
+    public string? EffectiveActionUrl =>
+        string.Equals(Category, "SalesOrder", StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(ActionUrl, "/sales-orders", StringComparison.OrdinalIgnoreCase) &&
+        Message.Contains("submitted from Mobile App", StringComparison.OrdinalIgnoreCase)
+            ? "/mobile-drafts"
+            : ActionUrl;
+
     public string TypeIconClass => Type switch
     {
         "Error" => "bi bi-x-circle-fill text-danger",

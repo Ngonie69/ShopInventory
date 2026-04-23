@@ -9,6 +9,7 @@ public interface IPurchaseOrderService
     Task<PurchaseOrderListResponse?> GetPurchaseOrdersFromSAPAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
     Task<PurchaseOrderDto?> GetPurchaseOrderByIdAsync(int id);
     Task<PurchaseOrderDto?> GetPurchaseOrderByNumberAsync(string orderNumber);
+    Task<DocumentAttachmentListResponse?> GetDocumentsAsync(string poReferenceNumber);
     Task<PurchaseOrderDto?> CreatePurchaseOrderAsync(CreatePurchaseOrderRequest request);
     Task<PurchaseOrderDto?> UpdatePurchaseOrderAsync(int id, CreatePurchaseOrderRequest request);
     Task<PurchaseOrderDto?> UpdateStatusAsync(int id, PurchaseOrderStatus status, string? comments = null);
@@ -139,6 +140,23 @@ public class PurchaseOrderService : IPurchaseOrderService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching purchase order by number {OrderNumber}", orderNumber);
+            return null;
+        }
+    }
+
+    public async Task<DocumentAttachmentListResponse?> GetDocumentsAsync(string poReferenceNumber)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(poReferenceNumber))
+                return new DocumentAttachmentListResponse();
+
+            return await _httpClient.GetFromJsonAsync<DocumentAttachmentListResponse>(
+                $"api/purchaseorder/documents?poReferenceNumber={Uri.EscapeDataString(poReferenceNumber)}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching external purchase order documents for reference {PoReferenceNumber}", poReferenceNumber);
             return null;
         }
     }

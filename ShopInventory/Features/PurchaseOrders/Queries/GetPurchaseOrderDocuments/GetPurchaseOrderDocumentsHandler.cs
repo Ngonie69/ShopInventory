@@ -47,7 +47,7 @@ public sealed class GetPurchaseOrderDocumentsHandler(
                     IncludeInEmail = a.IncludeInEmail,
                     UploadedAt = a.UploadedAt,
                     UploadedByUserName = a.UploadedByUser?.Username,
-                    DownloadUrl = $"/api/document/attachment/{a.Id}/download"
+                    DownloadUrl = $"/api/document/attachments/{a.Id}/download"
                 }).ToList(),
                 TotalCount = attachments.Count
             };

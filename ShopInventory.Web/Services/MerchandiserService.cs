@@ -7,7 +7,7 @@ public interface IMerchandiserService
 {
     Task<List<MerchandiserSummaryDto>> GetMerchandisersAsync();
     Task<MerchandiserProductListResponse?> GetMerchandiserProductsAsync(Guid userId);
-    Task<MerchandiserProductListResponse?> GetGlobalProductsAsync();
+    Task<MerchandiserProductListResponse> GetGlobalProductsAsync(CancellationToken cancellationToken = default);
     Task<List<SapSalesItemDto>> GetSapSalesItemsAsync();
     Task<MerchandiserProductListResponse?> AssignProductsAsync(Guid userId, List<string> itemCodes);
     Task<MerchandiserProductListResponse?> AssignProductsGlobalAsync(List<string> itemCodes, Dictionary<string, string>? itemNames = null);
@@ -15,7 +15,7 @@ public interface IMerchandiserService
     Task UpdateProductStatusGlobalAsync(List<string> itemCodes, bool isActive);
     Task RemoveProductsGlobalAsync(List<string> itemCodes);
     Task RemoveProductsAsync(Guid userId, List<string> itemCodes);
-    Task<int> BackfillProductDetailsAsync();
+    Task<int> BackfillProductDetailsAsync(CancellationToken cancellationToken = default);
 }
 
 public class MerchandiserService : IMerchandiserService
@@ -55,17 +55,17 @@ public class MerchandiserService : IMerchandiserService
         }
     }
 
-    public async Task<MerchandiserProductListResponse?> GetGlobalProductsAsync()
+    public async Task<MerchandiserProductListResponse> GetGlobalProductsAsync(CancellationToken cancellationToken = default)
     {
-        try
+        var response = await _httpClient.GetAsync("api/merchandiser/products", cancellationToken);
+        if (!response.IsSuccessStatusCode)
         {
-            return await _httpClient.GetFromJsonAsync<MerchandiserProductListResponse>("api/merchandiser/products");
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new HttpRequestException($"Failed to fetch global merchandiser products: {error}");
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error fetching global merchandiser products");
-            return null;
-        }
+
+        return await response.Content.ReadFromJsonAsync<MerchandiserProductListResponse>(cancellationToken: cancellationToken)
+            ?? throw new InvalidOperationException("Global merchandiser products response was empty.");
     }
 
     public async Task<List<SapSalesItemDto>> GetSapSalesItemsAsync()
@@ -159,15 +159,15 @@ public class MerchandiserService : IMerchandiserService
         }
     }
 
-    public async Task<int> BackfillProductDetailsAsync()
+    public async Task<int> BackfillProductDetailsAsync(CancellationToken cancellationToken = default)
     {
-        var response = await _httpClient.PostAsync("api/merchandiser/backfill-product-details", null);
+        var response = await _httpClient.PostAsync("api/merchandiser/backfill-product-details", null, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadAsStringAsync();
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
             throw new Exception($"Failed to backfill product details: {error}");
         }
-        var result = await response.Content.ReadFromJsonAsync<BackfillResult>();
+        var result = await response.Content.ReadFromJsonAsync<BackfillResult>(cancellationToken: cancellationToken);
         return result?.Updated ?? 0;
     }
 

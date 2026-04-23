@@ -1100,7 +1100,7 @@ public class DocumentService : IDocumentService
             IncludeInEmail = entity.IncludeInEmail,
             UploadedAt = entity.UploadedAt,
             UploadedByUserName = entity.UploadedByUser?.Username,
-            DownloadUrl = $"/api/document/attachment/{entity.Id}/download"
+            DownloadUrl = $"/api/document/attachments/{entity.Id}/download"
         };
     }
 

@@ -3,9 +3,11 @@
 @using MudBlazor
 @attribute [Authorize(Roles = "Admin,Cashier,Merchandiser,SalesRep")]
 @inject ISalesOrderService SalesOrderService
+@inject IPurchaseOrderService PurchaseOrderService
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject IJSRuntime JS
 @inject ILogger<MobileDrafts> Logger
 @inject IAppSettingsProvider AppSettings
 @inject IPriceService PriceService
@@ -538,6 +540,85 @@
 
     .btn-secondary-action:hover { background: #f9fafb; }
 
+    .md-po-viewer-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.65);
+        backdrop-filter: blur(4px);
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+    }
+
+    .md-po-viewer-container {
+        background: #fff;
+        border-radius: 16px;
+        width: min(1100px, 92vw);
+        max-height: 92vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        box-shadow: 0 24px 48px rgba(15, 23, 42, 0.22);
+    }
+
+    .md-po-viewer-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .md-po-viewer-header h6 {
+        color: #111827;
+        font-weight: 600;
+    }
+
+    .md-po-viewer-body {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f8fafc;
+        overflow: auto;
+        min-height: 320px;
+        max-height: calc(92vh - 78px);
+    }
+
+    .md-po-viewer-image {
+        max-width: 100%;
+        height: auto;
+        object-fit: contain;
+    }
+
+    .md-po-viewer-pdf {
+        width: 100%;
+        height: calc(92vh - 78px);
+        border: none;
+        background: #fff;
+    }
+
+    .dark-theme .md-po-viewer-container {
+        background: #1e293b;
+        border: 1px solid #334155;
+    }
+
+    .dark-theme .md-po-viewer-header {
+        border-bottom-color: #334155;
+    }
+
+    .dark-theme .md-po-viewer-header h6 {
+        color: #e2e8f0;
+    }
+
+    .dark-theme .md-po-viewer-body,
+    .dark-theme .md-po-viewer-pdf {
+        background: #0f172a;
+    }
+
     @@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     @@keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
     @@keyframes slideDown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
@@ -547,6 +628,9 @@
         .filter-bar { flex-direction: column; }
         .stat-row { grid-template-columns: 1fr 1fr; }
         .detail-grid { grid-template-columns: 1fr; }
+        .md-po-viewer-overlay { padding: .75rem; }
+        .md-po-viewer-header { padding: .85rem 1rem; align-items: flex-start; }
+        .md-po-viewer-container { width: 100%; max-height: 94vh; }
     }
 </style>
 
@@ -711,13 +795,15 @@
                         </MudTd>
                         <MudTd DataLabel="Actions">
                             <MudStack Row="true" Spacing="1">
-                                <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small"
+                                <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.View) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Visibility)" Size="Size.Small"
                                                Variant="Variant.Outlined" Color="Color.Primary" title="View Details"
+                                               Disabled="@IsOrderActionBusy(context.Id)"
                                                OnClick="() => ViewOrder(context)" />
                                 @if ((context.Status == SalesOrderStatus.Draft || context.Status == SalesOrderStatus.Pending) && !context.IsSynced)
                                 {
                                     <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
                                                    Variant="Variant.Outlined" Color="Color.Warning" title="Edit"
+                                                   Disabled="@IsOrderActionBusy(context.Id)"
                                                    OnClick="() => NavigateToEdit(context.Id)" />
                                 }
                                 <AuthorizeView Roles="Admin,Cashier" Context="invoiceAccess">
@@ -725,9 +811,9 @@
                                         @if (context.Status == SalesOrderStatus.Approved && context.InvoiceId == null)
                                         {
                                             <MudIconButton
-                                                Icon="@(convertingOrderId == context.Id ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Receipt)"
+                                                Icon="@(IsOrderActionBusy(context.Id, OrderActionType.ConvertToInvoice) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Receipt)"
                                                 Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
-                                                title="Convert to Invoice" Disabled="@(convertingOrderId == context.Id)"
+                                                title="Convert to Invoice" Disabled="@IsOrderActionBusy(context.Id)"
                                                 OnClick="() => ConvertToInvoice(context)" />
                                         }
                                     </Authorized>
@@ -738,16 +824,25 @@
                                         <Authorized>
                                             @if (context.Status == SalesOrderStatus.Draft || context.Status == SalesOrderStatus.Pending)
                                             {
-                                                <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small"
-                                                               Variant="Variant.Outlined" Color="Color.Success" title="Approve"
-                                                               OnClick="() => ApproveOrder(context.Id)" />
+                                                @if (IsOrderActionBusy(context.Id, OrderActionType.Approve))
+                                                {
+                                                    <span class="spinner-border spinner-border-sm text-success" style="width:1rem;height:1rem;" role="status" aria-label="Approving order"></span>
+                                                }
+                                                else
+                                                {
+                                                    <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small"
+                                                                   Variant="Variant.Outlined" Color="Color.Success" title="Approve"
+                                                                   Disabled="@IsOrderActionBusy(context.Id)"
+                                                                   OnClick="() => ApproveOrder(context.Id)" />
+                                                }
                                             }
                                         </Authorized>
                                     </AuthorizeView>
                                     @if (context.Status == SalesOrderStatus.Draft || context.Status == SalesOrderStatus.Cancelled)
                                     {
-                                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                        <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.Delete) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Delete)" Size="Size.Small"
                                                        Variant="Variant.Outlined" Color="Color.Error" title="Delete"
+                                                       Disabled="@IsOrderActionBusy(context.Id)"
                                                        OnClick="() => DeleteOrder(context.Id)" />
                                     }
                                 }
@@ -788,12 +883,12 @@
 <!-- ━━━ View Order Drawer ━━━ -->
 @if (selectedOrder != null)
 {
-    <div class="modal-backdrop-custom" @onclick="() => selectedOrder = null"></div>
+    <div class="modal-backdrop-custom" @onclick="ClearSelectedOrder"></div>
     <div class="detail-drawer">
         <div class="drawer-header">
             <h5><i class="bi bi-phone me-2"></i>Mobile Order: @selectedOrder.OrderNumber</h5>
             <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer"
-                           OnClick="() => selectedOrder = null" />
+                           OnClick="ClearSelectedOrder" />
         </div>
         <div class="drawer-body">
             <div class="detail-grid">
@@ -821,11 +916,82 @@
                     <div class="detail-label">Created By</div>
                     <div class="detail-value">@selectedOrder.CreatedByUserName</div>
                 </div>
+                <div class="detail-item">
+                    <div class="detail-label">Customer PO Ref</div>
+                    <div class="detail-value">@(string.IsNullOrWhiteSpace(selectedOrder.CustomerRefNo) ? "—" : selectedOrder.CustomerRefNo)</div>
+                </div>
                 @if (selectedOrder.SAPDocNum.HasValue)
                 {
                     <div class="detail-item">
                         <div class="detail-label">SAP Document #</div>
                         <div class="detail-value" style="color:#059669; font-family:'Space Grotesk',monospace;">@selectedOrder.SAPDocNum</div>
+                    </div>
+                }
+            </div>
+
+            <div style="background:#f8fafc; border:1px solid #dbe4f0; border-radius:10px; padding:.85rem 1rem; margin-bottom:1.25rem;">
+                <div style="font-size:.78rem; font-weight:600; color:#1e3a8a; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.45rem;">
+                    <i class="bi bi-file-earmark-pdf"></i> Physical Purchase Order
+                </div>
+                @if (string.IsNullOrWhiteSpace(GetPurchaseOrderReference(selectedOrder)))
+                {
+                    <p style="color:#475569; font-size:.88rem; margin:0;">No purchase order reference is available on this mobile order.</p>
+                }
+                else if (isLoadingPurchaseOrderAttachments)
+                {
+                    <div style="display:flex; align-items:center; gap:.5rem; color:#475569; font-size:.88rem;">
+                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        <span>Loading uploaded purchase order files for reference <strong>@GetPurchaseOrderReference(selectedOrder)</strong>...</span>
+                    </div>
+                }
+                else if (!string.IsNullOrWhiteSpace(purchaseOrderAttachmentError))
+                {
+                    <p style="color:#b91c1c; font-size:.88rem; margin:0;">@purchaseOrderAttachmentError</p>
+                }
+                else if (purchaseOrderAttachments.Count == 0)
+                {
+                    <p style="color:#475569; font-size:.88rem; margin:0;">No uploaded physical purchase order was found for reference <strong>@GetPurchaseOrderReference(selectedOrder)</strong>.</p>
+                }
+                else
+                {
+                    <div style="display:flex; flex-direction:column; gap:.6rem;">
+                        @foreach (var attachment in purchaseOrderAttachments)
+                        {
+                            <div style="display:flex; align-items:center; justify-content:space-between; gap:.75rem; background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:.7rem .85rem;">
+                                <div style="min-width:0;">
+                                    <div style="font-weight:600; color:#1f2937; font-size:.88rem; word-break:break-word;">@attachment.FileName</div>
+                                    <div style="font-size:.78rem; color:#64748b;">
+                                        @attachment.FileSizeFormatted
+                                        @if (!string.IsNullOrWhiteSpace(attachment.UploadedByUserName))
+                                        {
+                                            <span> · Uploaded by @attachment.UploadedByUserName</span>
+                                        }
+                                        <span> · @IAuditService.ToCAT(attachment.UploadedAt).ToString("dd MMM yyyy HH:mm")</span>
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(attachment.Description))
+                                    {
+                                        <div style="font-size:.78rem; color:#475569; margin-top:.15rem; word-break:break-word;">@attachment.Description</div>
+                                    }
+                                </div>
+                                <div style="display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; white-space:nowrap;">
+                                    @if (IsViewablePurchaseOrderAttachment(attachment))
+                                    {
+                                        <button type="button"
+                                                class="btn-search"
+                                                style="white-space:nowrap;"
+                                                @onclick="() => ViewPurchaseOrderAttachment(attachment)">
+                                            <i class="bi bi-eye"></i> View
+                                        </button>
+                                    }
+                                    <button type="button"
+                                            class="btn-search"
+                                            style="white-space:nowrap;"
+                                            @onclick="() => DownloadPurchaseOrderAttachment(attachment)">
+                                        <i class="bi bi-download"></i> Download
+                                    </button>
+                                </div>
+                            </div>
+                        }
                     </div>
                 }
             </div>
@@ -914,14 +1080,25 @@
             @if ((selectedOrder.Status == SalesOrderStatus.Draft || selectedOrder.Status == SalesOrderStatus.Pending) && !selectedOrder.IsSynced)
             {
                 <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem;"
+                           Disabled="@IsOrderActionBusy(selectedOrder.Id)"
                            OnClick="() => NavigateToEdit(selectedOrder.Id)">
                     <i class="bi bi-pencil-square me-1"></i> Edit
                 </MudButton>
                 <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="sidebarApproveAccess">
                     <Authorized>
                         <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#059669,#047857);"
+                                   Disabled="@IsOrderActionBusy(selectedOrder.Id)"
                                    OnClick="() => ApproveOrder(selectedOrder.Id)">
-                            <i class="bi bi-check-circle me-1"></i> Approve
+                            @if (IsOrderActionBusy(selectedOrder.Id, OrderActionType.Approve))
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                <span>Approving...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-check-circle me-1"></i>
+                                <span>Approve</span>
+                            }
                         </MudButton>
                     </Authorized>
                 </AuthorizeView>
@@ -931,18 +1108,54 @@
                 <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="sidebarPostAccess">
                     <Authorized>
                         <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#059669,#047857);"
-                                   Disabled="@isPostingToSAP"
+                                   Disabled="@IsOrderActionBusy(selectedOrder.Id)"
                                    OnClick="() => PostOrderToSAP(selectedOrder.Id)">
-                            @if (isPostingToSAP)
+                            @if (IsOrderActionBusy(selectedOrder.Id, OrderActionType.PostToSap))
                             {
                                 <span class="spinner-border spinner-border-sm me-1"></span>
+                                <span>Posting...</span>
                             }
-                            <i class="bi bi-cloud-upload me-1"></i> Post to SAP
+                            else
+                            {
+                                <i class="bi bi-cloud-upload me-1"></i>
+                                <span>Post to SAP</span>
+                            }
                         </MudButton>
                     </Authorized>
                 </AuthorizeView>
             }
-            <MudButton Class="btn-secondary-action" OnClick="() => selectedOrder = null">Close</MudButton>
+            <MudButton Class="btn-secondary-action" OnClick="ClearSelectedOrder">Close</MudButton>
+        </div>
+    </div>
+}
+
+@if (showPurchaseOrderViewer)
+{
+    <div class="md-po-viewer-overlay" @onclick="ClosePurchaseOrderViewer">
+        <div class="md-po-viewer-container" @onclick:stopPropagation>
+            <div class="md-po-viewer-header">
+                <h6 class="mb-0 text-truncate">@purchaseOrderViewerFileName</h6>
+                <div class="d-flex gap-2 flex-wrap justify-content-end">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                               OnClick="() => DownloadPurchaseOrderAttachment(purchaseOrderViewerAttachment!)">
+                        <i class="bi bi-download me-1"></i> Download
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                               OnClick="ClosePurchaseOrderViewer">
+                        <i class="bi bi-x-lg"></i>
+                    </MudButton>
+                </div>
+            </div>
+            <div class="md-po-viewer-body">
+                @if (purchaseOrderViewerMimeType?.StartsWith("image/") == true)
+                {
+                    <img src="@purchaseOrderViewerDataUri" alt="@purchaseOrderViewerFileName" class="md-po-viewer-image" />
+                }
+                else if (purchaseOrderViewerMimeType == "application/pdf")
+                {
+                    <iframe src="@purchaseOrderViewerDataUri" class="md-po-viewer-pdf" title="@purchaseOrderViewerFileName"></iframe>
+                }
+            </div>
         </div>
     </div>
 }
@@ -952,10 +1165,17 @@
     private int _pageSize = 10;
     private List<SalesOrderDto>? orders;
     private SalesOrderDto? selectedOrder;
+    private readonly List<DocumentAttachmentDto> purchaseOrderAttachments = new();
     private bool isLoading = true;
+    private bool isLoadingPurchaseOrderAttachments;
     private string? errorMessage;
-    private int? convertingOrderId;
-    private bool isPostingToSAP = false;
+    private string? purchaseOrderAttachmentError;
+    private bool showPurchaseOrderViewer;
+    private string? purchaseOrderViewerDataUri;
+    private string? purchaseOrderViewerFileName;
+    private string? purchaseOrderViewerMimeType;
+    private DocumentAttachmentDto? purchaseOrderViewerAttachment;
+    private readonly Dictionary<int, OrderActionType> orderActionStates = new();
 
     // Filters
     private string? customerFilter;
@@ -968,6 +1188,15 @@
     private int pageSize = 10000;
     private int totalPages = 1;
     private int totalCount = 0;
+
+    private enum OrderActionType
+    {
+        View,
+        Approve,
+        PostToSap,
+        ConvertToInvoice,
+        Delete
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -998,6 +1227,9 @@
                 orders = response.Orders;
                 totalCount = response.TotalCount;
                 totalPages = response.TotalPages;
+
+                await PopulateMissingOrderPricesAsync(orders);
+                await RefreshSelectedOrderAsync();
             }
             else
             {
@@ -1028,15 +1260,190 @@
 
     private async Task ViewOrder(SalesOrderDto order)
     {
+        if (!TryBeginOrderAction(order.Id, OrderActionType.View))
+            return;
+
+        ClosePurchaseOrderViewer();
         selectedOrder = order;
         StateHasChanged();
 
-        // If order lines have no prices (mobile drafts), fetch from SAP using the BP's price list
-        if (order.Lines?.Any() == true && order.Lines.All(l => l.UnitPrice == 0))
+        try
         {
-            await PopulateOrderPricesAsync(order);
+            await LoadPurchaseOrderAttachmentsAsync(order);
+
+            // If order lines have no prices (mobile drafts), fetch from SAP using the BP's price list
+            if (OrderHasMissingPrices(order))
+            {
+                await PopulateOrderPricesAsync(order);
+            }
+
             StateHasChanged();
         }
+        finally
+        {
+            EndOrderAction(order.Id);
+            StateHasChanged();
+        }
+    }
+
+    private void ClearSelectedOrder()
+    {
+        ClosePurchaseOrderViewer();
+        selectedOrder = null;
+        purchaseOrderAttachments.Clear();
+        purchaseOrderAttachmentError = null;
+        isLoadingPurchaseOrderAttachments = false;
+    }
+
+    private async Task LoadPurchaseOrderAttachmentsAsync(SalesOrderDto order)
+    {
+        purchaseOrderAttachments.Clear();
+        purchaseOrderAttachmentError = null;
+
+        var poReferenceNumber = GetPurchaseOrderReference(order);
+
+        if (string.IsNullOrWhiteSpace(poReferenceNumber))
+            return;
+
+        isLoadingPurchaseOrderAttachments = true;
+
+        try
+        {
+            var response = await PurchaseOrderService.GetDocumentsAsync(poReferenceNumber);
+            if (response?.Attachments != null)
+            {
+                purchaseOrderAttachments.AddRange(response.Attachments);
+            }
+            else
+            {
+                purchaseOrderAttachmentError = "Failed to load uploaded purchase order files.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load physical purchase order attachments for mobile order {OrderId} and reference {PoReference}", order.Id, poReferenceNumber);
+            purchaseOrderAttachmentError = "Failed to load uploaded purchase order files.";
+        }
+        finally
+        {
+            isLoadingPurchaseOrderAttachments = false;
+        }
+    }
+
+    private static string? GetPurchaseOrderReference(SalesOrderDto order)
+    {
+        return !string.IsNullOrWhiteSpace(order.CustomerRefNo)
+            ? order.CustomerRefNo
+            : order.OrderNumber;
+    }
+
+    private static bool IsViewablePurchaseOrderAttachment(DocumentAttachmentDto attachment)
+    {
+        var mimeType = GetPurchaseOrderViewerMimeType(attachment);
+        return mimeType != null && (mimeType.StartsWith("image/") || mimeType == "application/pdf");
+    }
+
+    private static string? GetPurchaseOrderViewerMimeType(DocumentAttachmentDto attachment)
+    {
+        if (!string.IsNullOrWhiteSpace(attachment.MimeType))
+            return attachment.MimeType;
+
+        return Path.GetExtension(attachment.FileName).ToLowerInvariant() switch
+        {
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            ".gif" => "image/gif",
+            ".bmp" => "image/bmp",
+            ".pdf" => "application/pdf",
+            _ => null
+        };
+    }
+
+    private void ViewPurchaseOrderAttachment(DocumentAttachmentDto attachment)
+    {
+        var mimeType = GetPurchaseOrderViewerMimeType(attachment);
+
+        if (mimeType == null)
+            return;
+
+        purchaseOrderViewerAttachment = attachment;
+        purchaseOrderViewerFileName = attachment.FileName;
+        purchaseOrderViewerMimeType = mimeType;
+        purchaseOrderViewerDataUri = $"/download/purchase-order/{attachment.Id}";
+        showPurchaseOrderViewer = true;
+    }
+
+    private async Task DownloadPurchaseOrderAttachment(DocumentAttachmentDto attachment)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("open", $"/download/purchase-order/{attachment.Id}", "_blank");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to download physical purchase order attachment {AttachmentId}", attachment.Id);
+            Snackbar.Add("Failed to download the purchase order attachment.", Severity.Error);
+        }
+    }
+
+    private void ClosePurchaseOrderViewer()
+    {
+        showPurchaseOrderViewer = false;
+        purchaseOrderViewerDataUri = null;
+        purchaseOrderViewerFileName = null;
+        purchaseOrderViewerMimeType = null;
+        purchaseOrderViewerAttachment = null;
+    }
+
+    private async Task RefreshSelectedOrderAsync()
+    {
+        if (selectedOrder == null)
+            return;
+
+        var refreshedOrder = orders?.FirstOrDefault(o => o.Id == selectedOrder.Id);
+        if (refreshedOrder != null)
+        {
+            selectedOrder = refreshedOrder;
+            return;
+        }
+
+        try
+        {
+            var fullOrder = await SalesOrderService.GetSalesOrderByIdAsync(selectedOrder.Id);
+            if (fullOrder != null)
+            {
+                selectedOrder = fullOrder;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to refresh selected mobile order {OrderId}", selectedOrder.Id);
+        }
+    }
+
+    private static bool OrderHasMissingPrices(SalesOrderDto order)
+    {
+        return order.Source == SalesOrderSource.Mobile
+            && order.Lines?.Any() == true
+            && order.Lines.Any(l => l.UnitPrice <= 0 || l.LineTotal <= 0);
+    }
+
+    private async Task PopulateMissingOrderPricesAsync(IEnumerable<SalesOrderDto> loadedOrders)
+    {
+        var missingPriceOrders = loadedOrders
+            .Where(OrderHasMissingPrices)
+            .ToList();
+
+        if (missingPriceOrders.Count == 0)
+            return;
+
+        foreach (var order in missingPriceOrders)
+        {
+            await PopulateOrderPricesAsync(order);
+        }
+
+        StateHasChanged();
     }
 
     private async Task PopulateOrderPricesAsync(SalesOrderDto order)
@@ -1051,10 +1458,15 @@
                 .Where(p => p.ItemCode != null)
                 .ToDictionary(p => p.ItemCode!, p => p.Price, StringComparer.OrdinalIgnoreCase);
 
+            var pricesChanged = false;
+
             foreach (var line in order.Lines!)
             {
                 if (priceMap.TryGetValue(line.ItemCode, out var price))
                 {
+                    if (line.UnitPrice != price)
+                        pricesChanged = true;
+
                     line.UnitPrice = price;
                     var discountMultiplier = line.DiscountPercent > 0 ? (1 - line.DiscountPercent / 100m) : 1m;
                     line.LineTotal = Math.Round(line.Quantity * price * discountMultiplier, 2);
@@ -1066,6 +1478,52 @@
             order.TaxAmount = taxRate > 0 ? Math.Round(order.SubTotal * taxRate / 100m, 2) : 0m;
             var orderDiscountMultiplier = order.DiscountPercent > 0 ? (1 - order.DiscountPercent / 100m) : 1m;
             order.DocTotal = Math.Round((order.SubTotal + order.TaxAmount) * orderDiscountMultiplier, 2);
+
+            if (!pricesChanged)
+                return;
+
+            var updateRequest = new CreateSalesOrderRequest
+            {
+                DeliveryDate = order.DeliveryDate,
+                CardCode = order.CardCode,
+                CardName = order.CardName,
+                CustomerRefNo = order.CustomerRefNo,
+                Comments = order.Comments,
+                SalesPersonCode = order.SalesPersonCode,
+                SalesPersonName = order.SalesPersonName,
+                Currency = order.Currency,
+                DiscountPercent = order.DiscountPercent,
+                ShipToAddress = order.ShipToAddress,
+                BillToAddress = order.BillToAddress,
+                WarehouseCode = order.WarehouseCode,
+                Source = order.Source,
+                MerchandiserNotes = order.MerchandiserNotes,
+                DeviceInfo = order.DeviceInfo,
+                RowVersion = order.RowVersion,
+                Lines = order.Lines.Select(line => new CreateSalesOrderLineRequest
+                {
+                    ItemCode = line.ItemCode,
+                    ItemDescription = line.ItemDescription,
+                    Quantity = line.Quantity,
+                    UnitPrice = line.UnitPrice,
+                    DiscountPercent = line.DiscountPercent,
+                    TaxPercent = line.TaxPercent,
+                    WarehouseCode = line.WarehouseCode,
+                    UoMCode = line.UoMCode,
+                    BatchNumber = line.BatchNumber
+                }).ToList()
+            };
+
+            var updatedOrder = await SalesOrderService.UpdateSalesOrderAsync(order.Id, updateRequest);
+            if (updatedOrder != null)
+            {
+                order.SubTotal = updatedOrder.SubTotal;
+                order.TaxAmount = updatedOrder.TaxAmount;
+                order.DiscountAmount = updatedOrder.DiscountAmount;
+                order.DocTotal = updatedOrder.DocTotal;
+                order.RowVersion = updatedOrder.RowVersion;
+                order.Lines = updatedOrder.Lines;
+            }
         }
         catch (Exception ex)
         {
@@ -1078,14 +1536,43 @@
         NavigationManager.NavigateTo($"/sales-orders/edit/{id}");
     }
 
+    private bool TryBeginOrderAction(int id, OrderActionType action)
+    {
+        if (orderActionStates.ContainsKey(id))
+            return false;
+
+        orderActionStates[id] = action;
+        return true;
+    }
+
+    private void EndOrderAction(int id)
+    {
+        orderActionStates.Remove(id);
+    }
+
+    private bool IsOrderActionBusy(int id) => orderActionStates.ContainsKey(id);
+
+    private bool IsOrderActionBusy(int id, OrderActionType action)
+        => orderActionStates.TryGetValue(id, out var currentAction) && currentAction == action;
+
     private async Task ApproveOrder(int id)
     {
+        if (!TryBeginOrderAction(id, OrderActionType.Approve))
+            return;
+
+        StateHasChanged();
+
         try
         {
             var result = await SalesOrderService.ApproveAsync(id);
             if (result != null)
             {
-                Snackbar.Add($"Order {result.OrderNumber} approved successfully.", Severity.Success);
+                var approvalMessage = result.IsSynced
+                    ? result.SAPDocNum.HasValue
+                        ? $"Order {result.OrderNumber} approved and posted to SAP successfully! (Doc #{result.SAPDocNum})"
+                        : $"Order {result.OrderNumber} approved and posted to SAP successfully."
+                    : $"Order {result.OrderNumber} approved successfully.";
+                Snackbar.Add(approvalMessage, Severity.Success);
                 selectedOrder = result;
                 await LoadOrders();
             }
@@ -1102,11 +1589,18 @@
         {
             Snackbar.Add($"Error approving order: {ex.Message}", Severity.Error);
         }
+        finally
+        {
+            EndOrderAction(id);
+            StateHasChanged();
+        }
     }
 
     private async Task PostOrderToSAP(int id)
     {
-        isPostingToSAP = true;
+        if (!TryBeginOrderAction(id, OrderActionType.PostToSap))
+            return;
+
         StateHasChanged();
 
         try
@@ -1115,7 +1609,7 @@
             if (result != null)
             {
                 Snackbar.Add($"Order {result.OrderNumber} posted to SAP successfully! (Doc #{result.SAPDocNum})", Severity.Success);
-                selectedOrder = null;
+                ClearSelectedOrder();
                 await LoadOrders();
             }
             else
@@ -1133,7 +1627,7 @@
         }
         finally
         {
-            isPostingToSAP = false;
+            EndOrderAction(id);
             StateHasChanged();
         }
     }
@@ -1148,7 +1642,9 @@
 
         if (result != true) return;
 
-        convertingOrderId = order.Id;
+        if (!TryBeginOrderAction(order.Id, OrderActionType.ConvertToInvoice))
+            return;
+
         StateHasChanged();
 
         try
@@ -1170,17 +1666,39 @@
         }
         finally
         {
-            convertingOrderId = null;
+            EndOrderAction(order.Id);
             StateHasChanged();
         }
     }
 
     private async Task DeleteOrder(int id)
     {
-        var success = await SalesOrderService.DeleteSalesOrderAsync(id);
-        if (success)
+        if (!TryBeginOrderAction(id, OrderActionType.Delete))
+            return;
+
+        StateHasChanged();
+
+        try
         {
-            await LoadOrders();
+            var success = await SalesOrderService.DeleteSalesOrderAsync(id);
+            if (success)
+            {
+                Snackbar.Add("Order deleted successfully.", Severity.Success);
+                await LoadOrders();
+            }
+            else
+            {
+                Snackbar.Add("Failed to delete order. Please try again.", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error deleting order: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            EndOrderAction(id);
+            StateHasChanged();
         }
     }
 
@@ -1191,7 +1709,6 @@
         SalesOrderStatus.Approved => "approved",
         SalesOrderStatus.PartiallyFulfilled => "partial",
         SalesOrderStatus.Fulfilled => "fulfilled",
-        SalesOrderStatus.Invoiced => "invoiced",
         SalesOrderStatus.Cancelled => "cancelled",
         SalesOrderStatus.OnHold => "on-hold",
         _ => "draft"

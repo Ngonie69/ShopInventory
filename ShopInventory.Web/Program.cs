@@ -1,10 +1,13 @@
 using Blazored.LocalStorage;
+using FluentValidation;
+using MediatR;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using Serilog;
+using ShopInventory.Web.Behaviors;
 using ShopInventory.Web.Components;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Middleware;
@@ -161,6 +164,11 @@ try
         options.DefaultScheme = "BlazorServer";
     }).AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, BlazorServerAuthHandler>("BlazorServer", null);
     builder.Services.AddAuthorizationCore();
+
+    builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
+    builder.Services.AddValidatorsFromAssembly(typeof(Program).Assembly);
+    builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
+    builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(LoggingBehavior<,>));
 
     builder.Services.AddMemoryCache();
 
@@ -377,6 +385,30 @@ try
         var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
         var fileName = response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
                        ?? $"pod-{attachmentId}";
+
+        return Results.File(stream, contentType, fileName);
+    });
+
+    // Minimal API endpoint for external purchase order file viewing/downloads.
+    // Physical PO uploads come from the backend document system and need the
+    // factory-configured API client to stream them back through the web app.
+    app.MapGet("/download/purchase-order/{attachmentId:int}", async (int attachmentId, IHttpClientFactory clientFactory, CancellationToken ct) =>
+    {
+        var client = clientFactory.CreateClient("ShopInventoryApi");
+
+        var response = await client.GetAsync(
+              $"api/document/attachments/{attachmentId}/download",
+            HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return Results.StatusCode((int)response.StatusCode);
+        }
+
+        var stream = await response.Content.ReadAsStreamAsync(ct);
+        var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+        var fileName = response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
+                       ?? $"purchase-order-{attachmentId}";
 
         return Results.File(stream, contentType, fileName);
     });

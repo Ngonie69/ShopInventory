@@ -21,6 +21,9 @@ public static partial class Errors
         public static Error ConcurrencyConflict =>
             Error.Conflict("SalesOrder.ConcurrencyConflict", "This order was modified by another user. Please reload and try again.");
 
+        public static Error ApprovalFailed(string message) =>
+            Error.Failure("SalesOrder.ApprovalFailed", $"Failed to approve sales order: {message}");
+
         public static Error SapError(string message) =>
             Error.Failure("SalesOrder.SapError", $"Failed to post to SAP: {message}");
 

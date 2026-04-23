@@ -76,13 +76,18 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
-            if (_httpClient.DefaultRequestHeaders.Authorization == null)
+            var token = await _localStorage.GetItemAsync<string>("authToken");
+            var currentToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
+
+            if (string.IsNullOrWhiteSpace(token))
             {
-                var token = await _localStorage.GetItemAsync<string>("authToken");
-                if (!string.IsNullOrWhiteSpace(token))
-                {
-                    _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                }
+                _httpClient.DefaultRequestHeaders.Authorization = null;
+                return;
+            }
+
+            if (!string.Equals(currentToken, token, StringComparison.Ordinal))
+            {
+                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
             }
         }
         catch (Exception ex)

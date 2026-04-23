@@ -48,6 +48,8 @@ public sealed class GetMobileOrdersHandler(
                 CreatedAt = o.CreatedAt,
                 Source = o.Source,
                 MerchandiserNotes = o.MerchandiserNotes,
+                Latitude = o.Latitude,
+                Longitude = o.Longitude,
                 Lines = o.Lines.Select(l => new SalesOrderLineDto
                 {
                     Id = l.Id,

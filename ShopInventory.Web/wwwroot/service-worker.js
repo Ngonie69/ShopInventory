@@ -1,5 +1,5 @@
 // Shop Inventory Service Worker
-const CACHE_NAME = 'shop-inventory-v5';
+const CACHE_NAME = 'shop-inventory-v6';
 const OFFLINE_URL = '/offline.html';
 
 // Only cache truly static assets that rarely change
@@ -68,6 +68,13 @@ function isBlazorAsset(pathname) {
     return BLAZOR_PATHS.some(p => pathname.startsWith(p));
 }
 
+function isDocumentRequest(request) {
+    const acceptHeader = request.headers.get('accept') || '';
+    return request.mode === 'navigate'
+        || request.destination === 'document'
+        || acceptHeader.includes('text/html');
+}
+
 // Fetch event - handle requests
 self.addEventListener('fetch', (event) => {
     const { request } = event;
@@ -112,8 +119,9 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // Handle navigation requests - always go to network, fallback to offline page
-    if (request.mode === 'navigate') {
+    // Handle HTML/document requests - always go to network, fallback to offline page.
+    // This avoids caching or synthesizing 503s for app routes like /mobile-drafts.
+    if (isDocumentRequest(request)) {
         event.respondWith(
             fetch(request)
                 .catch(() => {

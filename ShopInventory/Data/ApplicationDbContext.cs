@@ -105,6 +105,9 @@ public class ApplicationDbContext : DbContext
   // Inventory Transfer Queue for batch posting
   public DbSet<InventoryTransferQueueEntity> InventoryTransferQueue { get; set; }
 
+  // Mobile order post-processing queue for durable price enrichment and notifications
+  public DbSet<MobileOrderPostProcessingQueueEntity> MobileOrderPostProcessingQueue { get; set; }
+
   // Merchandiser Product assignments
   public DbSet<MerchandiserProductEntity> MerchandiserProducts { get; set; }
 

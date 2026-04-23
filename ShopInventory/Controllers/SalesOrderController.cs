@@ -131,12 +131,13 @@ public class SalesOrderController(IMediator mediator) : ApiControllerBase
     }
 
     /// <summary>
-    /// Approve a sales order
+    /// Approve a sales order and post it to SAP Business One
     /// </summary>
     [HttpPost("{id}/approve")]
     [RequirePermission(Permission.ApproveSalesOrders)]
     [ProducesResponseType(typeof(SalesOrderDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status502BadGateway)]
     public async Task<IActionResult> Approve(int id, CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();

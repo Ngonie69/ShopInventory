@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Validation;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Mappings;
@@ -144,6 +145,22 @@ public class StockReservationService : IStockReservationService
         string? createdBy = null,
         CancellationToken cancellationToken = default)
     {
+        var requestValidationErrors = RecursiveDataAnnotationsValidator.Validate(request);
+        if (requestValidationErrors.Count > 0)
+        {
+            return new StockReservationResponseDto
+            {
+                Success = false,
+                Message = $"Reservation request validation failed: {string.Join("; ", requestValidationErrors)}",
+                Errors = requestValidationErrors.Select(message => new StockReservationErrorDto
+                {
+                    ErrorCode = "ValidationError",
+                    Message = message,
+                    SuggestedAction = "Correct the document quantities and retry"
+                }).ToList()
+            };
+        }
+
         _logger.LogInformation(
             "Creating stock reservation for {ExternalRef} from {Source} with {LineCount} lines",
             request.ExternalReferenceId, request.SourceSystem, request.Lines.Count);

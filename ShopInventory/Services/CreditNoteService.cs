@@ -611,14 +611,15 @@ public class CreditNoteService : ICreditNoteService
 
         var lastCreditNote = await _context.CreditNotes
             .Where(c => c.CreditNoteNumber.StartsWith(prefix))
-            .OrderByDescending(c => c.CreditNoteNumber)
+            .OrderByDescending(c => c.CreditNoteNumber.Length)
+            .ThenByDescending(c => c.CreditNoteNumber)
             .FirstOrDefaultAsync(cancellationToken);
 
-        var sequence = 1;
+        var sequence = 1L;
         if (lastCreditNote != null)
         {
             var lastSequence = lastCreditNote.CreditNoteNumber.Replace(prefix, "");
-            if (int.TryParse(lastSequence, out int parsed))
+            if (long.TryParse(lastSequence, out var parsed))
                 sequence = parsed + 1;
         }
 
