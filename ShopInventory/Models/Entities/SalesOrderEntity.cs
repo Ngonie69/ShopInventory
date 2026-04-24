@@ -209,6 +209,12 @@ public class SalesOrderEntity
     public SalesOrderSource Source { get; set; } = SalesOrderSource.Web;
 
     /// <summary>
+    /// Mobile draft request identifier for deduplication
+    /// </summary>
+    [MaxLength(100)]
+    public string? ClientRequestId { get; set; }
+
+    /// <summary>
     /// Notes from the merchandiser (mobile app field notes)
     /// </summary>
     [MaxLength(2000)]

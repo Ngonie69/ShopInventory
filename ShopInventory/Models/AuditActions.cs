@@ -9,6 +9,9 @@ public static class AuditActions
     public const string Login = "Login";
     public const string Logout = "Logout";
     public const string LoginFailed = "LoginFailed";
+    public const string PasskeyLogin = "PasskeyLogin";
+    public const string PasskeyLoginFailed = "PasskeyLoginFailed";
+    public const string RegisterPasskey = "RegisterPasskey";
     public const string RefreshToken = "RefreshToken";
     public const string RegisterUser = "RegisterUser";
 

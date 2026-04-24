@@ -713,6 +713,59 @@ try {
             if (-not (Test-Path "$TargetPath\web.config") -and (Test-Path "$tempPath\web.config")) {
                 Copy-Item "$tempPath\web.config" "$TargetPath\web.config"
             }
+
+            # Sync managed IIS request filtering rules without overwriting environment-specific web.config settings.
+            if ((Test-Path "$TargetPath\web.config") -and (Test-Path "$tempPath\web.config")) {
+                try {
+                    [xml]$sourceConfig = Get-Content "$tempPath\web.config"
+                    [xml]$targetConfig = Get-Content "$TargetPath\web.config"
+
+                    $sourceRule = $sourceConfig.SelectSingleNode("/configuration/location/system.webServer/security/requestFiltering/filteringRules/filteringRule[@name='BlockCrawlerUserAgents']")
+                    if ($null -ne $sourceRule) {
+                        $systemWebServer = $targetConfig.SelectSingleNode("/configuration/location/system.webServer")
+                        if ($null -eq $systemWebServer) {
+                            throw "Target web.config is missing /configuration/location/system.webServer."
+                        }
+
+                        $securityNode = $targetConfig.SelectSingleNode("/configuration/location/system.webServer/security")
+                        if ($null -eq $securityNode) {
+                            $securityNode = $targetConfig.CreateElement("security")
+                            $handlersNode = $systemWebServer.SelectSingleNode("handlers")
+                            if ($null -ne $handlersNode) {
+                                [void]$systemWebServer.InsertBefore($securityNode, $handlersNode)
+                            }
+                            else {
+                                [void]$systemWebServer.AppendChild($securityNode)
+                            }
+                        }
+
+                        $requestFilteringNode = $targetConfig.SelectSingleNode("/configuration/location/system.webServer/security/requestFiltering")
+                        if ($null -eq $requestFilteringNode) {
+                            $requestFilteringNode = $targetConfig.CreateElement("requestFiltering")
+                            [void]$securityNode.AppendChild($requestFilteringNode)
+                        }
+
+                        $rulesNode = $targetConfig.SelectSingleNode("/configuration/location/system.webServer/security/requestFiltering/filteringRules")
+                        if ($null -eq $rulesNode) {
+                            $rulesNode = $targetConfig.CreateElement("filteringRules")
+                            [void]$requestFilteringNode.AppendChild($rulesNode)
+                        }
+
+                        $existingRule = $targetConfig.SelectSingleNode("/configuration/location/system.webServer/security/requestFiltering/filteringRules/filteringRule[@name='BlockCrawlerUserAgents']")
+                        if ($null -ne $existingRule) {
+                            [void]$rulesNode.RemoveChild($existingRule)
+                        }
+
+                        $importedRule = $targetConfig.ImportNode($sourceRule, $true)
+                        [void]$rulesNode.AppendChild($importedRule)
+                        $targetConfig.Save("$TargetPath\web.config")
+                        Write-Host "  Synced managed IIS request filtering rules" -ForegroundColor Green
+                    }
+                }
+                catch {
+                    Write-Host "  WARNING: Could not sync managed IIS request filtering rules: $($_.Exception.Message)" -ForegroundColor Yellow
+                }
+            }
             
             $fileCount = (Get-ChildItem -Path $TargetPath -Recurse -File -ErrorAction SilentlyContinue).Count
             Write-Host "  Deployed $fileCount files" -ForegroundColor Green

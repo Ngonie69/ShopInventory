@@ -190,6 +190,37 @@ public interface ISAPServiceLayerClient
     Task<List<SAPPurchaseOrder>> GetPurchaseOrdersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<int> GetPurchaseOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
 
+    // Purchase Request Operations (from SAP)
+    Task<List<SAPPurchaseRequest>> GetPagedPurchaseRequestsAsync(int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<SAPPurchaseRequest?> GetPurchaseRequestByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
+    Task<List<SAPPurchaseRequest>> GetPurchaseRequestsByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<int> GetPurchaseRequestsCountAsync(DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+    Task<SAPPurchaseRequest> CreatePurchaseRequestAsync(CreatePurchaseRequestRequest request, CancellationToken cancellationToken = default);
+
+    // Purchase Quotation Operations (from SAP)
+    Task<List<SAPPurchaseQuotation>> GetPagedPurchaseQuotationsAsync(int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<SAPPurchaseQuotation?> GetPurchaseQuotationByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
+    Task<List<SAPPurchaseQuotation>> GetPurchaseQuotationsBySupplierAsync(string cardCode, CancellationToken cancellationToken = default);
+    Task<List<SAPPurchaseQuotation>> GetPurchaseQuotationsByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<int> GetPurchaseQuotationsCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+    Task<SAPPurchaseQuotation> CreatePurchaseQuotationAsync(CreatePurchaseQuotationRequest request, CancellationToken cancellationToken = default);
+
+    // Goods Receipt Purchase Order Operations (from SAP)
+    Task<List<SAPGoodsReceiptPurchaseOrder>> GetPagedGoodsReceiptPurchaseOrdersAsync(int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<SAPGoodsReceiptPurchaseOrder?> GetGoodsReceiptPurchaseOrderByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
+    Task<List<SAPGoodsReceiptPurchaseOrder>> GetGoodsReceiptPurchaseOrdersBySupplierAsync(string cardCode, CancellationToken cancellationToken = default);
+    Task<List<SAPGoodsReceiptPurchaseOrder>> GetGoodsReceiptPurchaseOrdersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<int> GetGoodsReceiptPurchaseOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+    Task<SAPGoodsReceiptPurchaseOrder> CreateGoodsReceiptPurchaseOrderAsync(CreateGoodsReceiptPurchaseOrderRequest request, CancellationToken cancellationToken = default);
+
+    // Purchase Invoice Operations (from SAP)
+    Task<List<SAPPurchaseInvoice>> GetPagedPurchaseInvoicesAsync(int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<SAPPurchaseInvoice?> GetPurchaseInvoiceByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
+    Task<List<SAPPurchaseInvoice>> GetPurchaseInvoicesBySupplierAsync(string cardCode, CancellationToken cancellationToken = default);
+    Task<List<SAPPurchaseInvoice>> GetPurchaseInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<int> GetPurchaseInvoicesCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+    Task<SAPPurchaseInvoice> CreatePurchaseInvoiceAsync(CreatePurchaseInvoiceRequest request, CancellationToken cancellationToken = default);
+
     // Sales Order Operations (from SAP)
     Task<List<SAPSalesOrder>> GetSalesOrdersAsync(CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetPagedSalesOrdersAsync(int page, int pageSize, CancellationToken cancellationToken = default);

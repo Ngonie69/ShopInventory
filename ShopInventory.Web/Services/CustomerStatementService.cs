@@ -242,6 +242,7 @@ public class CustomerStatementService : ICustomerStatementService
             var linkedAccounts = accountStructure == "Multi"
                 ? await _linkedAccountService.GetLinkedAccountsAsync(cardCode)
                 : new List<LinkedAccountInfo>();
+            var allCardCodes = BuildDashboardCardCodes(cardCode, accountStructure, linkedAccounts);
 
             var summary = new CustomerDashboardSummary
             {
@@ -262,8 +263,12 @@ public class CustomerStatementService : ICustomerStatementService
             // Phase 2: Fetch invoices, payments, payment terms, and account breakdown in parallel
             var now = IAuditService.ToCAT(DateTime.UtcNow);
             var dashboardFrom = now.AddDays(-31);
-            var invoicesTask = GetOpenInvoicesAsync(cardCode, dashboardFrom, now);
-            var paymentsTask = GetPaymentHistoryAsync(cardCode, dashboardFrom, now);
+            var invoiceTasksByCardCode = allCardCodes.ToDictionary(
+                accountCardCode => accountCardCode,
+                GetOpenInvoicesForSingleAccountAsync,
+                StringComparer.OrdinalIgnoreCase);
+            var invoiceTasks = invoiceTasksByCardCode.Values.Cast<Task>().ToArray();
+            var paymentsTask = GetPaymentHistoryForCardCodesAsync(allCardCodes, dashboardFrom, now);
 
             // Fetch payment terms for aging calculation
             var paymentTermsTask = customer.PayTermGrpCode.HasValue
@@ -271,10 +276,10 @@ public class CustomerStatementService : ICustomerStatementService
                 : Task.FromResult<PaymentTermsDto?>(null);
 
             var breakdownTask = (accountStructure == "Multi" && linkedAccounts.Any())
-                ? BuildAccountBreakdownAsync(linkedAccounts)
+                ? BuildAccountBreakdownAsync(linkedAccounts, invoiceTasksByCardCode)
                 : Task.FromResult(new List<AccountSummary>());
 
-            await Task.WhenAll(invoicesTask, paymentsTask, paymentTermsTask, breakdownTask);
+            await Task.WhenAll(invoiceTasks.Append(paymentsTask).Append(paymentTermsTask).Append(breakdownTask));
 
             // Apply payment terms to aging calculation
             var paymentTerms = paymentTermsTask.Result;
@@ -287,7 +292,10 @@ public class CustomerStatementService : ICustomerStatementService
             }
 
             // Process invoices — recalculate DaysOverdue using payment terms (DocDate + terms)
-            var openInvoices = invoicesTask.Result;
+            var openInvoices = FilterInvoices(
+                invoiceTasksByCardCode.Values.SelectMany(task => task.Result),
+                dashboardFrom,
+                now);
 
             if (paymentTermsDays > 0)
             {
@@ -388,7 +396,9 @@ public class CustomerStatementService : ICustomerStatementService
     /// Build per-account breakdown showing individual balances and transaction counts.
     /// Fetches all linked accounts in parallel.
     /// </summary>
-    private async Task<List<AccountSummary>> BuildAccountBreakdownAsync(List<LinkedAccountInfo> linkedAccounts)
+    private async Task<List<AccountSummary>> BuildAccountBreakdownAsync(
+        List<LinkedAccountInfo> linkedAccounts,
+        IReadOnlyDictionary<string, Task<List<CustomerInvoiceSummary>>> invoiceTasksByCardCode)
     {
         var tasks = linkedAccounts.Select(async account =>
         {
@@ -404,9 +414,13 @@ public class CustomerStatementService : ICustomerStatementService
 
             try
             {
+                if (!invoiceTasksByCardCode.TryGetValue(account.CardCode, out var invoiceTask))
+                {
+                    invoiceTask = GetOpenInvoicesForSingleAccountAsync(account.CardCode);
+                }
+
                 // Fetch BP, invoices, and sales orders in parallel within each account
                 var partnerTask = _businessPartnerService.GetBusinessPartnerByCodeAsync(account.CardCode);
-                var invoiceTask = GetOpenInvoicesForSingleAccountAsync(account.CardCode);
                 var ordersTask = account.AccountType == "Sub"
                     ? _salesOrderService.GetSalesOrdersAsync(cardCode: account.CardCode, status: SalesOrderStatus.Pending)
                     : Task.FromResult<SalesOrderListResponse?>(null);
@@ -434,6 +448,42 @@ public class CustomerStatementService : ICustomerStatementService
 
         var results = await Task.WhenAll(tasks);
         return results.ToList();
+    }
+
+    private static List<string> BuildDashboardCardCodes(
+        string cardCode,
+        string accountStructure,
+        IReadOnlyCollection<LinkedAccountInfo> linkedAccounts)
+    {
+        if (accountStructure != "Multi" || linkedAccounts.Count == 0)
+        {
+            return new List<string> { cardCode };
+        }
+
+        return linkedAccounts
+            .Where(account => !string.IsNullOrWhiteSpace(account.CardCode))
+            .Select(account => account.CardCode)
+            .Append(cardCode)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static List<CustomerInvoiceSummary> FilterInvoices(
+        IEnumerable<CustomerInvoiceSummary> invoices,
+        DateTime? fromDate = null,
+        DateTime? toDate = null)
+    {
+        var result = invoices;
+
+        if (fromDate.HasValue)
+            result = result.Where(i => i.DocDate >= fromDate.Value);
+
+        if (toDate.HasValue)
+            result = result.Where(i => i.DocDate <= toDate.Value);
+
+        return result
+            .OrderBy(i => i.DueDate)
+            .ToList();
     }
 
     /// <summary>
@@ -561,31 +611,29 @@ public class CustomerStatementService : ICustomerStatementService
     {
         try
         {
-            // Get all account CardCodes (main + sub, since sub accounts also have invoices)
             var allCardCodes = await _linkedAccountService.GetAllCardCodesAsync(cardCode);
-
-            // Fetch all accounts in parallel
-            var invoiceTasks = allCardCodes.Select(acctCardCode => GetOpenInvoicesForSingleAccountAsync(acctCardCode));
-            var invoiceResults = await Task.WhenAll(invoiceTasks);
-            var allInvoices = invoiceResults.SelectMany(r => r).ToList();
-
-            IEnumerable<CustomerInvoiceSummary> result = allInvoices;
-
-            if (fromDate.HasValue)
-                result = result.Where(i => i.DocDate >= fromDate.Value);
-
-            if (toDate.HasValue)
-                result = result.Where(i => i.DocDate <= toDate.Value);
-
-            return result
-                .OrderBy(i => i.DueDate)
-                .ToList();
+            return await GetOpenInvoicesForCardCodesAsync(allCardCodes, fromDate, toDate);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting open invoices for {CardCode}", cardCode);
             return new List<CustomerInvoiceSummary>();
         }
+    }
+
+    private async Task<List<CustomerInvoiceSummary>> GetOpenInvoicesForCardCodesAsync(
+        IEnumerable<string> cardCodes,
+        DateTime? fromDate = null,
+        DateTime? toDate = null)
+    {
+        var invoiceTasksByCardCode = cardCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(code => code, GetOpenInvoicesForSingleAccountAsync, StringComparer.OrdinalIgnoreCase);
+
+        await Task.WhenAll(invoiceTasksByCardCode.Values);
+
+        return FilterInvoices(invoiceTasksByCardCode.Values.SelectMany(task => task.Result), fromDate, toDate);
     }
 
     /// <summary>
@@ -635,45 +683,57 @@ public class CustomerStatementService : ICustomerStatementService
         try
         {
             var allCardCodes = await _linkedAccountService.GetAllCardCodesAsync(cardCode);
-
-            // Fetch all accounts in parallel
-            var paymentTasks = allCardCodes.Select(async acctCardCode =>
-            {
-                var response = await _httpClient.GetFromJsonAsync<IncomingPaymentDateResponse>(
-                    $"api/incomingpayment/customer/{acctCardCode}");
-                var payments = response?.Payments ?? new List<IncomingPaymentDto>();
-
-                return payments
-                    .Select(p => new CustomerPaymentSummary
-                    {
-                        DocEntry = p.DocEntry,
-                        DocNum = p.DocNum,
-                        DocDate = ParseDate(p.DocDate),
-                        DocTotal = p.DocTotal,
-                        PaymentMethod = DeterminePaymentMethod(p),
-                        Reference = p.TransferReference ?? p.Remarks,
-                        Currency = p.DocCurrency,
-                        CardCode = acctCardCode
-                    }).ToList();
-            });
-            var paymentResults = await Task.WhenAll(paymentTasks);
-            var allPayments = paymentResults.SelectMany(r => r).ToList();
-
-            IEnumerable<CustomerPaymentSummary> result = allPayments;
-
-            if (fromDate.HasValue)
-                result = result.Where(p => p.DocDate >= fromDate.Value);
-
-            if (toDate.HasValue)
-                result = result.Where(p => p.DocDate <= toDate.Value);
-
-            return result.OrderByDescending(p => p.DocDate).ToList();
+            return await GetPaymentHistoryForCardCodesAsync(allCardCodes, fromDate, toDate);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting payment history for {CardCode}", cardCode);
             return new List<CustomerPaymentSummary>();
         }
+    }
+
+    private async Task<List<CustomerPaymentSummary>> GetPaymentHistoryForCardCodesAsync(
+        IEnumerable<string> cardCodes,
+        DateTime? fromDate,
+        DateTime? toDate)
+    {
+        var distinctCardCodes = cardCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var paymentTasks = distinctCardCodes.Select(async acctCardCode =>
+        {
+            var response = await _httpClient.GetFromJsonAsync<IncomingPaymentDateResponse>(
+                $"api/incomingpayment/customer/{acctCardCode}");
+            var payments = response?.Payments ?? new List<IncomingPaymentDto>();
+
+            return payments
+                .Select(p => new CustomerPaymentSummary
+                {
+                    DocEntry = p.DocEntry,
+                    DocNum = p.DocNum,
+                    DocDate = ParseDate(p.DocDate),
+                    DocTotal = p.DocTotal,
+                    PaymentMethod = DeterminePaymentMethod(p),
+                    Reference = p.TransferReference ?? p.Remarks,
+                    Currency = p.DocCurrency,
+                    CardCode = acctCardCode
+                }).ToList();
+        });
+
+        var paymentResults = await Task.WhenAll(paymentTasks);
+        var allPayments = paymentResults.SelectMany(r => r).ToList();
+
+        IEnumerable<CustomerPaymentSummary> result = allPayments;
+
+        if (fromDate.HasValue)
+            result = result.Where(p => p.DocDate >= fromDate.Value);
+
+        if (toDate.HasValue)
+            result = result.Where(p => p.DocDate <= toDate.Value);
+
+        return result.OrderByDescending(p => p.DocDate).ToList();
     }
 
     /// <summary>

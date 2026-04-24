@@ -388,6 +388,20 @@ public class SalesOrderService : ISalesOrderService
     {
         await ValidateAndNormalizeSalesOrderRequestAsync(request, cancellationToken);
 
+        var clientRequestId = string.IsNullOrWhiteSpace(request.ClientRequestId) ? null : request.ClientRequestId.Trim();
+        if (!string.IsNullOrWhiteSpace(clientRequestId))
+        {
+            var existingOrder = await _context.SalesOrders
+                .AsNoTracking()
+                .Include(o => o.Lines)
+                .FirstOrDefaultAsync(o => o.ClientRequestId == clientRequestId, cancellationToken);
+
+            if (existingOrder != null)
+            {
+                return MapToDto(existingOrder);
+            }
+        }
+
         // If no warehouse specified, fall back to the user's assigned warehouse
         if (string.IsNullOrEmpty(request.WarehouseCode))
         {
@@ -430,6 +444,7 @@ public class SalesOrderService : ISalesOrderService
                     CreatedByUserId = userId,
                     Status = SalesOrderStatus.Draft,
                     Source = request.Source,
+                    ClientRequestId = string.IsNullOrWhiteSpace(request.ClientRequestId) ? null : request.ClientRequestId.Trim(),
                     MerchandiserNotes = request.MerchandiserNotes,
                     DeviceInfo = request.DeviceInfo,
                     Latitude = request.Latitude,
@@ -544,6 +559,21 @@ public class SalesOrderService : ISalesOrderService
                 }
 
                 return MapToDto(order);
+            }
+            catch (DbUpdateException ex) when (IsDuplicateClientRequestId(ex) && !string.IsNullOrWhiteSpace(clientRequestId))
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                _context.ChangeTracker.Clear();
+
+                var existingOrder = await _context.SalesOrders
+                    .AsNoTracking()
+                    .Include(o => o.Lines)
+                    .FirstOrDefaultAsync(o => o.ClientRequestId == clientRequestId, CancellationToken.None);
+
+                if (existingOrder != null)
+                    return MapToDto(existingOrder);
+
+                throw;
             }
             catch (DbUpdateException ex) when (IsDuplicateOrderNumber(ex) && attempt < MaxCreateOrderAttempts)
             {
@@ -1316,6 +1346,11 @@ public class SalesOrderService : ISalesOrderService
            && postgresException.SqlState == PostgresErrorCodes.UniqueViolation
            && postgresException.ConstraintName?.Contains("OrderNumber", StringComparison.OrdinalIgnoreCase) == true;
 
+    private static bool IsDuplicateClientRequestId(DbUpdateException exception)
+        => exception.InnerException is PostgresException postgresException
+           && postgresException.SqlState == PostgresErrorCodes.UniqueViolation
+           && postgresException.ConstraintName?.Contains("ClientRequestId", StringComparison.OrdinalIgnoreCase) == true;
+
     private decimal ResolveLineTaxPercent(decimal requestedTaxPercent, SalesOrderSource source)
     {
         if (requestedTaxPercent > 0)
@@ -1569,6 +1604,7 @@ public class SalesOrderService : ISalesOrderService
             IsSynced = entity.IsSynced,
             SyncError = entity.SyncError,
             Source = entity.Source,
+            ClientRequestId = entity.ClientRequestId,
             MerchandiserNotes = entity.MerchandiserNotes,
             DeviceInfo = entity.DeviceInfo,
             Latitude = entity.Latitude,

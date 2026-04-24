@@ -84,6 +84,13 @@ public class RequestValidationMiddleware
         "exec(", "execute(", "xp_cmdshell",
     };
 
+    private static readonly string[] BotUserAgentMarkers =
+    {
+        "bingbot", "googlebot", "googleother", "adsbot", "slurp",
+        "duckduckbot", "baiduspider", "yandexbot", "applebot",
+        "petalbot", "facebookexternalhit", "crawler", "spider"
+    };
+
     public RequestValidationMiddleware(RequestDelegate next, ILogger<RequestValidationMiddleware> logger)
     {
         _next = next;
@@ -94,11 +101,21 @@ public class RequestValidationMiddleware
     {
         var path = context.Request.Path.ToString();
         var query = context.Request.QueryString.ToString();
+        var userAgent = context.Request.Headers.UserAgent.ToString();
 
         // Skip validation for Blazor internal paths (SignalR, static files)
         if (path.StartsWith("/_blazor") || path.StartsWith("/_framework") || path.StartsWith("/_content"))
         {
             await _next(context);
+            return;
+        }
+
+        if (IsSensitiveAuthPath(path) && IsBlockedBotUserAgent(userAgent))
+        {
+            _logger.LogWarning("Blocked crawler request from {Ip} to {Path} with user agent {UserAgent}",
+                context.Connection.RemoteIpAddress, path, userAgent);
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            context.Response.Headers["X-Robots-Tag"] = "noindex, nofollow, noarchive";
             return;
         }
 
@@ -129,6 +146,25 @@ public class RequestValidationMiddleware
         }
 
         return SuspiciousPatterns.Any(p => decoded.Contains(p, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsSensitiveAuthPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        return path.Contains("/login", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains("/customer-login", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains("/forgot-password", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains("/register", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsBlockedBotUserAgent(string userAgent)
+    {
+        if (string.IsNullOrWhiteSpace(userAgent))
+            return false;
+
+        return BotUserAgentMarkers.Any(marker => userAgent.Contains(marker, StringComparison.OrdinalIgnoreCase));
     }
 }
 

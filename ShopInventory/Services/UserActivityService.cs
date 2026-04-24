@@ -55,7 +55,10 @@ public class UserActivityService : IUserActivityService
 
     public async Task<UserActivitySummary> GetUserActivitySummaryAsync(Guid userId, int recentCount = 20, CancellationToken cancellationToken = default)
     {
-        var user = await _context.Users.FindAsync(new object[] { userId }, cancellationToken);
+        var user = await _context.Users
+            .AsNoTracking()
+            .SingleOrDefaultAsync(u => u.Id == userId, cancellationToken);
+
         if (user == null)
         {
             throw new InvalidOperationException("User not found");
@@ -66,8 +69,7 @@ public class UserActivityService : IUserActivityService
         var weekStart = today.AddDays(-(int)today.DayOfWeek);
 
         // Query audit logs for this user
-        var userLogs = _context.Set<AuditLog>()
-            .Where(a => a.UserId == userId.ToString());
+        var userLogs = BuildUserAuditQuery(userId, user.Username);
 
         var totalActions = await userLogs.CountAsync(cancellationToken);
         var actionsToday = await userLogs.Where(a => a.Timestamp >= today).CountAsync(cancellationToken);
@@ -113,56 +115,83 @@ public class UserActivityService : IUserActivityService
         endDate ??= now;
 
         var query = _context.Set<AuditLog>()
+            .AsNoTracking()
             .Where(a => a.Timestamp >= startDate && a.Timestamp <= endDate);
-
-        // Get total active users
-        var activeUserIds = await query
-            .Where(a => a.UserId != null)
-            .Select(a => a.UserId)
-            .Distinct()
-            .CountAsync(cancellationToken);
 
         // Get total actions today
         var actionsToday = await query.CountAsync(cancellationToken);
 
-        // Get most active users
-        var userActivity = await query
-            .Where(a => a.UserId != null)
-            .GroupBy(a => a.UserId)
+        var groupedUserActivity = await query
+            .Where(a => (a.UserId != null && a.UserId != string.Empty) || a.Username != string.Empty)
+            .GroupBy(a => new { a.UserId, a.Username })
             .Select(g => new
             {
-                UserId = g.Key,
+                g.Key.UserId,
+                g.Key.Username,
                 Count = g.Count(),
                 LastActivity = g.Max(a => a.Timestamp)
             })
-            .OrderByDescending(x => x.Count)
-            .Take(10)
             .ToListAsync(cancellationToken);
 
-        // Batch-load all users in a single query instead of N+1 individual lookups
-        var userIds = userActivity
+        var userIds = groupedUserActivity
             .Where(ua => Guid.TryParse(ua.UserId, out _))
             .Select(ua => Guid.Parse(ua.UserId!))
+            .Distinct()
+            .ToList();
+
+        var usernames = groupedUserActivity
+            .Where(ua => !string.IsNullOrWhiteSpace(ua.Username))
+            .Select(ua => ua.Username!)
+            .Distinct()
             .ToList();
 
         var users = await _context.Users
-            .Where(u => userIds.Contains(u.Id))
-            .ToDictionaryAsync(u => u.Id, cancellationToken);
+            .AsNoTracking()
+            .Where(u => userIds.Contains(u.Id) || usernames.Contains(u.Username))
+            .ToListAsync(cancellationToken);
 
-        var mostActiveUsers = userActivity
-            .Where(ua => Guid.TryParse(ua.UserId, out var uid) && users.ContainsKey(uid))
+        var usersById = users.ToDictionary(u => u.Id);
+        var usersByUsername = users
+            .GroupBy(u => u.Username, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        var mostActiveUsers = groupedUserActivity
             .Select(ua =>
             {
-                var uid = Guid.Parse(ua.UserId!);
-                return new UserActivitySummary
+                ShopInventory.Models.User? matchedUser = null;
+
+                if (Guid.TryParse(ua.UserId, out var parsedUserId) && usersById.TryGetValue(parsedUserId, out var idMatch))
                 {
-                    UserId = uid,
-                    Username = users[uid].Username,
-                    TotalActions = ua.Count,
-                    LastActivityAt = ua.LastActivity
-                };
+                    matchedUser = idMatch;
+                }
+                else if (!string.IsNullOrWhiteSpace(ua.Username) && usersByUsername.TryGetValue(ua.Username, out var usernameMatch))
+                {
+                    matchedUser = usernameMatch;
+                }
+
+                return matchedUser == null
+                    ? null
+                    : new
+                    {
+                        matchedUser.Id,
+                        matchedUser.Username,
+                        ua.Count,
+                        ua.LastActivity
+                    };
             })
+            .Where(ua => ua != null)
+            .GroupBy(ua => ua!.Id)
+            .Select(g => new UserActivitySummary
+            {
+                UserId = g.Key,
+                Username = g.First()!.Username,
+                TotalActions = g.Sum(x => x!.Count),
+                LastActivityAt = g.Max(x => x!.LastActivity)
+            })
+            .OrderByDescending(x => x.TotalActions)
             .ToList();
+
+        var activeUsersCount = mostActiveUsers.Count;
 
         // Get action breakdown
         var actionBreakdown = await query
@@ -198,9 +227,9 @@ public class UserActivityService : IUserActivityService
 
         return new UserActivityDashboard
         {
-            TotalUsersActive = activeUserIds,
+            TotalUsersActive = activeUsersCount,
             TotalActionsToday = actionsToday,
-            MostActiveUsers = mostActiveUsers,
+            MostActiveUsers = mostActiveUsers.Take(10).ToList(),
             ActionBreakdown = actionBreakdown,
             HourlyActivity = allHours
         };
@@ -216,12 +245,20 @@ public class UserActivityService : IUserActivityService
         DateTime? endDate = null,
         CancellationToken cancellationToken = default)
     {
-        var query = _context.Set<AuditLog>().AsQueryable();
+        var query = _context.Set<AuditLog>().AsNoTracking().AsQueryable();
 
         if (userId.HasValue)
         {
+            var username = await _context.Users
+                .AsNoTracking()
+                .Where(u => u.Id == userId.Value)
+                .Select(u => u.Username)
+                .SingleOrDefaultAsync(cancellationToken);
+
             var userIdStr = userId.Value.ToString();
-            query = query.Where(a => a.UserId == userIdStr);
+            query = string.IsNullOrWhiteSpace(username)
+                ? query.Where(a => a.UserId == userIdStr)
+                : query.Where(a => a.UserId == userIdStr || ((a.UserId == null || a.UserId == string.Empty) && a.Username == username));
         }
 
         if (!string.IsNullOrWhiteSpace(action))
@@ -275,6 +312,7 @@ public class UserActivityService : IUserActivityService
     public async Task<List<UserActivityItem>> GetEntityActivitiesAsync(string entityType, string entityId, CancellationToken cancellationToken = default)
     {
         return await _context.Set<AuditLog>()
+            .AsNoTracking()
             .Where(a => a.EntityType == entityType && a.EntityId == entityId)
             .OrderByDescending(a => a.Timestamp)
             .Take(100)
@@ -290,5 +328,14 @@ public class UserActivityService : IUserActivityService
                 Timestamp = a.Timestamp
             })
             .ToListAsync(cancellationToken);
+    }
+
+    private IQueryable<AuditLog> BuildUserAuditQuery(Guid userId, string username)
+    {
+        var userIdValue = userId.ToString();
+
+        return _context.Set<AuditLog>()
+            .AsNoTracking()
+            .Where(a => a.UserId == userIdValue || ((a.UserId == null || a.UserId == string.Empty) && a.Username == username));
     }
 }

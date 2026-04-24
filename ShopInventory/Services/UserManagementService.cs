@@ -249,7 +249,7 @@ public class UserManagementService : IUserManagementService
 
     public async Task<ServiceResult> UpdateUserAsync(Guid userId, UpdateUserDetailRequest request)
     {
-        var user = await _context.Users.FindAsync(userId);
+        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
         if (user == null)
         {
             return ServiceResult.Failure("User not found");
@@ -369,14 +369,34 @@ public class UserManagementService : IUserManagementService
 
         user.UpdatedAt = DateTime.UtcNow;
 
-        // Explicitly mark AssignedCustomerCodes as modified to ensure EF Core includes it in the UPDATE
-        _context.Entry(user).Property(u => u.AssignedCustomerCodes).IsModified = true;
+        // Use ExecuteUpdateAsync — direct SQL UPDATE, bypasses EF change tracking entirely
+        var rowsAffected = await _context.Users
+            .Where(u => u.Id == userId)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(x => x.Email, user.Email)
+                .SetProperty(x => x.EmailVerified, user.EmailVerified)
+                .SetProperty(x => x.FirstName, user.FirstName)
+                .SetProperty(x => x.LastName, user.LastName)
+                .SetProperty(x => x.IsActive, user.IsActive)
+                .SetProperty(x => x.Role, user.Role)
+                .SetProperty(x => x.AssignedWarehouseCodes, user.AssignedWarehouseCodes)
+                .SetProperty(x => x.AssignedCustomerCodes, user.AssignedCustomerCodes)
+                .SetProperty(x => x.AssignedSection, user.AssignedSection)
+                .SetProperty(x => x.Permissions, user.Permissions)
+                .SetProperty(x => x.AllowedPaymentMethods, user.AllowedPaymentMethods)
+                .SetProperty(x => x.DefaultGLAccount, user.DefaultGLAccount)
+                .SetProperty(x => x.AllowedPaymentBusinessPartners, user.AllowedPaymentBusinessPartners)
+                .SetProperty(x => x.UpdatedAt, user.UpdatedAt));
 
-        var saved = await _context.SaveChangesAsync();
-        _logger.LogInformation("SaveChangesAsync returned {Count} for user {User}. AssignedCustomerCodes after save: {Raw}",
-            saved, user.Username, user.AssignedCustomerCodes ?? "NULL");
+        _logger.LogInformation("UpdateUser ExecuteUpdate for user {UserId}: {RowsAffected} rows affected", userId, rowsAffected);
+
+        if (rowsAffected == 0)
+        {
+            _logger.LogError("UpdateUser wrote 0 rows for user {UserId}", userId);
+            return ServiceResult.Failure("Update failed: no rows were modified. Please try again.");
+        }
+
         InvalidateEffectivePermissionsCache(userId);
-
         _logger.LogInformation("User {UserId} updated", userId);
 
         return ServiceResult.Success("User updated successfully");

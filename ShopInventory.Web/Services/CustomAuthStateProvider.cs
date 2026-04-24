@@ -229,6 +229,27 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
         _logger.LogDebug("HttpClient Authorization header set");
     }
 
+    public async Task UpdateUserProfileAsync(string username, string? email)
+    {
+        _logger.LogInformation("Updating cached auth profile for user: {Username}", username);
+
+        _cachedUserInfo ??= await _localStorage.GetItemAsync<UserInfo>("userInfo") ?? new UserInfo();
+        _cachedUserInfo.Username = username;
+        _cachedUserInfo.Email = email;
+
+        try
+        {
+            await _localStorage.SetItemAsync("userInfo", _cachedUserInfo);
+            _logger.LogDebug("Updated cached userInfo in localStorage");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to update cached userInfo in localStorage");
+        }
+
+        NotifyAuthenticationStateChanged(Task.FromResult(CreateAuthState(_cachedUserInfo)));
+    }
+
     public async Task ClearAuthData()
     {
         _logger.LogInformation("ClearAuthData called");

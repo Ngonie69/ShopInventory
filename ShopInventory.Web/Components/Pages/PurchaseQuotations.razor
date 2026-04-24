@@ -1,0 +1,195 @@
+@page "/purchase-quotations"
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+
+<PageTitle>Purchase Quotations</PageTitle>
+
+<style>
+    .pqt-page { max-width: 1500px; margin: 0 auto; padding: 1.5rem; }
+    .pqt-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .pqt-title h1 { margin: 0; font-size: 1.7rem; font-weight: 800; color: #172033; }
+    .pqt-title p { margin: .4rem 0 0; color: #5f6b7a; max-width: 700px; }
+    .pqt-header-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
+    .pqt-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
+    .pqt-stat { background: linear-gradient(180deg, #fffdf7 0%, #fff 100%); border: 1px solid #f1e2be; border-radius: 16px; padding: 1rem 1.1rem; box-shadow: 0 12px 30px rgba(23, 32, 51, .05); }
+    .pqt-stat-label { color: #8a6f2f; font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+    .pqt-stat-value { margin-top: .35rem; font-size: 1.55rem; font-weight: 800; color: #172033; }
+    .pqt-filters { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; padding: 1rem; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.25rem; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); }
+    .pqt-field { position: relative; }
+    .pqt-field label { display: block; font-size: .78rem; font-weight: 700; color: #5f6b7a; margin-bottom: .35rem; text-transform: uppercase; letter-spacing: .05em; }
+    .pqt-field input { width: 100%; border: 1px solid #d7dee7; border-radius: 12px; padding: .75rem .85rem; background: #fbfcfe; }
+    .pqt-filter-hint { margin-top: .4rem; font-size: .78rem; color: #7c8798; }
+    .pqt-search-results { position: absolute; z-index: 15; left: 0; right: 0; top: calc(100% + .35rem); background: #fff; border: 1px solid #d7dee7; border-radius: 14px; overflow: hidden; box-shadow: 0 16px 30px rgba(23, 32, 51, .12); max-height: 260px; overflow-y: auto; }
+    .pqt-search-option { width: 100%; border: none; background: transparent; text-align: left; padding: .8rem .9rem; border-bottom: 1px solid #eef2f6; color: #172033; }
+    .pqt-search-option:last-child { border-bottom: none; }
+    .pqt-search-option:hover { background: #fff8e8; }
+    .pqt-search-meta { display: block; margin-top: .15rem; font-size: .78rem; color: #6b7280; }
+    .pqt-chip { display: inline-flex; align-items: center; gap: .55rem; margin-top: .55rem; padding: .45rem .75rem; border-radius: 999px; background: #fff4d3; color: #7a611c; font-size: .82rem; font-weight: 700; }
+    .pqt-chip button { border: none; background: transparent; color: inherit; text-decoration: underline; padding: 0; }
+    .pqt-filter-actions { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; }
+    .pqt-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr); gap: 1rem; }
+    .pqt-panel { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); overflow: hidden; }
+    .pqt-panel-header { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-bottom: 1px solid #eef2f6; }
+    .pqt-panel-header h2 { margin: 0; font-size: 1rem; font-weight: 700; color: #172033; }
+    .pqt-panel-header span { color: #5f6b7a; font-size: .85rem; }
+    .pqt-table-wrap { overflow-x: auto; }
+    .pqt-table { width: 100%; border-collapse: collapse; }
+    .pqt-table th { text-align: left; padding: .9rem 1rem; font-size: .76rem; color: #6b7280; text-transform: uppercase; letter-spacing: .06em; background: #fbfcfe; border-bottom: 1px solid #eef2f6; }
+    .pqt-table td { padding: .95rem 1rem; border-bottom: 1px solid #f3f5f8; color: #172033; vertical-align: top; }
+    .pqt-row { cursor: pointer; transition: background-color .15s ease, transform .15s ease; }
+    .pqt-row:hover { background: #fff8e8; }
+    .pqt-row.is-selected { background: #fff4d3; }
+    .pqt-doc { font-weight: 700; }
+    .pqt-subtext { display: block; margin-top: .2rem; font-size: .8rem; color: #6b7280; }
+    .pqt-amount { font-weight: 700; white-space: nowrap; }
+    .pqt-status { display: inline-flex; align-items: center; border-radius: 999px; padding: .3rem .65rem; font-size: .75rem; font-weight: 700; }
+    .pqt-status.open { background: #e8f7ec; color: #1f7a38; }
+    .pqt-status.closed { background: #e8eef9; color: #2952a3; }
+    .pqt-status.cancelled { background: #fdecec; color: #a12828; }
+    .pqt-detail { padding: 1rem 1.1rem 1.2rem; }
+    .pqt-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; margin-bottom: 1rem; }
+    .pqt-detail-card { border: 1px solid #edf1f5; border-radius: 14px; padding: .85rem .95rem; background: #fbfcfe; }
+    .pqt-detail-card label { display: block; font-size: .72rem; font-weight: 700; color: #8a94a4; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .25rem; }
+    .pqt-detail-card div { color: #172033; font-weight: 600; }
+    .pqt-line-list { display: grid; gap: .75rem; }
+    .pqt-line { border: 1px solid #edf1f5; border-radius: 14px; padding: .85rem .95rem; background: #fffdf8; }
+    .pqt-line-top { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: .45rem; }
+    .pqt-line-code { font-weight: 700; color: #172033; }
+    .pqt-line-desc { color: #5f6b7a; font-size: .88rem; }
+    .pqt-empty { padding: 2.2rem 1.3rem; text-align: center; color: #6b7280; }
+    .pqt-empty strong { display: block; color: #172033; margin-bottom: .4rem; }
+    .pqt-alert { border-radius: 14px; padding: .85rem 1rem; margin-bottom: 1rem; border: 1px solid transparent; }
+    .pqt-alert.error { background: #fff1f1; border-color: #f3c4c4; color: #8f2727; }
+    .pqt-loading { padding: 2.5rem 1rem; text-align: center; color: #6b7280; }
+    .pqt-pager { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-top: 1px solid #eef2f6; }
+    .pqt-pager span { color: #5f6b7a; font-size: .9rem; }
+    .dark-theme .pqt-title h1, .dark-theme .pqt-panel-header h2, .dark-theme .pqt-table td, .dark-theme .pqt-detail-card div, .dark-theme .pqt-line-code, .dark-theme .pqt-empty strong, .dark-theme .pqt-stat-value { color: #edf2f7; }
+    .dark-theme .pqt-title p, .dark-theme .pqt-panel-header span, .dark-theme .pqt-subtext, .dark-theme .pqt-empty, .dark-theme .pqt-loading, .dark-theme .pqt-pager span, .dark-theme .pqt-detail-card label, .dark-theme .pqt-line-desc, .dark-theme .pqt-stat-label, .dark-theme .pqt-filter-hint, .dark-theme .pqt-search-meta { color: #a9b4c2; }
+    .dark-theme .pqt-stat, .dark-theme .pqt-filters, .dark-theme .pqt-panel { background: #16202c; border-color: #2a3645; box-shadow: none; }
+    .dark-theme .pqt-field input, .dark-theme .pqt-detail-card, .dark-theme .pqt-line { background: #101823; border-color: #2a3645; color: #edf2f7; }
+    .dark-theme .pqt-search-results { background: #16202c; border-color: #2a3645; box-shadow: none; }
+    .dark-theme .pqt-search-option { color: #edf2f7; border-color: #2a3645; }
+    .dark-theme .pqt-search-option:hover { background: #263647; }
+    .dark-theme .pqt-chip { background: #263647; color: #f7d37d; }
+    .dark-theme .pqt-table th { background: #101823; border-color: #2a3645; color: #a9b4c2; }
+    .dark-theme .pqt-table td, .dark-theme .pqt-panel-header, .dark-theme .pqt-pager { border-color: #2a3645; }
+    .dark-theme .pqt-row:hover { background: #1f2c3b; }
+    .dark-theme .pqt-row.is-selected { background: #263647; }
+    @@media (max-width: 1100px) { .pqt-layout { grid-template-columns: 1fr; } .pqt-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @@media (max-width: 720px) { .pqt-page { padding: 1rem; } .pqt-filters { grid-template-columns: 1fr; } .pqt-detail-grid { grid-template-columns: 1fr; } .pqt-pager { flex-direction: column; align-items: stretch; } }
+</style>
+
+<div class="pqt-page">
+    <div class="pqt-header">
+        <div class="pqt-title">
+            <h1>Purchase Quotations</h1>
+            <p>Review supplier quotations pulled from SAP and inspect quoted line details before raising or comparing orders.</p>
+        </div>
+        <div class="pqt-header-actions">
+            <button class="btn btn-outline-secondary" @onclick="ReloadAsync">Refresh</button>
+            <button class="btn btn-warning" @onclick="NavigateToCreate">Create Purchase Quotation</button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="pqt-alert error">@errorMessage</div>
+    }
+
+    <div class="pqt-stats">
+        <div class="pqt-stat"><div class="pqt-stat-label">Total Documents</div><div class="pqt-stat-value">@quotationResponse?.TotalCount</div></div>
+        <div class="pqt-stat"><div class="pqt-stat-label">Current Page</div><div class="pqt-stat-value">@CurrentPageCount</div></div>
+        <div class="pqt-stat"><div class="pqt-stat-label">Open Quotations</div><div class="pqt-stat-value">@OpenQuotationCount</div></div>
+        <div class="pqt-stat"><div class="pqt-stat-label">Page Total</div><div class="pqt-stat-value">@CurrentPageTotal.ToString("N2")</div></div>
+    </div>
+
+    <div class="pqt-filters">
+        <div class="pqt-field">
+            <label>Supplier</label>
+            <input type="text" @bind="supplierSearchTerm" @bind:event="oninput" @onfocus="ShowSupplierResults" @onblur="HandleSupplierBlur" placeholder="Search supplier code or name" />
+            @if (showSupplierResults && FilteredSuppliers.Any())
+            {
+                <div class="pqt-search-results">
+                    @foreach (var supplier in FilteredSuppliers)
+                    {
+                        <button type="button" class="pqt-search-option" @onmousedown="() => SelectSupplier(supplier)"><strong>@supplier.CardCode - @supplier.CardName</strong><span class="pqt-search-meta">@supplier.Currency</span></button>
+                    }
+                </div>
+            }
+            @if (selectedSupplier is not null)
+            {
+                <div class="pqt-chip">@selectedSupplier.DisplayName<button type="button" @onclick="ClearSupplier">Change</button></div>
+            }
+            <div class="pqt-filter-hint">Type a supplier code or name, then pick a suggestion to filter by name.</div>
+        </div>
+        <div class="pqt-field"><label>From Date</label><input type="date" @bind-value="fromDate" @bind-value:format="yyyy-MM-dd" /></div>
+        <div class="pqt-field"><label>To Date</label><input type="date" @bind-value="toDate" @bind-value:format="yyyy-MM-dd" /></div>
+        <div class="pqt-filter-actions"><button class="btn btn-dark" @onclick="SearchAsync" disabled="@isLoading">Apply Filters</button><button class="btn btn-outline-secondary" @onclick="ClearFiltersAsync" disabled="@isLoading">Clear</button></div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="pqt-panel"><div class="pqt-loading">Loading purchase quotations from SAP...</div></div>
+    }
+    else
+    {
+        <div class="pqt-layout">
+            <section class="pqt-panel">
+                <div class="pqt-panel-header"><h2>Quotation Register</h2><span>Page @currentPage of @(quotationResponse?.TotalPages == 0 ? 1 : quotationResponse?.TotalPages)</span></div>
+                @if (Quotations.Count == 0)
+                {
+                    <div class="pqt-empty"><strong>No purchase quotations matched the current filters.</strong>Adjust the supplier code or date range and try again.</div>
+                }
+                else
+                {
+                    <div class="pqt-table-wrap">
+                        <table class="pqt-table">
+                            <thead><tr><th>Document</th><th>Supplier</th><th>Date</th><th>Status</th><th>Total</th></tr></thead>
+                            <tbody>
+                                @foreach (var quotation in Quotations)
+                                {
+                                    <tr class="pqt-row @(selectedQuotation?.DocEntry == quotation.DocEntry ? "is-selected" : string.Empty)" @onclick="() => SelectQuotation(quotation)">
+                                        <td><span class="pqt-doc">#@quotation.DocNum</span><span class="pqt-subtext">DocEntry @quotation.DocEntry</span>@if (!string.IsNullOrWhiteSpace(quotation.NumAtCard)) { <span class="pqt-subtext">Supplier Ref: @quotation.NumAtCard</span> }</td>
+                                        <td><span class="pqt-doc">@quotation.CardCode</span><span class="pqt-subtext">@quotation.CardName</span></td>
+                                        <td><span>@(quotation.DocDate?.ToString("dd MMM yyyy") ?? "Not set")</span>@if (quotation.DocDueDate.HasValue) { <span class="pqt-subtext">Due @quotation.DocDueDate.Value.ToString("dd MMM yyyy")</span> }</td>
+                                        <td><span class="pqt-status @GetStatusCssClass(quotation.DocStatus)">@quotation.DocStatus</span></td>
+                                        <td><span class="pqt-amount">@quotation.DocCurrency @quotation.DocTotal.ToString("N2")</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                <div class="pqt-pager"><button class="btn btn-outline-secondary" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)">Previous</button><span>Showing @CurrentPageCount of @quotationResponse?.TotalCount quotations</span><button class="btn btn-outline-secondary" @onclick="NextPageAsync" disabled="@(isLoading || !(quotationResponse?.HasMore ?? false))">Next</button></div>
+            </section>
+            <aside class="pqt-panel">
+                <div class="pqt-panel-header"><h2>Selected Quotation</h2><span>@(selectedQuotation is null ? "No selection" : $"{selectedQuotation.DocCurrency} {selectedQuotation.DocTotal:N2}")</span></div>
+                @if (selectedQuotation is null)
+                {
+                    <div class="pqt-empty"><strong>Select a quotation.</strong>The document summary and lines will appear here.</div>
+                }
+                else
+                {
+                    <div class="pqt-detail">
+                        <div class="pqt-detail-grid">
+                            <div class="pqt-detail-card"><label>Supplier</label><div>@selectedQuotation.CardCode - @selectedQuotation.CardName</div></div>
+                            <div class="pqt-detail-card"><label>Posting Date</label><div>@(selectedQuotation.DocDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
+                            <div class="pqt-detail-card"><label>Due Date</label><div>@(selectedQuotation.DocDueDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
+                            <div class="pqt-detail-card"><label>Discount %</label><div>@selectedQuotation.DiscountPercent.ToString("N2")</div></div>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(selectedQuotation.Comments))
+                        {
+                            <div class="pqt-detail-card" style="margin-bottom: 1rem;"><label>Comments</label><div>@selectedQuotation.Comments</div></div>
+                        }
+                        <div class="pqt-line-list">
+                            @foreach (var line in selectedQuotation.Lines)
+                            {
+                                <div class="pqt-line"><div class="pqt-line-top"><div><div class="pqt-line-code">@line.ItemCode</div><div class="pqt-line-desc">@line.ItemDescription</div></div><div class="pqt-amount">@selectedQuotation.DocCurrency @line.LineTotal.ToString("N2")</div></div><div class="pqt-subtext">Qty @line.Quantity.ToString("N2") at @line.UnitPrice.ToString("N2") @(string.IsNullOrWhiteSpace(line.WarehouseCode) ? string.Empty : $" | {line.WarehouseCode}")</div></div>
+                            }
+                        </div>
+                    </div>
+                }
+            </aside>
+        </div>
+    }
+</div>

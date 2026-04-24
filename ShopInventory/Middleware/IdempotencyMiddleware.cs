@@ -20,11 +20,13 @@ public class IdempotencyMiddleware
     // How long to remember idempotency keys (default 60 minutes)
     private const int DefaultExpirationMinutes = 60;
 
-    // Paths that require idempotency (write operations on business-critical endpoints)
+    // Paths that require idempotency (write operations on SAP or business-critical endpoints)
     private static readonly string[] IdempotencyRequiredPaths =
     {
-        "/api/invoice", "/api/salesorder", "/api/creditnote",
-        "/api/incomingpayment", "/api/inventorytransfer", "/api/payment"
+            "/api/invoice", "/api/salesorder", "/api/creditnote",
+            "/api/incomingpayment", "/api/inventorytransfer", "/api/payment",
+            "/api/purchaseorder", "/api/purchaseinvoice", "/api/goodsreceiptpurchaseorder",
+            "/api/quotation", "/api/purchasequotation"
     };
 
     public IdempotencyMiddleware(RequestDelegate next, ILogger<IdempotencyMiddleware> logger)

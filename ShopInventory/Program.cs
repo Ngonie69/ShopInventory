@@ -359,6 +359,7 @@ try
 
     // Register authentication service
     builder.Services.AddScoped<IAuthService, AuthService>();
+    builder.Services.AddSingleton<IPasskeyOperationStore, PasskeyOperationStore>();
 
     // Register stock validation service - CRITICAL for preventing negative quantities
     builder.Services.AddScoped<IStockValidationService, StockValidationService>();
@@ -370,6 +371,9 @@ try
     // Register inventory lock service - Prevents race conditions during concurrent invoice posting
     // For production with multiple instances, replace InMemoryInventoryLockService with Redis-based implementation
     builder.Services.AddSingleton<IInventoryLockService, InMemoryInventoryLockService>();
+
+    // Register 2FA pending store - holds short-lived challenge tokens during the login 2FA step
+    builder.Services.AddSingleton<ITwoFactorPendingStore, TwoFactorPendingStore>();
 
     // Register reporting service
     builder.Services.AddScoped<IReportService, ReportService>();

@@ -238,7 +238,7 @@ public class PasswordResetService : IPasswordResetService
 
     public async Task<ServiceResult> ChangePasswordAsync(Guid userId, string currentPassword, string newPassword)
     {
-        var user = await _context.Users.FindAsync(userId);
+        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
         if (user == null)
         {
             return ServiceResult.Failure("User not found");
@@ -263,11 +263,33 @@ public class PasswordResetService : IPasswordResetService
             return ServiceResult.Failure("New password must be different from the current password");
         }
 
-        // Update password
-        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
-        user.UpdatedAt = DateTime.UtcNow;
+        var newHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
+        var now = DateTime.UtcNow;
 
-        await _context.SaveChangesAsync();
+        // Use ExecuteUpdateAsync — direct SQL UPDATE, bypasses EF change tracking
+        var rowsAffected = await _context.Users
+            .Where(u => u.Id == userId)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(x => x.PasswordHash, newHash)
+                .SetProperty(x => x.UpdatedAt, now)
+                .SetProperty(x => x.FailedLoginAttempts, 0)
+                .SetProperty(x => x.LockoutEnd, (DateTime?)null));
+
+        _logger.LogInformation("ChangePassword ExecuteUpdate for user {UserId}: {RowsAffected} rows affected", userId, rowsAffected);
+
+        if (rowsAffected == 0)
+        {
+            _logger.LogError("Password change wrote 0 rows for user {UserId}", userId);
+            return ServiceResult.Failure("Password change failed: no rows were modified. Please try again.");
+        }
+
+        // Revoke all active refresh tokens so the user must re-authenticate with the new password.
+        await _context.RefreshTokens
+            .Where(token => token.UserId == userId && !token.IsRevoked && token.ExpiresAt > DateTime.UtcNow)
+            .ExecuteUpdateAsync(token => token
+                .SetProperty(x => x.IsRevoked, true)
+                .SetProperty(x => x.RevokedAt, now)
+                .SetProperty(x => x.RevokedByIp, "password-change"));
 
         _logger.LogInformation("Password changed for user {UserId}", userId);
 
@@ -276,8 +298,10 @@ public class PasswordResetService : IPasswordResetService
 
     public async Task<Guid?> GetUserIdByUsernameAsync(string username)
     {
+        var normalizedUsername = username.Trim();
+
         var user = await _context.Users.AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Username == username);
+            .FirstOrDefaultAsync(u => u.Username.ToLower() == normalizedUsername.ToLower());
         return user?.Id;
     }
 
@@ -296,11 +320,22 @@ public class PasswordResetService : IPasswordResetService
 
     public async Task<ServiceResult<UpdateCredentialsResponse>> UpdateCredentialsAsync(Guid userId, UpdateCredentialsRequest request)
     {
-        var user = await _context.Users.FindAsync(userId);
+        // Load with AsNoTracking first just to verify/read current values, then use ExecuteUpdate for the actual write
+        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
         if (user == null)
         {
+            _logger.LogWarning("UpdateCredentialsAsync: user {UserId} not found", userId);
             return ServiceResult<UpdateCredentialsResponse>.Failure("User not found");
         }
+
+        var previousUsername = user.Username;
+        var previousEmail = user.Email;
+        var requestedUsername = string.IsNullOrWhiteSpace(request.Username)
+            ? null
+            : request.Username.Trim();
+        var requestedEmail = request.Email == null
+            ? null
+            : request.Email.Trim();
 
         // Verify current password
         if (!BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
@@ -308,50 +343,68 @@ public class PasswordResetService : IPasswordResetService
             return ServiceResult<UpdateCredentialsResponse>.Failure("Current password is incorrect");
         }
 
-        // Update username if provided and different
-        if (!string.IsNullOrWhiteSpace(request.Username) &&
-            !string.Equals(request.Username, user.Username, StringComparison.OrdinalIgnoreCase))
+        var usernameChanged = !string.IsNullOrWhiteSpace(requestedUsername) &&
+            !string.Equals(requestedUsername, user.Username, StringComparison.OrdinalIgnoreCase);
+        var emailChanged = request.Email != null &&
+            !string.Equals(requestedEmail, user.Email, StringComparison.OrdinalIgnoreCase);
+
+        if (!usernameChanged && !emailChanged)
+        {
+            return ServiceResult<UpdateCredentialsResponse>.Failure("No username or email change was submitted");
+        }
+
+        // Check for conflicts before writing
+        if (usernameChanged)
         {
             var usernameTaken = await _context.Users
-                .AnyAsync(u => u.Id != userId && u.Username.ToLower() == request.Username.ToLower());
+                .AnyAsync(u => u.Id != userId && u.Username.ToLower() == requestedUsername!.ToLower());
             if (usernameTaken)
             {
                 return ServiceResult<UpdateCredentialsResponse>.Failure("Username is already taken");
             }
-            user.Username = request.Username.Trim();
         }
 
-        // Update email if provided and different
-        if (request.Email != null &&
-            !string.Equals(request.Email, user.Email, StringComparison.OrdinalIgnoreCase))
+        string? newEmailTaken = null;
+        if (emailChanged && !string.IsNullOrWhiteSpace(requestedEmail))
         {
-            if (!string.IsNullOrWhiteSpace(request.Email))
+            var emailTaken = await _context.Users
+                .AnyAsync(u => u.Id != userId && u.Email != null && u.Email.ToLower() == requestedEmail!.ToLower());
+            if (emailTaken)
             {
-                var emailTaken = await _context.Users
-                    .AnyAsync(u => u.Id != userId && u.Email != null && u.Email.ToLower() == request.Email.ToLower());
-                if (emailTaken)
-                {
-                    return ServiceResult<UpdateCredentialsResponse>.Failure("Email is already in use");
-                }
-                user.Email = request.Email.Trim();
-            }
-            else
-            {
-                user.Email = null;
+                return ServiceResult<UpdateCredentialsResponse>.Failure("Email is already in use");
             }
         }
 
-        user.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
+        var now = DateTime.UtcNow;
+        var newUsername = usernameChanged ? requestedUsername! : user.Username;
+        var newEmail = emailChanged
+            ? (string.IsNullOrWhiteSpace(requestedEmail) ? null : requestedEmail)
+            : user.Email;
 
-        _logger.LogInformation("Credentials updated for user {UserId}", userId);
+        // Use ExecuteUpdateAsync for a direct SQL UPDATE — bypasses EF change tracking entirely
+        var rowsAffected = await _context.Users
+            .Where(u => u.Id == userId)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(x => x.Username, newUsername)
+                .SetProperty(x => x.Email, newEmail)
+                .SetProperty(x => x.UpdatedAt, now));
+
+        _logger.LogInformation(
+            "Credentials ExecuteUpdate for user {UserId}: {RowsAffected} rows affected. {OldUsername} -> {NewUsername}, email {OldEmail} -> {NewEmail}",
+            userId, rowsAffected, previousUsername, newUsername, previousEmail, newEmail);
+
+        if (rowsAffected == 0)
+        {
+            _logger.LogError("Credentials update wrote 0 rows for user {UserId} — possible DB connection issue", userId);
+            return ServiceResult<UpdateCredentialsResponse>.Failure("Update failed: no rows were modified. Please try again.");
+        }
 
         return ServiceResult<UpdateCredentialsResponse>.Success(new UpdateCredentialsResponse
         {
-            Username = user.Username,
-            Email = user.Email,
-            Message = "Credentials updated successfully"
-        }, "Credentials updated successfully");
+            Username = newUsername,
+            Email = newEmail,
+            Message = $"Credentials updated successfully. Your login username is '{newUsername}'."
+        }, $"Credentials updated successfully. Your login username is '{newUsername}'.");
     }
 
     public async Task<string?> GetResetTokenForTestingAsync(string email)

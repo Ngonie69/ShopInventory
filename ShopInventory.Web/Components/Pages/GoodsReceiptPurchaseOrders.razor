@@ -1,0 +1,195 @@
+@page "/goods-receipt-pos"
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+
+<PageTitle>Goods Receipt POs</PageTitle>
+
+<style>
+    .grpo-page { max-width: 1500px; margin: 0 auto; padding: 1.5rem; }
+    .grpo-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .grpo-title h1 { margin: 0; font-size: 1.7rem; font-weight: 800; color: #172033; }
+    .grpo-title p { margin: .4rem 0 0; color: #5f6b7a; max-width: 700px; }
+    .grpo-header-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
+    .grpo-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
+    .grpo-stat { background: linear-gradient(180deg, #f7fcff 0%, #fff 100%); border: 1px solid #c8dff0; border-radius: 16px; padding: 1rem 1.1rem; box-shadow: 0 12px 30px rgba(23, 32, 51, .05); }
+    .grpo-stat-label { color: #29507e; font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+    .grpo-stat-value { margin-top: .35rem; font-size: 1.55rem; font-weight: 800; color: #172033; }
+    .grpo-filters { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; padding: 1rem; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.25rem; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); }
+    .grpo-field { position: relative; }
+    .grpo-field label { display: block; font-size: .78rem; font-weight: 700; color: #5f6b7a; margin-bottom: .35rem; text-transform: uppercase; letter-spacing: .05em; }
+    .grpo-field input { width: 100%; border: 1px solid #d7dee7; border-radius: 12px; padding: .75rem .85rem; background: #fbfcfe; }
+    .grpo-filter-hint { margin-top: .4rem; font-size: .78rem; color: #7c8798; }
+    .grpo-search-results { position: absolute; z-index: 15; left: 0; right: 0; top: calc(100% + .35rem); background: #fff; border: 1px solid #d7dee7; border-radius: 14px; overflow: hidden; box-shadow: 0 16px 30px rgba(23, 32, 51, .12); max-height: 260px; overflow-y: auto; }
+    .grpo-search-option { width: 100%; border: none; background: transparent; text-align: left; padding: .8rem .9rem; border-bottom: 1px solid #eef2f6; color: #172033; }
+    .grpo-search-option:last-child { border-bottom: none; }
+    .grpo-search-option:hover { background: #eef8ff; }
+    .grpo-search-meta { display: block; margin-top: .15rem; font-size: .78rem; color: #6b7280; }
+    .grpo-chip { display: inline-flex; align-items: center; gap: .55rem; margin-top: .55rem; padding: .45rem .75rem; border-radius: 999px; background: #e8f2ff; color: #29507e; font-size: .82rem; font-weight: 700; }
+    .grpo-chip button { border: none; background: transparent; color: inherit; text-decoration: underline; padding: 0; }
+    .grpo-filter-actions { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; }
+    .grpo-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr); gap: 1rem; }
+    .grpo-panel { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); overflow: hidden; }
+    .grpo-panel-header { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-bottom: 1px solid #eef2f6; }
+    .grpo-panel-header h2 { margin: 0; font-size: 1rem; font-weight: 700; color: #172033; }
+    .grpo-panel-header span { color: #5f6b7a; font-size: .85rem; }
+    .grpo-table-wrap { overflow-x: auto; }
+    .grpo-table { width: 100%; border-collapse: collapse; }
+    .grpo-table th { text-align: left; padding: .9rem 1rem; font-size: .76rem; color: #6b7280; text-transform: uppercase; letter-spacing: .06em; background: #fbfcfe; border-bottom: 1px solid #eef2f6; }
+    .grpo-table td { padding: .95rem 1rem; border-bottom: 1px solid #f3f5f8; color: #172033; vertical-align: top; }
+    .grpo-row { cursor: pointer; transition: background-color .15s ease, transform .15s ease; }
+    .grpo-row:hover { background: #eef8ff; }
+    .grpo-row.is-selected { background: #e8f2ff; }
+    .grpo-doc { font-weight: 700; }
+    .grpo-subtext { display: block; margin-top: .2rem; font-size: .8rem; color: #6b7280; }
+    .grpo-amount { font-weight: 700; white-space: nowrap; }
+    .grpo-status { display: inline-flex; align-items: center; border-radius: 999px; padding: .3rem .65rem; font-size: .75rem; font-weight: 700; }
+    .grpo-status.open { background: #e8f7ec; color: #1f7a38; }
+    .grpo-status.closed { background: #e8eef9; color: #2952a3; }
+    .grpo-status.cancelled { background: #fdecec; color: #a12828; }
+    .grpo-detail { padding: 1rem 1.1rem 1.2rem; }
+    .grpo-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; margin-bottom: 1rem; }
+    .grpo-detail-card { border: 1px solid #edf1f5; border-radius: 14px; padding: .85rem .95rem; background: #fbfcfe; }
+    .grpo-detail-card label { display: block; font-size: .72rem; font-weight: 700; color: #8a94a4; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .25rem; }
+    .grpo-detail-card div { color: #172033; font-weight: 600; }
+    .grpo-line-list { display: grid; gap: .75rem; }
+    .grpo-line { border: 1px solid #edf1f5; border-radius: 14px; padding: .85rem .95rem; background: #fffdf8; }
+    .grpo-line-top { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: .45rem; }
+    .grpo-line-code { font-weight: 700; color: #172033; }
+    .grpo-line-desc { color: #5f6b7a; font-size: .88rem; }
+    .grpo-empty { padding: 2.2rem 1.3rem; text-align: center; color: #6b7280; }
+    .grpo-empty strong { display: block; color: #172033; margin-bottom: .4rem; }
+    .grpo-alert { border-radius: 14px; padding: .85rem 1rem; margin-bottom: 1rem; border: 1px solid transparent; }
+    .grpo-alert.error { background: #fff1f1; border-color: #f3c4c4; color: #8f2727; }
+    .grpo-loading { padding: 2.5rem 1rem; text-align: center; color: #6b7280; }
+    .grpo-pager { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-top: 1px solid #eef2f6; }
+    .grpo-pager span { color: #5f6b7a; font-size: .9rem; }
+    .dark-theme .grpo-title h1, .dark-theme .grpo-panel-header h2, .dark-theme .grpo-table td, .dark-theme .grpo-detail-card div, .dark-theme .grpo-line-code, .dark-theme .grpo-empty strong, .dark-theme .grpo-stat-value { color: #edf2f7; }
+    .dark-theme .grpo-title p, .dark-theme .grpo-panel-header span, .dark-theme .grpo-subtext, .dark-theme .grpo-empty, .dark-theme .grpo-loading, .dark-theme .grpo-pager span, .dark-theme .grpo-detail-card label, .dark-theme .grpo-line-desc, .dark-theme .grpo-stat-label, .dark-theme .grpo-filter-hint, .dark-theme .grpo-search-meta { color: #a9b4c2; }
+    .dark-theme .grpo-stat, .dark-theme .grpo-filters, .dark-theme .grpo-panel { background: #16202c; border-color: #2a3645; box-shadow: none; }
+    .dark-theme .grpo-field input, .dark-theme .grpo-detail-card, .dark-theme .grpo-line { background: #101823; border-color: #2a3645; color: #edf2f7; }
+    .dark-theme .grpo-search-results { background: #16202c; border-color: #2a3645; box-shadow: none; }
+    .dark-theme .grpo-search-option { color: #edf2f7; border-color: #2a3645; }
+    .dark-theme .grpo-search-option:hover { background: #263647; }
+    .dark-theme .grpo-chip { background: #263647; color: #9fc7ff; }
+    .dark-theme .grpo-table th { background: #101823; border-color: #2a3645; color: #a9b4c2; }
+    .dark-theme .grpo-table td, .dark-theme .grpo-panel-header, .dark-theme .grpo-pager { border-color: #2a3645; }
+    .dark-theme .grpo-row:hover { background: #1f2c3b; }
+    .dark-theme .grpo-row.is-selected { background: #263647; }
+    @@media (max-width: 1100px) { .grpo-layout { grid-template-columns: 1fr; } .grpo-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @@media (max-width: 720px) { .grpo-page { padding: 1rem; } .grpo-filters { grid-template-columns: 1fr; } .grpo-detail-grid { grid-template-columns: 1fr; } .grpo-pager { flex-direction: column; align-items: stretch; } }
+</style>
+
+<div class="grpo-page">
+    <div class="grpo-header">
+        <div class="grpo-title">
+            <h1>Goods Receipt POs</h1>
+            <p>Review posted goods receipt purchase orders from SAP and inspect the received lines tied back to supplier documents.</p>
+        </div>
+        <div class="grpo-header-actions">
+            <button class="btn btn-outline-secondary" @onclick="ReloadAsync">Refresh</button>
+            <button class="btn btn-primary" @onclick="NavigateToCreate">Create GRPO</button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="grpo-alert error">@errorMessage</div>
+    }
+
+    <div class="grpo-stats">
+        <div class="grpo-stat"><div class="grpo-stat-label">Total Documents</div><div class="grpo-stat-value">@goodsReceiptResponse?.TotalCount</div></div>
+        <div class="grpo-stat"><div class="grpo-stat-label">Current Page</div><div class="grpo-stat-value">@CurrentPageCount</div></div>
+        <div class="grpo-stat"><div class="grpo-stat-label">Open Documents</div><div class="grpo-stat-value">@OpenGoodsReceiptCount</div></div>
+        <div class="grpo-stat"><div class="grpo-stat-label">Page Total</div><div class="grpo-stat-value">@CurrentPageTotal.ToString("N2")</div></div>
+    </div>
+
+    <div class="grpo-filters">
+        <div class="grpo-field">
+            <label>Supplier</label>
+            <input type="text" @bind="supplierSearchTerm" @bind:event="oninput" @onfocus="ShowSupplierResults" @onblur="HandleSupplierBlur" placeholder="Search supplier code or name" />
+            @if (showSupplierResults && FilteredSuppliers.Any())
+            {
+                <div class="grpo-search-results">
+                    @foreach (var supplier in FilteredSuppliers)
+                    {
+                        <button type="button" class="grpo-search-option" @onmousedown="() => SelectSupplier(supplier)"><strong>@supplier.CardCode - @supplier.CardName</strong><span class="grpo-search-meta">@supplier.Currency</span></button>
+                    }
+                </div>
+            }
+            @if (selectedSupplier is not null)
+            {
+                <div class="grpo-chip">@selectedSupplier.DisplayName<button type="button" @onclick="ClearSupplier">Change</button></div>
+            }
+            <div class="grpo-filter-hint">Type a supplier code or name, then pick a suggestion to filter by name.</div>
+        </div>
+        <div class="grpo-field"><label>From Date</label><input type="date" @bind-value="fromDate" @bind-value:format="yyyy-MM-dd" /></div>
+        <div class="grpo-field"><label>To Date</label><input type="date" @bind-value="toDate" @bind-value:format="yyyy-MM-dd" /></div>
+        <div class="grpo-filter-actions"><button class="btn btn-dark" @onclick="SearchAsync" disabled="@isLoading">Apply Filters</button><button class="btn btn-outline-secondary" @onclick="ClearFiltersAsync" disabled="@isLoading">Clear</button></div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="grpo-panel"><div class="grpo-loading">Loading goods receipt POs from SAP...</div></div>
+    }
+    else
+    {
+        <div class="grpo-layout">
+            <section class="grpo-panel">
+                <div class="grpo-panel-header"><h2>Goods Receipt Register</h2><span>Page @currentPage of @(goodsReceiptResponse?.TotalPages == 0 ? 1 : goodsReceiptResponse?.TotalPages)</span></div>
+                @if (GoodsReceipts.Count == 0)
+                {
+                    <div class="grpo-empty"><strong>No goods receipt POs matched the current filters.</strong>Adjust the supplier code or date range and try again.</div>
+                }
+                else
+                {
+                    <div class="grpo-table-wrap">
+                        <table class="grpo-table">
+                            <thead><tr><th>Document</th><th>Supplier</th><th>Date</th><th>Status</th><th>Total</th></tr></thead>
+                            <tbody>
+                                @foreach (var goodsReceipt in GoodsReceipts)
+                                {
+                                    <tr class="grpo-row @(selectedGoodsReceipt?.DocEntry == goodsReceipt.DocEntry ? "is-selected" : string.Empty)" @onclick="() => SelectGoodsReceipt(goodsReceipt)">
+                                        <td><span class="grpo-doc">#@goodsReceipt.DocNum</span><span class="grpo-subtext">DocEntry @goodsReceipt.DocEntry</span>@if (!string.IsNullOrWhiteSpace(goodsReceipt.NumAtCard)) { <span class="grpo-subtext">Supplier Ref: @goodsReceipt.NumAtCard</span> }</td>
+                                        <td><span class="grpo-doc">@goodsReceipt.CardCode</span><span class="grpo-subtext">@goodsReceipt.CardName</span></td>
+                                        <td><span>@(goodsReceipt.DocDate?.ToString("dd MMM yyyy") ?? "Not set")</span>@if (goodsReceipt.DocDueDate.HasValue) { <span class="grpo-subtext">Due @goodsReceipt.DocDueDate.Value.ToString("dd MMM yyyy")</span> }</td>
+                                        <td><span class="grpo-status @GetStatusCssClass(goodsReceipt.DocStatus)">@goodsReceipt.DocStatus</span></td>
+                                        <td><span class="grpo-amount">@goodsReceipt.DocCurrency @goodsReceipt.DocTotal.ToString("N2")</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                <div class="grpo-pager"><button class="btn btn-outline-secondary" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)">Previous</button><span>Showing @CurrentPageCount of @goodsReceiptResponse?.TotalCount goods receipts</span><button class="btn btn-outline-secondary" @onclick="NextPageAsync" disabled="@(isLoading || !(goodsReceiptResponse?.HasMore ?? false))">Next</button></div>
+            </section>
+            <aside class="grpo-panel">
+                <div class="grpo-panel-header"><h2>Selected GRPO</h2><span>@(selectedGoodsReceipt is null ? "No selection" : $"{selectedGoodsReceipt.DocCurrency} {selectedGoodsReceipt.DocTotal:N2}")</span></div>
+                @if (selectedGoodsReceipt is null)
+                {
+                    <div class="grpo-empty"><strong>Select a goods receipt PO.</strong>The document summary and lines will appear here.</div>
+                }
+                else
+                {
+                    <div class="grpo-detail">
+                        <div class="grpo-detail-grid">
+                            <div class="grpo-detail-card"><label>Supplier</label><div>@selectedGoodsReceipt.CardCode - @selectedGoodsReceipt.CardName</div></div>
+                            <div class="grpo-detail-card"><label>Posting Date</label><div>@(selectedGoodsReceipt.DocDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
+                            <div class="grpo-detail-card"><label>Due Date</label><div>@(selectedGoodsReceipt.DocDueDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
+                            <div class="grpo-detail-card"><label>Discount %</label><div>@selectedGoodsReceipt.DiscountPercent.ToString("N2")</div></div>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(selectedGoodsReceipt.Comments))
+                        {
+                            <div class="grpo-detail-card" style="margin-bottom: 1rem;"><label>Comments</label><div>@selectedGoodsReceipt.Comments</div></div>
+                        }
+                        <div class="grpo-line-list">
+                            @foreach (var line in selectedGoodsReceipt.Lines)
+                            {
+                                <div class="grpo-line"><div class="grpo-line-top"><div><div class="grpo-line-code">@line.ItemCode</div><div class="grpo-line-desc">@line.ItemDescription</div></div><div class="grpo-amount">@selectedGoodsReceipt.DocCurrency @line.LineTotal.ToString("N2")</div></div><div class="grpo-subtext">Qty @line.Quantity.ToString("N2")@(string.IsNullOrWhiteSpace(line.WarehouseCode) ? string.Empty : $" | {line.WarehouseCode}")@(line.BaseEntry.HasValue ? $" | PO {line.BaseEntry}:{line.BaseLine}" : string.Empty)</div></div>
+                            }
+                        </div>
+                    </div>
+                }
+            </aside>
+        </div>
+    }
+</div>

@@ -692,6 +692,82 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         }
     }
 
+    public async Task<SAPPurchaseInvoice> CreatePurchaseInvoiceAsync(
+        CreatePurchaseInvoiceRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidatePurchaseInvoiceRequest(request);
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var currentSession = _sessionId;
+        var payload = new
+        {
+            CardCode = request.CardCode,
+            DocDate = (request.DocDate ?? DateTime.Today).ToString("yyyy-MM-dd"),
+            DocDueDate = (request.DocDueDate ?? request.DocDate ?? DateTime.Today).ToString("yyyy-MM-dd"),
+            NumAtCard = request.NumAtCard,
+            Comments = request.Comments,
+            DocCurrency = string.IsNullOrWhiteSpace(request.DocCurrency) ? null : request.DocCurrency,
+            DiscountPercent = request.DiscountPercent,
+            DocumentLines = request.Lines.Select((line, index) => new
+            {
+                LineNum = index,
+                ItemCode = line.ItemCode,
+                ItemDescription = line.ItemDescription,
+                Quantity = line.Quantity,
+                UnitPrice = line.UnitPrice,
+                DiscountPercent = line.DiscountPercent,
+                WarehouseCode = line.WarehouseCode,
+                TaxCode = line.TaxCode,
+                UoMCode = line.UoMCode,
+                UoMEntry = line.UoMEntry
+            }).ToList()
+        };
+
+        var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
+        {
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        });
+
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, "PurchaseInvoices")
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+        httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            httpRequest = new HttpRequestMessage(HttpMethod.Post, "PurchaseInvoices")
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to create purchase invoice: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            throw new Exception(ExtractSAPErrorMessage(errorContent) ?? $"Failed to create purchase invoice: {response.StatusCode} - {errorContent}");
+        }
+
+        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+        var invoice = JsonSerializer.Deserialize<SAPPurchaseInvoice>(responseContent);
+
+        _logger.LogInformation("Purchase invoice created successfully with DocEntry: {DocEntry}", invoice?.DocEntry);
+
+        return invoice ?? throw new Exception("Failed to deserialize created purchase invoice");
+    }
+
+
     public async Task<Invoice?> GetInvoiceByDocEntryAsync(
         int docEntry,
         CancellationToken cancellationToken = default)
@@ -5383,6 +5459,34 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         }
     }
 
+    private static void ValidatePurchaseInvoiceRequest(CreatePurchaseInvoiceRequest request)
+    {
+        var errors = new List<string>();
+
+        if (string.IsNullOrWhiteSpace(request.CardCode))
+            errors.Add("Supplier code (CardCode) is required");
+
+        if (request.Lines == null || request.Lines.Count == 0)
+            errors.Add("At least one line item is required");
+
+        if (request.Lines != null)
+        {
+            for (int index = 0; index < request.Lines.Count; index++)
+            {
+                var line = request.Lines[index];
+                if (string.IsNullOrWhiteSpace(line.ItemCode))
+                    errors.Add($"Line {index + 1}: Item code is required");
+                if (line.Quantity <= 0)
+                    errors.Add($"Line {index + 1}: Quantity must be greater than zero");
+                if (line.UnitPrice <= 0)
+                    errors.Add($"Line {index + 1}: Unit price must be greater than zero");
+            }
+        }
+
+        if (errors.Count > 0)
+            throw new ArgumentException(string.Join("; ", errors));
+    }
+
     #region Inventory Transfer Request Operations
 
     /// <summary>
@@ -6868,6 +6972,984 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
         return int.TryParse(content.Trim(), out var count) ? count : 0;
+    }
+
+    #endregion
+
+    #region Purchase Request Operations
+
+    public async Task<List<SAPPurchaseRequest>> GetPagedPurchaseRequestsAsync(int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var skip = (page - 1) * pageSize;
+        var url = $"PurchaseRequests?$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get paged purchase requests: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            throw new Exception($"Failed to get paged purchase requests: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var result = JsonSerializer.Deserialize<SAPResponse<SAPPurchaseRequest>>(content);
+
+        return result?.Value ?? new List<SAPPurchaseRequest>();
+    }
+
+    public async Task<SAPPurchaseRequest?> GetPurchaseRequestByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var url = $"PurchaseRequests({docEntry})";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return null;
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get purchase request {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
+            throw new Exception($"Failed to get purchase request: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        return JsonSerializer.Deserialize<SAPPurchaseRequest>(content);
+    }
+
+    public async Task<List<SAPPurchaseRequest>> GetPurchaseRequestsByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var fromDateStr = fromDate.ToString("yyyy-MM-dd");
+        var toDateStr = toDate.ToString("yyyy-MM-dd");
+        var allRequests = new List<SAPPurchaseRequest>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
+
+        while (hasMore)
+        {
+            var url = $"PurchaseRequests?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get purchase requests by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get purchase requests by date range: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<SAPPurchaseRequest>>(valueArray.GetRawText()) ?? new List<SAPPurchaseRequest>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allRequests.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
+        }
+
+        _logger.LogInformation("Retrieved {Count} purchase requests for date range {From} to {To}", allRequests.Count, fromDateStr, toDateStr);
+        return allRequests;
+    }
+
+    public async Task<int> GetPurchaseRequestsCountAsync(DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var filters = new List<string>();
+        if (fromDate.HasValue)
+            filters.Add($"DocDate ge '{fromDate.Value:yyyy-MM-dd}'");
+        if (toDate.HasValue)
+            filters.Add($"DocDate le '{toDate.Value:yyyy-MM-dd}'");
+
+        var filterStr = filters.Count > 0 ? $"$filter={string.Join(" and ", filters)}" : string.Empty;
+        var url = string.IsNullOrEmpty(filterStr)
+            ? "PurchaseRequests/$count"
+            : $"PurchaseRequests/$count?{filterStr}";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get purchase requests count: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            throw new Exception($"Failed to get purchase requests count: {response.StatusCode} - {errorContent}");
+        }
+
+        var countContent = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (int.TryParse(countContent, out var count))
+            return count;
+
+        return 0;
+    }
+
+    public async Task<SAPPurchaseRequest> CreatePurchaseRequestAsync(CreatePurchaseRequestRequest request, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var payload = JsonSerializer.Serialize(request);
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, "PurchaseRequests")
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "application/json")
+        };
+        httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+
+        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            httpRequest = new HttpRequestMessage(HttpMethod.Post, "PurchaseRequests")
+            {
+                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+            };
+            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to create purchase request: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            throw new Exception(ExtractSAPErrorMessage(errorContent) ?? $"Failed to create purchase request: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var purchaseRequest = JsonSerializer.Deserialize<SAPPurchaseRequest>(content);
+
+        _logger.LogInformation("Purchase request created successfully with DocEntry: {DocEntry}", purchaseRequest?.DocEntry);
+        return purchaseRequest ?? throw new Exception("Failed to deserialize created purchase request");
+    }
+
+    #endregion
+
+    #region Purchase Quotation Operations
+
+    public async Task<List<SAPPurchaseQuotation>> GetPagedPurchaseQuotationsAsync(int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var skip = (page - 1) * pageSize;
+        var url = $"PurchaseQuotations?$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get paged purchase quotations: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            throw new Exception($"Failed to get paged purchase quotations: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var result = JsonSerializer.Deserialize<SAPResponse<SAPPurchaseQuotation>>(content);
+
+        return result?.Value ?? new List<SAPPurchaseQuotation>();
+    }
+
+    public async Task<SAPPurchaseQuotation?> GetPurchaseQuotationByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var url = $"PurchaseQuotations({docEntry})";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return null;
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get purchase quotation {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
+            throw new Exception($"Failed to get purchase quotation: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        return JsonSerializer.Deserialize<SAPPurchaseQuotation>(content);
+    }
+
+    public async Task<List<SAPPurchaseQuotation>> GetPurchaseQuotationsBySupplierAsync(string cardCode, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var url = $"PurchaseQuotations?$filter=CardCode eq '{cardCode}'&$orderby=DocEntry desc";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get purchase quotations for supplier {CardCode}: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
+            throw new Exception($"Failed to get purchase quotations for supplier: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var result = JsonSerializer.Deserialize<SAPResponse<SAPPurchaseQuotation>>(content);
+
+        return result?.Value ?? new List<SAPPurchaseQuotation>();
+    }
+
+    public async Task<List<SAPPurchaseQuotation>> GetPurchaseQuotationsByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var fromDateStr = fromDate.ToString("yyyy-MM-dd");
+        var toDateStr = toDate.ToString("yyyy-MM-dd");
+        var allQuotations = new List<SAPPurchaseQuotation>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
+
+        while (hasMore)
+        {
+            var url = $"PurchaseQuotations?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get purchase quotations by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get purchase quotations by date range: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<SAPPurchaseQuotation>>(valueArray.GetRawText()) ?? new List<SAPPurchaseQuotation>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allQuotations.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
+        }
+
+        _logger.LogInformation("Retrieved {Count} purchase quotations for date range {From} to {To}", allQuotations.Count, fromDateStr, toDateStr);
+        return allQuotations;
+    }
+
+    public async Task<int> GetPurchaseQuotationsCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var filters = new List<string>();
+        if (!string.IsNullOrEmpty(cardCode))
+            filters.Add($"CardCode eq '{cardCode}'");
+        if (fromDate.HasValue)
+            filters.Add($"DocDate ge '{fromDate.Value:yyyy-MM-dd}'");
+        if (toDate.HasValue)
+            filters.Add($"DocDate le '{toDate.Value:yyyy-MM-dd}'");
+
+        var filterStr = filters.Count > 0 ? $"$filter={string.Join(" and ", filters)}" : string.Empty;
+        var url = string.IsNullOrEmpty(filterStr)
+            ? "PurchaseQuotations/$count"
+            : $"PurchaseQuotations/$count?{filterStr}";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get purchase quotations count: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            throw new Exception($"Failed to get purchase quotations count: {response.StatusCode} - {errorContent}");
+        }
+
+        var countContent = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (int.TryParse(countContent, out var count))
+            return count;
+
+        return 0;
+    }
+
+    public async Task<SAPPurchaseQuotation> CreatePurchaseQuotationAsync(CreatePurchaseQuotationRequest request, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var payload = JsonSerializer.Serialize(request);
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, "PurchaseQuotations")
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "application/json")
+        };
+        httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+
+        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            httpRequest = new HttpRequestMessage(HttpMethod.Post, "PurchaseQuotations")
+            {
+                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+            };
+            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to create purchase quotation: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            throw new Exception(ExtractSAPErrorMessage(errorContent) ?? $"Failed to create purchase quotation: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var purchaseQuotation = JsonSerializer.Deserialize<SAPPurchaseQuotation>(content);
+
+        _logger.LogInformation("Purchase quotation created successfully with DocEntry: {DocEntry}", purchaseQuotation?.DocEntry);
+        return purchaseQuotation ?? throw new Exception("Failed to deserialize created purchase quotation");
+    }
+
+    #endregion
+
+    #region Goods Receipt Purchase Order Operations
+
+    public async Task<List<SAPGoodsReceiptPurchaseOrder>> GetPagedGoodsReceiptPurchaseOrdersAsync(int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var skip = (page - 1) * pageSize;
+        var url = $"PurchaseDeliveryNotes?$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get paged goods receipt POs: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            throw new Exception($"Failed to get paged goods receipt POs: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var result = JsonSerializer.Deserialize<SAPResponse<SAPGoodsReceiptPurchaseOrder>>(content);
+
+        return result?.Value ?? new List<SAPGoodsReceiptPurchaseOrder>();
+    }
+
+    public async Task<SAPGoodsReceiptPurchaseOrder?> GetGoodsReceiptPurchaseOrderByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var url = $"PurchaseDeliveryNotes({docEntry})";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return null;
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get goods receipt PO {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
+            throw new Exception($"Failed to get goods receipt PO: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        return JsonSerializer.Deserialize<SAPGoodsReceiptPurchaseOrder>(content);
+    }
+
+    public async Task<List<SAPGoodsReceiptPurchaseOrder>> GetGoodsReceiptPurchaseOrdersBySupplierAsync(string cardCode, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var url = $"PurchaseDeliveryNotes?$filter=CardCode eq '{cardCode}'&$orderby=DocEntry desc";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get goods receipt POs for supplier {CardCode}: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
+            throw new Exception($"Failed to get goods receipt POs for supplier: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var result = JsonSerializer.Deserialize<SAPResponse<SAPGoodsReceiptPurchaseOrder>>(content);
+
+        return result?.Value ?? new List<SAPGoodsReceiptPurchaseOrder>();
+    }
+
+    public async Task<List<SAPGoodsReceiptPurchaseOrder>> GetGoodsReceiptPurchaseOrdersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var fromDateStr = fromDate.ToString("yyyy-MM-dd");
+        var toDateStr = toDate.ToString("yyyy-MM-dd");
+        var allGoodsReceipts = new List<SAPGoodsReceiptPurchaseOrder>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
+
+        while (hasMore)
+        {
+            var url = $"PurchaseDeliveryNotes?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get goods receipt POs by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get goods receipt POs by date range: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<SAPGoodsReceiptPurchaseOrder>>(valueArray.GetRawText()) ?? new List<SAPGoodsReceiptPurchaseOrder>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allGoodsReceipts.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
+        }
+
+        _logger.LogInformation("Retrieved {Count} goods receipt POs for date range {From} to {To}", allGoodsReceipts.Count, fromDateStr, toDateStr);
+        return allGoodsReceipts;
+    }
+
+    public async Task<int> GetGoodsReceiptPurchaseOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var filters = new List<string>();
+        if (!string.IsNullOrEmpty(cardCode))
+            filters.Add($"CardCode eq '{cardCode}'");
+        if (fromDate.HasValue)
+            filters.Add($"DocDate ge '{fromDate.Value:yyyy-MM-dd}'");
+        if (toDate.HasValue)
+            filters.Add($"DocDate le '{toDate.Value:yyyy-MM-dd}'");
+
+        var filterStr = filters.Count > 0 ? $"$filter={string.Join(" and ", filters)}" : string.Empty;
+        var url = string.IsNullOrEmpty(filterStr)
+            ? "PurchaseDeliveryNotes/$count"
+            : $"PurchaseDeliveryNotes/$count?{filterStr}";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get goods receipt POs count: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            throw new Exception($"Failed to get goods receipt POs count: {response.StatusCode} - {errorContent}");
+        }
+
+        var countContent = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (int.TryParse(countContent, out var count))
+            return count;
+
+        return 0;
+    }
+
+    public async Task<SAPGoodsReceiptPurchaseOrder> CreateGoodsReceiptPurchaseOrderAsync(CreateGoodsReceiptPurchaseOrderRequest request, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var payload = JsonSerializer.Serialize(request);
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, "PurchaseDeliveryNotes")
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "application/json")
+        };
+        httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+
+        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            httpRequest = new HttpRequestMessage(HttpMethod.Post, "PurchaseDeliveryNotes")
+            {
+                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+            };
+            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to create goods receipt PO: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            throw new Exception(ExtractSAPErrorMessage(errorContent) ?? $"Failed to create goods receipt PO: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var goodsReceipt = JsonSerializer.Deserialize<SAPGoodsReceiptPurchaseOrder>(content);
+
+        _logger.LogInformation("Goods receipt PO created successfully with DocEntry: {DocEntry}", goodsReceipt?.DocEntry);
+        return goodsReceipt ?? throw new Exception("Failed to deserialize created goods receipt PO");
+    }
+
+    #endregion
+
+    #region Purchase Invoice Operations
+
+    public async Task<List<SAPPurchaseInvoice>> GetPagedPurchaseInvoicesAsync(int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var skip = (page - 1) * pageSize;
+        var url = $"PurchaseInvoices?$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get paged purchase invoices: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            throw new Exception($"Failed to get paged purchase invoices: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var result = JsonSerializer.Deserialize<SAPResponse<SAPPurchaseInvoice>>(content);
+
+        return result?.Value ?? new List<SAPPurchaseInvoice>();
+    }
+
+    public async Task<SAPPurchaseInvoice?> GetPurchaseInvoiceByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var url = $"PurchaseInvoices({docEntry})";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return null;
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get purchase invoice {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
+            throw new Exception($"Failed to get purchase invoice: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        return JsonSerializer.Deserialize<SAPPurchaseInvoice>(content);
+    }
+
+    public async Task<List<SAPPurchaseInvoice>> GetPurchaseInvoicesBySupplierAsync(string cardCode, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var url = $"PurchaseInvoices?$filter=CardCode eq '{cardCode}'&$orderby=DocEntry desc";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get purchase invoices for supplier {CardCode}: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
+            throw new Exception($"Failed to get purchase invoices for supplier: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var result = JsonSerializer.Deserialize<SAPResponse<SAPPurchaseInvoice>>(content);
+
+        return result?.Value ?? new List<SAPPurchaseInvoice>();
+    }
+
+    public async Task<List<SAPPurchaseInvoice>> GetPurchaseInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var fromDateStr = fromDate.ToString("yyyy-MM-dd");
+        var toDateStr = toDate.ToString("yyyy-MM-dd");
+        var allInvoices = new List<SAPPurchaseInvoice>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
+
+        while (hasMore)
+        {
+            var url = $"PurchaseInvoices?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get purchase invoices by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get purchase invoices by date range: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pageItems = JsonSerializer.Deserialize<List<SAPPurchaseInvoice>>(valueArray.GetRawText()) ?? new List<SAPPurchaseInvoice>();
+
+            if (pageItems.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allInvoices.AddRange(pageItems);
+                skip += pageItems.Count;
+                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
+                          pageItems.Count == pageSize;
+            }
+        }
+
+        _logger.LogInformation("Retrieved {Count} purchase invoices for date range {From} to {To}", allInvoices.Count, fromDateStr, toDateStr);
+        return allInvoices;
+    }
+
+    public async Task<int> GetPurchaseInvoicesCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var filters = new List<string>();
+        if (!string.IsNullOrEmpty(cardCode))
+            filters.Add($"CardCode eq '{cardCode}'");
+        if (fromDate.HasValue)
+            filters.Add($"DocDate ge '{fromDate.Value:yyyy-MM-dd}'");
+        if (toDate.HasValue)
+            filters.Add($"DocDate le '{toDate.Value:yyyy-MM-dd}'");
+
+        var filterStr = filters.Count > 0 ? $"$filter={string.Join(" and ", filters)}" : string.Empty;
+        var url = string.IsNullOrEmpty(filterStr)
+            ? "PurchaseInvoices/$count"
+            : $"PurchaseInvoices/$count?{filterStr}";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get purchase invoices count: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            throw new Exception($"Failed to get purchase invoices count: {response.StatusCode} - {errorContent}");
+        }
+
+        var countContent = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (int.TryParse(countContent, out var count))
+            return count;
+
+        return 0;
     }
 
     #endregion

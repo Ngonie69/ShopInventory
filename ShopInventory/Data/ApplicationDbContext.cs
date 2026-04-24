@@ -18,6 +18,7 @@ public class ApplicationDbContext : DbContext
   public DbSet<User> Users { get; set; }
   public DbSet<RefreshToken> RefreshTokens { get; set; }
   public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
+  public DbSet<PasskeyCredential> PasskeyCredentials { get; set; }
 
   // Product tables
   public DbSet<ProductEntity> Products { get; set; }
@@ -186,6 +187,39 @@ public class ApplicationDbContext : DbContext
       entity.HasOne(prt => prt.User)
                 .WithMany(u => u.PasswordResetTokens)
                 .HasForeignKey(prt => prt.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    // Passkey credential configuration
+    modelBuilder.Entity<PasskeyCredential>(entity =>
+    {
+      entity.ToTable("PasskeyCredentials");
+
+      entity.HasIndex(pc => pc.CredentialId)
+                .IsUnique();
+
+      entity.HasIndex(pc => pc.UserId);
+
+      entity.Property(pc => pc.CredentialId)
+                .IsRequired()
+                .HasMaxLength(512);
+
+      entity.Property(pc => pc.FriendlyName)
+                .IsRequired()
+                .HasMaxLength(128);
+
+      entity.Property(pc => pc.AaGuid)
+                .HasMaxLength(64);
+
+      entity.Property(pc => pc.AttestationFormat)
+                .HasMaxLength(255);
+
+      entity.Property(pc => pc.AuthenticatorTransports)
+                .HasMaxLength(256);
+
+      entity.HasOne(pc => pc.User)
+                .WithMany(u => u.Passkeys)
+                .HasForeignKey(pc => pc.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
     });
 
@@ -580,6 +614,7 @@ public class ApplicationDbContext : DbContext
       entity.HasKey(e => e.Id);
 
       entity.HasIndex(e => e.OrderNumber).IsUnique();
+      entity.HasIndex(e => e.ClientRequestId).IsUnique();
       entity.HasIndex(e => e.CardCode);
       entity.HasIndex(e => e.Status);
       entity.HasIndex(e => e.OrderDate);

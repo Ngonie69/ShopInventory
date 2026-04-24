@@ -1337,8 +1337,10 @@
         try
         {
             await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+            await using var statsContext = await DbContextFactory.CreateDbContextAsync();
+            var now = DateTime.UtcNow;
 
-            var query = dbContext.Set<CustomerPortalUser>().AsQueryable();
+            var query = dbContext.Set<CustomerPortalUser>().AsNoTracking().AsQueryable();
 
             // Apply filters
             if (!string.IsNullOrEmpty(searchTerm))
@@ -1365,14 +1367,31 @@
                 }
             }
 
-            customers = await query.Include(c => c.LinkedAccounts).OrderBy(c => c.CardCode).ToListAsync();
+            var customersTask = query
+                .Include(c => c.LinkedAccounts)
+                .OrderBy(c => c.CardCode)
+                .ToListAsync();
 
-            // Calculate stats
-            var allCustomers = await dbContext.Set<CustomerPortalUser>().ToListAsync();
-            totalAccounts = allCustomers.Count;
-            activeAccounts = allCustomers.Count(c => c.IsActive && (c.LockedUntil == null || c.LockedUntil <= DateTime.UtcNow));
-            inactiveAccounts = allCustomers.Count(c => !c.IsActive);
-            lockedAccounts = allCustomers.Count(c => c.LockedUntil != null && c.LockedUntil > DateTime.UtcNow);
+            var statsTask = statsContext.Set<CustomerPortalUser>()
+                .AsNoTracking()
+                .GroupBy(_ => 1)
+                .Select(group => new
+                {
+                    Total = group.Count(),
+                    Active = group.Count(c => c.IsActive && (c.LockedUntil == null || c.LockedUntil <= now)),
+                    Inactive = group.Count(c => !c.IsActive),
+                    Locked = group.Count(c => c.LockedUntil != null && c.LockedUntil > now)
+                })
+                .FirstOrDefaultAsync();
+
+            await Task.WhenAll(customersTask, statsTask);
+
+            customers = customersTask.Result;
+            var stats = statsTask.Result;
+            totalAccounts = stats?.Total ?? 0;
+            activeAccounts = stats?.Active ?? 0;
+            inactiveAccounts = stats?.Inactive ?? 0;
+            lockedAccounts = stats?.Locked ?? 0;
         }
         catch (Exception ex)
         {
@@ -1436,29 +1455,33 @@
 
             var term = searchText.ToLower();
 
-            // Search for business partners matching the search term
-            var results = await dbContext.CachedBusinessPartners
-            .Where(bp => bp.CardCode.ToLower().Contains(term) ||
-            (bp.CardName != null && bp.CardName.ToLower().Contains(term)))
-            .OrderBy(bp => bp.CardCode)
-            .Take(15)
-            .ToListAsync(cancellationToken);
+            var baseQuery = dbContext.CachedBusinessPartners
+                .AsNoTracking()
+                .Where(bp => bp.CardCode.ToLower().Contains(term) ||
+                    (bp.CardName != null && bp.CardName.ToLower().Contains(term)));
 
-            Logger.LogInformation("Search for '{Term}' found {Count} results", term, results.Count);
-
-            // Try to exclude customers who already have portal accounts
             try
             {
-                var existingCodes = await dbContext.Set<CustomerPortalUser>()
-                .Select(c => c.CardCode)
+                var results = await baseQuery
+                .Where(bp => !dbContext.Set<CustomerPortalUser>().AsNoTracking().Any(c => c.CardCode == bp.CardCode))
+                .OrderBy(bp => bp.CardCode)
+                .Take(15)
                 .ToListAsync(cancellationToken);
 
-                return results.Where(bp => !existingCodes.Contains(bp.CardCode));
+                Logger.LogInformation("Search for '{Term}' found {Count} results", term, results.Count);
+                return results;
             }
             catch (Exception tableEx)
             {
                 // CustomerPortalUsers table might not exist yet - return all results
                 Logger.LogWarning(tableEx, "Could not query CustomerPortalUsers table - it may not exist yet");
+
+                var results = await baseQuery
+                .OrderBy(bp => bp.CardCode)
+                .Take(15)
+                .ToListAsync(cancellationToken);
+
+                Logger.LogInformation("Search for '{Term}' found {Count} results", term, results.Count);
                 return results;
             }
         }

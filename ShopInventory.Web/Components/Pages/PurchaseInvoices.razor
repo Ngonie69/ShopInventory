@@ -1,0 +1,342 @@
+@page "/purchase-invoices"
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+
+<PageTitle>A/P Invoices</PageTitle>
+
+<style>
+    .apinv-page { max-width: 1500px; margin: 0 auto; padding: 1.5rem; }
+    .apinv-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .apinv-title h1 { margin: 0; font-size: 1.7rem; font-weight: 800; color: #172033; }
+    .apinv-title p { margin: .4rem 0 0; color: #5f6b7a; max-width: 700px; }
+    .apinv-header-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
+
+    .apinv-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
+    .apinv-stat { background: linear-gradient(180deg, #fffdf7 0%, #fff 100%); border: 1px solid #f1e2be; border-radius: 16px; padding: 1rem 1.1rem; box-shadow: 0 12px 30px rgba(23, 32, 51, .05); }
+    .apinv-stat-label { color: #8a6f2f; font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+    .apinv-stat-value { margin-top: .35rem; font-size: 1.55rem; font-weight: 800; color: #172033; }
+
+    .apinv-filters { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; padding: 1rem; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.25rem; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); }
+    .apinv-field { position: relative; }
+    .apinv-field label { display: block; font-size: .78rem; font-weight: 700; color: #5f6b7a; margin-bottom: .35rem; text-transform: uppercase; letter-spacing: .05em; }
+    .apinv-field input { width: 100%; border: 1px solid #d7dee7; border-radius: 12px; padding: .75rem .85rem; background: #fbfcfe; }
+    .apinv-filter-hint { margin-top: .4rem; font-size: .78rem; color: #7c8798; }
+    .apinv-search-results { position: absolute; z-index: 15; left: 0; right: 0; top: calc(100% + .35rem); background: #fff; border: 1px solid #d7dee7; border-radius: 14px; overflow: hidden; box-shadow: 0 16px 30px rgba(23, 32, 51, .12); max-height: 260px; overflow-y: auto; }
+    .apinv-search-option { width: 100%; border: none; background: transparent; text-align: left; padding: .8rem .9rem; border-bottom: 1px solid #eef2f6; color: #172033; }
+    .apinv-search-option:last-child { border-bottom: none; }
+    .apinv-search-option:hover { background: #fff8e8; }
+    .apinv-search-meta { display: block; margin-top: .15rem; font-size: .78rem; color: #6b7280; }
+    .apinv-chip { display: inline-flex; align-items: center; gap: .55rem; margin-top: .55rem; padding: .45rem .75rem; border-radius: 999px; background: #fff4d3; color: #7a611c; font-size: .82rem; font-weight: 700; }
+    .apinv-chip button { border: none; background: transparent; color: inherit; text-decoration: underline; padding: 0; }
+    .apinv-filter-actions { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; }
+
+    .apinv-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr); gap: 1rem; }
+    .apinv-panel { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); overflow: hidden; }
+    .apinv-panel-header { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-bottom: 1px solid #eef2f6; }
+    .apinv-panel-header h2 { margin: 0; font-size: 1rem; font-weight: 700; color: #172033; }
+    .apinv-panel-header span { color: #5f6b7a; font-size: .85rem; }
+
+    .apinv-table-wrap { overflow-x: auto; }
+    .apinv-table { width: 100%; border-collapse: collapse; }
+    .apinv-table th { text-align: left; padding: .9rem 1rem; font-size: .76rem; color: #6b7280; text-transform: uppercase; letter-spacing: .06em; background: #fbfcfe; border-bottom: 1px solid #eef2f6; }
+    .apinv-table td { padding: .95rem 1rem; border-bottom: 1px solid #f3f5f8; color: #172033; vertical-align: top; }
+    .apinv-row { cursor: pointer; transition: background-color .15s ease, transform .15s ease; }
+    .apinv-row:hover { background: #fff8e8; }
+    .apinv-row.is-selected { background: #fff4d3; }
+    .apinv-doc { font-weight: 700; }
+    .apinv-subtext { display: block; margin-top: .2rem; font-size: .8rem; color: #6b7280; }
+    .apinv-amount { font-weight: 700; white-space: nowrap; }
+    .apinv-status { display: inline-flex; align-items: center; border-radius: 999px; padding: .3rem .65rem; font-size: .75rem; font-weight: 700; }
+    .apinv-status.open { background: #e8f7ec; color: #1f7a38; }
+    .apinv-status.closed { background: #e8eef9; color: #2952a3; }
+    .apinv-status.cancelled { background: #fdecec; color: #a12828; }
+
+    .apinv-detail { padding: 1rem 1.1rem 1.2rem; }
+    .apinv-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; margin-bottom: 1rem; }
+    .apinv-detail-card { border: 1px solid #edf1f5; border-radius: 14px; padding: .85rem .95rem; background: #fbfcfe; }
+    .apinv-detail-card label { display: block; font-size: .72rem; font-weight: 700; color: #8a94a4; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .25rem; }
+    .apinv-detail-card div { color: #172033; font-weight: 600; }
+    .apinv-line-list { display: grid; gap: .75rem; }
+    .apinv-line { border: 1px solid #edf1f5; border-radius: 14px; padding: .85rem .95rem; background: #fffdf8; }
+    .apinv-line-top { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: .45rem; }
+    .apinv-line-code { font-weight: 700; color: #172033; }
+    .apinv-line-desc { color: #5f6b7a; font-size: .88rem; }
+    .apinv-empty { padding: 2.2rem 1.3rem; text-align: center; color: #6b7280; }
+    .apinv-empty strong { display: block; color: #172033; margin-bottom: .4rem; }
+    .apinv-alert { border-radius: 14px; padding: .85rem 1rem; margin-bottom: 1rem; border: 1px solid transparent; }
+    .apinv-alert.error { background: #fff1f1; border-color: #f3c4c4; color: #8f2727; }
+    .apinv-loading { padding: 2.5rem 1rem; text-align: center; color: #6b7280; }
+    .apinv-pager { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-top: 1px solid #eef2f6; }
+    .apinv-pager span { color: #5f6b7a; font-size: .9rem; }
+
+    .dark-theme .apinv-title h1,
+    .dark-theme .apinv-panel-header h2,
+    .dark-theme .apinv-table td,
+    .dark-theme .apinv-detail-card div,
+    .dark-theme .apinv-line-code,
+    .dark-theme .apinv-empty strong,
+    .dark-theme .apinv-stat-value { color: #edf2f7; }
+    .dark-theme .apinv-title p,
+    .dark-theme .apinv-panel-header span,
+    .dark-theme .apinv-subtext,
+    .dark-theme .apinv-empty,
+    .dark-theme .apinv-loading,
+    .dark-theme .apinv-pager span,
+    .dark-theme .apinv-detail-card label,
+    .dark-theme .apinv-line-desc,
+    .dark-theme .apinv-stat-label { color: #a9b4c2; }
+    .dark-theme .apinv-stat,
+    .dark-theme .apinv-filters,
+    .dark-theme .apinv-panel { background: #16202c; border-color: #2a3645; box-shadow: none; }
+    .dark-theme .apinv-stat { background: linear-gradient(180deg, #16202c 0%, #111926 100%); }
+    .dark-theme .apinv-field input,
+    .dark-theme .apinv-detail-card,
+    .dark-theme .apinv-line { background: #101823; border-color: #2a3645; color: #edf2f7; }
+    .dark-theme .apinv-filter-hint,
+    .dark-theme .apinv-search-meta { color: #a9b4c2; }
+    .dark-theme .apinv-search-results { background: #16202c; border-color: #2a3645; box-shadow: none; }
+    .dark-theme .apinv-search-option { color: #edf2f7; border-color: #2a3645; }
+    .dark-theme .apinv-search-option:hover { background: #263647; }
+    .dark-theme .apinv-chip { background: #263647; color: #f7d37d; }
+    .dark-theme .apinv-table th { background: #101823; border-color: #2a3645; color: #a9b4c2; }
+    .dark-theme .apinv-table td,
+    .dark-theme .apinv-panel-header,
+    .dark-theme .apinv-pager { border-color: #2a3645; }
+    .dark-theme .apinv-row:hover { background: #1f2c3b; }
+    .dark-theme .apinv-row.is-selected { background: #263647; }
+
+    @@media (max-width: 1100px) {
+        .apinv-layout { grid-template-columns: 1fr; }
+        .apinv-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @@media (max-width: 720px) {
+        .apinv-page { padding: 1rem; }
+        .apinv-filters { grid-template-columns: 1fr; }
+        .apinv-detail-grid { grid-template-columns: 1fr; }
+        .apinv-pager { flex-direction: column; align-items: stretch; }
+    }
+</style>
+
+<div class="apinv-page">
+    <div class="apinv-header">
+        <div class="apinv-title">
+            <h1>A/P Invoices</h1>
+            <p>View supplier invoices pulled from SAP and inspect the posted document lines before creating the next document.</p>
+        </div>
+        <div class="apinv-header-actions">
+            <button class="btn btn-outline-secondary" @onclick="ReloadAsync">Refresh</button>
+            <button class="btn btn-warning" @onclick="NavigateToCreate">Create A/P Invoice</button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="apinv-alert error">@errorMessage</div>
+    }
+
+    <div class="apinv-stats">
+        <div class="apinv-stat">
+            <div class="apinv-stat-label">Total Documents</div>
+            <div class="apinv-stat-value">@invoiceResponse?.TotalCount</div>
+        </div>
+        <div class="apinv-stat">
+            <div class="apinv-stat-label">Current Page</div>
+            <div class="apinv-stat-value">@CurrentPageCount</div>
+        </div>
+        <div class="apinv-stat">
+            <div class="apinv-stat-label">Open Documents</div>
+            <div class="apinv-stat-value">@OpenInvoiceCount</div>
+        </div>
+        <div class="apinv-stat">
+            <div class="apinv-stat-label">Page Total</div>
+            <div class="apinv-stat-value">@CurrentPageTotal.ToString("N2")</div>
+        </div>
+    </div>
+
+    <div class="apinv-filters">
+        <div class="apinv-field">
+            <label>Supplier</label>
+            <input type="text"
+                   @bind="supplierSearchTerm"
+                   @bind:event="oninput"
+                   @onfocus="ShowSupplierResults"
+                   @onblur="HandleSupplierBlur"
+                   placeholder="Search supplier code or name" />
+            @if (showSupplierResults && FilteredSuppliers.Any())
+            {
+                <div class="apinv-search-results">
+                    @foreach (var supplier in FilteredSuppliers)
+                    {
+                        <button type="button" class="apinv-search-option" @onmousedown="() => SelectSupplier(supplier)">
+                            <strong>@supplier.CardCode - @supplier.CardName</strong>
+                            <span class="apinv-search-meta">@supplier.Currency</span>
+                        </button>
+                    }
+                </div>
+            }
+            @if (selectedSupplier is not null)
+            {
+                <div class="apinv-chip">
+                    @selectedSupplier.DisplayName
+                    <button type="button" @onclick="ClearSupplier">Change</button>
+                </div>
+            }
+            <div class="apinv-filter-hint">Type a supplier code or name, then pick a suggestion to filter by name.</div>
+        </div>
+        <div class="apinv-field">
+            <label>From Date</label>
+            <input type="date" @bind-value="fromDate" @bind-value:format="yyyy-MM-dd" />
+        </div>
+        <div class="apinv-field">
+            <label>To Date</label>
+            <input type="date" @bind-value="toDate" @bind-value:format="yyyy-MM-dd" />
+        </div>
+        <div class="apinv-filter-actions">
+            <button class="btn btn-dark" @onclick="SearchAsync" disabled="@isLoading">Apply Filters</button>
+            <button class="btn btn-outline-secondary" @onclick="ClearFiltersAsync" disabled="@isLoading">Clear</button>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="apinv-panel">
+            <div class="apinv-loading">Loading purchase invoices from SAP...</div>
+        </div>
+    }
+    else
+    {
+        <div class="apinv-layout">
+            <section class="apinv-panel">
+                <div class="apinv-panel-header">
+                    <h2>Invoice Register</h2>
+                    <span>Page @currentPage of @(invoiceResponse?.TotalPages == 0 ? 1 : invoiceResponse?.TotalPages)</span>
+                </div>
+
+                @if (Invoices.Count == 0)
+                {
+                    <div class="apinv-empty">
+                        <strong>No A/P invoices matched the current filters.</strong>
+                        Adjust the supplier code or date range and try again.
+                    </div>
+                }
+                else
+                {
+                    <div class="apinv-table-wrap">
+                        <table class="apinv-table">
+                            <thead>
+                                <tr>
+                                    <th>Document</th>
+                                    <th>Supplier</th>
+                                    <th>Date</th>
+                                    <th>Status</th>
+                                    <th>Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var invoice in Invoices)
+                                {
+                                    <tr class="apinv-row @(selectedInvoice?.DocEntry == invoice.DocEntry ? "is-selected" : string.Empty)" @onclick="() => SelectInvoice(invoice)">
+                                        <td>
+                                            <span class="apinv-doc">#@invoice.DocNum</span>
+                                            <span class="apinv-subtext">DocEntry @invoice.DocEntry</span>
+                                            @if (!string.IsNullOrWhiteSpace(invoice.NumAtCard))
+                                            {
+                                                <span class="apinv-subtext">Supplier Ref: @invoice.NumAtCard</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <span class="apinv-doc">@invoice.CardCode</span>
+                                            <span class="apinv-subtext">@invoice.CardName</span>
+                                        </td>
+                                        <td>
+                                            <span>@invoice.DocDate.ToString("dd MMM yyyy")</span>
+                                            @if (invoice.DocDueDate.HasValue)
+                                            {
+                                                <span class="apinv-subtext">Due @invoice.DocDueDate.Value.ToString("dd MMM yyyy")</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <span class="apinv-status @GetStatusCssClass(invoice.DocStatus)">@invoice.DocStatus</span>
+                                        </td>
+                                        <td>
+                                            <span class="apinv-amount">@invoice.DocCurrency @invoice.DocTotal.ToString("N2")</span>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                <div class="apinv-pager">
+                    <button class="btn btn-outline-secondary" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)">Previous</button>
+                    <span>Showing @CurrentPageCount of @invoiceResponse?.TotalCount invoices</span>
+                    <button class="btn btn-outline-secondary" @onclick="NextPageAsync" disabled="@(isLoading || !(invoiceResponse?.HasMore ?? false))">Next</button>
+                </div>
+            </section>
+
+            <aside class="apinv-panel">
+                <div class="apinv-panel-header">
+                    <h2>Selected Invoice</h2>
+                    <span>@(selectedInvoice is null ? "No selection" : $"{selectedInvoice.DocCurrency} {selectedInvoice.DocTotal:N2}")</span>
+                </div>
+
+                @if (selectedInvoice is null)
+                {
+                    <div class="apinv-empty">
+                        <strong>Select an invoice.</strong>
+                        The document summary and lines will appear here.
+                    </div>
+                }
+                else
+                {
+                    <div class="apinv-detail">
+                        <div class="apinv-detail-grid">
+                            <div class="apinv-detail-card">
+                                <label>Supplier</label>
+                                <div>@selectedInvoice.CardCode - @selectedInvoice.CardName</div>
+                            </div>
+                            <div class="apinv-detail-card">
+                                <label>Posting Date</label>
+                                <div>@selectedInvoice.DocDate.ToString("dd MMM yyyy")</div>
+                            </div>
+                            <div class="apinv-detail-card">
+                                <label>Due Date</label>
+                                <div>@(selectedInvoice.DocDueDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
+                            </div>
+                            <div class="apinv-detail-card">
+                                <label>Discount %</label>
+                                <div>@selectedInvoice.DiscountPercent.ToString("N2")</div>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(selectedInvoice.Comments))
+                        {
+                            <div class="apinv-detail-card" style="margin-bottom: 1rem;">
+                                <label>Comments</label>
+                                <div>@selectedInvoice.Comments</div>
+                            </div>
+                        }
+
+                        <div class="apinv-line-list">
+                            @foreach (var line in selectedInvoice.Lines)
+                            {
+                                <div class="apinv-line">
+                                    <div class="apinv-line-top">
+                                        <div>
+                                            <div class="apinv-line-code">@line.ItemCode</div>
+                                            <div class="apinv-line-desc">@line.ItemDescription</div>
+                                        </div>
+                                        <div class="apinv-amount">@selectedInvoice.DocCurrency @line.LineTotal.ToString("N2")</div>
+                                    </div>
+                                    <div class="apinv-subtext">Qty @line.Quantity.ToString("N2") at @line.UnitPrice.ToString("N2") @(string.IsNullOrWhiteSpace(line.WarehouseCode) ? string.Empty : $" | {line.WarehouseCode}")</div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </aside>
+        </div>
+    }
+</div>

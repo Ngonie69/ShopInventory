@@ -384,6 +384,54 @@
                         </span>
                         <span class="snav-text">Create PO</span>
                     </NavLink>
+                    <NavLink class="snav-link" href="/purchase-requests" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Inventory2" />
+                        </span>
+                        <span class="snav-text">Purchase Requests</span>
+                    </NavLink>
+                    <NavLink class="snav-link sub-link" href="/purchase-requests/create" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.PostAdd" />
+                        </span>
+                        <span class="snav-text">Create Request</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/purchase-quotations" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.RequestQuote" />
+                        </span>
+                        <span class="snav-text">Purchase Quotations</span>
+                    </NavLink>
+                    <NavLink class="snav-link sub-link" href="/purchase-quotations/create" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Addchart" />
+                        </span>
+                        <span class="snav-text">Create PQ</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/goods-receipt-pos" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.LocalShipping" />
+                        </span>
+                        <span class="snav-text">Goods Receipt POs</span>
+                    </NavLink>
+                    <NavLink class="snav-link sub-link" href="/goods-receipt-pos/create" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.MoveToInbox" />
+                        </span>
+                        <span class="snav-text">Create GRPO</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/purchase-invoices" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.ReceiptLong" />
+                        </span>
+                        <span class="snav-text">A/P Invoices</span>
+                    </NavLink>
+                    <NavLink class="snav-link sub-link" href="/purchase-invoices/create" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.PostAdd" />
+                        </span>
+                        <span class="snav-text">Create A/P Invoice</span>
+                    </NavLink>
                 </Authorized>
             </AuthorizeView>
 

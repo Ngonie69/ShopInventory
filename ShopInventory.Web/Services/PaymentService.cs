@@ -93,21 +93,15 @@ public class PaymentService : IPaymentService
     {
         try
         {
-            // Use cache for date range query
-            return await _cacheService.GetCachedPaymentsByDateRangeAsync(date, date);
+            // Always call API directly — the cache is a paginated snapshot and may not cover arbitrary dates
+            var dateStr = date.ToString("yyyy-MM-dd");
+            return await _httpClient.GetFromJsonAsync<IncomingPaymentDateResponse>(
+                $"api/incomingpayment/daterange?fromDate={dateStr}&toDate={dateStr}");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting payments by date from cache, falling back to API");
-            try
-            {
-                var dateStr = date.ToString("yyyy-MM-dd");
-                return await _httpClient.GetFromJsonAsync<IncomingPaymentDateResponse>($"api/incomingpayment/date/{dateStr}");
-            }
-            catch
-            {
-                return null;
-            }
+            _logger.LogError(ex, "Error getting payments by date from API");
+            return null;
         }
     }
 
@@ -115,22 +109,16 @@ public class PaymentService : IPaymentService
     {
         try
         {
-            // Use cache for date range query
-            return await _cacheService.GetCachedPaymentsByDateRangeAsync(fromDate, toDate);
+            // Always call API directly — the cache is a paginated snapshot and may not cover arbitrary date ranges
+            var from = fromDate.ToString("yyyy-MM-dd");
+            var to = toDate.ToString("yyyy-MM-dd");
+            return await _httpClient.GetFromJsonAsync<IncomingPaymentDateResponse>(
+                $"api/incomingpayment/daterange?fromDate={from}&toDate={to}");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting payments by date range from cache, falling back to API");
-            try
-            {
-                var from = fromDate.ToString("yyyy-MM-dd");
-                var to = toDate.ToString("yyyy-MM-dd");
-                return await _httpClient.GetFromJsonAsync<IncomingPaymentDateResponse>($"api/incomingpayment/date/{from}/{to}");
-            }
-            catch
-            {
-                return null;
-            }
+            _logger.LogError(ex, "Error getting payments by date range from API");
+            return null;
         }
     }
 

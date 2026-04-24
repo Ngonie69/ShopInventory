@@ -1079,6 +1079,63 @@
                     </div>
                 </div>
 
+                <div class="filter-bar">
+                    <div class="filter-field" style="min-width:220px;">
+                        <label>Search</label>
+                        <MudTextField @bind-Value="_requestSearchString" Placeholder="Doc #, route, comment..."
+                                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                      Class="mt-0" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
+                    </div>
+                    <div class="filter-field" style="min-width:150px;">
+                        <label>From Warehouse</label>
+                        <MudSelect T="string" @bind-Value="_requestFromWarehouseFilter" Dense="true"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                            @foreach (var warehouse in RequestFromWarehouseOptions)
+                            {
+                                <MudSelectItem T="string" Value="@warehouse">@warehouse</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </div>
+                    <div class="filter-field" style="min-width:150px;">
+                        <label>To Warehouse</label>
+                        <MudSelect T="string" @bind-Value="_requestToWarehouseFilter" Dense="true"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                            @foreach (var warehouse in RequestToWarehouseOptions)
+                            {
+                                <MudSelectItem T="string" Value="@warehouse">@warehouse</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </div>
+                    <div class="filter-field" style="min-width:150px;">
+                        <label>Status</label>
+                        <MudSelect T="string" @bind-Value="_requestStatusFilter" Dense="true"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                            @foreach (var status in RequestStatusOptions)
+                            {
+                                <MudSelectItem T="string" Value="@status">@status</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </div>
+                    <div class="filter-field" style="min-width:200px;">
+                        <label>Requester</label>
+                        <MudTextField @bind-Value="_requestRequesterFilter" Placeholder="Name or email..."
+                                      Class="mt-0" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
+                    </div>
+                    <div class="filter-field" style="min-width:150px;">
+                        <label>From Date</label>
+                        <FlexibleDatePicker Label="From" @bind-Date="requestFromDate" Variant="Variant.Outlined" />
+                    </div>
+                    <div class="filter-field" style="min-width:150px;">
+                        <label>To Date</label>
+                        <FlexibleDatePicker Label="To" @bind-Date="requestToDate" Variant="Variant.Outlined" />
+                    </div>
+                    <div class="filter-actions-row">
+                        <MudButton Class="btn-clear" OnClick="ClearRequestFilters" Disabled="@(!HasActiveRequestFilters)">
+                            <i class="bi bi-x-lg"></i> Clear
+                        </MudButton>
+                    </div>
+                </div>
+
                 @if (isLoadingRequests)
                 {
                     <div class="empty-state">
@@ -1094,12 +1151,12 @@
                               Style="border: 1px solid #e5e7eb; border-radius: 10px;">
                         <ToolBarContent>
                             <MudText Typo="Typo.subtitle1" Style="font-weight:500; color:#6b7280;">
-                                @transferRequests.Count request(s)
+                                @FilteredRequestCount request(s)
+                                @if (HasActiveRequestFilters)
+                                {
+                                    <span> filtered from @transferRequestCount</span>
+                                }
                             </MudText>
-                            <MudSpacer />
-                            <MudTextField @bind-Value="_requestSearchString" Placeholder="Quick filter…"
-                                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium"
-                                          Class="mt-0" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
                         </ToolBarContent>
                         <HeaderContent>
                             <MudTh>Doc #</MudTh>
@@ -1138,6 +1195,16 @@
                                 </div>
                             </MudTd>
                         </RowTemplate>
+                        <NoRecordsContent>
+                            <div class="empty-state py-4">
+                                <div class="empty-icon"><i class="bi bi-funnel"></i></div>
+                                <h6>No Matching Requests</h6>
+                                <p>No transfer requests match the current filters.</p>
+                                <MudButton Class="btn-clear" OnClick="ClearRequestFilters" Disabled="@(!HasActiveRequestFilters)">
+                                    Clear Filters
+                                </MudButton>
+                            </div>
+                        </NoRecordsContent>
                         <PagerContent>
                             <div class="pager-row">
                                 <div class="page-size-wrap">
@@ -1255,7 +1322,7 @@
                                     <td><span class="wh-badge from" style="font-size:0.72rem;">@line.FromWarehouseCode</span></td>
                                     <td><span class="wh-badge to" style="font-size:0.72rem;">@line.ToWarehouseCode</span></td>
                                     <td style="text-align:right;font-weight:700;">@QuantityDisplay.Format(line.Quantity,
-                                                                    line.UoMCode)</td>
+                                                                                                            line.UoMCode)</td>
                                         <td style="color:#6b7280;">@line.UoMCode</td>
                                     </tr>
                                 }
@@ -1374,7 +1441,7 @@
                                             <td><span class="wh-badge from" style="font-size:0.72rem;">@line.FromWarehouseCode</span></td>
                                             <td><span class="wh-badge to" style="font-size:0.72rem;">@line.ToWarehouseCode</span></td>
                                             <td style="text-align:right;font-weight:700;">@QuantityDisplay.Format(line.Quantity,
-                                                                            line.UoMCode)</td>
+                                                                                                                            line.UoMCode)</td>
                                                 <td style="color:#6b7280;">@line.UoMCode</td>
                                             </tr>
                                         }
@@ -1440,10 +1507,7 @@
     private InventoryTransferRequestDto? selectedTransferRequest;
     private bool isLoadingRequests = false;
     private bool isConverting = false;
-    private int requestPage = 1;
-    private int requestPageSize = 20;
-    private int requestTotalPages = 0;
-    private bool hasMoreRequests = false;
+    private const int transferRequestBatchSize = 100;
     private int transferRequestCount = 0;
 
     // ── Warehouse search ────────────────────────────────
@@ -1457,6 +1521,12 @@
     // ── Quick filter ────────────────────────────────────
     private string? _transferSearchString;
     private string? _requestSearchString;
+    private string? _requestFromWarehouseFilter;
+    private string? _requestToWarehouseFilter;
+    private string? _requestStatusFilter;
+    private string? _requestRequesterFilter;
+    private DateTime? requestFromDate;
+    private DateTime? requestToDate;
 
     private bool _hasLoadedData = false;
 
@@ -1466,6 +1536,40 @@
 
     private IEnumerable<InventoryTransferRequestDto> FilteredRequests =>
     transferRequests?.Where(_requestQuickFilter) ?? Enumerable.Empty<InventoryTransferRequestDto>();
+
+    private int FilteredRequestCount => FilteredRequests.Count();
+
+    private bool HasActiveRequestFilters =>
+        !string.IsNullOrWhiteSpace(_requestSearchString) ||
+        !string.IsNullOrWhiteSpace(_requestFromWarehouseFilter) ||
+        !string.IsNullOrWhiteSpace(_requestToWarehouseFilter) ||
+        !string.IsNullOrWhiteSpace(_requestStatusFilter) ||
+        !string.IsNullOrWhiteSpace(_requestRequesterFilter) ||
+        requestFromDate.HasValue ||
+        requestToDate.HasValue;
+
+    private IEnumerable<string> RequestFromWarehouseOptions =>
+        transferRequests?
+            .Select(x => x.FromWarehouse)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x) ?? Enumerable.Empty<string>();
+
+    private IEnumerable<string> RequestToWarehouseOptions =>
+        transferRequests?
+            .Select(x => x.ToWarehouse)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x) ?? Enumerable.Empty<string>();
+
+    private IEnumerable<string> RequestStatusOptions =>
+        transferRequests?
+            .Select(x => GetFriendlyStatus(x.DocumentStatus))
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x) ?? Enumerable.Empty<string>();
 
     // ── Quick filters ───────────────────────────────────
     private Func<InventoryTransferDto, bool> _transferQuickFilter => x =>
@@ -1481,12 +1585,33 @@
 
     private Func<InventoryTransferRequestDto, bool> _requestQuickFilter => x =>
     {
+        if (!MatchesFilterValue(x.FromWarehouse, _requestFromWarehouseFilter)) return false;
+        if (!MatchesFilterValue(x.ToWarehouse, _requestToWarehouseFilter)) return false;
+
+        if (!string.IsNullOrWhiteSpace(_requestStatusFilter) &&
+            !string.Equals(GetFriendlyStatus(x.DocumentStatus), _requestStatusFilter, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_requestRequesterFilter) &&
+            !(x.RequesterName?.Contains(_requestRequesterFilter, StringComparison.OrdinalIgnoreCase) == true ||
+              x.RequesterEmail?.Contains(_requestRequesterFilter, StringComparison.OrdinalIgnoreCase) == true))
+        {
+            return false;
+        }
+
+        if (!MatchesDateRange(x.DocDate, requestFromDate, requestToDate)) return false;
+
         if (string.IsNullOrWhiteSpace(_requestSearchString)) return true;
         if (x.DocNum.ToString().Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (x.DocEntry.ToString().Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase)) return true;
         if (x.FromWarehouse?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
         if (x.ToWarehouse?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
         if (x.RequesterName?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (x.RequesterEmail?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
         if (x.DocumentStatus?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (x.Comments?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
         return false;
     };
 
@@ -1665,23 +1790,16 @@ pageSize) : 1);
         isLoadingRequests = true;
         try
         {
-            // Load a single page of transfer requests (fast) instead of fetching ALL pages
-            var response = await TransferService.GetTransferRequestsAsync(requestPage, requestPageSize);
+            var response = await TransferService.GetAllTransferRequestsAsync(transferRequestBatchSize);
             if (response?.TransferRequests != null)
             {
                 transferRequests = response.TransferRequests;
-                transferRequestCount = response.Count > 0 ? response.Count : response.TransferRequests.Count;
-                hasMoreRequests = response.HasMore;
-                requestTotalPages = requestPageSize > 0
-                ? (int)Math.Ceiling((double)transferRequestCount / requestPageSize)
-                : 1;
+                transferRequestCount = response.TransferRequests.Count;
             }
             else
             {
                 transferRequests = new();
                 transferRequestCount = 0;
-                hasMoreRequests = false;
-                requestTotalPages = 0;
             }
         }
         catch (Exception ex)
@@ -1694,23 +1812,20 @@ pageSize) : 1);
         }
     }
 
-    private async Task RequestPreviousPage()
-    {
-        if (requestPage > 1) { requestPage--; await LoadTransferRequestsAsync(); }
-    }
-
-    private async Task RequestNextPage()
-    {
-        if (hasMoreRequests) { requestPage++; await LoadTransferRequestsAsync(); }
-    }
-
     private void ViewTransferRequest(InventoryTransferRequestDto request) => selectedTransferRequest = request;
     private void CloseRequestModal() => selectedTransferRequest = null;
 
-    private async Task RefreshTransferRequests()
+    private async Task RefreshTransferRequests() => await LoadTransferRequestsAsync();
+
+    private void ClearRequestFilters()
     {
-        requestPage = 1;
-        await LoadTransferRequestsAsync();
+        _requestSearchString = null;
+        _requestFromWarehouseFilter = null;
+        _requestToWarehouseFilter = null;
+        _requestStatusFilter = null;
+        _requestRequesterFilter = null;
+        requestFromDate = null;
+        requestToDate = null;
     }
 
     private string GetStatusCssClass(string? status) => status?.ToLower() switch
@@ -1740,6 +1855,38 @@ pageSize) : 1);
         if (request == null) return false;
         var status = request.DocumentStatus?.ToLower();
         return status == null || status == "open" || status == "bost_open";
+    }
+
+    private static bool MatchesFilterValue(string? value, string? filter)
+    {
+        return string.IsNullOrWhiteSpace(filter) || string.Equals(value, filter, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesDateRange(string? value, DateTime? from, DateTime? to)
+    {
+        if (!from.HasValue && !to.HasValue)
+        {
+            return true;
+        }
+
+        if (!DateTime.TryParse(value, out var parsedDate))
+        {
+            return false;
+        }
+
+        var date = parsedDate.Date;
+
+        if (from.HasValue && date < from.Value.Date)
+        {
+            return false;
+        }
+
+        if (to.HasValue && date > to.Value.Date)
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private async Task ConvertRequest(InventoryTransferRequestDto request)

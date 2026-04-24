@@ -132,6 +132,22 @@ public static class AuditActions
     public const string ReceiveGoods = "ReceiveGoods";
     public const string DeletePurchaseOrder = "DeletePurchaseOrder";
 
+    // Purchase Request actions
+    public const string ViewPurchaseRequests = "ViewPurchaseRequests";
+    public const string CreatePurchaseRequest = "CreatePurchaseRequest";
+
+    // Purchase Quotation actions
+    public const string ViewPurchaseQuotations = "ViewPurchaseQuotations";
+    public const string CreatePurchaseQuotation = "CreatePurchaseQuotation";
+
+    // Goods Receipt PO actions
+    public const string ViewGoodsReceiptPurchaseOrders = "ViewGoodsReceiptPurchaseOrders";
+    public const string CreateGoodsReceiptPurchaseOrder = "CreateGoodsReceiptPurchaseOrder";
+
+    // Purchase Invoice actions
+    public const string ViewPurchaseInvoices = "ViewPurchaseInvoices";
+    public const string CreatePurchaseInvoice = "CreatePurchaseInvoice";
+
     // POD actions
     public const string UploadPod = "UploadPod";
     public const string BulkUploadPod = "BulkUploadPod";

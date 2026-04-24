@@ -253,6 +253,11 @@ public class User
     /// Navigation property for password reset tokens
     /// </summary>
     public ICollection<PasswordResetToken> PasswordResetTokens { get; set; } = new List<PasswordResetToken>();
+
+    /// <summary>
+    /// Navigation property for registered passkeys
+    /// </summary>
+    public ICollection<PasskeyCredential> Passkeys { get; set; } = new List<PasskeyCredential>();
 }
 
 /// <summary>

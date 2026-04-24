@@ -54,6 +54,21 @@ public interface ITwoFactorWebService
     /// Update login credentials (username/email) for the current user
     /// </summary>
     Task<(bool Success, string Message, CredentialsModel? Data)> UpdateCredentialsAsync(string? username, string? email, string currentPassword);
+
+    /// <summary>
+    /// Get registered passkeys for the current user.
+    /// </summary>
+    Task<List<PasskeyCredentialInfo>> GetPasskeysAsync();
+
+    /// <summary>
+    /// Start passkey registration for the current user.
+    /// </summary>
+    Task<(bool Success, string Message, (string SessionToken, string OptionsJson)? Ceremony)> BeginPasskeyRegistrationAsync(string friendlyName, string origin, string rpId);
+
+    /// <summary>
+    /// Complete passkey registration for the current user.
+    /// </summary>
+    Task<(bool Success, string Message, PasskeyCredentialInfo? Credential)> CompletePasskeyRegistrationAsync(string sessionToken, string credentialJson, string origin, string rpId);
 }
 
 /// <summary>
@@ -63,12 +78,18 @@ public class TwoFactorWebService : ITwoFactorWebService
 {
     private readonly HttpClient _httpClient;
     private readonly ILocalStorageService _localStorage;
+    private readonly CustomAuthStateProvider _authStateProvider;
     private readonly ILogger<TwoFactorWebService> _logger;
 
-    public TwoFactorWebService(HttpClient httpClient, ILocalStorageService localStorage, ILogger<TwoFactorWebService> logger)
+    public TwoFactorWebService(
+        HttpClient httpClient,
+        ILocalStorageService localStorage,
+        CustomAuthStateProvider authStateProvider,
+        ILogger<TwoFactorWebService> logger)
     {
         _httpClient = httpClient;
         _localStorage = localStorage;
+        _authStateProvider = authStateProvider;
         _logger = logger;
     }
 
@@ -318,6 +339,10 @@ public class TwoFactorWebService : ITwoFactorWebService
             if (response.IsSuccessStatusCode)
             {
                 var data = await response.Content.ReadFromJsonAsync<CredentialsModel>();
+                if (data != null)
+                {
+                    await _authStateProvider.UpdateUserProfileAsync(data.Username, data.Email);
+                }
                 return (true, "Credentials updated successfully", data);
             }
 
@@ -336,6 +361,110 @@ public class TwoFactorWebService : ITwoFactorWebService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating credentials");
+            return (false, $"Error: {ex.Message}", null);
+        }
+    }
+
+    public async Task<List<PasskeyCredentialInfo>> GetPasskeysAsync()
+    {
+        try
+        {
+            await EnsureAuthenticationAsync();
+            var response = await _httpClient.GetAsync("api/auth/passkeys");
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<List<PasskeyCredentialInfo>>() ?? new List<PasskeyCredentialInfo>();
+            }
+
+            var error = await response.Content.ReadAsStringAsync();
+            _logger.LogWarning("Failed to fetch passkeys: {Error}", error);
+            return new List<PasskeyCredentialInfo>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching passkeys");
+            return new List<PasskeyCredentialInfo>();
+        }
+    }
+
+    public async Task<(bool Success, string Message, (string SessionToken, string OptionsJson)? Ceremony)> BeginPasskeyRegistrationAsync(
+        string friendlyName, string origin, string rpId)
+    {
+        try
+        {
+            await EnsureAuthenticationAsync();
+            var response = await _httpClient.PostAsJsonAsync("api/auth/passkeys/register/options", new
+            {
+                FriendlyName = friendlyName,
+                Origin = origin,
+                RpId = rpId
+            });
+
+            if (response.IsSuccessStatusCode)
+            {
+                var options = await response.Content.ReadFromJsonAsync<PasskeyOptionsResponse>();
+                if (options != null)
+                {
+                    return (true, "Passkey challenge ready", (options.SessionToken, options.OptionsJson));
+                }
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            try
+            {
+                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return (false, errorResponse?.Message ?? "Failed to start passkey registration", null);
+            }
+            catch
+            {
+                return (false, "Failed to start passkey registration", null);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error starting passkey registration");
+            return (false, $"Error: {ex.Message}", null);
+        }
+    }
+
+    public async Task<(bool Success, string Message, PasskeyCredentialInfo? Credential)> CompletePasskeyRegistrationAsync(
+        string sessionToken, string credentialJson, string origin, string rpId)
+    {
+        try
+        {
+            await EnsureAuthenticationAsync();
+            var response = await _httpClient.PostAsJsonAsync("api/auth/passkeys/register/complete", new
+            {
+                SessionToken = sessionToken,
+                CredentialJson = credentialJson,
+                Origin = origin,
+                RpId = rpId
+            });
+
+            if (response.IsSuccessStatusCode)
+            {
+                var credential = await response.Content.ReadFromJsonAsync<PasskeyCredentialInfo>();
+                return credential != null
+                    ? (true, "Passkey added successfully", credential)
+                    : (false, "Failed to read passkey registration response", null);
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            try
+            {
+                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return (false, errorResponse?.Message ?? "Failed to complete passkey registration", null);
+            }
+            catch
+            {
+                return (false, "Failed to complete passkey registration", null);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error completing passkey registration");
             return (false, $"Error: {ex.Message}", null);
         }
     }

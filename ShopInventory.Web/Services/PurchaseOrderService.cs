@@ -7,6 +7,7 @@ public interface IPurchaseOrderService
 {
     Task<PurchaseOrderListResponse?> GetPurchaseOrdersAsync(int page = 1, int pageSize = 20, PurchaseOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
     Task<PurchaseOrderListResponse?> GetPurchaseOrdersFromSAPAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
+    Task<PurchaseOrderDto?> GetPurchaseOrderFromSAPByDocEntryAsync(int docEntry);
     Task<PurchaseOrderDto?> GetPurchaseOrderByIdAsync(int id);
     Task<PurchaseOrderDto?> GetPurchaseOrderByNumberAsync(string orderNumber);
     Task<DocumentAttachmentListResponse?> GetDocumentsAsync(string poReferenceNumber);
@@ -114,6 +115,19 @@ public class PurchaseOrderService : IPurchaseOrderService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching purchase orders from SAP");
+            return null;
+        }
+    }
+
+    public async Task<PurchaseOrderDto?> GetPurchaseOrderFromSAPByDocEntryAsync(int docEntry)
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<PurchaseOrderDto>($"api/purchaseorder/sap/{docEntry}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching purchase order {DocEntry} from SAP", docEntry);
             return null;
         }
     }

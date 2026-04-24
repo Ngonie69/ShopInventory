@@ -30,6 +30,14 @@ public static class Permissions
     public const string ApprovePurchaseOrders = "purchasing.approve";
     public const string ReceivePurchaseOrders = "purchasing.receive";
     public const string UploadPurchaseOrderDocuments = "purchasing.upload_documents";
+    public const string ViewPurchaseRequests = "purchasing.requests.view";
+    public const string CreatePurchaseRequests = "purchasing.requests.create";
+    public const string ViewPurchaseQuotations = "purchasing.quotations.view";
+    public const string CreatePurchaseQuotations = "purchasing.quotations.create";
+    public const string ViewGoodsReceiptPurchaseOrders = "purchasing.grpo.view";
+    public const string CreateGoodsReceiptPurchaseOrders = "purchasing.grpo.create";
+    public const string ViewPurchaseInvoices = "purchasing.invoices.view";
+    public const string CreatePurchaseInvoices = "purchasing.invoices.create";
 
     // Payments
     public const string ViewPayments = "payments.view";
@@ -139,7 +147,15 @@ public static class Permissions
                 new(DeletePurchaseOrders, "Delete Purchase Orders", "Delete draft purchase orders"),
                 new(ApprovePurchaseOrders, "Approve Purchase Orders", "Approve pending purchase orders"),
                 new(ReceivePurchaseOrders, "Receive Purchase Orders", "Record goods receipt against purchase orders"),
-                new(UploadPurchaseOrderDocuments, "Upload PO Documents", "Upload physical purchase order documents")
+                new(UploadPurchaseOrderDocuments, "Upload PO Documents", "Upload physical purchase order documents"),
+                new(ViewPurchaseRequests, "View Purchase Requests", "View purchase request listings and details"),
+                new(CreatePurchaseRequests, "Create Purchase Requests", "Create purchase requests directly in SAP"),
+                new(ViewPurchaseQuotations, "View Purchase Quotations", "View purchase quotation listings and details"),
+                new(CreatePurchaseQuotations, "Create Purchase Quotations", "Create purchase quotations directly in SAP"),
+                new(ViewGoodsReceiptPurchaseOrders, "View Goods Receipt POs", "View goods receipt PO listings and details"),
+                new(CreateGoodsReceiptPurchaseOrders, "Create Goods Receipt POs", "Create goods receipt POs directly in SAP"),
+                new(ViewPurchaseInvoices, "View A/P Invoices", "View supplier invoice listings and details"),
+                new(CreatePurchaseInvoices, "Create A/P Invoices", "Create supplier invoices directly in SAP")
             },
             ["Payments"] = new()
             {
@@ -242,6 +258,10 @@ public static class Permissions
                 ViewPayments, CreatePayments, RefundPayments, ProcessRefunds,
                 ViewStock, ViewInventory, TransferStock, TransferInventory, AdjustStock, AdjustInventory,
                 ViewPurchaseOrders, CreatePurchaseOrders, EditPurchaseOrders, ApprovePurchaseOrders, ReceivePurchaseOrders,
+                ViewPurchaseRequests, CreatePurchaseRequests,
+                ViewPurchaseQuotations, CreatePurchaseQuotations,
+                ViewGoodsReceiptPurchaseOrders, CreateGoodsReceiptPurchaseOrders,
+                ViewPurchaseInvoices, CreatePurchaseInvoices,
                 ViewSalesOrders, CreateSalesOrders, EditSalesOrders, DeleteSalesOrders, ApproveSalesOrders, PostSalesOrdersToSAP,
                 ViewReports, ExportReports,
                 ViewCustomers, CreateCustomers, EditCustomers,
@@ -342,6 +362,14 @@ public static class Permission
     public const string ApprovePurchaseOrders = Permissions.ApprovePurchaseOrders;
     public const string ReceivePurchaseOrders = Permissions.ReceivePurchaseOrders;
     public const string UploadPurchaseOrderDocuments = Permissions.UploadPurchaseOrderDocuments;
+    public const string ViewPurchaseRequests = Permissions.ViewPurchaseRequests;
+    public const string CreatePurchaseRequests = Permissions.CreatePurchaseRequests;
+    public const string ViewPurchaseQuotations = Permissions.ViewPurchaseQuotations;
+    public const string CreatePurchaseQuotations = Permissions.CreatePurchaseQuotations;
+    public const string ViewGoodsReceiptPurchaseOrders = Permissions.ViewGoodsReceiptPurchaseOrders;
+    public const string CreateGoodsReceiptPurchaseOrders = Permissions.CreateGoodsReceiptPurchaseOrders;
+    public const string ViewPurchaseInvoices = Permissions.ViewPurchaseInvoices;
+    public const string CreatePurchaseInvoices = Permissions.CreatePurchaseInvoices;
 
     // Payments
     public const string ViewPayments = Permissions.ViewPayments;

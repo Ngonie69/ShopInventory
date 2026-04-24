@@ -1,0 +1,223 @@
+@page "/purchase-quotations/create"
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+
+<PageTitle>Create Purchase Quotation</PageTitle>
+
+<style>
+    .pcdoc-page { max-width: 1480px; margin: 0 auto; padding: 1.5rem; }
+    .pcdoc-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .pcdoc-title h1 { margin: 0; font-size: 1.7rem; font-weight: 800; color: #172033; }
+    .pcdoc-title p { margin: .4rem 0 0; color: #5f6b7a; max-width: 760px; }
+    .pcdoc-card { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); padding: 1.1rem; }
+    .pcdoc-card + .pcdoc-card { margin-top: 1rem; }
+    .pcdoc-card h2 { margin: 0 0 1rem; font-size: 1rem; font-weight: 700; color: #172033; }
+    .pcdoc-alert { border-radius: 14px; padding: .85rem 1rem; margin-bottom: 1rem; border: 1px solid transparent; }
+    .pcdoc-alert.error { background: #fff1f1; border-color: #f3c4c4; color: #8f2727; }
+    .pcdoc-alert.success { background: #edf9f0; border-color: #b7dfc0; color: #1f6b34; }
+    .pcdoc-supplier-results { position: absolute; left: 0; right: 0; top: calc(100% + .35rem); z-index: 20; background: #fff; border: 1px solid #d7dee7; border-radius: 14px; overflow: hidden; box-shadow: 0 16px 30px rgba(23, 32, 51, .12); }
+    .pcdoc-supplier-option { width: 100%; border: none; background: transparent; text-align: left; padding: .8rem .9rem; color: #172033; border-bottom: 1px solid #eef2f6; }
+    .pcdoc-supplier-option:last-child { border-bottom: none; }
+    .pcdoc-supplier-option:hover { background: #fff8e8; }
+    .pcdoc-supplier-meta { display: block; margin-top: .15rem; font-size: .78rem; color: #6b7280; }
+    .pcdoc-chip { display: inline-flex; align-items: center; gap: .5rem; margin-top: .6rem; padding: .45rem .75rem; border-radius: 999px; background: #fff4d3; color: #7a611c; font-size: .82rem; font-weight: 700; }
+    .pcdoc-chip button { border: none; background: transparent; color: inherit; text-decoration: underline; padding: 0; }
+    .pcdoc-table input, .pcdoc-table textarea, .pcdoc-table select, .pcdoc-card input, .pcdoc-card textarea, .pcdoc-card select { border-radius: 12px; }
+    .pcdoc-table td { min-width: 135px; vertical-align: top; }
+    .pcdoc-summary-value { font-size: 1.5rem; font-weight: 800; color: #172033; }
+    .pcdoc-summary-label { font-size: .76rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #7c8798; }
+    .pcdoc-loading { color: #5f6b7a; }
+    .dark-theme .pcdoc-title h1, .dark-theme .pcdoc-card h2, .dark-theme .pcdoc-summary-value { color: #edf2f7; }
+    .dark-theme .pcdoc-title p, .dark-theme .pcdoc-summary-label, .dark-theme .pcdoc-loading, .dark-theme .pcdoc-supplier-meta { color: #a9b4c2; }
+    .dark-theme .pcdoc-card { background: #16202c; border-color: #2a3645; box-shadow: none; }
+    .dark-theme .pcdoc-card input, .dark-theme .pcdoc-card textarea, .dark-theme .pcdoc-card select, .dark-theme .pcdoc-table input, .dark-theme .pcdoc-table textarea, .dark-theme .pcdoc-table select { background: #101823; border-color: #2a3645; color: #edf2f7; }
+    .dark-theme .pcdoc-supplier-results { background: #16202c; border-color: #2a3645; box-shadow: none; }
+    .dark-theme .pcdoc-supplier-option { color: #edf2f7; border-color: #2a3645; }
+    .dark-theme .pcdoc-supplier-option:hover { background: #263647; }
+    .dark-theme .pcdoc-chip { background: #263647; color: #f7d37d; }
+    @@media (max-width: 768px) { .pcdoc-page { padding: 1rem; } }
+</style>
+
+<datalist id="purchase-quotation-products">
+    @foreach (var product in products)
+    {
+        <option value="@product.ItemCode">@product.ItemName</option>
+    }
+</datalist>
+
+<datalist id="purchase-quotation-warehouses">
+    @foreach (var warehouse in warehouses)
+    {
+        <option value="@warehouse.WarehouseCode">@warehouse.WarehouseName</option>
+    }
+</datalist>
+
+<div class="pcdoc-page">
+    <div class="pcdoc-header">
+        <div class="pcdoc-title">
+            <h1>Create Purchase Quotation</h1>
+            <p>Capture supplier pricing in SAP before raising the final purchase order. Search a supplier, add quoted items, and track header or line-level discounts.</p>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-outline-secondary" @onclick="GoBack" disabled="@isSubmitting">Back to Register</button>
+            <button class="btn btn-warning" @onclick="SubmitAsync" disabled="@(isSubmitting || isLoadingLookups)">@(isSubmitting ? "Submitting..." : "Create Purchase Quotation")</button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="pcdoc-alert error">@errorMessage</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+        <div class="pcdoc-alert success">@successMessage</div>
+    }
+
+    <div class="row g-4">
+        <div class="col-xl-8">
+            <div class="pcdoc-card">
+                <h2>Supplier and Document</h2>
+                @if (isLoadingLookups)
+                {
+                    <div class="pcdoc-loading mb-3">Loading suppliers, products, and warehouses...</div>
+                }
+                <div class="row g-3">
+                    <div class="col-12 position-relative">
+                        <label class="form-label">Supplier</label>
+                        <input class="form-control" value="@supplierSearchTerm" @oninput="OnSupplierInput" @onfocus="ShowSupplierResults" @onblur="HandleSupplierBlur" placeholder="Search supplier code or name" />
+                        @if (showSupplierResults && FilteredSuppliers.Any())
+                        {
+                            <div class="pcdoc-supplier-results">
+                                @foreach (var supplier in FilteredSuppliers)
+                                {
+                                    <button class="pcdoc-supplier-option" type="button" @onmousedown="() => SelectSupplier(supplier)"><strong>@supplier.CardCode - @supplier.CardName</strong><span class="pcdoc-supplier-meta">@supplier.Currency</span></button>
+                                }
+                            </div>
+                        }
+                        @if (selectedSupplier is not null)
+                        {
+                            <div class="pcdoc-chip">@selectedSupplier.DisplayName<button type="button" @onclick="ClearSupplier">Change</button></div>
+                        }
+                        @if (HasError("CardCode"))
+                        {
+                            <div class="text-danger small mt-1">@GetError("CardCode")</div>
+                        }
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Posting Date</label>
+                        <input class="form-control" type="date" @bind-value="purchaseQuotation.DocDate" @bind-value:format="yyyy-MM-dd" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Due Date</label>
+                        <input class="form-control" type="date" @bind-value="purchaseQuotation.DocDueDate" @bind-value:format="yyyy-MM-dd" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Currency</label>
+                        <input class="form-control" @bind="purchaseQuotation.DocCurrency" placeholder="e.g. USD" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Supplier Reference</label>
+                        <input class="form-control" @bind="purchaseQuotation.NumAtCard" placeholder="Optional supplier ref" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Header Discount %</label>
+                        <input class="form-control" type="number" step="0.01" @bind-value="purchaseQuotation.DiscountPercent" />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Comments</label>
+                        <textarea class="form-control" rows="3" @bind="purchaseQuotation.Comments" placeholder="Optional quotation notes"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pcdoc-card">
+                <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap mb-3">
+                    <h2 class="mb-0">Quoted Lines</h2>
+                    <button class="btn btn-outline-warning" @onclick="AddLine" type="button">Add Line</button>
+                </div>
+
+                @if (HasError("Lines"))
+                {
+                    <div class="text-danger small mb-3">@GetError("Lines")</div>
+                }
+
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle pcdoc-table">
+                        <thead>
+                            <tr>
+                                <th>Item Code</th>
+                                <th>Description</th>
+                                <th>Qty</th>
+                                <th>Unit Price</th>
+                                <th>Warehouse</th>
+                                <th>Tax Code</th>
+                                <th>Disc %</th>
+                                <th>Total</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (var index = 0; index < purchaseQuotation.Lines.Count; index++)
+                            {
+                                var lineIndex = index;
+                                var line = purchaseQuotation.Lines[lineIndex];
+                                <tr>
+                                    <td>
+                                        <input class="form-control" list="purchase-quotation-products" @bind="line.ItemCode" @onblur="() => SyncProduct(lineIndex)" placeholder="Item code" />
+                                        @if (HasError($"Lines[{lineIndex}].ItemCode"))
+                                        {
+                                            <div class="text-danger small mt-1">@GetError($"Lines[{lineIndex}].ItemCode")</div>
+                                        }
+                                    </td>
+                                    <td><input class="form-control" @bind="line.ItemDescription" placeholder="Description" /></td>
+                                    <td>
+                                        <input class="form-control" type="number" step="0.01" @bind-value="line.Quantity" />
+                                        @if (HasError($"Lines[{lineIndex}].Quantity"))
+                                        {
+                                            <div class="text-danger small mt-1">@GetError($"Lines[{lineIndex}].Quantity")</div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <input class="form-control" type="number" step="0.01" @bind-value="line.UnitPrice" />
+                                        @if (HasError($"Lines[{lineIndex}].UnitPrice"))
+                                        {
+                                            <div class="text-danger small mt-1">@GetError($"Lines[{lineIndex}].UnitPrice")</div>
+                                        }
+                                    </td>
+                                    <td><input class="form-control" list="purchase-quotation-warehouses" @bind="line.WarehouseCode" placeholder="Warehouse" /></td>
+                                    <td><input class="form-control" @bind="line.TaxCode" placeholder="Tax code" /></td>
+                                    <td><input class="form-control" type="number" step="0.01" @bind-value="line.DiscountPercent" /></td>
+                                    <td class="fw-semibold">@CalculateLineTotal(line).ToString("N2")</td>
+                                    <td class="text-end"><button class="btn btn-outline-danger btn-sm" @onclick="() => RemoveLine(lineIndex)" type="button" disabled="@(purchaseQuotation.Lines.Count == 1)">Remove</button></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-4">
+            <div class="pcdoc-card sticky-xl-top" style="top: 1rem;">
+                <h2>Summary</h2>
+                <div class="row g-3 mb-3">
+                    <div class="col-12">
+                        <div class="pcdoc-summary-label">Subtotal</div>
+                        <div class="pcdoc-summary-value">@SubTotal.ToString("N2") @purchaseQuotation.DocCurrency</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="pcdoc-summary-label">Header Discount</div>
+                        <div class="pcdoc-summary-value">@HeaderDiscountAmount.ToString("N2")</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="pcdoc-summary-label">Estimated Total</div>
+                        <div class="pcdoc-summary-value">@EstimatedTotal.ToString("N2")</div>
+                    </div>
+                </div>
+                <div class="text-secondary small mb-4">Use line discounts when the supplier prices only specific items differently. The header discount applies after the line totals are calculated.</div>
+                <button class="btn btn-warning w-100" @onclick="SubmitAsync" disabled="@(isSubmitting || isLoadingLookups)">@(isSubmitting ? "Submitting..." : "Create Purchase Quotation")</button>
+            </div>
+        </div>
+    </div>
+</div>

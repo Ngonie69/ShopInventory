@@ -128,13 +128,13 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
                 try { await SavePaymentsToCacheAsync(apiResponse.Payments); }
                 catch (Exception saveEx) { _logger.LogWarning(saveEx, "Failed to cache payments"); }
 
-                // Start background sync for remaining items
+                // Start full background sync (consistent pageSize avoids gaps from the initial fetch)
                 _ = Task.Run(async () =>
                 {
                     await _backgroundSyncSemaphore.WaitAsync();
                     try
                     {
-                        await SyncRemainingPaymentsInBackgroundAsync(apiResponse.HasMore);
+                        await SyncPaymentsInBackgroundAsync();
                     }
                     finally
                     {

@@ -1,0 +1,181 @@
+@page "/purchase-requests"
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+
+<PageTitle>Purchase Requests</PageTitle>
+
+<style>
+    .preq-page { max-width: 1450px; margin: 0 auto; padding: 1.5rem; }
+    .preq-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .preq-title h1 { margin: 0; font-size: 1.7rem; font-weight: 800; color: #172033; }
+    .preq-title p { margin: .4rem 0 0; color: #5f6b7a; max-width: 720px; }
+    .preq-header-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
+    .preq-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
+    .preq-stat { background: linear-gradient(180deg, #f9fffb 0%, #fff 100%); border: 1px solid #caead4; border-radius: 16px; padding: 1rem 1.1rem; box-shadow: 0 12px 30px rgba(23, 32, 51, .05); }
+    .preq-stat-label { color: #2f7d45; font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+    .preq-stat-value { margin-top: .35rem; font-size: 1.55rem; font-weight: 800; color: #172033; }
+    .preq-filters { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; padding: 1rem; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.25rem; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); }
+    .preq-field label { display: block; font-size: .78rem; font-weight: 700; color: #5f6b7a; margin-bottom: .35rem; text-transform: uppercase; letter-spacing: .05em; }
+    .preq-field input { width: 100%; border: 1px solid #d7dee7; border-radius: 12px; padding: .75rem .85rem; background: #fbfcfe; }
+    .preq-filter-actions { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; }
+    .preq-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, .95fr); gap: 1rem; }
+    .preq-panel { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); overflow: hidden; }
+    .preq-panel-header { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-bottom: 1px solid #eef2f6; }
+    .preq-panel-header h2 { margin: 0; font-size: 1rem; font-weight: 700; color: #172033; }
+    .preq-panel-header span { color: #5f6b7a; font-size: .85rem; }
+    .preq-table-wrap { overflow-x: auto; }
+    .preq-table { width: 100%; border-collapse: collapse; }
+    .preq-table th { text-align: left; padding: .9rem 1rem; font-size: .76rem; color: #6b7280; text-transform: uppercase; letter-spacing: .06em; background: #fbfcfe; border-bottom: 1px solid #eef2f6; }
+    .preq-table td { padding: .95rem 1rem; border-bottom: 1px solid #f3f5f8; color: #172033; vertical-align: top; }
+    .preq-row { cursor: pointer; transition: background-color .15s ease; }
+    .preq-row:hover { background: #f3fff5; }
+    .preq-row.is-selected { background: #e8f8ec; }
+    .preq-doc { font-weight: 700; }
+    .preq-subtext { display: block; margin-top: .2rem; font-size: .8rem; color: #6b7280; }
+    .preq-status { display: inline-flex; align-items: center; border-radius: 999px; padding: .3rem .65rem; font-size: .75rem; font-weight: 700; }
+    .preq-status.open { background: #e8f7ec; color: #1f7a38; }
+    .preq-status.closed { background: #e8eef9; color: #2952a3; }
+    .preq-status.cancelled { background: #fdecec; color: #a12828; }
+    .preq-detail { padding: 1rem 1.1rem 1.2rem; }
+    .preq-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; margin-bottom: 1rem; }
+    .preq-detail-card { border: 1px solid #edf1f5; border-radius: 14px; padding: .85rem .95rem; background: #fbfcfe; }
+    .preq-detail-card label { display: block; font-size: .72rem; font-weight: 700; color: #8a94a4; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .25rem; }
+    .preq-detail-card div { color: #172033; font-weight: 600; }
+    .preq-line-list { display: grid; gap: .75rem; }
+    .preq-line { border: 1px solid #edf1f5; border-radius: 14px; padding: .85rem .95rem; background: #fffdf8; }
+    .preq-line-top { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: .45rem; }
+    .preq-line-code { font-weight: 700; color: #172033; }
+    .preq-line-desc { color: #5f6b7a; font-size: .88rem; }
+    .preq-empty { padding: 2.2rem 1.3rem; text-align: center; color: #6b7280; }
+    .preq-empty strong { display: block; color: #172033; margin-bottom: .4rem; }
+    .preq-alert { border-radius: 14px; padding: .85rem 1rem; margin-bottom: 1rem; border: 1px solid transparent; }
+    .preq-alert.error { background: #fff1f1; border-color: #f3c4c4; color: #8f2727; }
+    .preq-loading { padding: 2.5rem 1rem; text-align: center; color: #6b7280; }
+    .preq-pager { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-top: 1px solid #eef2f6; }
+    .preq-pager span { color: #5f6b7a; font-size: .9rem; }
+    .dark-theme .preq-title h1, .dark-theme .preq-panel-header h2, .dark-theme .preq-table td, .dark-theme .preq-detail-card div, .dark-theme .preq-line-code, .dark-theme .preq-empty strong, .dark-theme .preq-stat-value { color: #edf2f7; }
+    .dark-theme .preq-title p, .dark-theme .preq-panel-header span, .dark-theme .preq-subtext, .dark-theme .preq-empty, .dark-theme .preq-loading, .dark-theme .preq-pager span, .dark-theme .preq-detail-card label, .dark-theme .preq-line-desc, .dark-theme .preq-stat-label, .dark-theme .preq-field label { color: #a9b4c2; }
+    .dark-theme .preq-stat, .dark-theme .preq-filters, .dark-theme .preq-panel { background: #16202c; border-color: #2a3645; box-shadow: none; }
+    .dark-theme .preq-field input, .dark-theme .preq-detail-card, .dark-theme .preq-line { background: #101823; border-color: #2a3645; color: #edf2f7; }
+    .dark-theme .preq-table th { background: #101823; border-color: #2a3645; color: #a9b4c2; }
+    .dark-theme .preq-table td, .dark-theme .preq-panel-header, .dark-theme .preq-pager { border-color: #2a3645; }
+    .dark-theme .preq-row:hover { background: #1f2c3b; }
+    .dark-theme .preq-row.is-selected { background: #263647; }
+    @@media (max-width: 1100px) { .preq-layout { grid-template-columns: 1fr; } .preq-filters { grid-template-columns: 1fr; } }
+    @@media (max-width: 720px) { .preq-page { padding: 1rem; } .preq-detail-grid { grid-template-columns: 1fr; } .preq-pager { flex-direction: column; align-items: stretch; } }
+</style>
+
+<div class="preq-page">
+    <div class="preq-header">
+        <div class="preq-title">
+            <h1>Purchase Requests</h1>
+            <p>Review internal procurement requests created in SAP and inspect requested lines before sourcing suppliers.</p>
+        </div>
+        <div class="preq-header-actions">
+            <button class="btn btn-outline-secondary" @onclick="ReloadAsync">Refresh</button>
+            <button class="btn btn-success" @onclick="NavigateToCreate">Create Purchase Request</button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="preq-alert error">@errorMessage</div>
+    }
+
+    <div class="preq-stats">
+        <div class="preq-stat"><div class="preq-stat-label">Total Requests</div><div class="preq-stat-value">@requestResponse?.TotalCount</div></div>
+        <div class="preq-stat"><div class="preq-stat-label">Current Page</div><div class="preq-stat-value">@CurrentPageCount</div></div>
+        <div class="preq-stat"><div class="preq-stat-label">Open Requests</div><div class="preq-stat-value">@OpenRequestCount</div></div>
+        <div class="preq-stat"><div class="preq-stat-label">Requested Lines</div><div class="preq-stat-value">@CurrentPageLineCount</div></div>
+    </div>
+
+    <div class="preq-filters">
+        <div class="preq-field">
+            <label>From Date</label>
+            <input type="date" @bind-value="fromDate" @bind-value:format="yyyy-MM-dd" />
+        </div>
+        <div class="preq-field">
+            <label>To Date</label>
+            <input type="date" @bind-value="toDate" @bind-value:format="yyyy-MM-dd" />
+        </div>
+        <div class="preq-filter-actions">
+            <button class="btn btn-dark" @onclick="SearchAsync" disabled="@isLoading">Apply Filters</button>
+            <button class="btn btn-outline-secondary" @onclick="ClearFiltersAsync" disabled="@isLoading">Clear</button>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="preq-panel"><div class="preq-loading">Loading purchase requests from SAP...</div></div>
+    }
+    else
+    {
+        <div class="preq-layout">
+            <section class="preq-panel">
+                <div class="preq-panel-header"><h2>Request Register</h2><span>Page @currentPage of @(requestResponse?.TotalPages == 0 ? 1 : requestResponse?.TotalPages)</span></div>
+                @if (Requests.Count == 0)
+                {
+                    <div class="preq-empty"><strong>No purchase requests matched the current filters.</strong>Adjust the date range and try again.</div>
+                }
+                else
+                {
+                    <div class="preq-table-wrap">
+                        <table class="preq-table">
+                            <thead><tr><th>Document</th><th>Posting Date</th><th>Required Date</th><th>Requester</th><th>Status</th></tr></thead>
+                            <tbody>
+                                @foreach (var request in Requests)
+                                {
+                                    <tr class="preq-row @(selectedRequest?.DocEntry == request.DocEntry ? "is-selected" : string.Empty)" @onclick="() => SelectRequest(request)">
+                                        <td><span class="preq-doc">#@request.DocNum</span><span class="preq-subtext">DocEntry @request.DocEntry</span><span class="preq-subtext">@request.Lines.Count line(s)</span></td>
+                                        <td><span>@(request.DocDate?.ToString("dd MMM yyyy") ?? "Not set")</span></td>
+                                        <td><span>@(request.RequriedDate?.ToString("dd MMM yyyy") ?? "Not set")</span></td>
+                                        <td><span class="preq-doc">@(string.IsNullOrWhiteSpace(request.RequesterName) ? (request.Requester?.ToString() ?? "Not set") : request.RequesterName)</span></td>
+                                        <td><span class="preq-status @GetStatusCssClass(request.DocStatus)">@request.DocStatus</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                <div class="preq-pager">
+                    <button class="btn btn-outline-secondary" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)">Previous</button>
+                    <span>Showing @CurrentPageCount of @requestResponse?.TotalCount requests</span>
+                    <button class="btn btn-outline-secondary" @onclick="NextPageAsync" disabled="@(isLoading || !(requestResponse?.HasMore ?? false))">Next</button>
+                </div>
+            </section>
+
+            <aside class="preq-panel">
+                <div class="preq-panel-header"><h2>Selected Request</h2><span>@(selectedRequest is null ? "No selection" : $"{selectedRequest.Lines.Count} line(s)")</span></div>
+                @if (selectedRequest is null)
+                {
+                    <div class="preq-empty"><strong>Select a request.</strong>The document summary and requested lines will appear here.</div>
+                }
+                else
+                {
+                    <div class="preq-detail">
+                        <div class="preq-detail-grid">
+                            <div class="preq-detail-card"><label>Requester</label><div>@(string.IsNullOrWhiteSpace(selectedRequest.RequesterName) ? (selectedRequest.Requester?.ToString() ?? "Not set") : selectedRequest.RequesterName)</div></div>
+                            <div class="preq-detail-card"><label>Posting Date</label><div>@(selectedRequest.DocDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
+                            <div class="preq-detail-card"><label>Required Date</label><div>@(selectedRequest.RequriedDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
+                            <div class="preq-detail-card"><label>Status</label><div>@selectedRequest.DocStatus</div></div>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(selectedRequest.Comments))
+                        {
+                            <div class="preq-detail-card" style="margin-bottom: 1rem;"><label>Comments</label><div>@selectedRequest.Comments</div></div>
+                        }
+                        <div class="preq-line-list">
+                            @foreach (var line in selectedRequest.Lines)
+                            {
+                                <div class="preq-line">
+                                    <div class="preq-line-top"><div><div class="preq-line-code">@line.ItemCode</div><div class="preq-line-desc">@line.ItemDescription</div></div><div class="preq-doc">Qty @line.Quantity.ToString("N2")</div></div>
+                                    <div class="preq-subtext">Open @line.OpenQuantity.ToString("N2")@(string.IsNullOrWhiteSpace(line.WarehouseCode) ? string.Empty : $" | {line.WarehouseCode}")@(string.IsNullOrWhiteSpace(line.LineVendor) ? string.Empty : $" | Vendor {line.LineVendor}")</div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </aside>
+        </div>
+    }
+</div>

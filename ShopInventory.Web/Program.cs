@@ -216,6 +216,10 @@ try
     // Add Sales Order, Purchase Order, Credit Note, and Quotation services
     builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
     builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
+    builder.Services.AddScoped<IPurchaseRequestService, PurchaseRequestService>();
+    builder.Services.AddScoped<IPurchaseQuotationService, PurchaseQuotationService>();
+    builder.Services.AddScoped<IGoodsReceiptPurchaseOrderService, GoodsReceiptPurchaseOrderService>();
+    builder.Services.AddScoped<IPurchaseInvoiceService, PurchaseInvoiceService>();
     builder.Services.AddScoped<ICreditNoteService, CreditNoteService>();
     builder.Services.AddScoped<IQuotationService, QuotationService>();
 

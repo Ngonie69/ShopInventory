@@ -43,6 +43,7 @@ public class AuditService : IAuditService
 
             var log = new AuditLog
             {
+                UserId = ResolveCurrentUserId(username),
                 Action = action,
                 Username = username,
                 UserRole = userRole,
@@ -94,6 +95,26 @@ public class AuditService : IAuditService
         }
 
         return ("Anonymous", "None");
+    }
+
+    private string? ResolveCurrentUserId(string username)
+    {
+        var httpContext = _httpContextAccessor.HttpContext;
+        var user = httpContext?.User;
+
+        if (user?.Identity?.IsAuthenticated != true)
+        {
+            return null;
+        }
+
+        var currentUsername = user.Identity.Name ?? user.FindFirst(ClaimTypes.Name)?.Value;
+        if (string.IsNullOrWhiteSpace(currentUsername) ||
+            !string.Equals(currentUsername, username, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
     }
 
     private static string? GetClientIpAddress(HttpContext? httpContext)

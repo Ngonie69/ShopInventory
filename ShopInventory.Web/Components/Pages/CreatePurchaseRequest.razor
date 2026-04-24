@@ -1,0 +1,179 @@
+@page "/purchase-requests/create"
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+
+<PageTitle>Create Purchase Request</PageTitle>
+
+<style>
+    .pcdoc-page { max-width: 1480px; margin: 0 auto; padding: 1.5rem; }
+    .pcdoc-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .pcdoc-title h1 { margin: 0; font-size: 1.7rem; font-weight: 800; color: #172033; }
+    .pcdoc-title p { margin: .4rem 0 0; color: #5f6b7a; max-width: 760px; }
+    .pcdoc-card { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); padding: 1.1rem; }
+    .pcdoc-card + .pcdoc-card { margin-top: 1rem; }
+    .pcdoc-card h2 { margin: 0 0 1rem; font-size: 1rem; font-weight: 700; color: #172033; }
+    .pcdoc-alert { border-radius: 14px; padding: .85rem 1rem; margin-bottom: 1rem; border: 1px solid transparent; }
+    .pcdoc-alert.error { background: #fff1f1; border-color: #f3c4c4; color: #8f2727; }
+    .pcdoc-alert.success { background: #edf9f0; border-color: #b7dfc0; color: #1f6b34; }
+    .pcdoc-table input, .pcdoc-table textarea, .pcdoc-table select, .pcdoc-card input, .pcdoc-card textarea, .pcdoc-card select { border-radius: 12px; }
+    .pcdoc-table td { min-width: 140px; vertical-align: top; }
+    .pcdoc-summary-value { font-size: 1.5rem; font-weight: 800; color: #172033; }
+    .pcdoc-summary-label { font-size: .76rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #7c8798; }
+    .pcdoc-loading { color: #5f6b7a; }
+    .dark-theme .pcdoc-title h1, .dark-theme .pcdoc-card h2, .dark-theme .pcdoc-summary-value { color: #edf2f7; }
+    .dark-theme .pcdoc-title p, .dark-theme .pcdoc-summary-label, .dark-theme .pcdoc-loading { color: #a9b4c2; }
+    .dark-theme .pcdoc-card { background: #16202c; border-color: #2a3645; box-shadow: none; }
+    .dark-theme .pcdoc-card input, .dark-theme .pcdoc-card textarea, .dark-theme .pcdoc-card select, .dark-theme .pcdoc-table input, .dark-theme .pcdoc-table textarea, .dark-theme .pcdoc-table select { background: #101823; border-color: #2a3645; color: #edf2f7; }
+    @@media (max-width: 768px) { .pcdoc-page { padding: 1rem; } }
+</style>
+
+<datalist id="purchase-request-products">
+    @foreach (var product in products)
+    {
+        <option value="@product.ItemCode">@product.ItemName</option>
+    }
+</datalist>
+
+<datalist id="purchase-request-warehouses">
+    @foreach (var warehouse in warehouses)
+    {
+        <option value="@warehouse.WarehouseCode">@warehouse.WarehouseName</option>
+    }
+</datalist>
+
+<div class="pcdoc-page">
+    <div class="pcdoc-header">
+        <div class="pcdoc-title">
+            <h1>Create Purchase Request</h1>
+            <p>Raise a new internal purchase request in SAP and capture the requested items, destination warehouses, and expected need dates.</p>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-outline-secondary" @onclick="GoBack" disabled="@isSubmitting">Back to Register</button>
+            <button class="btn btn-success" @onclick="SubmitAsync" disabled="@(isSubmitting || isLoadingLookups)">@(isSubmitting ? "Submitting..." : "Create Purchase Request")</button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="pcdoc-alert error">@errorMessage</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+        <div class="pcdoc-alert success">@successMessage</div>
+    }
+
+    <div class="row g-4">
+        <div class="col-xl-8">
+            <div class="pcdoc-card">
+                <h2>Document Details</h2>
+                @if (isLoadingLookups)
+                {
+                    <div class="pcdoc-loading mb-3">Loading products and warehouses...</div>
+                }
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Posting Date</label>
+                        <input class="form-control" type="date" @bind-value="purchaseRequest.DocDate" @bind-value:format="yyyy-MM-dd" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Required Date</label>
+                        <input class="form-control" type="date" @bind-value="purchaseRequest.RequriedDate" @bind-value:format="yyyy-MM-dd" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Requester ID</label>
+                        <input class="form-control" type="number" @bind-value="purchaseRequest.Requester" />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Comments</label>
+                        <textarea class="form-control" rows="3" @bind="purchaseRequest.Comments" placeholder="Optional request notes or sourcing context"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pcdoc-card">
+                <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap mb-3">
+                    <h2 class="mb-0">Requested Lines</h2>
+                    <button class="btn btn-outline-success" @onclick="AddLine" type="button">Add Line</button>
+                </div>
+
+                @if (HasError("Lines"))
+                {
+                    <div class="text-danger small mb-3">@GetError("Lines")</div>
+                }
+
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle pcdoc-table">
+                        <thead>
+                            <tr>
+                                <th>Item Code</th>
+                                <th>Description</th>
+                                <th>Quantity</th>
+                                <th>Warehouse</th>
+                                <th>Required Date</th>
+                                <th>Vendor</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (var index = 0; index < purchaseRequest.Lines.Count; index++)
+                            {
+                                var lineIndex = index;
+                                var line = purchaseRequest.Lines[lineIndex];
+                                <tr>
+                                    <td>
+                                        <input class="form-control" list="purchase-request-products" @bind="line.ItemCode" @onblur="() => SyncProduct(lineIndex)" placeholder="Item code" />
+                                        @if (HasError($"Lines[{lineIndex}].ItemCode"))
+                                        {
+                                            <div class="text-danger small mt-1">@GetError($"Lines[{lineIndex}].ItemCode")</div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <input class="form-control" @bind="line.ItemDescription" placeholder="Description" />
+                                    </td>
+                                    <td>
+                                        <input class="form-control" type="number" step="0.01" @bind-value="line.Quantity" />
+                                        @if (HasError($"Lines[{lineIndex}].Quantity"))
+                                        {
+                                            <div class="text-danger small mt-1">@GetError($"Lines[{lineIndex}].Quantity")</div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <input class="form-control" list="purchase-request-warehouses" @bind="line.WarehouseCode" placeholder="Warehouse" />
+                                    </td>
+                                    <td>
+                                        <input class="form-control" type="date" @bind-value="line.RequiredDate" @bind-value:format="yyyy-MM-dd" />
+                                    </td>
+                                    <td>
+                                        <input class="form-control" @bind="line.LineVendor" placeholder="Preferred vendor" />
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-outline-danger btn-sm" @onclick="() => RemoveLine(lineIndex)" type="button" disabled="@(purchaseRequest.Lines.Count == 1)">Remove</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-4">
+            <div class="pcdoc-card sticky-xl-top" style="top: 1rem;">
+                <h2>Summary</h2>
+                <div class="row g-3 mb-3">
+                    <div class="col-6">
+                        <div class="pcdoc-summary-label">Line Count</div>
+                        <div class="pcdoc-summary-value">@purchaseRequest.Lines.Count</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="pcdoc-summary-label">Total Quantity</div>
+                        <div class="pcdoc-summary-value">@TotalQuantity.ToString("N2")</div>
+                    </div>
+                </div>
+                <div class="text-secondary small mb-4">Each line can carry its own required date and preferred vendor, but blank required dates will inherit the header date when you add a new line.</div>
+                <button class="btn btn-success w-100" @onclick="SubmitAsync" disabled="@(isSubmitting || isLoadingLookups)">@(isSubmitting ? "Submitting..." : "Create Purchase Request")</button>
+            </div>
+        </div>
+    </div>
+</div>

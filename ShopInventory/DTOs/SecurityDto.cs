@@ -61,6 +61,29 @@ public class TwoFactorVerifyRequest
 }
 
 /// <summary>
+/// Request to complete the 2FA login challenge and receive a JWT.
+/// </summary>
+public class TwoFactorChallengeRequest
+{
+    /// <summary>
+    /// The short-lived challenge token returned by POST /api/auth/login when 2FA is required.
+    /// </summary>
+    [Required]
+    public string TwoFactorToken { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The 6-digit TOTP code or backup code
+    /// </summary>
+    [Required]
+    public string Code { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether this is a backup code
+    /// </summary>
+    public bool IsBackupCode { get; set; } = false;
+}
+
+/// <summary>
 /// Response requiring 2FA verification
 /// </summary>
 public class TwoFactorRequiredResponse

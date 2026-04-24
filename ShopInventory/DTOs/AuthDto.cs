@@ -22,14 +22,26 @@ public class AuthLoginRequest
 public class AuthLoginResponse
 {
     /// <summary>
+    /// When true, the client must call POST /api/auth/login/two-factor with the TwoFactorToken
+    /// and the TOTP code. AccessToken and RefreshToken will be empty.
+    /// </summary>
+    public bool RequiresTwoFactor { get; set; }
+
+    /// <summary>
+    /// Opaque short-lived token (5 minutes) to be exchanged at the two-factor challenge endpoint.
+    /// Only present when RequiresTwoFactor is true.
+    /// </summary>
+    public string? TwoFactorToken { get; set; }
+
+    /// <summary>
     /// JWT access token
     /// </summary>
-    public required string AccessToken { get; set; }
+    public string AccessToken { get; set; } = string.Empty;
 
     /// <summary>
     /// Refresh token for obtaining new access tokens
     /// </summary>
-    public required string RefreshToken { get; set; }
+    public string RefreshToken { get; set; } = string.Empty;
 
     /// <summary>
     /// Access token expiration time in UTC

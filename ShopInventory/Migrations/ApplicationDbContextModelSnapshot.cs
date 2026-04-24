@@ -2998,6 +2998,10 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("ClientRequestId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("Comments")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
@@ -3110,6 +3114,9 @@ namespace ShopInventory.Migrations
                     b.HasIndex("ApprovedByUserId");
 
                     b.HasIndex("CardCode");
+
+                    b.HasIndex("ClientRequestId")
+                        .IsUnique();
 
                     b.HasIndex("CreatedByUserId");
 
@@ -3797,6 +3804,67 @@ namespace ShopInventory.Migrations
                     b.HasIndex("TransactionType");
 
                     b.ToTable("OfflineQueueItems", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.PasskeyCredential", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AaGuid")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("AttestationFormat")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("AuthenticatorTransports")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CredentialId")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("FriendlyName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte[]>("PublicKey")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<long>("SignatureCounter")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte[]>("UserHandle")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CredentialId")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("PasskeyCredentials", (string)null);
                 });
 
             modelBuilder.Entity("ShopInventory.Models.PasswordResetToken", b =>
@@ -4828,6 +4896,17 @@ namespace ShopInventory.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.PasskeyCredential", b =>
+                {
+                    b.HasOne("ShopInventory.Models.User", "User")
+                        .WithMany("Passkeys")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.PasswordResetToken", b =>
                 {
                     b.HasOne("ShopInventory.Models.User", "User")
@@ -4977,6 +5056,8 @@ namespace ShopInventory.Migrations
 
             modelBuilder.Entity("ShopInventory.Models.User", b =>
                 {
+                    b.Navigation("Passkeys");
+
                     b.Navigation("PasswordResetTokens");
 
                     b.Navigation("RefreshTokens");

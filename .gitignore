@@ -94,3 +94,7 @@ firebase-service-account.json
 # Database
 *.db
 *.sqlite
+
+# Generated/exported documentation
+API.docx
+Kefalos_Portal_User_Guide.docx

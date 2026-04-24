@@ -76,7 +76,7 @@
                 <option value="locked">Locked</option>
             </select>
             @if (!string.IsNullOrEmpty(searchTerm) || !string.IsNullOrEmpty(roleFilter) ||
-                                                                                                                    !string.IsNullOrEmpty(statusFilter))
+                                                                                                                                !string.IsNullOrEmpty(statusFilter))
             {
                 <button class="um-btn um-btn-ghost" @onclick="ResetFilters">
                     <i class="bi bi-x-lg"></i> Clear
@@ -203,7 +203,7 @@
             {
                 <div class="um-pagination">
                     <span class="um-page-info">Showing @((currentPage - 1) * pageSize + 1)–@Math.Min(currentPage * pageSize,
-                                                                                                                                                                                                                                    users.Count + (currentPage - 1) * pageSize) of page @currentPage</span>
+                                                                                                                                                                                                                                                            users.Count + (currentPage - 1) * pageSize) of page @currentPage</span>
                         <div class="um-page-buttons">
                             <button class="um-page-btn" disabled="@(currentPage <= 1)" @onclick="() => GoToPage(currentPage - 1)">
                                 <i class="bi bi-chevron-left"></i>
@@ -541,7 +541,7 @@
                                             {
                                                 <select class="um-input" @bind="MerchandiserDefaultWarehouse">
                                                     <option value="">-- Select Warehouse --</option>
-                                                    @foreach (var wh in availableWarehouses)
+                                                    @foreach (var wh in MerchandiserWarehouseOptions)
                                                     {
                                                         <option value="@wh.WarehouseCode">@wh.WarehouseCode - @wh.WarehouseName</option>
                                                     }
@@ -3058,6 +3058,30 @@
             userModel.AssignedWarehouseCodes.Clear();
             if (!string.IsNullOrEmpty(value))
                 userModel.AssignedWarehouseCodes.Add(value);
+        }
+    }
+
+    private IEnumerable<WarehouseDto> MerchandiserWarehouseOptions
+    {
+        get
+        {
+            var selectedWarehouseCode = MerchandiserDefaultWarehouse;
+
+            if (string.IsNullOrWhiteSpace(selectedWarehouseCode) ||
+                availableWarehouses.Any(wh => string.Equals(wh.WarehouseCode, selectedWarehouseCode,
+StringComparison.OrdinalIgnoreCase)))
+            {
+                return availableWarehouses;
+            }
+
+            return new[]
+            {
+                new WarehouseDto
+                {
+                    WarehouseCode = selectedWarehouseCode,
+                    WarehouseName = "Currently assigned"
+                }
+            }.Concat(availableWarehouses);
         }
     }
 

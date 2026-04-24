@@ -17,6 +17,7 @@ public interface IInventoryTransferService
     // Transfer Request operations
     Task<(bool Success, string Message, InventoryTransferRequestDto? TransferRequest)> CreateTransferRequestAsync(CreateTransferRequestDto request);
     Task<TransferRequestListResponse?> GetTransferRequestsAsync(int page = 1, int pageSize = 20);
+    Task<TransferRequestListResponse?> GetAllTransferRequestsAsync(int pageSize = 100);
     Task<TransferRequestListResponse?> GetTransferRequestsByWarehouseAsync(string warehouseCode);
     Task<InventoryTransferRequestDto?> GetTransferRequestByDocEntryAsync(int docEntry);
 
@@ -342,6 +343,41 @@ public class InventoryTransferService : IInventoryTransferService
             _logger.LogError(ex, "Error getting transfer requests");
             return null;
         }
+    }
+
+    public async Task<TransferRequestListResponse?> GetAllTransferRequestsAsync(int pageSize = 100)
+    {
+        var effectivePageSize = Math.Clamp(pageSize, 1, 100);
+        var allRequests = new List<InventoryTransferRequestDto>();
+        string? warehouse = null;
+        var page = 1;
+
+        while (true)
+        {
+            var response = await GetTransferRequestsAsync(page, effectivePageSize);
+            if (response == null)
+                return null;
+
+            warehouse ??= response.Warehouse;
+
+            var pageRequests = response.TransferRequests ?? new List<InventoryTransferRequestDto>();
+            allRequests.AddRange(pageRequests);
+
+            if (!response.HasMore || pageRequests.Count == 0)
+                break;
+
+            page++;
+        }
+
+        return new TransferRequestListResponse
+        {
+            Warehouse = warehouse,
+            Page = 1,
+            PageSize = effectivePageSize,
+            Count = allRequests.Count,
+            HasMore = false,
+            TransferRequests = allRequests
+        };
     }
 
     public async Task<TransferRequestListResponse?> GetTransferRequestsByWarehouseAsync(string warehouseCode)

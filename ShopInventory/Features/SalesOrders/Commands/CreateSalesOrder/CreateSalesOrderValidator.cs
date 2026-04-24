@@ -1,4 +1,5 @@
 using FluentValidation;
+using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.SalesOrders.Commands.CreateSalesOrder;
 
@@ -22,6 +23,14 @@ public sealed class CreateSalesOrderValidator : AbstractValidator<CreateSalesOrd
 
             RuleFor(x => x.Request.Lines)
                 .NotEmpty().WithMessage("At least one line item is required");
+
+            RuleFor(x => x.Request.ClientRequestId)
+                .MaximumLength(100).WithMessage("Client request ID must not exceed 100 characters")
+                .When(x => !string.IsNullOrWhiteSpace(x.Request?.ClientRequestId));
+
+            RuleFor(x => x.Request.ClientRequestId)
+                .NotEmpty().WithMessage("Client request ID is required for mobile sales orders")
+                .When(x => x.Request?.Source == SalesOrderSource.Mobile);
 
             RuleForEach(x => x.Request.Lines).ChildRules(line =>
             {

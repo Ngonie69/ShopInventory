@@ -64,6 +64,16 @@ public interface IAuthService
     /// Get user by username
     /// </summary>
     Task<User?> GetUserByUsernameAsync(string username);
+
+    /// <summary>
+    /// Complete login after successful 2FA verification. Exchanges the challenge token + TOTP code for a real JWT.
+    /// </summary>
+    Task<AuthLoginResponse?> CompleteTwoFactorLoginAsync(string challengeToken, string code, bool isBackupCode, string ipAddress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Complete login after a successful passkey assertion.
+    /// </summary>
+    Task<AuthLoginResponse?> CompletePasskeyLoginAsync(Guid userId, string ipAddress, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -84,16 +94,23 @@ public class AuthService : IAuthService
     // In-memory storage for IP-based lockout (could also be moved to Redis for distributed scenarios)
     private static readonly ConcurrentDictionary<string, FailedLoginInfo> _failedAttempts = new();
 
+    private readonly ITwoFactorPendingStore _pendingStore;
+    private readonly ITwoFactorService _twoFactorService;
+
     public AuthService(
         ApplicationDbContext dbContext,
         IOptions<JwtSettings> jwtSettings,
         IOptions<SecuritySettings> securitySettings,
-        ILogger<AuthService> logger)
+        ILogger<AuthService> logger,
+        ITwoFactorPendingStore pendingStore,
+        ITwoFactorService twoFactorService)
     {
         _dbContext = dbContext;
         _jwtSettings = jwtSettings.Value;
         _securitySettings = securitySettings.Value;
         _logger = logger;
+        _pendingStore = pendingStore;
+        _twoFactorService = twoFactorService;
 
         // Build dictionary once at construction for fast API key validation
         _apiKeyLookup = _securitySettings.ApiKeys
@@ -164,48 +181,23 @@ public class AuthService : IAuthService
         ClearFailedAttempts(ipAddress);
         user.FailedLoginAttempts = 0;
         user.LockoutEnd = null;
-        user.LastLoginAt = DateTime.UtcNow;
 
-        // Generate tokens
-        var accessToken = GenerateAccessToken(user);
-        var refreshTokenValue = GenerateRefreshTokenValue();
-        var expiresAt = DateTime.UtcNow.AddMinutes(_jwtSettings.AccessTokenExpirationMinutes);
-
-        // Store refresh token in database
-        var refreshToken = new RefreshToken
+        // If 2FA is enabled, issue a challenge token instead of a real JWT.
+        if (user.TwoFactorEnabled)
         {
-            Id = Guid.NewGuid(),
-            Token = refreshTokenValue,
-            UserId = user.Id,
-            CreatedAt = DateTime.UtcNow,
-            ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenExpirationDays),
-            CreatedByIp = ipAddress
-        };
-
-        _dbContext.RefreshTokens.Add(refreshToken);
-        await _dbContext.SaveChangesAsync();
-
-        _logger.LogInformation("User {Username} logged in successfully from IP: {IpAddress}",
-            user.Username, ipAddress);
-
-        return new AuthLoginResponse
-        {
-            AccessToken = accessToken,
-            RefreshToken = refreshTokenValue,
-            ExpiresAt = expiresAt,
-            User = new UserInfo
+            await _dbContext.SaveChangesAsync();
+            var challengeToken = _pendingStore.CreateChallenge(user.Id);
+            _logger.LogInformation("User {Username} passed password check; 2FA challenge issued from IP: {IpAddress}",
+                user.Username, ipAddress);
+            return new AuthLoginResponse
             {
-                Username = user.Username,
-                Role = user.Role,
-                Email = user.Email,
-                AssignedWarehouseCode = user.AssignedWarehouseCode,
-                AssignedWarehouseCodes = user.GetWarehouseCodes(),
-                AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
-                DefaultGLAccount = user.DefaultGLAccount,
-                AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
-                AssignedCustomerCodes = user.GetCustomerCodes()
-            }
-        };
+                RequiresTwoFactor = true,
+                TwoFactorToken = challengeToken
+            };
+        }
+
+        user.LastLoginAt = DateTime.UtcNow;
+        return await IssueLoginResponseAsync(user, ipAddress, CancellationToken.None);
     }
 
     public async Task<AuthLoginResponse?> RefreshTokenAsync(string refreshToken, string ipAddress)
@@ -340,6 +332,58 @@ public class AuthService : IAuthService
     {
         return await _dbContext.Users
             .FirstOrDefaultAsync(u => u.Username.ToLower() == username.ToLower());
+    }
+
+    public async Task<AuthLoginResponse?> CompleteTwoFactorLoginAsync(
+        string challengeToken, string code, bool isBackupCode, string ipAddress, CancellationToken cancellationToken)
+    {
+        var userId = _pendingStore.ConsumeChallenge(challengeToken);
+        if (userId is null)
+        {
+            _logger.LogWarning("Invalid or expired 2FA challenge token from IP: {IpAddress}", ipAddress);
+            return null;
+        }
+
+        var result = await _twoFactorService.VerifyCodeAsync(userId.Value, code, isBackupCode);
+        if (!result.IsSuccess)
+        {
+            _logger.LogWarning("Failed 2FA code verification for user {UserId} from IP: {IpAddress}", userId.Value, ipAddress);
+            return null;
+        }
+
+        var user = await _dbContext.Users.FindAsync([userId.Value], cancellationToken);
+        if (user is null || !user.IsActive)
+        {
+            _logger.LogWarning("2FA completed for unknown/inactive user {UserId}", userId.Value);
+            return null;
+        }
+
+        user.LastLoginAt = DateTime.UtcNow;
+        return await IssueLoginResponseAsync(user, ipAddress, cancellationToken);
+    }
+
+    public async Task<AuthLoginResponse?> CompletePasskeyLoginAsync(Guid userId, string ipAddress, CancellationToken cancellationToken)
+    {
+        var user = await _dbContext.Users.FindAsync([userId], cancellationToken);
+        if (user is null || !user.IsActive)
+        {
+            _logger.LogWarning("Passkey login completed for unknown/inactive user {UserId}", userId);
+            return null;
+        }
+
+        if (user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTime.UtcNow)
+        {
+            _logger.LogWarning("Passkey login attempted for locked user {UserId}", userId);
+            return null;
+        }
+
+        ClearFailedAttempts(ipAddress);
+        user.FailedLoginAttempts = 0;
+        user.LockoutEnd = null;
+        user.LastLoginAt = DateTime.UtcNow;
+
+        _logger.LogInformation("User {Username} completed passkey login from IP: {IpAddress}", user.Username, ipAddress);
+        return await IssueLoginResponseAsync(user, ipAddress, cancellationToken);
     }
 
     /// <summary>
@@ -549,6 +593,45 @@ public class AuthService : IAuthService
         );
 
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private async Task<AuthLoginResponse> IssueLoginResponseAsync(User user, string ipAddress, CancellationToken cancellationToken)
+    {
+        var accessToken = GenerateAccessToken(user);
+        var refreshTokenValue = GenerateRefreshTokenValue();
+        var expiresAt = DateTime.UtcNow.AddMinutes(_jwtSettings.AccessTokenExpirationMinutes);
+
+        var refreshToken = new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            Token = refreshTokenValue,
+            UserId = user.Id,
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenExpirationDays),
+            CreatedByIp = ipAddress
+        };
+
+        _dbContext.RefreshTokens.Add(refreshToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return new AuthLoginResponse
+        {
+            AccessToken = accessToken,
+            RefreshToken = refreshTokenValue,
+            ExpiresAt = expiresAt,
+            User = new UserInfo
+            {
+                Username = user.Username,
+                Role = user.Role,
+                Email = user.Email,
+                AssignedWarehouseCode = user.AssignedWarehouseCode,
+                AssignedWarehouseCodes = user.GetWarehouseCodes(),
+                AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
+                DefaultGLAccount = user.DefaultGLAccount,
+                AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
+                AssignedCustomerCodes = user.GetCustomerCodes()
+            }
+        };
     }
 
     private static string GenerateRefreshTokenValue()

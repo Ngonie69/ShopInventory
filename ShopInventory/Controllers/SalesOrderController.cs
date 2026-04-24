@@ -90,6 +90,11 @@ public class SalesOrderController(IMediator mediator) : ApiControllerBase
         if (userId == null)
             return Unauthorized();
 
+        if (string.IsNullOrWhiteSpace(request.ClientRequestId) && Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyValues))
+        {
+            request.ClientRequestId = idempotencyValues.FirstOrDefault();
+        }
+
         var result = await mediator.Send(new CreateSalesOrderCommand(request, userId.Value), cancellationToken);
         return result.Match(
             value => CreatedAtAction(nameof(GetById), new { id = value.Id }, value),

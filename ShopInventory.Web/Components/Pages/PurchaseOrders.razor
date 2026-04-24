@@ -911,7 +911,7 @@
                     <div class="stat-icon approved"><i class="bi bi-check-circle"></i></div>
                     <div class="stat-info">
                         <div class="stat-value">@orders.Count(o => o.Status == PurchaseOrderStatus.Approved || o.Status ==
-                                                                                                                                                                    PurchaseOrderStatus.PartiallyReceived)</div>
+                                                                                                                                                                                                                            PurchaseOrderStatus.PartiallyReceived)</div>
                             <div class="stat-label">Approved</div>
                         </div>
                     </div>
@@ -1016,7 +1016,7 @@
                                 </MudTd>
                                 <MudTd DataLabel="Delivery Date">
                                     <span style="font-size:.85rem;color:#374151;">@(context.DeliveryDate?.ToString("dd MMM yyyy") ??
-                                                                                                                                                                                                                                    "—")</span>
+                                                                                                                                                                                                                                                                                                                    "—")</span>
                                     </MudTd>
                                     <MudTd DataLabel="Status">
                                         <span class="status-badge @GetStatusCssClass(context.Status)">@context.StatusName</span>
@@ -1050,15 +1050,25 @@
                                                 </MudButton>
                                             }
                                             @if (context.Status == PurchaseOrderStatus.Approved || context.Status ==
-                                                                                                                                                                                                                                                        PurchaseOrderStatus.PartiallyReceived)
+                                                                                                                                                                                                                                                                                                                                                PurchaseOrderStatus.PartiallyReceived)
                                             {
-                                                <MudButton Class="action-btn receive" OnClick="() => ShowReceiveModal(context)"
-                                                           title="Receive Goods">
-                                                    <i class="bi bi-box-seam"></i>
-                                                </MudButton>
+                                                @if (string.Equals(context.Source, "SAP", StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    <MudButton Class="action-btn receive"
+                                                               OnClick="() => CreateGoodsReceiptFromSAPOrder(context)" title="Create GRPO">
+                                                        <i class="bi bi-box-arrow-in-down"></i>
+                                                    </MudButton>
+                                                }
+                                                else
+                                                {
+                                                    <MudButton Class="action-btn receive" OnClick="() => ShowReceiveModal(context)"
+                                                               title="Receive Goods">
+                                                        <i class="bi bi-box-seam"></i>
+                                                    </MudButton>
+                                                }
                                             }
                                             @if (context.Status == PurchaseOrderStatus.Draft || context.Status ==
-                                                                                                                                                                                                                                                        PurchaseOrderStatus.Cancelled)
+                                                                                                                                                                                                                                                                                                                                                PurchaseOrderStatus.Cancelled)
                                             {
                                                 <MudButton Class="action-btn delete" OnClick="() => DeleteOrder(context.Id)" title="Delete">
                                                     <i class="bi bi-trash3"></i>
@@ -1189,7 +1199,7 @@
                                                 @if (line.QuantityRemaining > 0)
                                                 {
                                                     <span style="color:#d97706;font-weight:600;">@QuantityDisplay.Format(line.QuantityRemaining,
-                                                                                    line.UoMCode)</span>
+                                                                                                                                                                                                    line.UoMCode)</span>
                                                     }
                                                 else
                                                     {
@@ -1346,7 +1356,7 @@
 
     // Pagination
     private int currentPage = 1;
-    private int pageSize = 50;
+    private int pageSize = 10000;
     private int totalPages = 1;
     private int totalCount = 0;
 
@@ -1365,7 +1375,6 @@
 
     protected override async Task OnInitializedAsync()
     {
-        pageSize = AppSettings.PageSize;
         await LoadOrders();
         await AuditService.LogAsync(AuditActions.ViewPurchaseOrders, "PurchaseOrder", null);
     }
@@ -1465,6 +1474,18 @@
     private void EditOrder(PurchaseOrderDto order)
     {
         NavigationManager.NavigateTo($"/purchase-orders/create?editId={order.Id}");
+    }
+
+    private void CreateGoodsReceiptFromSAPOrder(PurchaseOrderDto order)
+    {
+        var docEntry = order.SAPDocEntry ?? order.Id;
+        if (docEntry <= 0)
+        {
+            errorMessage = "Unable to open GRPO draft because the SAP purchase order identifier is missing.";
+            return;
+        }
+
+        NavigationManager.NavigateTo($"/goods-receipt-pos/create?purchaseOrderDocEntry={docEntry}");
     }
 
     private async Task SubmitForApproval(int id)

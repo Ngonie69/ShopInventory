@@ -1,6 +1,7 @@
 @page "/login"
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Data
+@using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @inject IAuthService AuthService
 @inject NavigationManager NavigationManager
@@ -63,6 +64,8 @@
                 </div>
             }
 
+            @if (!requiresTwoFactor)
+            {
             <EditForm Model="loginModel" OnValidSubmit="HandleLogin" FormName="LoginForm">
                 <DataAnnotationsValidator />
 
@@ -120,7 +123,7 @@
                     <ValidationMessage For="@(() => loginModel.Password)" class="validation-msg" />
                 </div>
 
-                <MudButton ButtonType="ButtonType.Submit" Class="submit-btn" Disabled="@isLoading">
+                <MudButton ButtonType="ButtonType.Submit" Class="submit-btn" Disabled="@(isLoading || isPasskeyLoading)">
                     @if (isLoading)
                     {
                         <span class="spinner"></span>
@@ -138,7 +141,75 @@
                         <span>Sign in</span>
                     }
                 </MudButton>
+
+                <div class="passkey-divider"><span>or</span></div>
+
+                <MudButton ButtonType="ButtonType.Button" Class="passkey-btn" OnClick="HandlePasskeyLogin"
+                           Disabled="@(isLoading || isPasskeyLoading)">
+                    @if (isPasskeyLoading)
+                    {
+                        <span class="spinner spinner-dark"></span>
+                        <span>Checking passkey...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-fingerprint"></i>
+                        <span>Use a passkey</span>
+                    }
+                </MudButton>
+
+                <p class="passkey-note">Use Windows Hello, Face ID, Touch ID, or your device PIN on a supported browser.</p>
             </EditForm>
+            } @* end @if (!requiresTwoFactor) *@
+
+            @if (requiresTwoFactor)
+            {
+                <div class="twofactor-step">
+                    <div class="twofactor-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/>
+                        </svg>
+                    </div>
+                    <h2 class="twofactor-title">Two-Factor Authentication</h2>
+                    <p class="twofactor-hint">Enter the 6-digit code from your authenticator app.</p>
+
+                    <div class="form-group">
+                        <label for="twofactor-code">@(isBackupCode ? "Backup Code" : "Authenticator Code")</label>
+                        <div class="input-wrapper">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M0 3.5A1.5 1.5 0 0 1 1.5 2h13A1.5 1.5 0 0 1 16 3.5v2A1.5 1.5 0 0 1 14.5 7h-13A1.5 1.5 0 0 1 0 5.5v-2zM1.5 3a.5.5 0 0 0-.5.5v2a.5.5 0 0 0 .5.5h13a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 0-.5-.5h-13zM0 10.5A1.5 1.5 0 0 1 1.5 9h13a1.5 1.5 0 0 1 1.5 1.5v2a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 0 12.5v-2zM1.5 10a.5.5 0 0 0-.5.5v2a.5.5 0 0 0 .5.5h13a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 0-.5-.5h-13z"/>
+                            </svg>
+                            <input id="twofactor-code" type="text" class="form-input"
+                                   @bind="twoFactorCode" @bind:event="oninput"
+                                   placeholder="@(isBackupCode ? "XXXX-XXXX" : "000000")"
+                                   maxlength="@(isBackupCode ? 9 : 6)"
+                                   autocomplete="one-time-code" />
+                        </div>
+                    </div>
+
+                    <label class="twofactor-backup-toggle">
+                        <input type="checkbox" @bind="isBackupCode" />
+                        Use a backup code instead
+                    </label>
+
+                    <MudButton ButtonType="ButtonType.Button" Class="submit-btn" OnClick="HandleTwoFactorSubmit"
+                               Disabled="@(isLoading || string.IsNullOrWhiteSpace(twoFactorCode))">
+                        @if (isLoading)
+                        {
+                            <span class="spinner"></span>
+                            <span>Verifying...</span>
+                        }
+                        else
+                        {
+                            <span>Verify</span>
+                        }
+                    </MudButton>
+
+                    <button type="button" class="twofactor-cancel" @onclick="CancelTwoFactor">
+                        &larr; Back to login
+                    </button>
+                </div>
+            }
 
             <p class="footer-text">© 2026 Shop Inventory System</p>
         </section>
@@ -503,11 +574,154 @@
         animation: spin 0.8s linear infinite;
     }
 
+    .spinner-dark {
+        border-color: rgba(17, 17, 17, 0.18);
+        border-top-color: #111111;
+    }
+
+    .passkey-divider {
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+        margin-top: 1rem;
+        color: #9b9b9b;
+        font-size: 0.82rem;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+    }
+
+    .passkey-divider::before,
+    .passkey-divider::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: rgba(17, 17, 17, 0.1);
+    }
+
+    .passkey-btn {
+        width: 100%;
+        margin-top: 0.95rem;
+        min-height: 3.6rem;
+        background: #f5f5f5;
+        color: #111111;
+        border: 1px solid rgba(17, 17, 17, 0.08);
+        border-radius: 0.9rem;
+        font-size: 1rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.65rem;
+        transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    }
+
+    .passkey-btn:hover:not(:disabled) {
+        background: #eeeeee;
+        transform: translateY(-1px);
+        box-shadow: 0 16px 30px rgba(0, 0, 0, 0.12);
+    }
+
+    .passkey-note {
+        margin: 0.75rem 0 0;
+        color: #7a7a7a;
+        font-size: 0.84rem;
+        line-height: 1.45;
+    }
+
     .footer-text {
         text-align: center;
         color: #9b9b9b;
         font-size: 0.85rem;
         margin: 0;
+    }
+
+    .twofactor-step {
+        display: flex;
+        flex-direction: column;
+        gap: 1.1rem;
+        animation: fadeIn 0.25s ease;
+    }
+
+    @@keyframes fadeIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .twofactor-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 56px;
+        height: 56px;
+        border-radius: 14px;
+        background: #f1f5f9;
+        color: #334155;
+        margin-bottom: 0.25rem;
+    }
+
+    .twofactor-title {
+        font-size: 1.3rem;
+        font-weight: 700;
+        color: #111;
+        margin: 0;
+    }
+
+    .twofactor-hint {
+        color: #6b7280;
+        font-size: 0.9rem;
+        margin: 0;
+    }
+
+    .twofactor-backup-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+        color: #6b7280;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .twofactor-cancel {
+        background: none;
+        border: none;
+        color: #6b7280;
+        font-size: 0.875rem;
+        cursor: pointer;
+        padding: 0;
+        text-align: left;
+        text-decoration: underline;
+        width: fit-content;
+    }
+
+    .twofactor-cancel:hover {
+        color: #111;
+    }
+
+    :global(.dark-theme) .twofactor-icon {
+        background: #1e293b;
+        color: #94a3b8;
+    }
+
+    :global(.dark-theme) .twofactor-title {
+        color: #f1f5f9;
+    }
+
+    :global(.dark-theme) .twofactor-hint {
+        color: #94a3b8;
+    }
+
+    :global(.dark-theme) .twofactor-backup-toggle {
+        color: #94a3b8;
+    }
+
+    :global(.dark-theme) .twofactor-cancel {
+        color: #64748b;
+    }
+
+    :global(.dark-theme) .twofactor-cancel:hover {
+        color: #e2e8f0;
     }
 
     @@keyframes spin {
@@ -623,6 +837,36 @@
         color: #f1f5f9;
     }
 
+    :global(.dark-theme) .passkey-divider {
+        color: #64748b;
+    }
+
+    :global(.dark-theme) .passkey-divider::before,
+    :global(.dark-theme) .passkey-divider::after {
+        background: rgba(148, 163, 184, 0.15);
+    }
+
+    :global(.dark-theme) .passkey-btn {
+        background: #0f172a;
+        color: #f1f5f9;
+        border-color: #334155;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+    }
+
+    :global(.dark-theme) .passkey-btn:hover:not(:disabled) {
+        background: #132033;
+        box-shadow: 0 16px 30px rgba(0, 0, 0, 0.22);
+    }
+
+    :global(.dark-theme) .spinner-dark {
+        border-color: rgba(226, 232, 240, 0.18);
+        border-top-color: #e2e8f0;
+    }
+
+    :global(.dark-theme) .passkey-note {
+        color: #94a3b8;
+    }
+
     :global(.dark-theme) .footer-text {
         color: #64748b;
     }
@@ -637,7 +881,14 @@
     private LoginModel loginModel = new();
     private string? errorMessage;
     private bool isLoading = false;
+    private bool isPasskeyLoading = false;
     private bool showPassword = false;
+
+    // 2FA challenge state
+    private bool requiresTwoFactor = false;
+    private string? pendingTwoFactorToken;
+    private string twoFactorCode = string.Empty;
+    private bool isBackupCode = false;
 
     [SupplyParameterFromQuery]
     public string? ReturnUrl { get; set; }
@@ -672,6 +923,19 @@
         showPassword = !showPassword;
     }
 
+    private async Task NavigateAfterLogin()
+    {
+        await Task.Delay(100);
+
+        var uri = new Uri(NavigationManager.Uri);
+        var queryParams = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var returnUrl = queryParams["returnUrl"];
+
+        var targetUrl = !string.IsNullOrEmpty(returnUrl) ? Uri.UnescapeDataString(returnUrl) : "/dashboard";
+        Logger.LogInformation("Navigating to: {Url}", targetUrl);
+        NavigationManager.NavigateTo(targetUrl);
+    }
+
     private async Task HandleLogin()
     {
         Logger.LogInformation("HandleLogin started for user: {Username}", loginModel.Username);
@@ -686,34 +950,27 @@
 
             if (success && response != null)
             {
+                if (response.RequiresTwoFactor)
+                {
+                    // Password accepted — prompt for the TOTP code
+                    pendingTwoFactorToken = response.TwoFactorToken;
+                    requiresTwoFactor = true;
+                    return;
+                }
+
                 Logger.LogInformation("Login successful, notifying auth state provider");
-                // Notify the auth state provider about the new authentication
                 AuthStateProvider.NotifyUserAuthentication(
                 response.User?.Username ?? loginModel.Username,
                 response.User?.Role ?? "User");
 
-                // Audit log: successful login
                 await AuditService.LogAsync(AuditActions.Login, response.User?.Username ?? loginModel.Username, response.User?.Role ??
 "User", "Auth", null, null, "/login");
-
-                Logger.LogDebug("Waiting 100ms for state to propagate");
-                await Task.Delay(100);
-
-                // Get return URL if present
-                var uri = new Uri(NavigationManager.Uri);
-                var queryParams = System.Web.HttpUtility.ParseQueryString(uri.Query);
-                var returnUrl = queryParams["returnUrl"];
-
-                // Navigate to dashboard by default (not "/" which has a server redirect to login)
-                var targetUrl = !string.IsNullOrEmpty(returnUrl) ? Uri.UnescapeDataString(returnUrl) : "/dashboard";
-                Logger.LogInformation("Navigating to: {Url}", targetUrl);
-                NavigationManager.NavigateTo(targetUrl);
+                await NavigateAfterLogin();
             }
             else
             {
                 Logger.LogWarning("Login failed: {Message}", message);
                 errorMessage = message;
-                // Audit log: failed login
                 await AuditService.LogAsync(AuditActions.LoginFailed, loginModel.Username, "Unknown", "Auth", null, message, "/login",
 false, message);
             }
@@ -728,5 +985,128 @@ false, message);
             isLoading = false;
             Logger.LogDebug("HandleLogin completed, isLoading set to false");
         }
+    }
+
+    private async Task HandlePasskeyLogin()
+    {
+        Logger.LogInformation("HandlePasskeyLogin started");
+        isPasskeyLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var supported = await JSRuntime.InvokeAsync<bool>("passkeys.isSupported");
+            if (!supported)
+            {
+                errorMessage = "Passkeys are only available in supported browsers over HTTPS or localhost.";
+                return;
+            }
+
+            var context = await JSRuntime.InvokeAsync<PasskeyBrowserContext>("passkeys.getContext");
+            var (beginSuccess, beginMessage, ceremony) = await AuthService.BeginPasskeyLoginAsync(context.Origin, context.RpId);
+
+            if (!beginSuccess || ceremony is null)
+            {
+                errorMessage = beginMessage;
+                await AuditService.LogAsync(AuditActions.LoginFailed,
+                    string.IsNullOrWhiteSpace(loginModel.Username) ? "Unknown" : loginModel.Username,
+                    "Unknown", "Auth", null, beginMessage, "/login", false, beginMessage);
+                return;
+            }
+
+            var credentialJson = await JSRuntime.InvokeAsync<string>("passkeys.authenticate", ceremony.Value.OptionsJson);
+            var (success, message, response) = await AuthService.CompletePasskeyLoginAsync(
+                ceremony.Value.SessionToken,
+                credentialJson,
+                context.Origin,
+                context.RpId);
+
+            if (success && response != null)
+            {
+                AuthStateProvider.NotifyUserAuthentication(
+                    response.User?.Username ?? loginModel.Username,
+                    response.User?.Role ?? "User");
+
+                await AuditService.LogAsync(AuditActions.Login,
+                    response.User?.Username ?? "PasskeyUser",
+                    response.User?.Role ?? "User",
+                    "Auth",
+                    null,
+                    "Passkey login completed",
+                    "/login");
+
+                await NavigateAfterLogin();
+            }
+            else
+            {
+                errorMessage = message;
+                await AuditService.LogAsync(AuditActions.LoginFailed,
+                    string.IsNullOrWhiteSpace(loginModel.Username) ? "Unknown" : loginModel.Username,
+                    "Unknown", "Auth", null, message, "/login", false, message);
+            }
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Passkey browser interaction failed");
+            errorMessage = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Exception during HandlePasskeyLogin");
+            errorMessage = $"An error occurred: {ex.Message}";
+        }
+        finally
+        {
+            isPasskeyLoading = false;
+        }
+    }
+
+    private async Task HandleTwoFactorSubmit()
+    {
+        if (string.IsNullOrWhiteSpace(twoFactorCode) || string.IsNullOrEmpty(pendingTwoFactorToken))
+            return;
+
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var (success, message, response) = await AuthService.CompleteTwoFactorAsync(
+                pendingTwoFactorToken, twoFactorCode.Trim(), isBackupCode);
+
+            if (success && response != null)
+            {
+                AuthStateProvider.NotifyUserAuthentication(
+                    response.User?.Username ?? loginModel.Username,
+                    response.User?.Role ?? "User");
+
+                await AuditService.LogAsync(AuditActions.Login, response.User?.Username ?? loginModel.Username,
+                    response.User?.Role ?? "User", "Auth", null, "2FA login completed", "/login");
+                await NavigateAfterLogin();
+            }
+            else
+            {
+                errorMessage = message;
+                twoFactorCode = string.Empty;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Exception during 2FA challenge submission");
+            errorMessage = $"An error occurred: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void CancelTwoFactor()
+    {
+        requiresTwoFactor = false;
+        pendingTwoFactorToken = null;
+        twoFactorCode = string.Empty;
+        isBackupCode = false;
+        errorMessage = null;
     }
 }

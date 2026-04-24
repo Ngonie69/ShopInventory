@@ -49,6 +49,7 @@ public class SalesOrderDto
     public string? DeviceInfo { get; set; }
     public decimal? Latitude { get; set; }
     public decimal? Longitude { get; set; }
+    public string? ClientRequestId { get; set; }
     public string? RowVersion { get; set; }
     public List<SalesOrderLineDto> Lines { get; set; } = new();
 }
@@ -95,6 +96,8 @@ public class CreateSalesOrderRequest
     public string? BillToAddress { get; set; }
     public string? WarehouseCode { get; set; }
     public SalesOrderSource Source { get; set; } = SalesOrderSource.Web;
+    [MaxLength(100, ErrorMessage = "Client request ID must not exceed 100 characters")]
+    public string? ClientRequestId { get; set; }
     public string? MerchandiserNotes { get; set; }
     public string? DeviceInfo { get; set; }
     public decimal? Latitude { get; set; }

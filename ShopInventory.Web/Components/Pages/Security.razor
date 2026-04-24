@@ -1,4 +1,5 @@
 @page "/security"
+@using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @using Microsoft.AspNetCore.Authorization
 @inject ITwoFactorWebService TwoFactorService
@@ -722,6 +723,15 @@
             </div>
             <div class="stat-card">
                 <div class="stat-icon blue">
+                    <i class="bi bi-fingerprint"></i>
+                </div>
+                <div class="stat-info">
+                    <div class="stat-value">@passkeys.Count</div>
+                    <div class="stat-label">Registered Passkeys</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon blue">
                     <i class="bi bi-clock-history"></i>
                 </div>
                 <div class="stat-info">
@@ -876,6 +886,83 @@
                             </div>
                         </div>
 
+                        <div class="sec-card">
+                            <div class="sec-card-header">
+                                <h5><i class="bi bi-fingerprint"></i> Passkeys</h5>
+                                @if (passkeys.Any())
+                                {
+                                    <span class="status-badge enabled"><i class="bi bi-check-circle-fill"></i> @passkeys.Count registered</span>
+                                }
+                                else
+                                {
+                                    <span class="status-badge disabled"><i class="bi bi-exclamation-triangle-fill"></i> Not set up</span>
+                                }
+                            </div>
+                            <div class="sec-card-body">
+                                <p style="color: #6b7280; font-size: .88rem; margin: 0 0 1rem;">
+                                    Use Windows Hello, Face ID, Touch ID, or your device PIN to sign in without typing your password.
+                                </p>
+                                <div class="sec-info info">
+                                    <i class="bi bi-info-circle-fill"></i>
+                                    <span><strong>Requirement:</strong> Passkeys need HTTPS or localhost and a supported browser.</span>
+                                </div>
+
+                                @if (!string.IsNullOrEmpty(passkeySuccessMessage))
+                                {
+                                    <div class="sec-info success">
+                                        <i class="bi bi-check-circle-fill"></i>
+                                        <span>@passkeySuccessMessage</span>
+                                    </div>
+                                }
+                                @if (!string.IsNullOrEmpty(passkeyErrorMessage))
+                                {
+                                    <div class="sec-info error">
+                                        <i class="bi bi-exclamation-triangle-fill"></i>
+                                        <span>@passkeyErrorMessage</span>
+                                    </div>
+                                }
+
+                                <div style="display: grid; gap: .85rem; max-width: 420px;">
+                                    <div>
+                                        <label class="sec-label">Passkey Name</label>
+                                        <input type="text" class="sec-input" placeholder="e.g. Office Laptop"
+                                               @bind="newPasskeyName" @bind:event="oninput" />
+                                    </div>
+                                    <div>
+                                        <button class="btn-sec-gradient" @onclick="RegisterPasskey" disabled="@isRegisteringPasskey">
+                                            @if (isRegisteringPasskey)
+                                            {
+                                                <span class="spinner-border spinner-border-sm"></span>
+                                            }
+                                            <i class="bi bi-plus-circle"></i> Add Passkey
+                                        </button>
+                                    </div>
+                                </div>
+
+                                @if (passkeys.Any())
+                                {
+                                    <div style="display: grid; gap: .75rem; margin-top: 1rem;">
+                                        @foreach (var passkey in passkeys)
+                                        {
+                                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .85rem 1rem; border: 1px solid #e5e7eb; border-radius: 10px; background: #f8fafc;">
+                                                <div>
+                                                    <div style="font-weight: 700; color: #1a1a2e;">@passkey.FriendlyName</div>
+                                                    <div style="font-size: .82rem; color: #6b7280;">
+                                                        Added @passkey.CreatedAt.ToString("dd MMM yyyy")
+                                                        @if (passkey.LastUsedAt.HasValue)
+                                                        {
+                                                            <span> &middot; Last used @passkey.LastUsedAt.Value.ToString("dd MMM yyyy HH:mm")</span>
+                                                        }
+                                                    </div>
+                                                </div>
+                                                <i class="bi bi-fingerprint" style="font-size: 1.25rem; color: #667eea;"></i>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
                         <!-- Update Credentials Card -->
                         <div class="sec-card">
                             <div class="sec-card-header">
@@ -897,17 +984,32 @@
                                         <div>
                                             <label class="sec-label">Username</label>
                                             <input type="text" class="sec-input" placeholder="Enter new username"
-                                                   @bind="credUsername" />
+                                                   @bind="credUsername" @bind:event="oninput" />
                                         </div>
                                         <div>
                                             <label class="sec-label">Email</label>
-                                            <input type="email" class="sec-input" placeholder="Enter email address" @bind="credEmail" />
+                                            <input type="email" class="sec-input" placeholder="Enter email address"
+                                                   @bind="credEmail" @bind:event="oninput" />
                                         </div>
                                         <div>
                                             <label class="sec-label">Current Password <span style="color: #ef4444;">*</span></label>
                                             <input type="password" class="sec-input" placeholder="Verify with current password"
-                                                   @bind="credPassword" />
+                                                   @bind="credPassword" @bind:event="oninput" />
                                         </div>
+                                        @if (!string.IsNullOrEmpty(credSuccessMessage))
+                                        {
+                                            <div class="sec-info success" style="margin: 0;">
+                                                <i class="bi bi-check-circle-fill"></i>
+                                                <span>@credSuccessMessage</span>
+                                            </div>
+                                        }
+                                        @if (!string.IsNullOrEmpty(credErrorMessage))
+                                        {
+                                            <div class="sec-info error" style="margin: 0;">
+                                                <i class="bi bi-exclamation-triangle-fill"></i>
+                                                <span>@credErrorMessage</span>
+                                            </div>
+                                        }
                                         <div>
                                             <button class="btn-sec-gradient" @onclick="UpdateCredentials"
                                                     disabled="@(!IsCredentialsValid || isUpdatingCredentials)">
@@ -1302,10 +1404,26 @@
     private string credPassword = "";
     private bool isUpdatingCredentials = false;
     private bool isLoadingCredentials = true;
+    private string originalCredUsername = "";
+    private string originalCredEmail = "";
+    private string? credSuccessMessage;
+    private string? credErrorMessage;
+
+    // Passkey state
+    private List<PasskeyCredentialInfo> passkeys = new();
+    private string newPasskeyName = string.Empty;
+    private bool isRegisteringPasskey = false;
+    private string? passkeySuccessMessage;
+    private string? passkeyErrorMessage;
 
     private bool IsCredentialsValid =>
         !string.IsNullOrWhiteSpace(credPassword) &&
+        HasCredentialChanges &&
         (!string.IsNullOrWhiteSpace(credUsername) || credEmail != null);
+
+    private bool HasCredentialChanges =>
+        !string.Equals(credUsername.Trim(), originalCredUsername, StringComparison.OrdinalIgnoreCase) ||
+        !string.Equals(credEmail.Trim(), originalCredEmail, StringComparison.OrdinalIgnoreCase);
 
     // Activity state
     private List<LoginActivityModel> recentActivity = new();
@@ -1332,20 +1450,24 @@
         try
         {
             var statusTask = TwoFactorService.GetStatusAsync();
-            var activityTask = TwoFactorService.GetRecentLoginActivityAsync(10);
             var credentialsTask = TwoFactorService.GetCredentialsAsync();
+            var passkeysTask = TwoFactorService.GetPasskeysAsync();
 
-            await Task.WhenAll(statusTask, activityTask, credentialsTask);
+            await Task.WhenAll(statusTask, credentialsTask, passkeysTask);
 
             twoFactorStatus = statusTask.Result;
-            recentActivity = activityTask.Result;
+            passkeys = passkeysTask.Result;
 
             var creds = credentialsTask.Result;
             if (creds != null)
             {
                 credUsername = creds.Username;
                 credEmail = creds.Email ?? "";
+                originalCredUsername = credUsername;
+                originalCredEmail = credEmail;
             }
+
+            await LoadRecentActivityAsync();
 
             // Also load summary from the data we already have
             activitySummary = BuildActivitySummaryFromRecent();
@@ -1359,6 +1481,92 @@
             isLoading = false;
             isLoadingCredentials = false;
         }
+    }
+
+    private async Task RegisterPasskey()
+    {
+        isRegisteringPasskey = true;
+        passkeyErrorMessage = null;
+        passkeySuccessMessage = null;
+
+        try
+        {
+            var supported = await JS.InvokeAsync<bool>("passkeys.isSupported");
+            if (!supported)
+            {
+                passkeyErrorMessage = "Passkeys are only available in supported browsers over HTTPS or localhost.";
+                return;
+            }
+
+            var context = await JS.InvokeAsync<PasskeyBrowserContext>("passkeys.getContext");
+            var friendlyName = string.IsNullOrWhiteSpace(newPasskeyName)
+                ? $"Passkey {passkeys.Count + 1}"
+                : newPasskeyName.Trim();
+
+            var (beginSuccess, beginMessage, ceremony) = await TwoFactorService.BeginPasskeyRegistrationAsync(
+                friendlyName,
+                context.Origin,
+                context.RpId);
+
+            if (!beginSuccess || ceremony is null)
+            {
+                passkeyErrorMessage = beginMessage;
+                return;
+            }
+
+            var credentialJson = await JS.InvokeAsync<string>("passkeys.register", ceremony.Value.OptionsJson);
+            var (completeSuccess, completeMessage, credential) = await TwoFactorService.CompletePasskeyRegistrationAsync(
+                ceremony.Value.SessionToken,
+                credentialJson,
+                context.Origin,
+                context.RpId);
+
+            if (!completeSuccess || credential is null)
+            {
+                passkeyErrorMessage = completeMessage;
+                return;
+            }
+
+            passkeySuccessMessage = $"Passkey '{credential.FriendlyName}' added successfully.";
+            newPasskeyName = string.Empty;
+            await LoadAllData();
+            await AuditService.LogAsync("RegisterPasskey", "Security", $"Registered passkey '{credential.FriendlyName}'");
+        }
+        catch (JSException ex)
+        {
+            passkeyErrorMessage = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            passkeyErrorMessage = $"Error registering passkey: {ex.Message}";
+        }
+        finally
+        {
+            isRegisteringPasskey = false;
+        }
+    }
+
+    private async Task LoadRecentActivityAsync()
+    {
+        if (string.IsNullOrWhiteSpace(credUsername))
+        {
+            recentActivity = new();
+            return;
+        }
+
+        var logs = await AuditService.GetLogsAsync(username: credUsername, page: 1, pageSize: 10);
+        recentActivity = logs
+            .Select(log => new LoginActivityModel
+            {
+                Action = log.Action,
+                EntityType = log.EntityType,
+                EntityId = log.EntityId,
+                Details = log.Details ?? log.ErrorMessage,
+                PageUrl = log.PageUrl,
+                IsSuccess = log.IsSuccess,
+                Timestamp = log.Timestamp
+            })
+            .ToList();
     }
 
     private UserActivityMeResponse? BuildActivitySummaryFromRecent()
@@ -1525,8 +1733,8 @@
     {
         if (!IsCredentialsValid) return;
         isUpdatingCredentials = true;
-        errorMessage = null;
-        successMessage = null;
+        credErrorMessage = null;
+        credSuccessMessage = null;
         try
         {
             var (success, message, data) = await TwoFactorService.UpdateCredentialsAsync(
@@ -1534,23 +1742,25 @@
 
             if (success)
             {
-                successMessage = "Login credentials updated successfully!";
+                credSuccessMessage = data?.Message ?? $"Login credentials updated successfully. Your login username is '{credUsername}'.";
                 credPassword = "";
                 if (data != null)
                 {
                     credUsername = data.Username;
                     credEmail = data.Email ?? "";
+                    originalCredUsername = credUsername;
+                    originalCredEmail = credEmail;
                 }
                 await AuditService.LogAsync("UpdateCredentials", "Security", "Login credentials updated");
             }
             else
             {
-                errorMessage = message;
+                credErrorMessage = message;
             }
         }
         catch (Exception ex)
         {
-            errorMessage = $"Error updating credentials: {ex.Message}";
+            credErrorMessage = $"Error updating credentials: {ex.Message}";
         }
         finally
         {
@@ -1572,11 +1782,12 @@
 confirmPassword);
             if (success)
             {
-                successMessage = "Password changed successfully!";
+                successMessage = "Password changed successfully. Please sign in again with your new password.";
                 currentPassword = "";
                 newPassword = "";
                 confirmPassword = "";
                 await AuditService.LogAsync("ChangePassword", "Security", "Password changed");
+                NavigationManager.NavigateTo("/login", forceLoad: true);
             }
             else
             {
@@ -1599,6 +1810,7 @@ confirmPassword);
     {
         var score = 30; // Base score for having an account
         if (twoFactorStatus?.IsEnabled == true) score += 40;
+        if (passkeys.Any()) score += 20;
         if (twoFactorStatus?.BackupCodesRemaining > 0) score += 15;
         if (twoFactorStatus?.BackupCodesRemaining >= 5) score += 5;
         if (recentActivity.All(a => a.IsSuccess)) score += 10;
