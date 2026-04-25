@@ -476,8 +476,7 @@ public class MasterDataCacheService : IMasterDataCacheService
             }
 
             _logger.LogInformation("Fetching products for warehouse {Warehouse} from API...", warehouseCode);
-            var response = await _httpClient.GetFromJsonAsync<WarehouseProductsResponse>($"api/product/warehouse/{warehouseCode}");
-            var products = response?.Products ?? new List<ProductDto>();
+            var products = await FetchWarehouseProductsPagedAsync(warehouseCode);
 
             _staticCache[cacheKey] = products;
             _lastRefreshTimes[cacheKey] = DateTime.Now;
@@ -498,6 +497,31 @@ public class MasterDataCacheService : IMasterDataCacheService
         {
             loadLock.Release();
         }
+    }
+
+    private async Task<List<ProductDto>> FetchWarehouseProductsPagedAsync(string warehouseCode)
+    {
+        const int pageSize = 100;
+        var page = 1;
+        var products = new List<ProductDto>();
+        WarehouseProductsPagedResponse? response;
+
+        do
+        {
+            var encodedWarehouse = Uri.EscapeDataString(warehouseCode);
+            response = await _httpClient.GetFromJsonAsync<WarehouseProductsPagedResponse>(
+                $"api/product/warehouse/{encodedWarehouse}/paged?page={page}&pageSize={pageSize}");
+
+            if (response?.Products is { Count: > 0 })
+            {
+                products.AddRange(response.Products);
+            }
+
+            page++;
+        }
+        while (response?.HasMore == true);
+
+        return products;
     }
 
     #endregion

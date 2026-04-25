@@ -95,6 +95,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
     private readonly IInventoryLockService _lockService;
     private readonly ILogger<BatchInventoryValidationService> _logger;
     private IReservedQuantityProvider? _reservedQuantityProvider;
+    private const decimal QuantityTolerance = 0.0001m;
 
     // Cache for batch-managed status
     private static readonly Dictionary<string, bool> _batchManagedCache = new();
@@ -187,6 +188,20 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             {
                 allocatedLines.Add(lineResult.AllocatedLine);
             }
+        }
+
+        if (errors.Count == 0)
+        {
+            var aggregateResult = await ValidateAggregateInvoiceAllocationAsync(
+                request,
+                allocatedLines,
+                autoAllocate,
+                strategy,
+                cancellationToken);
+
+            allocatedLines = aggregateResult.AllocatedLines;
+            errors.AddRange(aggregateResult.Errors);
+            warnings.AddRange(aggregateResult.Warnings);
         }
 
         result.TotalLinesValidated = request.Lines.Count;
@@ -332,6 +347,330 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         public List<string> Warnings { get; } = new();
         public AllocatedBatchLine? AllocatedLine { get; set; }
     }
+
+    private sealed class AggregateAllocationResult
+    {
+        public List<BatchValidationErrorDto> Errors { get; } = new();
+        public List<string> Warnings { get; } = new();
+        public List<AllocatedBatchLine> AllocatedLines { get; set; } = new();
+    }
+
+    private sealed class BatchAvailabilityState
+    {
+        public AvailableBatchDto Batch { get; set; } = new();
+        public decimal EffectiveAvailable { get; set; }
+        public decimal RemainingQuantity { get; set; }
+    }
+
+    private async Task<AggregateAllocationResult> ValidateAggregateInvoiceAllocationAsync(
+        CreateInvoiceRequest request,
+        List<AllocatedBatchLine> allocatedLines,
+        bool autoAllocate,
+        BatchAllocationStrategy strategy,
+        CancellationToken cancellationToken)
+    {
+        var result = new AggregateAllocationResult
+        {
+            AllocatedLines = allocatedLines.OrderBy(line => line.LineNumber).ToList()
+        };
+
+        if (request.Lines == null || request.Lines.Count == 0 || allocatedLines.Count == 0)
+            return result;
+
+        var requestLinesByNumber = request.Lines
+            .Select((line, index) => new { LineNumber = index + 1, Line = line })
+            .ToDictionary(item => item.LineNumber, item => item.Line);
+
+        await ValidateAggregateNonBatchStockAsync(result, cancellationToken);
+        await ValidateAndNormalizeAggregateBatchAllocationsAsync(
+            result,
+            requestLinesByNumber,
+            autoAllocate,
+            strategy,
+            cancellationToken);
+
+        return result;
+    }
+
+    private async Task ValidateAggregateNonBatchStockAsync(
+        AggregateAllocationResult result,
+        CancellationToken cancellationToken)
+    {
+        var nonBatchGroups = result.AllocatedLines
+            .Where(line => line.Batches.Count == 0)
+            .GroupBy(line => BuildStockKey(line.ItemCode, line.WarehouseCode));
+
+        foreach (var nonBatchGroup in nonBatchGroups)
+        {
+            var groupLines = nonBatchGroup.OrderBy(line => line.LineNumber).ToList();
+            if (groupLines.Count == 0)
+                continue;
+
+            var itemCode = groupLines[0].ItemCode;
+            var warehouseCode = groupLines[0].WarehouseCode;
+            var requestedQuantity = groupLines.Sum(line => line.TotalQuantityAllocated);
+
+            try
+            {
+                var stockQuantities = await _sapClient.GetStockQuantitiesInWarehouseAsync(
+                    warehouseCode,
+                    cancellationToken);
+
+                var stock = stockQuantities.FirstOrDefault(stockItem =>
+                    string.Equals(stockItem.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
+
+                if (stock == null)
+                {
+                    result.Errors.Add(CreateError(
+                        BatchValidationErrorCode.ItemNotFound,
+                        groupLines[^1].LineNumber,
+                        itemCode,
+                        null,
+                        warehouseCode,
+                        requestedQuantity,
+                        0,
+                        $"Item '{itemCode}' not found in warehouse '{warehouseCode}'",
+                        "Check item code and warehouse"));
+                    continue;
+                }
+
+                var reservedQuantity = await GetReservedQuantityInternalAsync(
+                    itemCode,
+                    warehouseCode,
+                    cancellationToken);
+                var issuableQuantity = GetIssuableQuantity(stock);
+                var effectiveAvailable = issuableQuantity - reservedQuantity;
+
+                if (requestedQuantity > effectiveAvailable + QuantityTolerance)
+                {
+                    var lineNumbers = string.Join(", ", groupLines.Select(line => line.LineNumber));
+                    var message = reservedQuantity > 0
+                        ? $"Combined invoice quantity for item {itemCode} in warehouse {warehouseCode} across lines {lineNumbers} is {requestedQuantity:N4}, available {effectiveAvailable:N4} (On hand less committed: {issuableQuantity:N4}, Reserved: {reservedQuantity:N4})"
+                        : $"Combined invoice quantity for item {itemCode} in warehouse {warehouseCode} across lines {lineNumbers} is {requestedQuantity:N4}, available {issuableQuantity:N4}";
+
+                    result.Errors.Add(CreateError(
+                        BatchValidationErrorCode.InsufficientTotalStock,
+                        groupLines[^1].LineNumber,
+                        itemCode,
+                        stock.ItemName,
+                        warehouseCode,
+                        requestedQuantity,
+                        effectiveAvailable,
+                        message,
+                        $"Reduce the combined quantity to {Math.Max(0, effectiveAvailable):N4} or transfer more stock"));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed aggregate stock validation for item {ItemCode} in warehouse {WarehouseCode}",
+                    itemCode,
+                    warehouseCode);
+                result.Warnings.Add(
+                    $"Could not perform aggregate stock validation for {itemCode} in {warehouseCode}; SAP will reject if stock is insufficient.");
+            }
+        }
+    }
+
+    private async Task ValidateAndNormalizeAggregateBatchAllocationsAsync(
+        AggregateAllocationResult result,
+        Dictionary<int, CreateInvoiceLineRequest> requestLinesByNumber,
+        bool autoAllocate,
+        BatchAllocationStrategy strategy,
+        CancellationToken cancellationToken)
+    {
+        var batchGroups = result.AllocatedLines
+            .Where(line => line.Batches.Count > 0)
+            .GroupBy(line => BuildStockKey(line.ItemCode, line.WarehouseCode));
+
+        foreach (var batchGroup in batchGroups)
+        {
+            var groupLines = batchGroup.OrderBy(line => line.LineNumber).ToList();
+            if (groupLines.Count == 0)
+                continue;
+
+            var itemCode = groupLines[0].ItemCode;
+            var warehouseCode = groupLines[0].WarehouseCode;
+            var availableBatches = await GetAvailableBatchesAsync(
+                itemCode,
+                warehouseCode,
+                strategy,
+                cancellationToken);
+
+            var availabilityStates = new List<BatchAvailabilityState>();
+            var availabilityByBatch = new Dictionary<string, BatchAvailabilityState>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var batch in availableBatches)
+            {
+                if (string.IsNullOrWhiteSpace(batch.BatchNumber))
+                    continue;
+
+                var reservedQuantity = await GetReservedBatchQuantityInternalAsync(
+                    itemCode,
+                    warehouseCode,
+                    batch.BatchNumber,
+                    cancellationToken);
+                var effectiveAvailable = Math.Max(0, batch.AvailableQuantity - reservedQuantity);
+                var state = new BatchAvailabilityState
+                {
+                    Batch = batch,
+                    EffectiveAvailable = effectiveAvailable,
+                    RemainingQuantity = effectiveAvailable
+                };
+
+                availabilityStates.Add(state);
+                availabilityByBatch[batch.BatchNumber] = state;
+            }
+
+            var errorsBeforeGroup = result.Errors.Count;
+            var explicitLines = groupLines
+                .Where(line => HasExplicitBatchNumbers(requestLinesByNumber, line.LineNumber))
+                .ToList();
+
+            var explicitBatchRequests = explicitLines
+                .SelectMany(line => line.Batches.Select(batch => new
+                {
+                    line.LineNumber,
+                    batch.BatchNumber,
+                    Quantity = batch.QuantityAllocated
+                }))
+                .Where(batch => !string.IsNullOrWhiteSpace(batch.BatchNumber))
+                .GroupBy(batch => batch.BatchNumber, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var batchRequestGroup in explicitBatchRequests)
+            {
+                var requestedQuantity = batchRequestGroup.Sum(batch => batch.Quantity);
+                var firstLineNumber = batchRequestGroup.Min(batch => batch.LineNumber);
+                var lineNumbers = string.Join(", ", batchRequestGroup
+                    .Select(batch => batch.LineNumber)
+                    .Distinct()
+                    .OrderBy(lineNumber => lineNumber));
+
+                if (!availabilityByBatch.TryGetValue(batchRequestGroup.Key, out var state))
+                {
+                    result.Errors.Add(CreateError(
+                        BatchValidationErrorCode.BatchNotFound,
+                        firstLineNumber,
+                        itemCode,
+                        null,
+                        warehouseCode,
+                        requestedQuantity,
+                        0,
+                        $"Batch '{batchRequestGroup.Key}' not found for item {itemCode} in warehouse {warehouseCode}",
+                        "Select a valid batch from available batches",
+                        availableBatches));
+                    continue;
+                }
+
+                if (requestedQuantity > state.EffectiveAvailable + QuantityTolerance)
+                {
+                    result.Errors.Add(CreateError(
+                        BatchValidationErrorCode.InsufficientBatchQuantity,
+                        firstLineNumber,
+                        itemCode,
+                        null,
+                        warehouseCode,
+                        requestedQuantity,
+                        state.EffectiveAvailable,
+                        $"Combined invoice quantity for batch '{batchRequestGroup.Key}' across lines {lineNumbers} is {requestedQuantity:N4}, available {state.EffectiveAvailable:N4}",
+                        $"Reduce the combined batch quantity to {state.EffectiveAvailable:N4} or select another batch",
+                        availableBatches));
+                    continue;
+                }
+
+                state.RemainingQuantity -= requestedQuantity;
+            }
+
+            if (result.Errors.Count > errorsBeforeGroup)
+                continue;
+
+            var autoAllocatedLines = groupLines
+                .Where(line => !HasExplicitBatchNumbers(requestLinesByNumber, line.LineNumber))
+                .OrderBy(line => line.LineNumber)
+                .ToList();
+
+            if (!autoAllocate || autoAllocatedLines.Count == 0)
+                continue;
+
+            foreach (var allocatedLine in autoAllocatedLines)
+            {
+                var requestedQuantity = allocatedLine.TotalQuantityAllocated;
+                var totalRemaining = availabilityStates.Sum(state => state.RemainingQuantity);
+
+                if (requestedQuantity > totalRemaining + QuantityTolerance)
+                {
+                    result.Errors.Add(CreateError(
+                        BatchValidationErrorCode.InsufficientTotalStock,
+                        allocatedLine.LineNumber,
+                        itemCode,
+                        null,
+                        warehouseCode,
+                        requestedQuantity,
+                        totalRemaining,
+                        $"Insufficient remaining batch stock for line {allocatedLine.LineNumber}. Need {requestedQuantity:N4}, available {totalRemaining:N4} after other invoice lines",
+                        $"Reduce quantity to {totalRemaining:N4} or transfer more stock",
+                        availableBatches));
+                    continue;
+                }
+
+                allocatedLine.Batches = AllocateFromRemainingBatches(availabilityStates, requestedQuantity);
+                allocatedLine.TotalQuantityAllocated = allocatedLine.Batches.Sum(batch => batch.QuantityAllocated);
+            }
+        }
+
+        result.AllocatedLines = result.AllocatedLines
+            .OrderBy(line => line.LineNumber)
+            .ToList();
+    }
+
+    private static List<AllocatedBatch> AllocateFromRemainingBatches(
+        List<BatchAvailabilityState> availabilityStates,
+        decimal requestedQuantity)
+    {
+        var allocatedBatches = new List<AllocatedBatch>();
+        var remainingQuantity = requestedQuantity;
+        var allocationOrder = 1;
+
+        foreach (var state in availabilityStates)
+        {
+            if (remainingQuantity <= QuantityTolerance)
+                break;
+
+            if (state.RemainingQuantity <= QuantityTolerance)
+                continue;
+
+            var quantityToAllocate = Math.Min(state.RemainingQuantity, remainingQuantity);
+            allocatedBatches.Add(new AllocatedBatch
+            {
+                BatchNumber = state.Batch.BatchNumber,
+                QuantityAllocated = quantityToAllocate,
+                AvailableBeforeAllocation = state.RemainingQuantity,
+                RemainingAfterAllocation = state.RemainingQuantity - quantityToAllocate,
+                ExpiryDate = state.Batch.ExpiryDate,
+                AdmissionDate = state.Batch.AdmissionDate,
+                AllocationOrder = allocationOrder++
+            });
+
+            state.RemainingQuantity -= quantityToAllocate;
+            remainingQuantity -= quantityToAllocate;
+        }
+
+        return allocatedBatches;
+    }
+
+    private static bool HasExplicitBatchNumbers(
+        Dictionary<int, CreateInvoiceLineRequest> requestLinesByNumber,
+        int lineNumber) =>
+        requestLinesByNumber.TryGetValue(lineNumber, out var requestLine) &&
+        requestLine.BatchNumbers is { Count: > 0 };
+
+    private static decimal GetIssuableQuantity(StockQuantityDto stock) =>
+        stock.InStock - stock.Committed;
+
+    private static string BuildStockKey(string itemCode, string warehouseCode) =>
+        $"{itemCode.Trim().ToUpperInvariant()}|{warehouseCode.Trim().ToUpperInvariant()}";
 
     /// <inheritdoc/>
     public async Task<List<BatchValidationErrorDto>> ValidateBatchQuantityMatchAsync(
@@ -1007,13 +1346,14 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
             // Account for reserved quantities from pending reservations
             var reservedQty = await GetReservedQuantityInternalAsync(itemCode, warehouseCode, cancellationToken);
-            var effectiveAvailable = stock.Available - reservedQty;
+            var issuableQuantity = GetIssuableQuantity(stock);
+            var effectiveAvailable = issuableQuantity - reservedQty;
 
             if (inventoryQuantityNeeded > effectiveAvailable)
             {
                 var message = reservedQty > 0
-                    ? $"Insufficient stock. Requested: {inventoryQuantityNeeded:N4}, Available: {effectiveAvailable:N4} (Physical: {stock.Available:N4}, Reserved: {reservedQty:N4})"
-                    : $"Insufficient stock. Requested: {inventoryQuantityNeeded:N4}, Available: {stock.Available:N4}";
+                    ? $"Insufficient stock. Requested: {inventoryQuantityNeeded:N4}, Available: {effectiveAvailable:N4} (On hand less committed: {issuableQuantity:N4}, Reserved: {reservedQty:N4})"
+                    : $"Insufficient stock. Requested: {inventoryQuantityNeeded:N4}, Available: {issuableQuantity:N4}";
 
                 return (CreateError(
                     BatchValidationErrorCode.InsufficientTotalStock,

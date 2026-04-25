@@ -92,29 +92,30 @@ public class OfflineQueueService : IOfflineQueueService
             .Take(20)
             .ToListAsync(cancellationToken);
 
-        var pendingCount = await _context.OfflineQueueItems.CountAsync(q => q.Status == "Pending", cancellationToken);
-        var failedCount = await _context.OfflineQueueItems.CountAsync(q => q.Status == "Failed", cancellationToken);
-        var processedCount = await _context.OfflineQueueItems.CountAsync(q => q.Status == "Completed", cancellationToken);
+        var queueStats = await _context.OfflineQueueItems
+            .Where(q => q.Status == "Pending" || q.Status == "Failed" || q.Status == "Completed")
+            .GroupBy(q => q.Status)
+            .Select(g => new
+            {
+                Status = g.Key,
+                Count = g.Count(),
+                OldestCreatedAt = g.Min(q => (DateTime?)q.CreatedAt),
+                LastCompletedAt = g.Max(q => q.CompletedAt)
+            })
+            .ToListAsync(cancellationToken);
 
-        var oldestPending = await _context.OfflineQueueItems
-            .Where(q => q.Status == "Pending")
-            .OrderBy(q => q.CreatedAt)
-            .Select(q => q.CreatedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        var lastProcessed = await _context.OfflineQueueItems
-            .Where(q => q.Status == "Completed")
-            .OrderByDescending(q => q.CompletedAt)
-            .Select(q => q.CompletedAt)
-            .FirstOrDefaultAsync(cancellationToken);
+        var queueStatsByStatus = queueStats.ToDictionary(x => x.Status, StringComparer.OrdinalIgnoreCase);
+        queueStatsByStatus.TryGetValue("Pending", out var pendingStats);
+        queueStatsByStatus.TryGetValue("Failed", out var failedStats);
+        queueStatsByStatus.TryGetValue("Completed", out var completedStats);
 
         return new OfflineQueueStatusDto
         {
-            PendingCount = pendingCount,
-            FailedCount = failedCount,
-            ProcessedCount = processedCount,
-            OldestPendingAt = oldestPending != default ? oldestPending : null,
-            LastProcessedAt = lastProcessed,
+            PendingCount = pendingStats?.Count ?? 0,
+            FailedCount = failedStats?.Count ?? 0,
+            ProcessedCount = completedStats?.Count ?? 0,
+            OldestPendingAt = pendingStats?.OldestCreatedAt,
+            LastProcessedAt = completedStats?.LastCompletedAt,
             PendingTransactions = pending.Select(MapToDto).ToList()
         };
     }
@@ -464,8 +465,20 @@ public class SyncStatusService : ISyncStatusService
         }
 
         // Check offline queue
-        var pendingCount = await _context.OfflineQueueItems.CountAsync(q => q.Status == "Pending", cancellationToken);
-        var failedCount = await _context.OfflineQueueItems.CountAsync(q => q.Status == "Failed", cancellationToken);
+        var queueCounts = await _context.OfflineQueueItems
+            .Where(q => q.Status == "Pending" || q.Status == "Failed")
+            .GroupBy(q => q.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+
+        var pendingCount = queueCounts
+            .Where(q => q.Status == "Pending")
+            .Select(q => q.Count)
+            .SingleOrDefault();
+        var failedCount = queueCounts
+            .Where(q => q.Status == "Failed")
+            .Select(q => q.Count)
+            .SingleOrDefault();
 
         if (pendingCount > 10)
         {

@@ -72,12 +72,19 @@ public class UserActivityService : IUserActivityService
         var userLogs = BuildUserAuditQuery(userId, user.Username);
 
         var totalActions = await userLogs.CountAsync(cancellationToken);
-        var actionsToday = await userLogs.Where(a => a.Timestamp >= today).CountAsync(cancellationToken);
-        var actionsThisWeek = await userLogs.Where(a => a.Timestamp >= weekStart).CountAsync(cancellationToken);
-
-        var lastActivity = await userLogs
-            .OrderByDescending(a => a.Timestamp)
-            .FirstOrDefaultAsync(cancellationToken);
+        var periodCounts = await userLogs
+            .Where(a => a.Timestamp >= weekStart)
+            .Select(a => new
+            {
+                Bucket = a.Timestamp >= today ? 2 : 1
+            })
+            .GroupBy(a => a.Bucket)
+            .Select(g => new
+            {
+                Bucket = g.Key,
+                Count = g.Count()
+            })
+            .ToListAsync(cancellationToken);
 
         var recentActivities = await userLogs
             .OrderByDescending(a => a.Timestamp)
@@ -94,6 +101,13 @@ public class UserActivityService : IUserActivityService
                 Timestamp = a.Timestamp
             })
             .ToListAsync(cancellationToken);
+
+        var actionsToday = periodCounts
+            .Where(x => x.Bucket == 2)
+            .Select(x => x.Count)
+            .SingleOrDefault();
+        var actionsThisWeek = periodCounts.Sum(x => x.Count);
+        var lastActivity = recentActivities.FirstOrDefault();
 
         return new UserActivitySummary
         {

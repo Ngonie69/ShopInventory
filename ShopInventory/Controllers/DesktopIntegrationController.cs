@@ -62,6 +62,8 @@ using ShopInventory.Features.Prices.Queries.GetPricesByPriceList;
 using ShopInventory.Features.Prices.Queries.GetPriceLists;
 using ShopInventory.Features.Prices.Queries.GetItemPriceFromList;
 using ShopInventory.Features.Prices.Queries.GetPricesByBusinessPartner;
+using ShopInventory.Features.Prices.Commands.SyncItemPricesForPriceList;
+using ShopInventory.Features.Prices.Commands.SyncPriceLists;
 using ShopInventory.Services;
 using System.Security.Claims;
 
@@ -736,24 +738,56 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// </summary>
     [HttpGet("prices/pricelists")]
     public async Task<IActionResult> GetPriceLists(
-        [FromQuery] bool forceRefresh = false,
+        [FromQuery] bool? forceRefresh = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetPriceListsQuery(forceRefresh), cancellationToken);
+        if (forceRefresh == true)
+        {
+            return BadRequest(new
+            {
+                Message = "Use POST api/DesktopIntegration/prices/pricelists/sync to refresh price lists. Normal GET responses use the cached sync path."
+            });
+        }
+
+        var result = await mediator.Send(new GetPriceListsQuery(false), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpPost("prices/pricelists/sync")]
+    public async Task<IActionResult> SyncPriceLists(CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(new SyncPriceListsCommand(), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
     /// Get all item prices for a given price list number.
-    /// Uses 15-minute cache — set forceRefresh=true to bypass.
+    /// Uses the cached sync path. Use the sync endpoint for explicit refreshes.
     /// </summary>
     [HttpGet("prices/pricelists/{priceListNum:int}")]
     public async Task<IActionResult> GetPricesByPriceList(
         int priceListNum,
-        [FromQuery] bool forceRefresh = false,
+        [FromQuery] bool? forceRefresh = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetPricesByPriceListQuery(priceListNum, forceRefresh), cancellationToken);
+        if (forceRefresh == true)
+        {
+            return BadRequest(new
+            {
+                Message = $"Use POST api/DesktopIntegration/prices/pricelists/{priceListNum}/sync to refresh item prices. Normal GET responses use the cached sync path."
+            });
+        }
+
+        var result = await mediator.Send(new GetPricesByPriceListQuery(priceListNum, false), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpPost("prices/pricelists/{priceListNum:int}/sync")]
+    public async Task<IActionResult> SyncPricesByPriceList(
+        int priceListNum,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(new SyncItemPricesForPriceListCommand(priceListNum), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

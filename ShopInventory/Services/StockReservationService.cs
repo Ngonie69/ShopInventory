@@ -236,6 +236,8 @@ public class StockReservationService : IStockReservationService
         };
 
         decimal totalValue = 0;
+        var explicitBatchQuantitiesInRequest = BuildExplicitBatchQuantityLookup(request.Lines);
+        var autoBatchQuantitiesInRequest = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
         // Process each line and allocate batches
         foreach (var lineRequest in request.Lines)
@@ -306,8 +308,15 @@ public class StockReservationService : IStockReservationService
                     {
                         if (remainingQty <= 0) break;
 
+                        var batchKey = BuildReservationStockKey(
+                            lineRequest.ItemCode,
+                            lineRequest.WarehouseCode,
+                            batch.BatchNumber ?? "");
+
                         var reservedInBatch = await GetReservedBatchQuantityAsync(
                             lineRequest.ItemCode, lineRequest.WarehouseCode, batch.BatchNumber ?? "", cancellationToken);
+                        reservedInBatch += explicitBatchQuantitiesInRequest.GetValueOrDefault(batchKey);
+                        reservedInBatch += autoBatchQuantitiesInRequest.GetValueOrDefault(batchKey);
 
                         var availableInBatch = batch.AvailableQuantity - reservedInBatch;
                         if (availableInBatch > 0)
@@ -321,6 +330,9 @@ public class StockReservationService : IStockReservationService
                                 ReservedQuantity = allocateQty,
                                 ExpiryDate = batch.ExpiryDate
                             });
+
+                            autoBatchQuantitiesInRequest[batchKey] =
+                                autoBatchQuantitiesInRequest.GetValueOrDefault(batchKey) + allocateQty;
                             remainingQty -= allocateQty;
                         }
                     }
@@ -883,6 +895,7 @@ public class StockReservationService : IStockReservationService
         CancellationToken cancellationToken = default)
     {
         var errors = new List<StockReservationErrorDto>();
+        var aggregateLines = new List<(CreateStockReservationLineRequest Line, decimal InventoryQuantity)>();
 
         foreach (var line in lines)
         {
@@ -918,6 +931,8 @@ public class StockReservationService : IStockReservationService
                 }
             }
 
+            aggregateLines.Add((line, inventoryQuantity));
+
             // Get reserved quantity (excluding the current reservation if renewing)
             var reservedQty = await _dbContext.StockReservationLines
                 .Where(l => l.ItemCode == line.ItemCode
@@ -927,7 +942,8 @@ public class StockReservationService : IStockReservationService
                     && (excludeReservationId == null || l.Reservation.ReservationId != excludeReservationId))
                 .SumAsync(l => l.ReservedQuantity, cancellationToken);
 
-            var availableQty = stockItem.Available - reservedQty;
+            var issuableQty = stockItem.InStock - stockItem.Committed;
+            var availableQty = issuableQty - reservedQty;
 
             if (inventoryQuantity > availableQty)
             {
@@ -939,7 +955,7 @@ public class StockReservationService : IStockReservationService
                     WarehouseCode = line.WarehouseCode,
                     RequestedQuantity = inventoryQuantity,
                     AvailableQuantity = availableQty,
-                    Message = $"Insufficient stock for '{line.ItemCode}' in '{line.WarehouseCode}'. Requested: {inventoryQuantity:N2}, Available: {availableQty:N2} (Physical: {stockItem.InStock:N2}, Reserved: {reservedQty:N2})",
+                    Message = $"Insufficient stock for '{line.ItemCode}' in '{line.WarehouseCode}'. Requested: {inventoryQuantity:N2}, Available: {availableQty:N2} (On hand less committed: {issuableQty:N2}, Reserved: {reservedQty:N2})",
                     SuggestedAction = $"Reduce quantity to {availableQty:N2} or choose a different warehouse"
                 });
             }
@@ -994,8 +1010,130 @@ public class StockReservationService : IStockReservationService
             }
         }
 
+        var aggregateStockRequests = aggregateLines
+            .GroupBy(lineInfo => BuildReservationStockKey(lineInfo.Line.ItemCode, lineInfo.Line.WarehouseCode))
+            .Where(group => group.Count() > 1);
+
+        foreach (var stockRequestGroup in aggregateStockRequests)
+        {
+            var firstLine = stockRequestGroup.First().Line;
+            var requestedQuantity = stockRequestGroup.Sum(lineInfo => lineInfo.InventoryQuantity);
+            var stockItems = await _sapClient.GetStockQuantitiesInWarehouseAsync(firstLine.WarehouseCode, cancellationToken);
+            var stockItem = stockItems.FirstOrDefault(stock =>
+                string.Equals(stock.ItemCode, firstLine.ItemCode, StringComparison.OrdinalIgnoreCase));
+
+            if (stockItem == null)
+                continue;
+
+            var reservedQty = await _dbContext.StockReservationLines
+                .Where(reservationLine => reservationLine.ItemCode == firstLine.ItemCode
+                    && reservationLine.WarehouseCode == firstLine.WarehouseCode
+                    && reservationLine.Reservation.Status == ReservationStatus.Pending
+                    && reservationLine.Reservation.ExpiresAt > DateTime.UtcNow
+                    && (excludeReservationId == null || reservationLine.Reservation.ReservationId != excludeReservationId))
+                .SumAsync(reservationLine => reservationLine.ReservedQuantity, cancellationToken);
+
+            var issuableQty = stockItem.InStock - stockItem.Committed;
+            var availableQty = issuableQty - reservedQty;
+
+            if (requestedQuantity > availableQty + 0.0001m)
+            {
+                var lineNumbers = string.Join(", ", stockRequestGroup
+                    .Select(lineInfo => lineInfo.Line.LineNum)
+                    .OrderBy(lineNumber => lineNumber));
+                errors.Add(new StockReservationErrorDto
+                {
+                    ErrorCode = ReservationErrorCode.InsufficientStock,
+                    LineNumber = stockRequestGroup.Max(lineInfo => lineInfo.Line.LineNum),
+                    ItemCode = firstLine.ItemCode,
+                    WarehouseCode = firstLine.WarehouseCode,
+                    RequestedQuantity = requestedQuantity,
+                    AvailableQuantity = availableQty,
+                    Message = $"Combined requested stock for '{firstLine.ItemCode}' in '{firstLine.WarehouseCode}' across lines {lineNumbers} is {requestedQuantity:N2}, available {availableQty:N2} (On hand less committed: {issuableQty:N2}, Reserved: {reservedQty:N2})",
+                    SuggestedAction = $"Reduce combined quantity to {availableQty:N2} or choose a different warehouse"
+                });
+            }
+        }
+
+        var explicitBatchRequests = aggregateLines
+            .Where(lineInfo => lineInfo.Line.BatchNumbers is { Count: > 0 })
+            .SelectMany(lineInfo => lineInfo.Line.BatchNumbers!.Select(batch => new
+            {
+                lineInfo.Line,
+                BatchNumber = batch.BatchNumber,
+                batch.Quantity
+            }))
+            .Where(batchInfo => !string.IsNullOrWhiteSpace(batchInfo.BatchNumber))
+            .GroupBy(batchInfo => BuildReservationStockKey(
+                batchInfo.Line.ItemCode,
+                batchInfo.Line.WarehouseCode,
+                batchInfo.BatchNumber))
+            .Where(group => group.Count() > 1);
+
+        foreach (var batchRequestGroup in explicitBatchRequests)
+        {
+            var firstBatchRequest = batchRequestGroup.First();
+            var requestedQuantity = batchRequestGroup.Sum(batchInfo => batchInfo.Quantity);
+            var batches = await _batchValidation.GetAvailableBatchesAsync(
+                firstBatchRequest.Line.ItemCode,
+                firstBatchRequest.Line.WarehouseCode,
+                BatchAllocationStrategy.FEFO,
+                cancellationToken);
+            var batch = batches.FirstOrDefault(availableBatch =>
+                string.Equals(availableBatch.BatchNumber, firstBatchRequest.BatchNumber, StringComparison.OrdinalIgnoreCase));
+
+            if (batch == null)
+                continue;
+
+            var reservedBatchQty = await GetReservedBatchQuantityAsync(
+                firstBatchRequest.Line.ItemCode,
+                firstBatchRequest.Line.WarehouseCode,
+                firstBatchRequest.BatchNumber!,
+                cancellationToken);
+            var availableBatchQty = batch.AvailableQuantity - reservedBatchQty;
+
+            if (requestedQuantity > availableBatchQty + 0.0001m)
+            {
+                var lineNumbers = string.Join(", ", batchRequestGroup
+                    .Select(batchInfo => batchInfo.Line.LineNum)
+                    .OrderBy(lineNumber => lineNumber));
+                errors.Add(new StockReservationErrorDto
+                {
+                    ErrorCode = ReservationErrorCode.InsufficientBatchStock,
+                    LineNumber = batchRequestGroup.Max(batchInfo => batchInfo.Line.LineNum),
+                    ItemCode = firstBatchRequest.Line.ItemCode,
+                    WarehouseCode = firstBatchRequest.Line.WarehouseCode,
+                    BatchNumber = firstBatchRequest.BatchNumber,
+                    RequestedQuantity = requestedQuantity,
+                    AvailableQuantity = availableBatchQty,
+                    Message = $"Combined requested stock in batch '{firstBatchRequest.BatchNumber}' across lines {lineNumbers} is {requestedQuantity:N2}, available {availableBatchQty:N2}",
+                    SuggestedAction = $"Reduce combined batch quantity to {availableBatchQty:N2} or use auto-allocation"
+                });
+            }
+        }
+
         return (errors.Count == 0, errors);
     }
+
+    private static Dictionary<string, decimal> BuildExplicitBatchQuantityLookup(
+        List<CreateStockReservationLineRequest> lines)
+    {
+        return lines
+            .Where(line => line.BatchNumbers is { Count: > 0 })
+            .SelectMany(line => line.BatchNumbers!.Select(batch => new
+            {
+                Key = BuildReservationStockKey(line.ItemCode, line.WarehouseCode, batch.BatchNumber),
+                batch.Quantity
+            }))
+            .GroupBy(batch => batch.Key, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Sum(batch => batch.Quantity),
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string BuildReservationStockKey(params string?[] parts) =>
+        string.Join("|", parts.Select(part => (part ?? string.Empty).Trim().ToUpperInvariant()));
 
     private StockReservationDto MapToDto(StockReservationEntity entity)
     {

@@ -396,9 +396,19 @@ public class DesktopIntegrationService : IDesktopIntegrationService
     {
         try
         {
-            var url = $"api/DesktopIntegration/prices/pricelists/{priceListNum}";
-            if (forceRefresh) url += "?forceRefresh=true";
-            return await _httpClient.GetFromJsonAsync<ItemPricesByListResponse>(url);
+            if (forceRefresh)
+            {
+                var syncResponse = await _httpClient.PostAsync($"api/DesktopIntegration/prices/pricelists/{priceListNum}/sync", null);
+                if (!syncResponse.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("Failed to sync prices for price list {PriceListNum}: {StatusCode}",
+                        priceListNum, syncResponse.StatusCode);
+                    return null;
+                }
+            }
+
+            return await _httpClient.GetFromJsonAsync<ItemPricesByListResponse>(
+                $"api/DesktopIntegration/prices/pricelists/{priceListNum}");
         }
         catch (Exception ex)
         {

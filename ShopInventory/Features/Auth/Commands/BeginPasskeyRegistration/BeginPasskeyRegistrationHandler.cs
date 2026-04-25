@@ -55,7 +55,6 @@ public sealed class BeginPasskeyRegistrationHandler(
             AuthenticatorSelection = new AuthenticatorSelection
             {
                 ResidentKey = ResidentKeyRequirement.Required,
-                RequireResidentKey = true,
                 UserVerification = UserVerificationRequirement.Required
             },
             AttestationPreference = AttestationConveyancePreference.None,

@@ -148,13 +148,13 @@ public class UserManagementService : IUserManagementService
     public async Task<ServiceResult<UserDetailDto>> CreateUserAsync(CreateUserDetailRequest request)
     {
         // Check for existing username
-        if (await _context.Users.AnyAsync(u => u.Username.ToLower() == request.Username.ToLower()))
+        if (await _context.Users.AnyAsync(u => u.Username == request.Username))
         {
             return ServiceResult<UserDetailDto>.Failure("Username already exists");
         }
 
         // Check for existing email
-        if (await _context.Users.AnyAsync(u => u.Email != null && u.Email.ToLower() == request.Email.ToLower()))
+        if (await _context.Users.AnyAsync(u => u.Email == request.Email))
         {
             return ServiceResult<UserDetailDto>.Failure("Email already exists");
         }
@@ -258,7 +258,7 @@ public class UserManagementService : IUserManagementService
         // Update email if provided
         if (!string.IsNullOrWhiteSpace(request.Email) && request.Email != user.Email)
         {
-            if (await _context.Users.AnyAsync(u => u.Id != userId && u.Email != null && u.Email.ToLower() == request.Email.ToLower()))
+            if (await _context.Users.AnyAsync(u => u.Id != userId && u.Email == request.Email))
             {
                 return ServiceResult.Failure("Email already exists");
             }

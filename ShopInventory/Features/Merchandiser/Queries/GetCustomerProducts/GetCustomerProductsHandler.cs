@@ -58,13 +58,6 @@ public sealed class GetCustomerProductsHandler(
                 LEFT JOIN ITM1 T1 ON T0.""ItemCode"" = T1.""ItemCode"" AND {customerPriceListPredicate}";
             }
 
-            var searchFilter = "";
-            if (!string.IsNullOrWhiteSpace(search))
-            {
-                var safeSearch = search.Replace("'", "''");
-                searchFilter = $@" AND (LOWER(T0.""ItemCode"") LIKE LOWER('%{safeSearch}%') OR LOWER(T0.""ItemName"") LIKE LOWER('%{safeSearch}%') OR T0.""CodeBars"" LIKE '%{safeSearch}%')";
-            }
-
             var categoryFilter = "";
             if (!string.IsNullOrWhiteSpace(category))
             {
@@ -80,13 +73,15 @@ public sealed class GetCustomerProductsHandler(
                        T1.""Price""
                 FROM OITM T0
                 {priceListJoin}
-                WHERE T0.""ItemCode"" IN ({inClause}){searchFilter}{categoryFilter}
+                WHERE T0.""ItemCode"" IN ({inClause}){categoryFilter}
                 ORDER BY T0.""ItemName""";
 
             var rows = await sapClient.ExecuteRawSqlQueryAsync(
                 "MerchActiveProducts", "Merchandiser Active Products", sqlText, cancellationToken);
 
-            return rows.Select(r => new MerchandiserActiveProductDto
+            var filteredRows = FilterRowsBySearch(rows, search);
+
+            return filteredRows.Select(r => new MerchandiserActiveProductDto
             {
                 ItemCode = r.GetValueOrDefault("ItemCode")?.ToString() ?? "",
                 ItemName = r.GetValueOrDefault("ItemName")?.ToString(),
@@ -106,10 +101,10 @@ public sealed class GetCustomerProductsHandler(
 
             if (!string.IsNullOrWhiteSpace(search))
             {
-                var s = search.ToLower();
+                var pattern = $"%{search.Trim()}%";
                 query = query.Where(mp =>
-                    mp.ItemCode.ToLower().Contains(s) ||
-                    (mp.ItemName != null && mp.ItemName.ToLower().Contains(s)));
+                    EF.Functions.ILike(mp.ItemCode, pattern) ||
+                    (mp.ItemName != null && EF.Functions.ILike(mp.ItemName, pattern)));
             }
 
             return await query
@@ -122,4 +117,23 @@ public sealed class GetCustomerProductsHandler(
                 .ToListAsync(cancellationToken);
         }
     }
+
+    private static List<Dictionary<string, object?>> FilterRowsBySearch(
+        List<Dictionary<string, object?>> rows,
+        string? search)
+    {
+        if (string.IsNullOrWhiteSpace(search))
+            return rows;
+
+        var term = search.Trim();
+        return rows
+            .Where(row =>
+                ContainsIgnoreCase(row.GetValueOrDefault("ItemCode")?.ToString(), term) ||
+                ContainsIgnoreCase(row.GetValueOrDefault("ItemName")?.ToString(), term) ||
+                ContainsIgnoreCase((row.GetValueOrDefault("BarCode") ?? row.GetValueOrDefault("CodeBars"))?.ToString(), term))
+            .ToList();
+    }
+
+    private static bool ContainsIgnoreCase(string? value, string term) =>
+        value?.Contains(term, StringComparison.OrdinalIgnoreCase) == true;
 }

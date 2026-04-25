@@ -99,6 +99,7 @@ try
         options.AddBasePolicy(builder => builder.NoCache());
         options.AddPolicy("warehouses", builder => builder.Cache().Expire(TimeSpan.FromMinutes(5)).SetVaryByQuery("*").Tag("warehouses"));
         options.AddPolicy("reports", builder => builder.Cache().Expire(TimeSpan.FromMinutes(15)).SetVaryByQuery("*").Tag("reports"));
+        options.AddPolicy("master-data", builder => builder.Cache().Expire(TimeSpan.FromMinutes(30)).SetVaryByQuery("*").Tag("master-data"));
     });
 
     // Configure PostgreSQL Database

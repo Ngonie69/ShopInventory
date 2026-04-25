@@ -75,10 +75,12 @@ public interface ISAPServiceLayerClient
 
     // Product/Item Operations
     Task<List<Item>> GetAllItemsAsync(CancellationToken cancellationToken = default);
+    [Obsolete("Use GetPagedItemsInWarehouseAsync for UI/list paths. This full-fetch method scans all warehouse batches and must only be used by explicit background/export flows.", true)]
     Task<List<Item>> GetItemsInWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
-    Task<List<Item>> GetPagedItemsInWarehouseAsync(string warehouseCode, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<(List<Item> Items, bool HasMore)> GetPagedItemsInWarehouseAsync(string warehouseCode, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<Item?> GetItemByCodeAsync(string itemCode, CancellationToken cancellationToken = default);
     Task<List<BatchNumber>> GetBatchNumbersForItemInWarehouseAsync(string itemCode, string warehouseCode, CancellationToken cancellationToken = default);
+    Task<List<BatchNumber>> GetBatchNumbersForItemsInWarehouseAsync(IEnumerable<string> itemCodes, string warehouseCode, CancellationToken cancellationToken = default);
     Task<List<BatchNumber>> GetAllBatchNumbersInWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
     Task<List<SerialNumber>> GetSerialNumbersForItemInWarehouseAsync(string itemCode, string warehouseCode, CancellationToken cancellationToken = default);
 

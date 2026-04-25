@@ -31,13 +31,13 @@ public sealed class SyncPriceListsHandler(
 
             var sapPriceLists = await sapClient.GetPriceListsAsync(cancellationToken);
             var syncTime = DateTime.UtcNow;
+            var existingPriceLists = await context.PriceLists
+                .AsTracking()
+                .ToDictionaryAsync(p => p.ListNum, cancellationToken);
 
             foreach (var sapList in sapPriceLists)
             {
-                var existing = await context.PriceLists
-                    .FirstOrDefaultAsync(p => p.ListNum == sapList.ListNum, cancellationToken);
-
-                if (existing != null)
+                if (existingPriceLists.TryGetValue(sapList.ListNum, out var existing))
                 {
                     existing.ListName = sapList.ListName;
                     existing.Currency = sapList.Currency;

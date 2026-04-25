@@ -37,19 +37,16 @@ public class RateLimitService : IRateLimitService
         var now = DateTime.UtcNow;
         var dayAgo = now.AddHours(-24);
 
-        var totalClients = await _context.ApiRateLimits
-            .CountAsync(cancellationToken);
-
-        var blockedClients = await _context.ApiRateLimits
-            .Where(r => r.IsBlocked && (r.BlockExpiresAt == null || r.BlockExpiresAt > now))
-            .CountAsync(cancellationToken);
-
-        var recentRequests = await _context.ApiRateLimits
-            .Where(r => r.LastRequestAt >= dayAgo)
-            .SumAsync(r => r.RequestCount, cancellationToken);
-
-        var totalBlocks = await _context.ApiRateLimits
-            .SumAsync(r => r.TotalBlockedCount, cancellationToken);
+        var summary = await _context.ApiRateLimits
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                TotalClients = g.Count(),
+                BlockedClients = g.Count(r => r.IsBlocked && (r.BlockExpiresAt == null || r.BlockExpiresAt > now)),
+                RecentRequests = g.Where(r => r.LastRequestAt >= dayAgo).Sum(r => (int?)r.RequestCount) ?? 0,
+                TotalBlocks = g.Sum(r => (int?)r.TotalBlockedCount) ?? 0
+            })
+            .FirstOrDefaultAsync(cancellationToken);
 
         var topClients = await _context.ApiRateLimits
             .OrderByDescending(r => r.RequestCount)
@@ -64,10 +61,10 @@ public class RateLimitService : IRateLimitService
 
         return new RateLimitDashboardDto
         {
-            TotalClients = totalClients,
-            BlockedClients = blockedClients,
-            TotalRequests24h = recentRequests,
-            TotalBlocks24h = totalBlocks,
+            TotalClients = summary?.TotalClients ?? 0,
+            BlockedClients = summary?.BlockedClients ?? 0,
+            TotalRequests24h = summary?.RecentRequests ?? 0,
+            TotalBlocks24h = summary?.TotalBlocks ?? 0,
             TopClients = topClients.Select(MapToDto).ToList(),
             BlockedClientsList = blockedList.Select(MapToDto).ToList()
         };
@@ -344,18 +341,25 @@ public class RateLimitService : IRateLimitService
         var now = DateTime.UtcNow;
         var today = now.Date;
 
+        var summary = await _context.ApiRateLimits
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                TotalClients = g.Count(),
+                ActiveClients = g.Count(r => r.LastRequestAt >= today),
+                BlockedClients = g.Count(r => r.IsBlocked && (r.BlockExpiresAt == null || r.BlockExpiresAt > now)),
+                TotalRequestsToday = g.Where(r => r.LastRequestAt >= today).Sum(r => (int?)r.RequestCount) ?? 0,
+                TotalBlocksToday = g.Count(r => r.TotalBlockedCount > 0)
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
         var stats = new RateLimitStatsDto
         {
-            TotalClients = await _context.ApiRateLimits.CountAsync(cancellationToken),
-            ActiveClients = await _context.ApiRateLimits
-                .CountAsync(r => r.LastRequestAt >= today, cancellationToken),
-            BlockedClients = await _context.ApiRateLimits
-                .CountAsync(r => r.IsBlocked && (r.BlockExpiresAt == null || r.BlockExpiresAt > now), cancellationToken),
-            TotalRequestsToday = await _context.ApiRateLimits
-                .Where(r => r.LastRequestAt >= today)
-                .SumAsync(r => r.RequestCount, cancellationToken),
-            TotalBlocksToday = await _context.ApiRateLimits
-                .CountAsync(r => r.TotalBlockedCount > 0, cancellationToken)
+            TotalClients = summary?.TotalClients ?? 0,
+            ActiveClients = summary?.ActiveClients ?? 0,
+            BlockedClients = summary?.BlockedClients ?? 0,
+            TotalRequestsToday = summary?.TotalRequestsToday ?? 0,
+            TotalBlocksToday = summary?.TotalBlocksToday ?? 0
         };
 
         stats.AverageRequestsPerClient = stats.TotalClients > 0

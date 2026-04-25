@@ -140,10 +140,14 @@ public class NotificationService : INotificationService
             query = query.Where(n => n.Category == category);
         }
 
-        var totalCount = await query.CountAsync(cancellationToken);
-        var unreadCount = unreadOnly
-            ? totalCount
-            : await query.Where(n => !n.IsRead).CountAsync(cancellationToken);
+        var counts = await query
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                TotalCount = g.Count(),
+                UnreadCount = unreadOnly ? g.Count() : g.Count(n => !n.IsRead)
+            })
+            .FirstOrDefaultAsync(cancellationToken);
 
         var notifications = (await query
             .OrderByDescending(n => n.CreatedAt)
@@ -155,8 +159,8 @@ public class NotificationService : INotificationService
 
         return new NotificationListResponseDto
         {
-            TotalCount = totalCount,
-            UnreadCount = unreadCount,
+            TotalCount = counts?.TotalCount ?? 0,
+            UnreadCount = counts?.UnreadCount ?? 0,
             Page = page,
             PageSize = pageSize,
             Notifications = notifications

@@ -18,6 +18,7 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySal
 public sealed class ConsolidateDailySalesHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
+    IBatchInventoryValidationService batchValidation,
     IInvoiceQueueService queueService,
     IHubContext<NotificationHub> hubContext,
     ILogger<ConsolidateDailySalesHandler> logger
@@ -163,7 +164,27 @@ public sealed class ConsolidateDailySalesHandler(
 
         try
         {
-            // Post consolidated invoice to SAP (batch allocation happens here)
+            var batchValidationResult = await batchValidation.ValidateAndAllocateBatchesAsync(
+                invoiceRequest,
+                autoAllocate: true,
+                BatchAllocationStrategy.FEFO,
+                ct);
+
+            if (!batchValidationResult.IsValid)
+            {
+                throw new InvalidOperationException(
+                    $"Consolidated invoice stock validation failed: {string.Join("; ", batchValidationResult.ValidationErrors.Select(error => error.Message))}");
+            }
+
+            ApplyAllocatedBatchesToRequest(invoiceRequest, batchValidationResult.AllocatedLines);
+
+            var stockValidationErrors = await sapClient.ValidateStockAvailabilityAsync(invoiceRequest, ct);
+            if (stockValidationErrors.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    $"Consolidated invoice stock validation failed: {string.Join("; ", stockValidationErrors.Select(error => error.Message))}");
+            }
+
             var sapInvoice = await sapClient.CreateInvoiceAsync(invoiceRequest, ct);
 
             consolidation.SapDocEntry = sapInvoice.DocEntry;
@@ -225,6 +246,34 @@ public sealed class ConsolidateDailySalesHandler(
             await context.SaveChangesAsync(ct);
 
             throw;
+        }
+    }
+
+    private static void ApplyAllocatedBatchesToRequest(
+        CreateInvoiceRequest request,
+        List<AllocatedBatchLine> allocatedLines)
+    {
+        if (request.Lines == null)
+            return;
+
+        foreach (var allocatedLine in allocatedLines)
+        {
+            var lineIndex = allocatedLine.LineNumber - 1;
+            if (lineIndex < 0 || lineIndex >= request.Lines.Count)
+                continue;
+
+            var requestLine = request.Lines[lineIndex];
+            if (requestLine.BatchNumbers is { Count: > 0 } || allocatedLine.Batches.Count == 0)
+                continue;
+
+            requestLine.BatchNumbers = allocatedLine.Batches
+                .Select(batch => new BatchNumberRequest
+                {
+                    BatchNumber = batch.BatchNumber,
+                    Quantity = batch.QuantityAllocated,
+                    ExpiryDate = batch.ExpiryDate
+                })
+                .ToList();
         }
     }
 

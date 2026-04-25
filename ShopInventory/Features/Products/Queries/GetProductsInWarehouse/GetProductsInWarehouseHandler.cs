@@ -24,14 +24,39 @@ public sealed class GetProductsInWarehouseHandler(
 
         try
         {
-            var items = await sapClient.GetItemsInWarehouseAsync(request.WarehouseCode, cancellationToken);
-            var allBatches = await sapClient.GetAllBatchNumbersInWarehouseAsync(request.WarehouseCode, cancellationToken);
+            const int sapPageSize = 100;
+            var page = 1;
+            var hasMore = false;
+            var products = new List<ProductDto>();
 
-            var batchesByItem = allBatches
-                .GroupBy(b => b.ItemCode ?? string.Empty)
-                .ToDictionary(g => g.Key, g => g.ToList());
+            do
+            {
+                var (items, pageHasMore) = await sapClient.GetPagedItemsInWarehouseAsync(
+                    request.WarehouseCode, page, sapPageSize, cancellationToken);
 
-            var products = items.Select(item => MapToProductDto(item, batchesByItem)).ToList();
+                var itemCodes = items
+                    .Select(i => i.ItemCode)
+                    .Where(c => !string.IsNullOrWhiteSpace(c))
+                    .Select(c => c!)
+                    .ToList();
+
+                var itemCodeSet = itemCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var pageBatches = itemCodes.Count == 0
+                    ? []
+                    : await sapClient.GetBatchNumbersForItemsInWarehouseAsync(
+                        itemCodes, request.WarehouseCode, cancellationToken);
+
+                var batchesByItem = pageBatches
+                    .Where(b => b.ItemCode is not null && itemCodeSet.Contains(b.ItemCode))
+                    .GroupBy(b => b.ItemCode ?? string.Empty)
+                    .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+
+                products.AddRange(items.Select(item => MapToProductDto(item, batchesByItem)));
+
+                hasMore = pageHasMore;
+                page++;
+            }
+            while (hasMore);
 
             var response = new WarehouseProductsResponseDto
             {

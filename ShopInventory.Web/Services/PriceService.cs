@@ -201,8 +201,19 @@ public class PriceService : IPriceService
         {
             _logger.LogInformation("Force-refreshing prices for price list {PriceListNum} from SAP", priceListNum);
 
-            var response = await _httpClient.GetAsync($"api/price/pricelists/{priceListNum}/items?forceRefresh=true");
-            _logger.LogDebug("GetPricesByPriceListForceRefreshAsync response: {StatusCode}", response.StatusCode);
+            var syncResponse = await _httpClient.PostAsync($"api/price/pricelists/{priceListNum}/sync", null);
+            _logger.LogDebug("GetPricesByPriceListForceRefreshAsync sync response: {StatusCode}", syncResponse.StatusCode);
+
+            if (!syncResponse.IsSuccessStatusCode)
+            {
+                var syncError = await syncResponse.Content.ReadAsStringAsync();
+                _logger.LogError("Failed to sync prices for list {PriceListNum}: {StatusCode} - {Error}",
+                    priceListNum, syncResponse.StatusCode, syncError);
+                return null;
+            }
+
+            var response = await _httpClient.GetAsync($"api/price/pricelists/{priceListNum}/items");
+            _logger.LogDebug("GetPricesByPriceListForceRefreshAsync read response: {StatusCode}", response.StatusCode);
 
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {

@@ -247,8 +247,14 @@ public class PaymentGatewayService : IPaymentGatewayService
         if (!string.IsNullOrEmpty(status))
             query = query.Where(t => t.Status == status);
 
-        var totalCount = await query.CountAsync();
-        var totalAmount = await query.Where(t => t.Status == PaymentStatus.Success).SumAsync(t => t.Amount);
+        var summary = await query
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                TotalCount = g.Count(),
+                TotalAmount = g.Where(t => t.Status == PaymentStatus.Success).Sum(t => (decimal?)t.Amount) ?? 0m
+            })
+            .FirstOrDefaultAsync();
 
         var transactions = await query
             .OrderByDescending(t => t.CreatedAt)
@@ -276,11 +282,11 @@ public class PaymentGatewayService : IPaymentGatewayService
         return new PaymentTransactionListResponse
         {
             Transactions = transactions,
-            TotalCount = totalCount,
+            TotalCount = summary?.TotalCount ?? 0,
             Page = page,
             PageSize = pageSize,
-            TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
-            TotalAmount = totalAmount
+            TotalPages = (int)Math.Ceiling((summary?.TotalCount ?? 0) / (double)pageSize),
+            TotalAmount = summary?.TotalAmount ?? 0m
         };
     }
 

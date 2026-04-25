@@ -144,13 +144,16 @@ public sealed class GetFiscalizedSalesReportHandler(
         IQueryable<InvoiceQueueEntity> query,
         CancellationToken cancellationToken)
     {
-        // Use individual aggregate queries instead of GroupBy(_ => 1) which PostgreSQL can't translate
-        var totalFiscalized = await query.CountAsync(cancellationToken);
-        var consolidated = await query.CountAsync(q => q.Status == InvoiceQueueStatus.Completed && q.SapDocNum != null, cancellationToken);
-        var awaitingConsolidation = await query.CountAsync(q => q.Status == InvoiceQueueStatus.Fiscalized, cancellationToken);
-        var totalAmount = totalFiscalized > 0 ? await query.SumAsync(q => q.TotalAmount, cancellationToken) : 0m;
-        var uniqueCustomers = await query.Select(q => q.CustomerCode).Distinct().CountAsync(cancellationToken);
-        var uniqueWarehouses = await query.Where(q => q.WarehouseCode != null).Select(q => q.WarehouseCode).Distinct().CountAsync(cancellationToken);
+        var statusSummary = await query
+            .GroupBy(q => q.Status)
+            .Select(g => new
+            {
+                Status = g.Key,
+                Count = g.Count(),
+                TotalAmount = g.Sum(q => q.TotalAmount),
+                ConsolidatedCount = g.Count(q => q.SapDocNum != null)
+            })
+            .ToListAsync(cancellationToken);
 
         // Amount by warehouse
         var warehouseAmounts = await query
@@ -159,13 +162,26 @@ public sealed class GetFiscalizedSalesReportHandler(
             .Select(g => new { Warehouse = g.Key, Amount = g.Sum(q => q.TotalAmount) })
             .ToListAsync(cancellationToken);
 
-        // Amount by customer (top 20)
+        // Amount by customer
         var customerAmounts = await query
             .GroupBy(q => q.CustomerCode)
             .Select(g => new { Customer = g.Key, Amount = g.Sum(q => q.TotalAmount) })
+            .ToListAsync(cancellationToken);
+
+        var totalFiscalized = statusSummary.Sum(x => x.Count);
+        var consolidated = statusSummary
+            .Where(x => x.Status == InvoiceQueueStatus.Completed)
+            .Sum(x => x.ConsolidatedCount);
+        var awaitingConsolidation = statusSummary
+            .Where(x => x.Status == InvoiceQueueStatus.Fiscalized)
+            .Sum(x => x.Count);
+        var totalAmount = statusSummary.Sum(x => x.TotalAmount);
+        var uniqueCustomers = customerAmounts.Count;
+        var uniqueWarehouses = warehouseAmounts.Count;
+        var topCustomerAmounts = customerAmounts
             .OrderByDescending(x => x.Amount)
             .Take(20)
-            .ToListAsync(cancellationToken);
+            .ToList();
 
         // Approximate VAT (15.5% on VAT-exclusive totals)
         var vatAmount = Math.Round(totalAmount * 0.155m / 1.155m, 2);
@@ -180,7 +196,7 @@ public sealed class GetFiscalizedSalesReportHandler(
             UniqueCustomers = uniqueCustomers,
             UniqueWarehouses = uniqueWarehouses,
             AmountByWarehouse = warehouseAmounts.ToDictionary(x => x.Warehouse, x => x.Amount),
-            AmountByCustomer = customerAmounts.ToDictionary(x => x.Customer, x => x.Amount)
+            AmountByCustomer = topCustomerAmounts.ToDictionary(x => x.Customer, x => x.Amount)
         };
     }
 

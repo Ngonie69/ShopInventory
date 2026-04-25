@@ -593,9 +593,9 @@ public class DocumentService : IDocumentService
             .Where(a => a.EntityType == "Invoice")
             .Where(a => !excludedDocEntries.Contains(a.EntityId))
             .Where(a =>
-                a.FileName.ToLower().Contains("pod") ||
-                a.FileName.ToLower().Contains("proof of delivery") ||
-                (a.Description != null && (a.Description.ToLower().Contains("pod") || a.Description.ToLower().Contains("proof of delivery")))
+                EF.Functions.ILike(a.FileName, "%pod%") ||
+                EF.Functions.ILike(a.FileName, "%proof of delivery%") ||
+                (a.Description != null && (EF.Functions.ILike(a.Description, "%pod%") || EF.Functions.ILike(a.Description, "%proof of delivery%")))
             )
             .AsQueryable();
 
@@ -634,11 +634,12 @@ public class DocumentService : IDocumentService
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim();
+            var pattern = $"%{term}%";
             var matchingDocEntries = _context.Invoices
                 .Where(i => i.SAPDocEntry != null && (
                     (i.SAPDocNum != null && i.SAPDocNum.ToString()!.Contains(term)) ||
-                    (i.CardName != null && i.CardName.ToLower().Contains(term.ToLower())) ||
-                    i.CardCode.ToLower().Contains(term.ToLower())
+                    (i.CardName != null && EF.Functions.ILike(i.CardName, pattern)) ||
+                    EF.Functions.ILike(i.CardCode, pattern)
                 ))
                 .Select(i => i.SAPDocEntry!.Value);
 
@@ -1180,9 +1181,9 @@ public class DocumentService : IDocumentService
             .Include(a => a.UploadedByUser)
             .Where(a => a.EntityType == "Invoice" && docEntries.Contains(a.EntityId))
             .Where(a =>
-                a.FileName.ToLower().Contains("pod") ||
-                a.FileName.ToLower().Contains("proof of delivery") ||
-                (a.Description != null && (a.Description.ToLower().Contains("pod") || a.Description.ToLower().Contains("proof of delivery")))
+                EF.Functions.ILike(a.FileName, "%pod%") ||
+                EF.Functions.ILike(a.FileName, "%proof of delivery%") ||
+                (a.Description != null && (EF.Functions.ILike(a.Description, "%pod%") || EF.Functions.ILike(a.Description, "%proof of delivery%")))
             )
             .GroupBy(a => a.EntityId)
             .Select(g => new
@@ -1219,9 +1220,9 @@ public class DocumentService : IDocumentService
         var baseQuery = _context.Set<DocumentAttachmentEntity>()
             .Where(a => a.EntityType == "Invoice" && a.UploadedByUserId == userId)
             .Where(a =>
-                a.FileName.ToLower().Contains("pod") ||
-                a.FileName.ToLower().Contains("proof of delivery") ||
-                (a.Description != null && (a.Description.ToLower().Contains("pod") || a.Description.ToLower().Contains("proof of delivery")))
+                EF.Functions.ILike(a.FileName, "%pod%") ||
+                EF.Functions.ILike(a.FileName, "%proof of delivery%") ||
+                (a.Description != null && (EF.Functions.ILike(a.Description, "%pod%") || EF.Functions.ILike(a.Description, "%proof of delivery%")))
             );
 
         // Aggregate stats in a single query

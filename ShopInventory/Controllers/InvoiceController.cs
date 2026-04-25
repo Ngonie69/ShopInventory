@@ -248,9 +248,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     public async Task<IActionResult> GetInvoicesByDateRange(
         [FromQuery] DateTime fromDate,
         [FromQuery] DateTime toDate,
-        CancellationToken cancellationToken = default,
-        [FromQuery] int? page = null,
-        [FromQuery] int? pageSize = null)
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
             new GetInvoicesByDateRangeQuery(fromDate, toDate, page, pageSize), cancellationToken);

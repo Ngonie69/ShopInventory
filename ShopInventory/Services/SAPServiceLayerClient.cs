@@ -1402,45 +1402,208 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         return items;
     }
 
+    [Obsolete("Use GetPagedItemsInWarehouseAsync for UI/list paths. This full-fetch method scans all warehouse batches and must only be used by explicit background/export flows.", true)]
     public async Task<List<Item>> GetItemsInWarehouseAsync(
         string warehouseCode,
         CancellationToken cancellationToken = default)
     {
-        await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
-
         // First get all batch numbers in the warehouse to identify which items have stock
         var batches = await GetAllBatchNumbersInWarehouseAsync(warehouseCode, cancellationToken);
 
         // Get unique item codes from batches
         var itemCodes = batches.Select(b => b.ItemCode).Where(c => !string.IsNullOrEmpty(c)).Distinct().ToList();
 
-        // Fetch item details for each unique item code
-        var items = new List<Item>();
-        foreach (var itemCode in itemCodes)
-        {
-            var item = await GetItemByCodeAsync(itemCode!, cancellationToken);
-            if (item != null)
-            {
-                items.Add(item);
-            }
-        }
-
-        return items.OrderBy(i => i.ItemCode).ToList();
+        return await GetItemsByCodesAsync(itemCodes!, cancellationToken);
     }
 
-    public async Task<List<Item>> GetPagedItemsInWarehouseAsync(
+    public async Task<(List<Item> Items, bool HasMore)> GetPagedItemsInWarehouseAsync(
         string warehouseCode,
         int page,
         int pageSize,
         CancellationToken cancellationToken = default)
     {
-        // Get all items first (we need to know the full list to paginate)
-        var allItems = await GetItemsInWarehouseAsync(warehouseCode, cancellationToken);
+        var normalizedPage = Math.Max(page, 1);
+        var normalizedPageSize = Math.Max(pageSize, 1);
+        var skip = (normalizedPage - 1) * normalizedPageSize;
 
-        // Apply pagination
-        var skip = (page - 1) * pageSize;
-        return allItems.Skip(skip).Take(pageSize).ToList();
+        var itemCodes = await GetPagedItemCodesInWarehouseAsync(
+            warehouseCode,
+            skip,
+            normalizedPageSize + 1,
+            cancellationToken);
+
+        var hasMore = itemCodes.Count > normalizedPageSize;
+        var pageItemCodes = hasMore
+            ? itemCodes.Take(normalizedPageSize).ToList()
+            : itemCodes;
+
+        var items = await GetItemsByCodesAsync(pageItemCodes, cancellationToken);
+        return (items, hasMore);
+    }
+
+    private async Task<List<Item>> GetItemsByCodesAsync(
+        IEnumerable<string> itemCodes,
+        CancellationToken cancellationToken)
+    {
+        var codes = itemCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (codes.Count == 0)
+        {
+            return [];
+        }
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+        var itemsByCode = new Dictionary<string, Item>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var batch in codes.Chunk(40))
+        {
+            var safeItemCodes = batch.Select(SanitizeODataValue).ToList();
+            var itemFilter = string.Join(" or ", safeItemCodes.Select(code => $"ItemCode eq '{code}'"));
+            var endpoint = "Items?$select=ItemCode,ItemName,BarCode,ItemType,ManageBatchNumbers,DefaultWarehouse,SalesUnit,InventoryUOM,U_ItemGroup,QuantityOnStock,QuantityOrderedFromVendors,QuantityOrderedByCustomers"
+                + $"&$filter=ItemType eq 'itItems' and Valid eq 'tYES' and ({itemFilter})";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get items by codes: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get items by codes: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var result = JsonSerializer.Deserialize<SAPResponse<Item>>(content);
+            foreach (var item in result?.Value ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(item.ItemCode))
+                {
+                    itemsByCode[item.ItemCode] = item;
+                }
+            }
+        }
+
+        return codes
+            .Where(itemsByCode.ContainsKey)
+            .Select(code => itemsByCode[code])
+            .OrderBy(item => item.ItemCode)
+            .ToList();
+    }
+
+    private async Task<List<string>> GetPagedItemCodesInWarehouseAsync(
+        string warehouseCode,
+        int skip,
+        int pageSize,
+        CancellationToken cancellationToken)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var queryCode = $"WHS_ITEM_CODES_{warehouseCode.Replace("-", "_").Replace("/", "_").ToUpperInvariant()}_{Random.Shared.Next(100000, 999999)}";
+        var safeWarehouse = SanitizeSqlValue(warehouseCode);
+        var sqlText = $@"SELECT DISTINCT T0.""ItemCode""
+FROM OBTN T0
+INNER JOIN OBTQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
+WHERE T1.""WhsCode"" = '{safeWarehouse}' AND T1.""Quantity"" > 0
+ORDER BY T0.""ItemCode""";
+
+        try
+        {
+            await CreateSqlQueryAsync(queryCode, $"Paged item codes for {warehouseCode}", sqlText, cancellationToken);
+
+            var url = skip == 0
+                ? $"SQLQueries('{queryCode}')/List"
+                : $"SQLQueries('{queryCode}')/List?$skip={skip}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return [];
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get paged item codes in warehouse {Warehouse}: {StatusCode} - {Error}",
+                    warehouseCode, response.StatusCode, errorContent);
+                throw new Exception($"Failed to get paged item codes: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            return ParseItemCodesFromSqlResult(content);
+        }
+        finally
+        {
+            await TryDeleteQueryAsync(queryCode, cancellationToken);
+        }
+    }
+
+    private List<string> ParseItemCodesFromSqlResult(string jsonContent)
+    {
+        var itemCodes = new List<string>();
+
+        try
+        {
+            using var doc = JsonDocument.Parse(jsonContent);
+            if (!doc.RootElement.TryGetProperty("value", out var valueArray))
+            {
+                return itemCodes;
+            }
+
+            foreach (var item in valueArray.EnumerateArray())
+            {
+                if (!item.TryGetProperty("ItemCode", out var itemCodeElement))
+                {
+                    continue;
+                }
+
+                var itemCode = itemCodeElement.GetString();
+                if (!string.IsNullOrWhiteSpace(itemCode))
+                {
+                    itemCodes.Add(itemCode);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse SQL result for paged warehouse item codes");
+        }
+
+        return itemCodes;
     }
 
     public async Task<Item?> GetItemByCodeAsync(
@@ -1553,6 +1716,44 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             _logger.LogWarning(ex, "SQL query for batch numbers failed, falling back to BatchNumberDetails");
             return await GetBatchNumbersForItemFallbackAsync(itemCode, warehouseCode, cancellationToken);
+        }
+    }
+
+    public async Task<List<BatchNumber>> GetBatchNumbersForItemsInWarehouseAsync(
+        IEnumerable<string> itemCodes,
+        string warehouseCode,
+        CancellationToken cancellationToken = default)
+    {
+        var codes = itemCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (codes.Count == 0)
+        {
+            return [];
+        }
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var queryCode = $"WHS_BATCHES_{warehouseCode.Replace("-", "_").Replace("/", "_").ToUpperInvariant()}_{Random.Shared.Next(100000, 999999)}";
+        var safeWarehouse = SanitizeSqlValue(warehouseCode);
+        var safeItemCodes = string.Join(", ", codes.Select(code => $"'{SanitizeSqlValue(code)}'"));
+        var sqlText = $@"SELECT T0.""ItemCode"", T2.""ItemName"", T0.""DistNumber"" as ""BatchNum"", T1.""Quantity"" as ""InStock"", T1.""WhsCode"",
+T0.""ExpDate"", T0.""MnfDate"", T0.""InDate"", T0.""Notes""
+FROM OBTN T0 INNER JOIN OBTQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
+INNER JOIN OITM T2 ON T0.""ItemCode"" = T2.""ItemCode""
+WHERE T1.""WhsCode"" = '{safeWarehouse}' AND T1.""Quantity"" > 0 AND T0.""ItemCode"" IN ({safeItemCodes})
+ORDER BY T0.""ItemCode"", T0.""DistNumber""";
+
+        try
+        {
+            await CreateSqlQueryAsync(queryCode, $"Batches for {warehouseCode} page items", sqlText, cancellationToken);
+            return await ExecuteBatchQueryAsync(queryCode, warehouseCode, cancellationToken);
+        }
+        finally
+        {
+            await TryDeleteQueryAsync(queryCode, cancellationToken);
         }
     }
 
@@ -4901,8 +5102,90 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                     g => g.ToDictionary(b => b.BatchNum ?? string.Empty, b => b, StringComparer.OrdinalIgnoreCase),
                     StringComparer.OrdinalIgnoreCase);
 
+            var warehouseItems = warehouseGroup.ToList();
+
+            var aggregateItemRequests = warehouseItems
+                .Where(item => !string.IsNullOrWhiteSpace(item.Line.ItemCode))
+                .GroupBy(item => item.Line.ItemCode ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.Count() > 1);
+
+            foreach (var itemGroup in aggregateItemRequests)
+            {
+                var itemCode = itemGroup.Key;
+                var requestedQuantity = itemGroup.Sum(item => item.Line.Quantity);
+
+                if (stockLookup.TryGetValue(itemCode, out var stock))
+                {
+                    var issuableQuantity = GetInvoiceIssuableQuantity(stock);
+                    if (requestedQuantity > issuableQuantity)
+                    {
+                        errors.Add(new StockValidationError
+                        {
+                            LineNumber = itemGroup.Max(item => item.Index) + 1,
+                            ItemCode = itemCode,
+                            ItemName = stock.ItemName,
+                            WarehouseCode = warehouseCode,
+                            RequestedQuantity = requestedQuantity,
+                            AvailableQuantity = issuableQuantity
+                        });
+                    }
+                }
+                else
+                {
+                    errors.Add(new StockValidationError
+                    {
+                        LineNumber = itemGroup.Max(item => item.Index) + 1,
+                        ItemCode = itemCode,
+                        WarehouseCode = warehouseCode,
+                        RequestedQuantity = requestedQuantity,
+                        AvailableQuantity = 0
+                    });
+                }
+            }
+
+            var aggregateBatchRequests = warehouseItems
+                .Where(item => item.Line.BatchNumbers is { Count: > 0 })
+                .SelectMany(item => item.Line.BatchNumbers!.Select(batch => new
+                {
+                    item.Index,
+                    ItemCode = item.Line.ItemCode ?? string.Empty,
+                    BatchNumber = batch.BatchNumber ?? string.Empty,
+                    batch.Quantity
+                }))
+                .Where(batch => !string.IsNullOrWhiteSpace(batch.ItemCode) && !string.IsNullOrWhiteSpace(batch.BatchNumber))
+                .GroupBy(batch => BuildStockValidationKey(batch.ItemCode, batch.BatchNumber))
+                .Where(group => group.Count() > 1);
+
+            foreach (var batchGroup in aggregateBatchRequests)
+            {
+                var firstBatchRequest = batchGroup.First();
+                var requestedQuantity = batchGroup.Sum(batch => batch.Quantity);
+                decimal availableBatchQuantity = 0;
+
+                if (batchLookup != null &&
+                    batchLookup.TryGetValue(firstBatchRequest.ItemCode, out var itemBatches) &&
+                    itemBatches.TryGetValue(firstBatchRequest.BatchNumber, out var batch))
+                {
+                    availableBatchQuantity = batch.Quantity;
+                }
+
+                if (requestedQuantity > availableBatchQuantity)
+                {
+                    errors.Add(new StockValidationError
+                    {
+                        LineNumber = batchGroup.Max(batchRequest => batchRequest.Index) + 1,
+                        ItemCode = firstBatchRequest.ItemCode,
+                        ItemName = stockLookup.TryGetValue(firstBatchRequest.ItemCode, out var stock) ? stock.ItemName : null,
+                        WarehouseCode = warehouseCode,
+                        RequestedQuantity = requestedQuantity,
+                        AvailableQuantity = availableBatchQuantity,
+                        BatchNumber = firstBatchRequest.BatchNumber
+                    });
+                }
+            }
+
             // Validate each line
-            foreach (var item in warehouseGroup)
+            foreach (var item in warehouseItems)
             {
                 var line = item.Line;
                 var lineNumber = item.Index + 1;
@@ -4944,7 +5227,8 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                     // No batches specified, check overall stock availability
                     if (stockLookup.TryGetValue(itemCode, out var stock))
                     {
-                        if (line.Quantity > stock.Available)
+                        var issuableQuantity = GetInvoiceIssuableQuantity(stock);
+                        if (line.Quantity > issuableQuantity)
                         {
                             errors.Add(new StockValidationError
                             {
@@ -4953,7 +5237,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                                 ItemName = stock.ItemName,
                                 WarehouseCode = warehouseCode,
                                 RequestedQuantity = line.Quantity,
-                                AvailableQuantity = stock.Available
+                                AvailableQuantity = issuableQuantity
                             });
                         }
                     }
@@ -4975,6 +5259,12 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         return errors;
     }
+
+    private static string BuildStockValidationKey(string firstPart, string secondPart) =>
+        $"{firstPart.Trim().ToUpperInvariant()}|{secondPart.Trim().ToUpperInvariant()}";
+
+    private static decimal GetInvoiceIssuableQuantity(StockQuantityDto stock) =>
+        stock.InStock - stock.Committed;
 
     /// <summary>
     /// Creates a new inventory transfer in SAP Business One.

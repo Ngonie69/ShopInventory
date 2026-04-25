@@ -24,11 +24,13 @@ public sealed class GetPagedProductsInWarehouseHandler(
 
         try
         {
-            var items = await sapClient.GetPagedItemsInWarehouseAsync(
+            var (items, hasMore) = await sapClient.GetPagedItemsInWarehouseAsync(
                 request.WarehouseCode, request.Page, request.PageSize, cancellationToken);
 
             var itemCodes = items.Select(i => i.ItemCode).Where(c => c is not null).ToList();
-            var allBatches = await sapClient.GetAllBatchNumbersInWarehouseAsync(request.WarehouseCode, cancellationToken);
+            var allBatches = itemCodes.Count == 0
+                ? []
+                : await sapClient.GetBatchNumbersForItemsInWarehouseAsync(itemCodes!, request.WarehouseCode, cancellationToken);
 
             var relevantBatches = allBatches.Where(b => itemCodes.Contains(b.ItemCode)).ToList();
             var batchesByItem = relevantBatches
@@ -43,7 +45,7 @@ public sealed class GetPagedProductsInWarehouseHandler(
                 Page = request.Page,
                 PageSize = request.PageSize,
                 Count = products.Count,
-                HasMore = products.Count == request.PageSize,
+                HasMore = hasMore,
                 Products = products
             };
 

@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Products.Queries.GetAllProducts;
 using ShopInventory.Features.Products.Queries.GetPagedProductsInWarehouse;
@@ -18,6 +19,7 @@ public class ProductController(IMediator mediator) : ApiControllerBase
     /// Gets all products/items from SAP
     /// </summary>
     [HttpGet]
+    [OutputCache(PolicyName = "master-data")]
     [ProducesResponseType(typeof(ProductsListResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetAllProducts(CancellationToken cancellationToken)

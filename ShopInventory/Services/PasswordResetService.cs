@@ -75,6 +75,8 @@ public class PasswordResetService : IPasswordResetService
 
     public async Task<ServiceResult> InitiateResetAsync(string email, string ipAddress)
     {
+        var normalizedEmail = email.Trim();
+
         // Rate limiting check
         var recentAttempts = await _context.PasswordResetTokens
             .AsNoTracking()
@@ -91,7 +93,7 @@ public class PasswordResetService : IPasswordResetService
 
         var user = await _context.Users
             .AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Email != null && u.Email.ToLower() == email.ToLower());
+            .FirstOrDefaultAsync(u => u.Email == normalizedEmail);
 
         if (user == null)
         {
@@ -301,7 +303,7 @@ public class PasswordResetService : IPasswordResetService
         var normalizedUsername = username.Trim();
 
         var user = await _context.Users.AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Username.ToLower() == normalizedUsername.ToLower());
+            .FirstOrDefaultAsync(u => u.Username == normalizedUsername);
         return user?.Id;
     }
 
@@ -357,18 +359,17 @@ public class PasswordResetService : IPasswordResetService
         if (usernameChanged)
         {
             var usernameTaken = await _context.Users
-                .AnyAsync(u => u.Id != userId && u.Username.ToLower() == requestedUsername!.ToLower());
+                .AnyAsync(u => u.Id != userId && u.Username == requestedUsername);
             if (usernameTaken)
             {
                 return ServiceResult<UpdateCredentialsResponse>.Failure("Username is already taken");
             }
         }
 
-        string? newEmailTaken = null;
         if (emailChanged && !string.IsNullOrWhiteSpace(requestedEmail))
         {
             var emailTaken = await _context.Users
-                .AnyAsync(u => u.Id != userId && u.Email != null && u.Email.ToLower() == requestedEmail!.ToLower());
+                .AnyAsync(u => u.Id != userId && u.Email == requestedEmail);
             if (emailTaken)
             {
                 return ServiceResult<UpdateCredentialsResponse>.Failure("Email is already in use");
@@ -409,9 +410,11 @@ public class PasswordResetService : IPasswordResetService
 
     public async Task<string?> GetResetTokenForTestingAsync(string email)
     {
+        var normalizedEmail = email.Trim();
+
         // This method is for testing purposes only - should not be exposed in production
         var user = await _context.Users
-            .FirstOrDefaultAsync(u => u.Email != null && u.Email.ToLower() == email.ToLower());
+            .FirstOrDefaultAsync(u => u.Email == normalizedEmail);
 
         if (user == null) return null;
 

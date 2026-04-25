@@ -129,7 +129,7 @@ public class AuthService : IAuthService
 
         // Find user in database (case-insensitive username)
         var user = await _dbContext.Users
-            .FirstOrDefaultAsync(u => u.Username.ToLower() == request.Username.ToLower());
+            .FirstOrDefaultAsync(u => u.Username == request.Username);
 
         if (user == null)
         {
@@ -297,14 +297,14 @@ public class AuthService : IAuthService
     public async Task<User?> RegisterUserAsync(string username, string email, string password, string role)
     {
         // Check if username already exists
-        if (await _dbContext.Users.AnyAsync(u => u.Username.ToLower() == username.ToLower()))
+        if (await _dbContext.Users.AnyAsync(u => u.Username == username))
         {
             _logger.LogWarning("Registration attempt with existing username: {Username}", username);
             return null;
         }
 
         // Check if email already exists
-        if (!string.IsNullOrEmpty(email) && await _dbContext.Users.AnyAsync(u => u.Email != null && u.Email.ToLower() == email.ToLower()))
+        if (!string.IsNullOrEmpty(email) && await _dbContext.Users.AnyAsync(u => u.Email == email))
         {
             _logger.LogWarning("Registration attempt with existing email: {Email}", email);
             return null;
@@ -331,7 +331,7 @@ public class AuthService : IAuthService
     public async Task<User?> GetUserByUsernameAsync(string username)
     {
         return await _dbContext.Users
-            .FirstOrDefaultAsync(u => u.Username.ToLower() == username.ToLower());
+            .FirstOrDefaultAsync(u => u.Username == username);
     }
 
     public async Task<AuthLoginResponse?> CompleteTwoFactorLoginAsync(

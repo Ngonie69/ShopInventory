@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Prices.Queries.GetCachedPrices;
 using ShopInventory.Features.Prices.Queries.GetAllPrices;
@@ -56,9 +57,18 @@ public class PriceController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpGet("pricelists")]
-    public async Task<IActionResult> GetPriceLists([FromQuery] bool forceRefresh = false, CancellationToken cancellationToken = default)
+    [OutputCache(PolicyName = "master-data")]
+    public async Task<IActionResult> GetPriceLists([FromQuery] bool? forceRefresh = null, CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetPriceListsQuery(forceRefresh), cancellationToken);
+        if (forceRefresh == true)
+        {
+            return BadRequest(new
+            {
+                Message = "Use POST api/price/pricelists/sync to refresh price lists. Normal GET responses are output cached."
+            });
+        }
+
+        var result = await mediator.Send(new GetPriceListsQuery(false), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
@@ -72,10 +82,18 @@ public class PriceController(IMediator mediator) : ApiControllerBase
     [HttpGet("pricelists/{priceListNum:int}/items")]
     public async Task<IActionResult> GetPricesByPriceList(
         int priceListNum,
-        [FromQuery] bool forceRefresh = false,
+        [FromQuery] bool? forceRefresh = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetPricesByPriceListQuery(priceListNum, forceRefresh), cancellationToken);
+        if (forceRefresh == true)
+        {
+            return BadRequest(new
+            {
+                Message = $"Use POST api/price/pricelists/{priceListNum}/sync to refresh item prices. Normal GET responses use the cached sync path."
+            });
+        }
+
+        var result = await mediator.Send(new GetPricesByPriceListQuery(priceListNum, false), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
@@ -96,10 +114,18 @@ public class PriceController(IMediator mediator) : ApiControllerBase
     [HttpGet("businesspartner/{cardCode}")]
     public async Task<IActionResult> GetPricesByBusinessPartner(
         string cardCode,
-        [FromQuery] bool forceRefresh = false,
+        [FromQuery] bool? forceRefresh = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetPricesByBusinessPartnerQuery(cardCode, forceRefresh), cancellationToken);
+        if (forceRefresh == true)
+        {
+            return BadRequest(new
+            {
+                Message = "Force refresh is not supported on this GET endpoint. Refresh the underlying price list through the explicit sync endpoint."
+            });
+        }
+
+        var result = await mediator.Send(new GetPricesByBusinessPartnerQuery(cardCode, false), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 }

@@ -140,7 +140,12 @@ public class ApplicationDbContext : DbContext
 
       entity.Property(u => u.Username)
                 .IsRequired()
-                .HasMaxLength(50);
+                .HasMaxLength(50)
+                .HasColumnType("citext");
+
+      entity.Property(u => u.Email)
+                .HasMaxLength(255)
+                .HasColumnType("citext");
 
       entity.Property(u => u.PasswordHash)
                 .IsRequired()

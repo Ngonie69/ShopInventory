@@ -4222,7 +4222,7 @@ namespace ShopInventory.Migrations
 
                     b.Property<string>("Email")
                         .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
+                        .HasColumnType("citext");
 
                     b.Property<bool>("EmailVerified")
                         .HasColumnType("boolean");
@@ -4283,7 +4283,7 @@ namespace ShopInventory.Migrations
                     b.Property<string>("Username")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
+                        .HasColumnType("citext");
 
                     b.HasKey("Id");
 

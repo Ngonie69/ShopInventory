@@ -1,13 +1,9 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Options;
 using System.Collections;
 using System.Diagnostics;
-using ShopInventory.Configuration;
-using ShopInventory.Data;
+using System.Globalization;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
-using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Services;
 
@@ -87,6 +83,65 @@ public class ReportService : IReportService
 
         return $"{prefix}:{string.Join("|", normalizedParts)}";
     }
+
+    private static string BuildReportQueryCode(string prefix) =>
+        $"{prefix}_{Random.Shared.Next(100000, 999999)}";
+
+    private static string ToSapSqlDate(DateTime date) =>
+        date.Date.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+
+    private static string SanitizeSqlValue(string value) =>
+        value.Replace("'", "''");
+
+    private static string BuildUsdCurrencyPredicate(string columnName) =>
+        $"({columnName} = 'USD' OR {columnName} = '$' OR {columnName} IS NULL OR {columnName} = '')";
+
+    private static string BuildZigCurrencyPredicate(string columnName) =>
+        $"({columnName} = 'ZIG' OR {columnName} = 'ZiG')";
+
+    private static object? GetRowValue(Dictionary<string, object?> row, string key) =>
+        row.TryGetValue(key, out var value) ? value : null;
+
+    private static string GetRowString(Dictionary<string, object?> row, string key) =>
+        GetRowValue(row, key)?.ToString() ?? string.Empty;
+
+    private static string GetRowStringOrDefault(Dictionary<string, object?> row, string key, string fallback = "Unknown")
+    {
+        var value = GetRowString(row, key);
+        return string.IsNullOrWhiteSpace(value) ? fallback : value;
+    }
+
+    private static int GetRowInt(Dictionary<string, object?> row, string key)
+    {
+        var value = GetRowValue(row, key);
+        if (value is null)
+            return 0;
+
+        return Convert.ToInt32(value, CultureInfo.InvariantCulture);
+    }
+
+    private static decimal GetRowDecimal(Dictionary<string, object?> row, string key)
+    {
+        var value = GetRowValue(row, key);
+        if (value is null)
+            return 0;
+
+        return Convert.ToDecimal(value, CultureInfo.InvariantCulture);
+    }
+
+    private static DateTime GetRowDate(Dictionary<string, object?> row, string key) =>
+        ParseSapDate(GetRowValue(row, key)?.ToString());
+
+    private Task<List<Dictionary<string, object?>>> ExecuteReportSqlAsync(
+        string queryCodePrefix,
+        string queryName,
+        string sqlText,
+        CancellationToken cancellationToken) =>
+        _sapClient.ExecuteRawSqlQueryAsync(
+            BuildReportQueryCode(queryCodePrefix),
+            queryName,
+            sqlText,
+            cancellationToken);
 
     private static CacheTelemetryCounters GetTelemetryCounters(string cacheName)
     {
@@ -190,33 +245,221 @@ public class ReportService : IReportService
         return value;
     }
 
-    private Task<List<Invoice>> GetCachedInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+    private Task<List<Dictionary<string, object?>>> GetCachedReportSqlRowsAsync(
+        string cacheName,
+        string cacheKey,
+        string queryCodePrefix,
+        string queryName,
+        string sqlText,
+        CancellationToken cancellationToken)
     {
         return GetOrCreateCachedAsync(
-            "report-data:invoices",
-            BuildReportCacheKey("report-data:invoices", fromDate, toDate),
+            cacheName,
+            cacheKey,
             ReportDataCacheDuration,
-            token => _sapClient.GetInvoicesByDateRangeAsync(fromDate, toDate, token),
+            token => ExecuteReportSqlAsync(queryCodePrefix, queryName, sqlText, token),
             cancellationToken);
     }
 
-    private Task<List<Invoice>> GetCachedInvoicesByWarehouseAndDateRangeAsync(string warehouseCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+    private Task<List<Dictionary<string, object?>>> GetCachedSalesSummaryRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
     {
-        return GetOrCreateCachedAsync(
-            "report-data:warehouse-invoices",
-            BuildReportCacheKey("report-data:warehouse-invoices", warehouseCode, fromDate, toDate),
-            ReportDataCacheDuration,
-            token => _sapClient.GetInvoicesByWarehouseAndDateRangeAsync(warehouseCode, fromDate, toDate, token),
+        var fromStr = ToSapSqlDate(fromDate);
+        var toStr = ToSapSqlDate(toDate);
+        var currencyColumn = @"T0.""DocCur""";
+        var usdPredicate = BuildUsdCurrencyPredicate(currencyColumn);
+        var zigPredicate = BuildZigCurrencyPredicate(currencyColumn);
+
+        var sqlText = $@"SELECT
+            COUNT(T0.""DocEntry"") AS ""InvoiceCount"",
+            SUM(CASE WHEN {usdPredicate} THEN 1 ELSE 0 END) AS ""InvoiceCountUSD"",
+            SUM(CASE WHEN {zigPredicate} THEN 1 ELSE 0 END) AS ""InvoiceCountZIG"",
+            SUM(CASE WHEN {usdPredicate} THEN T0.""DocTotal"" ELSE 0 END) AS ""TotalSalesUSD"",
+            SUM(CASE WHEN {zigPredicate} THEN T0.""DocTotal"" ELSE 0 END) AS ""TotalSalesZIG"",
+            SUM(CASE WHEN {usdPredicate} THEN T0.""VatSum"" ELSE 0 END) AS ""TotalVatUSD"",
+            SUM(CASE WHEN {zigPredicate} THEN T0.""VatSum"" ELSE 0 END) AS ""TotalVatZIG"",
+            COUNT(DISTINCT T0.""CardCode"") AS ""UniqueCustomers""
+        FROM OINV T0
+        WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'";
+
+        return GetCachedReportSqlRowsAsync(
+            "report-data:sales-summary",
+            BuildReportCacheKey("report-data:sales-summary", fromDate, toDate),
+            "RPT_SALES_SUM",
+            "Report Sales Summary",
+            sqlText,
             cancellationToken);
     }
 
-    private Task<List<Item>> GetCachedAllItemsAsync(CancellationToken cancellationToken)
+    private Task<List<Dictionary<string, object?>>> GetCachedDailySalesRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
     {
-        return GetOrCreateCachedAsync(
-            "report-data:items:all",
-            "report-data:items:all",
-            ReportDataCacheDuration,
-            token => _sapClient.GetAllItemsAsync(token),
+        var fromStr = ToSapSqlDate(fromDate);
+        var toStr = ToSapSqlDate(toDate);
+        var currencyColumn = @"T0.""DocCur""";
+        var usdPredicate = BuildUsdCurrencyPredicate(currencyColumn);
+        var zigPredicate = BuildZigCurrencyPredicate(currencyColumn);
+
+        var sqlText = $@"SELECT
+            T0.""DocDate"",
+            COUNT(T0.""DocEntry"") AS ""InvoiceCount"",
+            SUM(CASE WHEN {usdPredicate} THEN T0.""DocTotal"" ELSE 0 END) AS ""TotalSalesUSD"",
+            SUM(CASE WHEN {zigPredicate} THEN T0.""DocTotal"" ELSE 0 END) AS ""TotalSalesZIG""
+        FROM OINV T0
+        WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
+        GROUP BY T0.""DocDate""
+        ORDER BY T0.""DocDate""";
+
+        return GetCachedReportSqlRowsAsync(
+            "report-data:sales-daily",
+            BuildReportCacheKey("report-data:sales-daily", fromDate, toDate),
+            "RPT_SALES_DAY",
+            "Report Daily Sales",
+            sqlText,
+            cancellationToken);
+    }
+
+    private Task<List<Dictionary<string, object?>>> GetCachedTopProductsRowsAsync(
+        DateTime fromDate,
+        DateTime toDate,
+        int topCount,
+        string? warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        var fromStr = ToSapSqlDate(fromDate);
+        var toStr = ToSapSqlDate(toDate);
+        var clampedTopCount = Math.Clamp(topCount, 1, 1000);
+        var warehouseFilter = string.IsNullOrWhiteSpace(warehouseCode)
+            ? string.Empty
+            : $@" AND T1.""WhsCode"" = '{SanitizeSqlValue(warehouseCode)}'";
+        var currencyColumn = @"T0.""DocCur""";
+        var usdPredicate = BuildUsdCurrencyPredicate(currencyColumn);
+        var zigPredicate = BuildZigCurrencyPredicate(currencyColumn);
+
+        var sqlText = $@"SELECT TOP {clampedTopCount}
+            T1.""ItemCode"",
+            T2.""ItemName"",
+            SUM(T1.""Quantity"") AS ""TotalQuantitySold"",
+            SUM(CASE WHEN {usdPredicate} THEN T1.""LineTotal"" ELSE 0 END) AS ""TotalRevenueUSD"",
+            SUM(CASE WHEN {zigPredicate} THEN T1.""LineTotal"" ELSE 0 END) AS ""TotalRevenueZIG"",
+            COUNT(T1.""LineNum"") AS ""TimesOrdered""
+        FROM OINV T0
+        INNER JOIN INV1 T1 ON T0.""DocEntry"" = T1.""DocEntry""
+        LEFT JOIN OITM T2 ON T1.""ItemCode"" = T2.""ItemCode""
+        WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'{warehouseFilter}
+        GROUP BY T1.""ItemCode"", T2.""ItemName""
+        ORDER BY SUM(T1.""Quantity"") DESC";
+
+        return GetCachedReportSqlRowsAsync(
+            "report-data:top-products",
+            BuildReportCacheKey("report-data:top-products", fromDate, toDate, clampedTopCount, warehouseCode),
+            "RPT_TOP_PROD",
+            "Report Top Products",
+            sqlText,
+            cancellationToken);
+    }
+
+    private Task<List<Dictionary<string, object?>>> GetCachedStockedItemRowsAsync(CancellationToken cancellationToken)
+    {
+        var sqlText = @"SELECT
+            T0.""ItemCode"",
+            T0.""ItemName"",
+            SUM(T1.""OnHand"") AS ""CurrentStock""
+        FROM OITM T0
+        INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
+        WHERE T1.""OnHand"" > 0
+        GROUP BY T0.""ItemCode"", T0.""ItemName""
+        ORDER BY T0.""ItemCode""";
+
+        return GetCachedReportSqlRowsAsync(
+            "report-data:stocked-items",
+            "report-data:stocked-items",
+            "RPT_STK_ITEMS",
+            "Report Stocked Items",
+            sqlText,
+            cancellationToken);
+    }
+
+    private Task<List<Dictionary<string, object?>>> GetCachedItemLastSaleRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+    {
+        var fromStr = ToSapSqlDate(fromDate);
+        var toStr = ToSapSqlDate(toDate);
+
+        var sqlText = $@"SELECT
+            T1.""ItemCode"",
+            MAX(T0.""DocDate"") AS ""LastSoldDate""
+        FROM OINV T0
+        INNER JOIN INV1 T1 ON T0.""DocEntry"" = T1.""DocEntry""
+        WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
+        GROUP BY T1.""ItemCode""";
+
+        return GetCachedReportSqlRowsAsync(
+            "report-data:item-last-sales",
+            BuildReportCacheKey("report-data:item-last-sales", fromDate, toDate),
+            "RPT_LASTSALE",
+            "Report Item Last Sales",
+            sqlText,
+            cancellationToken);
+    }
+
+    private Task<List<Dictionary<string, object?>>> GetCachedCustomerInvoiceRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+    {
+        var fromStr = ToSapSqlDate(fromDate);
+        var toStr = ToSapSqlDate(toDate);
+        var currencyColumn = @"T0.""DocCur""";
+        var usdPredicate = BuildUsdCurrencyPredicate(currencyColumn);
+        var zigPredicate = BuildZigCurrencyPredicate(currencyColumn);
+
+        var sqlText = $@"SELECT
+            T0.""CardCode"",
+            T0.""CardName"",
+            COUNT(T0.""DocEntry"") AS ""InvoiceCount"",
+            SUM(CASE WHEN {usdPredicate} THEN T0.""DocTotal"" ELSE 0 END) AS ""TotalPurchasesUSD"",
+            SUM(CASE WHEN {zigPredicate} THEN T0.""DocTotal"" ELSE 0 END) AS ""TotalPurchasesZIG""
+        FROM OINV T0
+        WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
+        GROUP BY T0.""CardCode"", T0.""CardName""";
+
+        return GetCachedReportSqlRowsAsync(
+            "report-data:customer-invoices",
+            BuildReportCacheKey("report-data:customer-invoices", fromDate, toDate),
+            "RPT_CUST_INV",
+            "Report Customer Invoices",
+            sqlText,
+            cancellationToken);
+    }
+
+    private Task<List<Dictionary<string, object?>>> GetCachedReceivablesAgingRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+    {
+        var fromStr = ToSapSqlDate(fromDate);
+        var toStr = ToSapSqlDate(toDate);
+        var currentBoundary = ToSapSqlDate(DateTime.UtcNow.Date.AddDays(-30));
+        var days31Boundary = ToSapSqlDate(DateTime.UtcNow.Date.AddDays(-60));
+        var days61Boundary = ToSapSqlDate(DateTime.UtcNow.Date.AddDays(-90));
+        var bucketSql = $@"CASE
+            WHEN T0.""DocDate"" >= '{currentBoundary}' THEN 'Current'
+            WHEN T0.""DocDate"" >= '{days31Boundary}' THEN '31-60'
+            WHEN T0.""DocDate"" >= '{days61Boundary}' THEN '61-90'
+            ELSE '90+'
+        END";
+
+        var sqlText = $@"SELECT
+            T0.""CardCode"",
+            T0.""CardName"",
+            {bucketSql} AS ""AgingBucket"",
+            T0.""DocCur"",
+            COUNT(T0.""DocEntry"") AS ""InvoiceCount"",
+            SUM(T0.""DocTotal"" - T0.""PaidToDate"") AS ""OutstandingAmount""
+        FROM OINV T0
+        WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
+            AND (T0.""DocTotal"" - T0.""PaidToDate"") > 0.01
+        GROUP BY T0.""CardCode"", T0.""CardName"", {bucketSql}, T0.""DocCur""
+        ORDER BY T0.""CardName""";
+
+        return GetCachedReportSqlRowsAsync(
+            "report-data:receivables-aging",
+            BuildReportCacheKey("report-data:receivables-aging", fromDate, toDate, currentBoundary),
+            "RPT_AR_AGING",
+            "Report Receivables Aging",
+            sqlText,
             cancellationToken);
     }
 
@@ -285,83 +528,59 @@ public class ReportService : IReportService
     /// </summary>
     public async Task<SalesSummaryReportDto> GetSalesSummaryAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Generating sales summary from SAP: {FromDate} to {ToDate}", fromDate, toDate);
-
-        var invoices = await GetCachedInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
-
-        // Single-pass aggregation: avoids iterating 10K+ invoices multiple times
-        decimal totalUSD = 0, totalZIG = 0, vatUSD = 0, vatZIG = 0;
-        int countUSD = 0, countZIG = 0;
-        var dailyBuckets = new Dictionary<DateTime, (int Count, decimal SalesUSD, decimal SalesZIG)>();
-        var uniqueCustomers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var invoice in invoices)
-        {
-            var isUsd = IsUsdCurrency(invoice.DocCurrency);
-            var isZig = IsZigCurrency(invoice.DocCurrency);
-
-            if (isUsd)
+        var cacheKey = BuildReportCacheKey("report-result:sales-summary", fromDate, toDate);
+        return await GetOrCreateCachedAsync(
+            "report-result:sales-summary",
+            cacheKey,
+            ReportResultCacheDuration,
+            async token =>
             {
-                totalUSD += invoice.DocTotal;
-                vatUSD += invoice.VatSum;
-                countUSD++;
-            }
-            else if (isZig)
-            {
-                totalZIG += invoice.DocTotal;
-                vatZIG += invoice.VatSum;
-                countZIG++;
-            }
+                _logger.LogInformation("Generating sales summary from SAP aggregates: {FromDate} to {ToDate}", fromDate, toDate);
 
-            var date = ParseSapDate(invoice.DocDate).Date;
-            if (date != DateTime.MinValue.Date)
-            {
-                if (!dailyBuckets.TryGetValue(date, out var bucket))
-                    bucket = default;
+                var summaryRows = await GetCachedSalesSummaryRowsAsync(fromDate, toDate, token);
+                var dailyRows = await GetCachedDailySalesRowsAsync(fromDate, toDate, token);
+                var summary = summaryRows.FirstOrDefault() ?? new Dictionary<string, object?>();
 
-                dailyBuckets[date] = (
-                    bucket.Count + 1,
-                    bucket.SalesUSD + (isUsd ? invoice.DocTotal : 0),
-                    bucket.SalesZIG + (isZig ? invoice.DocTotal : 0)
-                );
-            }
+                var totalUSD = GetRowDecimal(summary, "TotalSalesUSD");
+                var totalZIG = GetRowDecimal(summary, "TotalSalesZIG");
+                var vatUSD = GetRowDecimal(summary, "TotalVatUSD");
+                var vatZIG = GetRowDecimal(summary, "TotalVatZIG");
+                var countUSD = GetRowInt(summary, "InvoiceCountUSD");
+                var countZIG = GetRowInt(summary, "InvoiceCountZIG");
 
-            if (!string.IsNullOrEmpty(invoice.CardCode))
-                uniqueCustomers.Add(invoice.CardCode);
-        }
+                var dailySales = dailyRows
+                    .Select(row => new DailySalesDto
+                    {
+                        Date = GetRowDate(row, "DocDate").Date,
+                        InvoiceCount = GetRowInt(row, "InvoiceCount"),
+                        TotalSalesUSD = GetRowDecimal(row, "TotalSalesUSD"),
+                        TotalSalesZIG = GetRowDecimal(row, "TotalSalesZIG")
+                    })
+                    .Where(d => d.Date != DateTime.MinValue.Date)
+                    .OrderBy(d => d.Date)
+                    .ToList();
 
-        var dailySales = dailyBuckets
-            .Select(kvp => new DailySalesDto
-            {
-                Date = kvp.Key,
-                InvoiceCount = kvp.Value.Count,
-                TotalSalesUSD = kvp.Value.SalesUSD,
-                TotalSalesZIG = kvp.Value.SalesZIG
-            })
-            .OrderBy(d => d.Date)
-            .ToList();
-
-        var salesByCurrency = new List<SalesByCurrencyDto>
-        {
-            new() { Currency = "USD", InvoiceCount = countUSD, TotalSales = totalUSD, TotalVat = vatUSD },
-            new() { Currency = "ZIG", InvoiceCount = countZIG, TotalSales = totalZIG, TotalVat = vatZIG }
-        };
-
-        return new SalesSummaryReportDto
-        {
-            FromDate = fromDate,
-            ToDate = toDate,
-            TotalInvoices = invoices.Count,
-            TotalSalesUSD = totalUSD,
-            TotalSalesZIG = totalZIG,
-            TotalVatUSD = vatUSD,
-            TotalVatZIG = vatZIG,
-            AverageInvoiceValueUSD = countUSD > 0 ? totalUSD / countUSD : 0,
-            AverageInvoiceValueZIG = countZIG > 0 ? totalZIG / countZIG : 0,
-            UniqueCustomers = uniqueCustomers.Count,
-            DailySales = dailySales,
-            SalesByCurrency = salesByCurrency
-        };
+                return new SalesSummaryReportDto
+                {
+                    FromDate = fromDate,
+                    ToDate = toDate,
+                    TotalInvoices = GetRowInt(summary, "InvoiceCount"),
+                    TotalSalesUSD = totalUSD,
+                    TotalSalesZIG = totalZIG,
+                    TotalVatUSD = vatUSD,
+                    TotalVatZIG = vatZIG,
+                    AverageInvoiceValueUSD = countUSD > 0 ? totalUSD / countUSD : 0,
+                    AverageInvoiceValueZIG = countZIG > 0 ? totalZIG / countZIG : 0,
+                    UniqueCustomers = GetRowInt(summary, "UniqueCustomers"),
+                    DailySales = dailySales,
+                    SalesByCurrency = new List<SalesByCurrencyDto>
+                    {
+                        new() { Currency = "USD", InvoiceCount = countUSD, TotalSales = totalUSD, TotalVat = vatUSD },
+                        new() { Currency = "ZIG", InvoiceCount = countZIG, TotalSales = totalZIG, TotalVat = vatZIG }
+                    }
+                };
+            },
+            cancellationToken);
     }
 
     /// <summary>
@@ -369,48 +588,19 @@ public class ReportService : IReportService
     /// </summary>
     public async Task<TopProductsReportDto> GetTopProductsAsync(DateTime fromDate, DateTime toDate, int topCount = 10, string? warehouseCode = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Generating top products from SAP: {FromDate} to {ToDate}, top {Count}", fromDate, toDate, topCount);
+        _logger.LogInformation("Generating top products from SAP aggregates: {FromDate} to {ToDate}, top {Count}", fromDate, toDate, topCount);
 
-        List<Invoice> invoices;
-        if (!string.IsNullOrEmpty(warehouseCode))
-        {
-            invoices = await GetCachedInvoicesByWarehouseAndDateRangeAsync(warehouseCode, fromDate, toDate, cancellationToken);
-        }
-        else
-        {
-            invoices = await GetCachedInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
-        }
-
-        // Flatten all invoice lines and filter in single enumeration
-        var topProducts = invoices
-            .Where(inv => inv.DocumentLines != null)
-            .SelectMany(inv => inv.DocumentLines!.Select(line => new
-            {
-                Line = line,
-                Currency = inv.DocCurrency
-            }))
-            .Where(l => string.IsNullOrEmpty(warehouseCode) || l.Line.WarehouseCode == warehouseCode)
-            .GroupBy(l => new { l.Line.ItemCode, l.Line.ItemDescription })
-            .Select(g => new
-            {
-                ItemCode = g.Key.ItemCode ?? "Unknown",
-                ItemName = g.Key.ItemDescription ?? g.Key.ItemCode ?? "Unknown",
-                TotalQuantity = g.Sum(l => l.Line.Quantity),
-                TotalRevenueUSD = g.Where(l => l.Currency == "USD" || l.Currency == "$" || string.IsNullOrEmpty(l.Currency)).Sum(l => l.Line.LineTotal),
-                TotalRevenueZIG = g.Where(l => l.Currency == "ZIG" || l.Currency == "ZiG").Sum(l => l.Line.LineTotal),
-                TimesOrdered = g.Count()
-            })
-            .OrderByDescending(p => p.TotalQuantity)
-            .Take(topCount)
+        var rows = await GetCachedTopProductsRowsAsync(fromDate, toDate, topCount, warehouseCode, cancellationToken);
+        var topProducts = rows
             .Select((p, index) => new TopProductDto
             {
                 Rank = index + 1,
-                ItemCode = p.ItemCode,
-                ItemName = p.ItemName,
-                TotalQuantitySold = p.TotalQuantity,
-                TotalRevenueUSD = p.TotalRevenueUSD,
-                TotalRevenueZIG = p.TotalRevenueZIG,
-                TimesOrdered = p.TimesOrdered
+                ItemCode = GetRowStringOrDefault(p, "ItemCode"),
+                ItemName = GetRowStringOrDefault(p, "ItemName", GetRowStringOrDefault(p, "ItemCode")),
+                TotalQuantitySold = GetRowDecimal(p, "TotalQuantitySold"),
+                TotalRevenueUSD = GetRowDecimal(p, "TotalRevenueUSD"),
+                TotalRevenueZIG = GetRowDecimal(p, "TotalRevenueZIG"),
+                TimesOrdered = GetRowInt(p, "TimesOrdered")
             })
             .ToList();
 
@@ -428,40 +618,34 @@ public class ReportService : IReportService
     /// </summary>
     public async Task<SlowMovingProductsReportDto> GetSlowMovingProductsAsync(DateTime fromDate, DateTime toDate, int daysThreshold = 30, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Generating slow moving products from SAP, threshold {Days} days", daysThreshold);
+        _logger.LogInformation("Generating slow moving products from SAP aggregates, threshold {Days} days", daysThreshold);
 
-        // Get all items with stock from SAP
-        var items = await GetCachedAllItemsAsync(cancellationToken);
-        var activeItems = items.Where(i => i.QuantityOnStock > 0).ToList();
-
-        // Get invoices for the period to find last sale dates
-        var invoices = await GetCachedInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
-
-        var lastSaleLookup = invoices
-            .Where(inv => inv.DocumentLines is not null)
-            .SelectMany(inv => inv.DocumentLines!.Select(line => new
+        var stockedItems = await GetCachedStockedItemRowsAsync(cancellationToken);
+        var lastSaleRows = await GetCachedItemLastSaleRowsAsync(fromDate, toDate, cancellationToken);
+        var lastSaleLookup = lastSaleRows
+            .Select(row => new
             {
-                line.ItemCode,
-                DocDate = ParseSapDate(inv.DocDate)
-            }))
-            .GroupBy(l => l.ItemCode)
+                ItemCode = GetRowString(row, "ItemCode"),
+                LastSoldDate = GetRowDate(row, "LastSoldDate")
+            })
+            .Where(row => !string.IsNullOrWhiteSpace(row.ItemCode))
+            .GroupBy(row => row.ItemCode, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
-                g => g.Key ?? "",
-                g => g.Max(l => l.DocDate)
-            );
+                g => g.Key,
+                g => g.Max(row => row.LastSoldDate),
+                StringComparer.OrdinalIgnoreCase);
 
         var today = DateTime.UtcNow;
-        var slowMoving = activeItems
-            .Where(item => item.QuantityOnStock > 0)
+        var slowMoving = stockedItems
             .Select(item => new SlowMovingProductDto
             {
-                ItemCode = item.ItemCode ?? "Unknown",
-                ItemName = item.ItemName ?? item.ItemCode ?? "Unknown",
-                CurrentStock = item.QuantityOnStock,
-                LastSoldDate = lastSaleLookup.TryGetValue(item.ItemCode ?? "", out var lastSale) ? lastSale : null,
-                DaysSinceLastSale = lastSaleLookup.TryGetValue(item.ItemCode ?? "", out var ls) && ls != DateTime.MinValue
+                ItemCode = GetRowStringOrDefault(item, "ItemCode"),
+                ItemName = GetRowStringOrDefault(item, "ItemName", GetRowStringOrDefault(item, "ItemCode")),
+                CurrentStock = GetRowDecimal(item, "CurrentStock"),
+                LastSoldDate = lastSaleLookup.TryGetValue(GetRowString(item, "ItemCode"), out var lastSale) && lastSale != DateTime.MinValue ? lastSale : null,
+                DaysSinceLastSale = lastSaleLookup.TryGetValue(GetRowString(item, "ItemCode"), out var ls) && ls != DateTime.MinValue
                     ? (int)(today - ls).TotalDays : 999,
-                StockValue = 0 // Would need price list lookup
+                StockValue = 0
             })
             .Where(p => p.DaysSinceLastSale >= daysThreshold)
             .OrderByDescending(p => p.DaysSinceLastSale)
@@ -802,20 +986,19 @@ public class ReportService : IReportService
     /// </summary>
     public async Task<TopCustomersReportDto> GetTopCustomersAsync(DateTime fromDate, DateTime toDate, int topCount = 10, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Generating top customers from SAP: {FromDate} to {ToDate}, top {Count}", fromDate, toDate, topCount);
+        _logger.LogInformation("Generating top customers from SAP aggregates: {FromDate} to {ToDate}, top {Count}", fromDate, toDate, topCount);
 
-        var invoices = await GetCachedInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
+        var customerInvoiceRows = await GetCachedCustomerInvoiceRowsAsync(fromDate, toDate, cancellationToken);
         var payments = await GetCachedIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
 
-        var customerInvoices = invoices
-            .GroupBy(i => new { i.CardCode, i.CardName })
-            .Select(g => new
+        var customerInvoices = customerInvoiceRows
+            .Select(row => new
             {
-                CardCode = g.Key.CardCode ?? "Unknown",
-                CardName = g.Key.CardName ?? g.Key.CardCode ?? "Unknown",
-                InvoiceCount = g.Count(),
-                TotalPurchasesUSD = g.Where(i => i.DocCurrency == "USD" || i.DocCurrency == "$" || string.IsNullOrEmpty(i.DocCurrency)).Sum(i => i.DocTotal),
-                TotalPurchasesZIG = g.Where(i => i.DocCurrency == "ZIG" || i.DocCurrency == "ZiG").Sum(i => i.DocTotal)
+                CardCode = GetRowStringOrDefault(row, "CardCode"),
+                CardName = GetRowStringOrDefault(row, "CardName", GetRowStringOrDefault(row, "CardCode")),
+                InvoiceCount = GetRowInt(row, "InvoiceCount"),
+                TotalPurchasesUSD = GetRowDecimal(row, "TotalPurchasesUSD"),
+                TotalPurchasesZIG = GetRowDecimal(row, "TotalPurchasesZIG")
             })
             .ToList();
 
@@ -1096,8 +1279,8 @@ public class ReportService : IReportService
         decimal creditToSalesRatio = 0;
         try
         {
-            var invoices = await GetCachedInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
-            var totalSalesUSD = invoices.Where(i => i.DocCurrency == "USD" || i.DocCurrency == "$" || string.IsNullOrEmpty(i.DocCurrency)).Sum(i => i.DocTotal);
+            var salesSummary = await GetSalesSummaryAsync(fromDate, toDate, cancellationToken);
+            var totalSalesUSD = salesSummary.TotalSalesUSD;
             if (totalSalesUSD > 0)
                 creditToSalesRatio = Math.Round(usdCNs.Sum(cn => cn.DocTotal) / totalSalesUSD * 100, 2);
         }
@@ -1218,90 +1401,98 @@ public class ReportService : IReportService
     /// </summary>
     public async Task<ReceivablesAgingReportDto> GetReceivablesAgingAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Generating receivables aging report from SAP");
+        _logger.LogInformation("Generating receivables aging report from SAP aggregates");
 
-        // Get all open invoices (last 365 days to catch aged items)
         var fromDate = DateTime.UtcNow.AddDays(-365);
         var toDate = DateTime.UtcNow;
-        var invoices = await GetCachedInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
+        var rows = await GetCachedReceivablesAgingRowsAsync(fromDate, toDate, cancellationToken);
+        var totalUSD = 0m;
+        var totalZIG = 0m;
+        var current = new AgingBucketDto { Label = "0-30 Days" };
+        var days31 = new AgingBucketDto { Label = "31-60 Days" };
+        var days61 = new AgingBucketDto { Label = "61-90 Days" };
+        var over90 = new AgingBucketDto { Label = "90+ Days" };
+        var customerAging = new Dictionary<string, CustomerAgingDto>(StringComparer.OrdinalIgnoreCase);
 
-        // Filter to only unpaid/partially paid invoices
-        var openInvoices = invoices.Where(i => i.DocTotal - i.PaidToDate > 0.01m).ToList();
-
-        var today = DateTime.UtcNow.Date;
-
-        var agingItems = openInvoices.Select(inv =>
+        foreach (var row in rows)
         {
-            var docDate = ParseSapDate(inv.DocDate);
-            var outstanding = inv.DocTotal - inv.PaidToDate;
-            var daysOutstanding = docDate != DateTime.MinValue ? (int)(today - docDate.Date).TotalDays : 999;
-            var isUSD = inv.DocCurrency == "USD" || inv.DocCurrency == "$" || string.IsNullOrEmpty(inv.DocCurrency);
-            var isZIG = inv.DocCurrency == "ZIG" || inv.DocCurrency == "ZiG";
+            var currency = GetRowString(row, "DocCur");
+            var isUSD = IsUsdCurrency(currency);
+            var isZIG = IsZigCurrency(currency);
+            var amount = GetRowDecimal(row, "OutstandingAmount");
+            var count = GetRowInt(row, "InvoiceCount");
+            var bucket = GetRowString(row, "AgingBucket");
+            var cardCode = GetRowStringOrDefault(row, "CardCode");
+            var cardName = GetRowStringOrDefault(row, "CardName", cardCode);
 
-            return new
+            var bucketDto = bucket switch
             {
-                inv.CardCode,
-                inv.CardName,
-                Outstanding = outstanding,
-                OutstandingUSD = isUSD ? outstanding : 0,
-                OutstandingZIG = isZIG ? outstanding : 0,
-                DaysOutstanding = daysOutstanding,
-                Bucket = daysOutstanding <= 30 ? "Current" : daysOutstanding <= 60 ? "31-60" : daysOutstanding <= 90 ? "61-90" : "90+"
+                "31-60" => days31,
+                "61-90" => days61,
+                "90+" => over90,
+                _ => current
             };
-        }).ToList();
 
-        var totalUSD = agingItems.Sum(a => a.OutstandingUSD);
-        var totalZIG = agingItems.Sum(a => a.OutstandingZIG);
-        var totalAll = totalUSD + totalZIG;
-
-        var currentItems = agingItems.Where(a => a.Bucket == "Current").ToList();
-        var days31Items = agingItems.Where(a => a.Bucket == "31-60").ToList();
-        var days61Items = agingItems.Where(a => a.Bucket == "61-90").ToList();
-        var over90Items = agingItems.Where(a => a.Bucket == "90+").ToList();
-
-        AgingBucketDto MakeBucket(string label, List<dynamic> items, decimal usdTotal, decimal zigTotal)
-        {
-            var usd = items.Sum(a => (decimal)a.OutstandingUSD);
-            var zig = items.Sum(a => (decimal)a.OutstandingZIG);
-            return new AgingBucketDto
+            bucketDto.InvoiceCount += count;
+            if (isUSD)
             {
-                Label = label,
-                InvoiceCount = items.Count,
-                AmountUSD = usd,
-                AmountZIG = zig,
-                PercentOfTotal = totalAll > 0 ? Math.Round((usd + zig) / totalAll * 100, 1) : 0
-            };
+                bucketDto.AmountUSD += amount;
+                totalUSD += amount;
+            }
+            else if (isZIG)
+            {
+                bucketDto.AmountZIG += amount;
+                totalZIG += amount;
+            }
+
+            if (!customerAging.TryGetValue(cardCode, out var customer))
+            {
+                customer = new CustomerAgingDto
+                {
+                    CardCode = cardCode,
+                    CardName = cardName
+                };
+                customerAging[cardCode] = customer;
+            }
+
+            if (isUSD)
+            {
+                if (bucket == "31-60") customer.Days31To60USD += amount;
+                else if (bucket == "61-90") customer.Days61To90USD += amount;
+                else if (bucket == "90+") customer.Over90DaysUSD += amount;
+                else customer.CurrentUSD += amount;
+
+                customer.TotalOutstandingUSD += amount;
+            }
+            else if (isZIG)
+            {
+                customer.TotalOutstandingZIG += amount;
+            }
+
+            customer.TotalInvoices += count;
         }
 
-        // Customer aging
-        var customerAging = agingItems
-            .GroupBy(a => new { a.CardCode, a.CardName })
-            .Select(g => new CustomerAgingDto
-            {
-                CardCode = (string)(g.Key.CardCode ?? "Unknown"),
-                CardName = (string)(g.Key.CardName ?? g.Key.CardCode ?? "Unknown"),
-                CurrentUSD = g.Where(a => a.Bucket == "Current").Sum(a => a.OutstandingUSD),
-                Days31To60USD = g.Where(a => a.Bucket == "31-60").Sum(a => a.OutstandingUSD),
-                Days61To90USD = g.Where(a => a.Bucket == "61-90").Sum(a => a.OutstandingUSD),
-                Over90DaysUSD = g.Where(a => a.Bucket == "90+").Sum(a => a.OutstandingUSD),
-                TotalOutstandingUSD = g.Sum(a => a.OutstandingUSD),
-                TotalOutstandingZIG = g.Sum(a => a.OutstandingZIG),
-                TotalInvoices = g.Count()
-            })
+        var totalAll = totalUSD + totalZIG;
+        foreach (var bucket in new[] { current, days31, days61, over90 })
+        {
+            bucket.PercentOfTotal = totalAll > 0 ? Math.Round((bucket.AmountUSD + bucket.AmountZIG) / totalAll * 100, 1) : 0;
+        }
+
+        var customerAgingList = customerAging.Values
             .OrderByDescending(c => c.TotalOutstandingUSD + c.TotalOutstandingZIG)
             .ToList();
 
         return new ReceivablesAgingReportDto
         {
             ReportDate = DateTime.UtcNow,
-            TotalCustomers = customerAging.Count,
+            TotalCustomers = customerAgingList.Count,
             TotalOutstandingUSD = totalUSD,
             TotalOutstandingZIG = totalZIG,
-            Current = MakeBucket("0-30 Days", currentItems.Cast<dynamic>().ToList(), totalUSD, totalZIG),
-            Days31To60 = MakeBucket("31-60 Days", days31Items.Cast<dynamic>().ToList(), totalUSD, totalZIG),
-            Days61To90 = MakeBucket("61-90 Days", days61Items.Cast<dynamic>().ToList(), totalUSD, totalZIG),
-            Over90Days = MakeBucket("90+ Days", over90Items.Cast<dynamic>().ToList(), totalUSD, totalZIG),
-            CustomerAging = customerAging
+            Current = current,
+            Days31To60 = days31,
+            Days61To90 = days61,
+            Over90Days = over90,
+            CustomerAging = customerAgingList
         };
     }
 
@@ -1312,7 +1503,7 @@ public class ReportService : IReportService
     {
         _logger.LogInformation("Generating profit overview from SAP: {FromDate} to {ToDate}", fromDate, toDate);
 
-        var invoices = await GetCachedInvoicesByDateRangeAsync(fromDate, toDate, cancellationToken);
+        var salesSummary = await GetSalesSummaryAsync(fromDate, toDate, cancellationToken);
 
         var payments = await GetCachedIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
 
@@ -1332,10 +1523,10 @@ public class ReportService : IReportService
         }
 
         // Revenue
-        var revenueUSD = invoices.Where(i => i.DocCurrency == "USD" || i.DocCurrency == "$" || string.IsNullOrEmpty(i.DocCurrency)).Sum(i => i.DocTotal);
-        var revenueZIG = invoices.Where(i => i.DocCurrency == "ZIG" || i.DocCurrency == "ZiG").Sum(i => i.DocTotal);
-        var vatUSD = invoices.Where(i => i.DocCurrency == "USD" || i.DocCurrency == "$" || string.IsNullOrEmpty(i.DocCurrency)).Sum(i => i.VatSum);
-        var vatZIG = invoices.Where(i => i.DocCurrency == "ZIG" || i.DocCurrency == "ZiG").Sum(i => i.VatSum);
+        var revenueUSD = salesSummary.TotalSalesUSD;
+        var revenueZIG = salesSummary.TotalSalesZIG;
+        var vatUSD = salesSummary.TotalVatUSD;
+        var vatZIG = salesSummary.TotalVatZIG;
 
         // Credit notes
         var cnUSD = creditNotes.Where(cn => cn.DocCurrency == "USD" || cn.DocCurrency == "$" || string.IsNullOrEmpty(cn.DocCurrency)).Sum(cn => cn.DocTotal);
@@ -1366,13 +1557,13 @@ public class ReportService : IReportService
 
         var monthlyBreakdown = months.Select(m =>
         {
-            var mInvoices = invoices.Where(i => { var d = ParseSapDate(i.DocDate); return d.Year == m.Year && d.Month == m.Month; }).ToList();
             var mPayments = payments.Where(p => { var d = ParseSapDate(p.DocDate); return d.Year == m.Year && d.Month == m.Month; }).ToList();
             var mCreditNotes = creditNotes.Where(cn => { var d = ParseSapDate(cn.DocDate); return d.Year == m.Year && d.Month == m.Month; }).ToList();
             var mPurchases = purchaseOrders.Where(po => { var d = ParseSapDate(po.DocDate); return d.Year == m.Year && d.Month == m.Month; }).ToList();
 
-            var mRevenueUSD = mInvoices.Where(i => i.DocCurrency == "USD" || i.DocCurrency == "$" || string.IsNullOrEmpty(i.DocCurrency)).Sum(i => i.DocTotal);
-            var mRevenueZIG = mInvoices.Where(i => i.DocCurrency == "ZIG" || i.DocCurrency == "ZiG").Sum(i => i.DocTotal);
+            var mSales = salesSummary.DailySales.Where(d => d.Date.Year == m.Year && d.Date.Month == m.Month).ToList();
+            var mRevenueUSD = mSales.Sum(d => d.TotalSalesUSD);
+            var mRevenueZIG = mSales.Sum(d => d.TotalSalesZIG);
             var mCnUSD = mCreditNotes.Where(cn => cn.DocCurrency == "USD" || cn.DocCurrency == "$" || string.IsNullOrEmpty(cn.DocCurrency)).Sum(cn => cn.DocTotal);
             var mCollectedUSD = mPayments.Where(p => p.DocCurrency == "USD" || p.DocCurrency == "$" || string.IsNullOrEmpty(p.DocCurrency)).Sum(p => GetPaymentTotal(p));
             var mPurchaseCostUSD = mPurchases.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => po.DocTotal ?? 0);
@@ -1386,7 +1577,7 @@ public class ReportService : IReportService
                 CollectedUSD = mCollectedUSD,
                 PurchaseCostUSD = mPurchaseCostUSD,
                 GrossProfitUSD = mRevenueUSD - mCnUSD - mPurchaseCostUSD,
-                InvoiceCount = mInvoices.Count,
+                InvoiceCount = mSales.Sum(d => d.InvoiceCount),
                 PaymentCount = mPayments.Count
             };
         }).ToList();
@@ -1413,10 +1604,10 @@ public class ReportService : IReportService
             GrossProfitUSD = grossProfitUSD,
             GrossProfitZIG = grossProfitZIG,
             GrossMarginPercent = grossMargin,
-            TotalInvoices = invoices.Count,
+            TotalInvoices = salesSummary.TotalInvoices,
             TotalCreditNoteCount = creditNotes.Count,
             TotalPayments = payments.Count,
-            UniqueCustomers = invoices.Select(i => i.CardCode).Distinct().Count(),
+            UniqueCustomers = salesSummary.UniqueCustomers,
             MonthlyBreakdown = monthlyBreakdown
         };
     }

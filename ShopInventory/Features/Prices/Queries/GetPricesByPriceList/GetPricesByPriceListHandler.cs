@@ -109,6 +109,7 @@ public sealed class GetPricesByPriceListHandler(
         var syncTime = DateTime.UtcNow;
 
         var existingPrices = await context.ItemPrices
+            .AsTracking()
             .Where(p => p.PriceList == priceListNum && p.SyncedFromSAP)
             .ToDictionaryAsync(p => p.ItemCode, cancellationToken);
 
