@@ -137,6 +137,7 @@ public interface ISAPServiceLayerClient
 
     // Stock Quantity Operations
     Task<List<StockQuantityDto>> GetStockQuantitiesInWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
+    Task<List<StockQuantityDto>> GetStockQuantitiesForItemsInWarehouseAsync(string warehouseCode, IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
     Task<List<StockQuantityDto>> GetPagedStockQuantitiesInWarehouseAsync(string warehouseCode, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<Dictionary<string, PackagingMaterialStockDto>> GetPackagingMaterialStockAsync(IEnumerable<string> itemCodes, string warehouseCode, CancellationToken cancellationToken = default);
 

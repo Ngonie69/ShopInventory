@@ -559,11 +559,19 @@ public class StockValidationService : IStockValidationService
         // Cache batch numbers per warehouse to avoid N+1 SAP calls
         var warehouseBatchCache = new Dictionary<string, List<BatchNumber>?>(StringComparer.OrdinalIgnoreCase);
 
-        // Pre-fetch warehouse stock and batch data for all unique source warehouses in parallel
-        var uniqueWarehouses = request.Lines
-            .Select(l => l.FromWarehouseCode ?? request.FromWarehouse ?? "01")
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var warehouseItemCodes = request.Lines
+            .Where(l => !string.IsNullOrWhiteSpace(l.ItemCode))
+            .GroupBy(l => l.FromWarehouseCode ?? request.FromWarehouse ?? "01", StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(l => l.ItemCode!)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+                StringComparer.OrdinalIgnoreCase);
+
+        // Pre-fetch stock and batch data for all unique source warehouses in parallel.
+        // Stock validation only needs the requested item codes; loading a full warehouse can time out on large SAP datasets.
+        var uniqueWarehouses = warehouseItemCodes.Keys.ToList();
 
         var hasBatchLines = request.Lines.Any(l => l.BatchNumbers != null && l.BatchNumbers.Count > 0);
 
@@ -573,7 +581,10 @@ public class StockValidationService : IStockValidationService
             List<StockQuantityDto>? stock = null;
             try
             {
-                stock = await _sapClient.GetStockQuantitiesInWarehouseAsync(wh, cancellationToken);
+                stock = await _sapClient.GetStockQuantitiesForItemsInWarehouseAsync(
+                    wh,
+                    warehouseItemCodes[wh],
+                    cancellationToken);
             }
             catch (Exception ex)
             {
@@ -805,7 +816,10 @@ public class StockValidationService : IStockValidationService
         // Fall back to SAP query
         try
         {
-            var stockQuantities = await _sapClient.GetStockQuantitiesInWarehouseAsync(warehouseCode, cancellationToken);
+            var stockQuantities = await _sapClient.GetStockQuantitiesForItemsInWarehouseAsync(
+                warehouseCode,
+                [itemCode],
+                cancellationToken);
             var stock = stockQuantities?.FirstOrDefault(s =>
                 string.Equals(s.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
 

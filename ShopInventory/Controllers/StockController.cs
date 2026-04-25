@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.OutputCaching;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Stock.Queries.GetWarehouses;
 using ShopInventory.Features.Stock.Queries.GetWarehouseCodes;
+using ShopInventory.Features.Stock.Queries.GetStockForItemsInWarehouse;
 using ShopInventory.Features.Stock.Queries.GetStockInWarehouse;
 using ShopInventory.Features.Stock.Queries.GetStockInWarehousePaged;
 using ShopInventory.Features.Stock.Queries.GetSalesInWarehouse;
@@ -52,6 +53,21 @@ public class StockController(IMediator mediator) : ApiControllerBase
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(new GetStockInWarehousePagedQuery(warehouseCode, page, pageSize), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpGet("warehouse/{warehouseCode}/items")]
+    public async Task<IActionResult> GetStockForItemsInWarehouse(
+        string warehouseCode,
+        [FromQuery] string itemCodes,
+        CancellationToken cancellationToken = default)
+    {
+        var codes = itemCodes
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var result = await mediator.Send(new GetStockForItemsInWarehouseQuery(warehouseCode, codes), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

@@ -3614,6 +3614,68 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         return await ExecuteStockQueryAsync(queryCode, warehouseCode, cancellationToken);
     }
 
+    public async Task<List<StockQuantityDto>> GetStockQuantitiesForItemsInWarehouseAsync(
+        string warehouseCode,
+        IEnumerable<string> itemCodes,
+        CancellationToken cancellationToken = default)
+    {
+        var codes = itemCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (codes.Count == 0)
+        {
+            return [];
+        }
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var stocks = new List<StockQuantityDto>();
+        foreach (var batch in codes.Chunk(100))
+        {
+            var queryCode = $"STK_ITEMS_{Guid.NewGuid().ToString("N")[..12]}";
+            var safeWarehouse = SanitizeSqlValue(warehouseCode);
+            var safeItemCodes = string.Join(", ", batch.Select(code => $"'{SanitizeSqlValue(code)}'"));
+
+            var customFieldsSql = _settings.UseCustomFields
+                ? @",
+            T0.""U_PackagingCode"" as ""PackagingCode"",
+            T0.""U_PackagingCodeLabels"" as ""PackagingCodeLabels"",
+            T0.""U_PackagingCodeLids"" as ""PackagingCodeLids"""
+                : "";
+
+            var sqlText = $@"SELECT 
+            T0.""ItemCode"", 
+            T0.""ItemName"", 
+            T0.""CodeBars"" as ""BarCode"",
+            T1.""WhsCode"" as ""WarehouseCode"",
+            T1.""OnHand"" as ""InStock"",
+            T1.""IsCommited"" as ""Committed"",
+            T1.""OnOrder"" as ""Ordered"",
+            T0.""InvntryUom"" as ""UoM""{customFieldsSql}
+        FROM OITM T0 
+        INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
+        WHERE T1.""WhsCode"" = '{safeWarehouse}'
+          AND T0.""ItemCode"" IN ({safeItemCodes})
+        ORDER BY T0.""ItemCode""";
+
+            try
+            {
+                await CreateSqlQueryAsync(queryCode, $"Stock validation items in {warehouseCode}", sqlText, cancellationToken);
+                stocks.AddRange(await ExecuteStockQueryAsync(queryCode, warehouseCode, cancellationToken));
+            }
+            finally
+            {
+                await TryDeleteQueryAsync(queryCode, cancellationToken);
+            }
+        }
+
+        _logger.LogInformation("Retrieved stock quantities for {ItemCount} requested items in warehouse {Warehouse}, matched {MatchedCount}",
+            codes.Count, warehouseCode, stocks.Count);
+        return stocks;
+    }
+
     public async Task<List<StockQuantityDto>> GetPagedStockQuantitiesInWarehouseAsync(
         string warehouseCode,
         int page,

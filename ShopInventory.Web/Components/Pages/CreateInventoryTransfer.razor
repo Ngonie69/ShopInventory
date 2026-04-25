@@ -1436,6 +1436,11 @@
         if (!string.IsNullOrEmpty(assignedWarehouse) && (role == "StockController" || role == "DepotController"))
         {
             selectedFromWarehouse = cachedWarehouses.FirstOrDefault(w => w.WarehouseCode == assignedWarehouse);
+            if (!string.IsNullOrEmpty(selectedFromWarehouse?.WarehouseCode))
+            {
+                ResetProductStockQuantities();
+                _ = LoadAndMergeStockAsync(selectedFromWarehouse.WarehouseCode);
+            }
         }
     }
 
@@ -1495,17 +1500,13 @@
             {
                 var stockLookup = stockResponse.Products
                 .Where(p => !string.IsNullOrEmpty(p.ItemCode))
-                .ToDictionary(p => p.ItemCode!, p => p.QuantityInStock, StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(p => p.ItemCode!, StringComparer.OrdinalIgnoreCase);
 
                 foreach (var product in cachedProducts)
                 {
-                    if (!string.IsNullOrEmpty(product.ItemCode) && stockLookup.TryGetValue(product.ItemCode, out var inStock))
+                    if (!string.IsNullOrEmpty(product.ItemCode) && stockLookup.TryGetValue(product.ItemCode, out var stockProduct))
                     {
-                        product.QuantityInStock = inStock;
-                    }
-                    else
-                    {
-                        product.QuantityInStock = 0;
+                        ApplyStock(product, stockProduct);
                     }
                 }
 
@@ -1536,6 +1537,8 @@
             line.Quantity = 0;
         }
 
+        ResetProductStockQuantities();
+
         // Merge stock quantities for the selected warehouse (non-blocking)
         if (!string.IsNullOrEmpty(warehouse?.WarehouseCode))
         {
@@ -1560,22 +1563,85 @@
 
     private async Task<IEnumerable<ProductDto>> SearchProductsAsync(string searchText, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(searchText))
-            return cachedProducts.Take(20);
+        var products = string.IsNullOrWhiteSpace(searchText)
+            ? cachedProducts.Take(20).ToList()
+            : cachedProducts
+                .Where(p =>
+                    (p.ItemCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (p.ItemName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
+                .Take(20)
+                .ToList();
 
-        return cachedProducts
-        .Where(p =>
-        (p.ItemCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-        (p.ItemName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
-        .Take(20);
+        await ApplyCurrentWarehouseStockAsync(products, ct);
+        return products;
     }
 
     // ── Line item management ────────────────────────────
-    private void OnProductSelected(TransferLineItem line, ProductDto? product)
+    private async Task OnProductSelected(TransferLineItem line, ProductDto? product)
     {
         line.SelectedProduct = product;
         line.ItemCode = product?.ItemCode;
+        if (product != null)
+        {
+            await ApplyCurrentWarehouseStockAsync([product], CancellationToken.None);
+        }
         StateHasChanged();
+    }
+
+    private async Task ApplyCurrentWarehouseStockAsync(List<ProductDto> products, CancellationToken cancellationToken)
+    {
+        var warehouseCode = selectedFromWarehouse?.WarehouseCode;
+        if (string.IsNullOrWhiteSpace(warehouseCode) || products.Count == 0)
+            return;
+
+        var itemCodes = products
+            .Select(p => p.ItemCode)
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (itemCodes.Count == 0)
+            return;
+
+        try
+        {
+            var stockByItem = await StockCacheService.GetStockForItemsAsync(warehouseCode, itemCodes, cancellationToken);
+            foreach (var product in products)
+            {
+                if (!string.IsNullOrEmpty(product.ItemCode) && stockByItem.TryGetValue(product.ItemCode, out var stockProduct))
+                {
+                    ApplyStock(product, stockProduct);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to resolve live stock for selected warehouse {Warehouse}", warehouseCode);
+        }
+    }
+
+    private static void ApplyStock(ProductDto product, ProductDto stockProduct)
+    {
+        product.QuantityInStock = stockProduct.QuantityInStock;
+        product.QuantityAvailable = stockProduct.QuantityAvailable;
+        product.QuantityCommitted = stockProduct.QuantityCommitted;
+        product.QuantityOnStock = stockProduct.QuantityOnStock;
+        product.UoM = stockProduct.UoM ?? product.UoM;
+    }
+
+    private void ResetProductStockQuantities()
+    {
+        foreach (var product in cachedProducts)
+        {
+            product.QuantityInStock = 0;
+            product.QuantityAvailable = 0;
+            product.QuantityCommitted = 0;
+            product.QuantityOnStock = 0;
+        }
     }
 
     private void OnQuantityChanged(TransferLineItem line, ChangeEventArgs e)

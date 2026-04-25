@@ -17,5 +17,8 @@ public static partial class Errors
 
         public static Error SapConnectionError(string message) =>
             Error.Failure("Stock.SapConnectionError", $"Network error connecting to SAP: {message}");
+
+        public static Error InvalidRequest(string message) =>
+            Error.Validation("Stock.InvalidRequest", message);
     }
 }

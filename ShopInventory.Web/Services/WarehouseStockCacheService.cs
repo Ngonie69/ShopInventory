@@ -22,6 +22,14 @@ public interface IWarehouseStockCacheService
     Task<WarehouseProductsResponse?> GetAllCachedStockAsync(string warehouseCode);
 
     /// <summary>
+    /// Gets stock for specific items in a warehouse, using cached rows when fresh and SAP fallback when needed.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, ProductDto>> GetStockForItemsAsync(
+        string warehouseCode,
+        IEnumerable<string> itemCodes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Forces a full sync of stock data for a warehouse
     /// </summary>
     Task<bool> SyncWarehouseStockAsync(string warehouseCode);
@@ -290,6 +298,58 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
         return await SyncWarehouseStockInBackgroundAsync(warehouseCode);
     }
 
+    public async Task<IReadOnlyDictionary<string, ProductDto>> GetStockForItemsAsync(
+        string warehouseCode,
+        IEnumerable<string> itemCodes,
+        CancellationToken cancellationToken = default)
+    {
+        var requestedCodes = itemCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(100)
+            .ToList();
+
+        if (string.IsNullOrWhiteSpace(warehouseCode) || requestedCodes.Count == 0)
+            return new Dictionary<string, ProductDto>(StringComparer.OrdinalIgnoreCase);
+
+        var results = new Dictionary<string, ProductDto>(StringComparer.OrdinalIgnoreCase);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var cacheKey = $"WarehouseStock_{warehouseCode}";
+        var syncInfo = await dbContext.CacheSyncInfo.FindAsync([cacheKey], cancellationToken);
+        var cacheFresh = syncInfo != null &&
+                         syncInfo.SyncSuccessful &&
+                         DateTime.UtcNow - syncInfo.LastSyncedAt <= _cacheExpiration;
+
+        var cachedItems = await dbContext.CachedWarehouseStocks
+            .AsNoTracking()
+            .Where(s => s.WarehouseCode == warehouseCode && requestedCodes.Contains(s.ItemCode))
+            .ToListAsync(cancellationToken);
+
+        foreach (var cachedItem in cachedItems)
+        {
+            if (!string.IsNullOrWhiteSpace(cachedItem.ItemCode))
+                results[cachedItem.ItemCode] = MapCachedToProduct(cachedItem);
+        }
+
+        if (cacheFresh && results.Count == requestedCodes.Count)
+            return results;
+
+        var apiItems = await FetchStockForItemsFromApiAsync(warehouseCode, requestedCodes, cancellationToken);
+        if (apiItems.Count > 0)
+        {
+            await SaveStockToCacheAsync(warehouseCode, apiItems);
+
+            foreach (var apiItem in apiItems)
+            {
+                if (!string.IsNullOrWhiteSpace(apiItem.ItemCode))
+                    results[apiItem.ItemCode] = MapStockToProduct(apiItem);
+            }
+        }
+
+        return results;
+    }
+
     public async Task<CacheSyncInfo?> GetSyncStatusAsync(string warehouseCode)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
@@ -447,6 +507,38 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
         }
     }
 
+    private async Task<List<StockItemDto>> FetchStockForItemsFromApiAsync(
+        string warehouseCode,
+        List<string> itemCodes,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var encodedWarehouse = Uri.EscapeDataString(warehouseCode);
+            var encodedCodes = string.Join(",", itemCodes.Select(Uri.EscapeDataString));
+            var response = await _httpClient.GetFromJsonAsync<StockItemsApiResponse>(
+                $"api/stock/warehouse/{encodedWarehouse}/items?itemCodes={encodedCodes}",
+                _jsonOptions,
+                cancellationToken);
+
+            return response?.Items ?? [];
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Item stock fetch timed out for warehouse {WarehouseCode}", warehouseCode);
+            return [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching item stock from API for warehouse {WarehouseCode}", warehouseCode);
+            return [];
+        }
+    }
+
     private async Task SaveStockToCacheAsync(string warehouseCode, List<StockItemDto> items)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
@@ -581,6 +673,15 @@ internal class StockPagedApiResponse
     public int PageSize { get; set; }
     public int Count { get; set; }
     public bool HasMore { get; set; }
+    public DateTime QueryDate { get; set; }
+    public List<StockItemDto>? Items { get; set; }
+}
+
+internal class StockItemsApiResponse
+{
+    public string? WarehouseCode { get; set; }
+    public int TotalItems { get; set; }
+    public int ItemsInStock { get; set; }
     public DateTime QueryDate { get; set; }
     public List<StockItemDto>? Items { get; set; }
 }
