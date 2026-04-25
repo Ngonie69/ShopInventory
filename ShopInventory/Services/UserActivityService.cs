@@ -92,12 +92,17 @@ public class UserActivityService : IUserActivityService
             .Select(a => new UserActivityItem
             {
                 Id = a.Id,
+                Username = a.Username,
+                UserRole = a.UserRole,
                 Action = a.Action,
                 EntityType = a.EntityType,
                 EntityId = a.EntityId,
                 Details = a.Details,
+                IpAddress = a.IpAddress,
+                UserAgent = a.UserAgent,
                 PageUrl = a.PageUrl,
                 IsSuccess = a.IsSuccess,
+                ErrorMessage = a.ErrorMessage,
                 Timestamp = a.Timestamp
             })
             .ToListAsync(cancellationToken);
@@ -304,12 +309,17 @@ public class UserActivityService : IUserActivityService
             .Select(a => new UserActivityItem
             {
                 Id = a.Id,
+                Username = a.Username,
+                UserRole = a.UserRole,
                 Action = a.Action,
                 EntityType = a.EntityType,
                 EntityId = a.EntityId,
                 Details = a.Details,
+                IpAddress = a.IpAddress,
+                UserAgent = a.UserAgent,
                 PageUrl = a.PageUrl,
                 IsSuccess = a.IsSuccess,
+                ErrorMessage = a.ErrorMessage,
                 Timestamp = a.Timestamp
             })
             .ToListAsync(cancellationToken);
@@ -333,12 +343,17 @@ public class UserActivityService : IUserActivityService
             .Select(a => new UserActivityItem
             {
                 Id = a.Id,
+                Username = a.Username,
+                UserRole = a.UserRole,
                 Action = a.Action,
                 EntityType = a.EntityType,
                 EntityId = a.EntityId,
                 Details = a.Details,
+                IpAddress = a.IpAddress,
+                UserAgent = a.UserAgent,
                 PageUrl = a.PageUrl,
                 IsSuccess = a.IsSuccess,
+                ErrorMessage = a.ErrorMessage,
                 Timestamp = a.Timestamp
             })
             .ToListAsync(cancellationToken);

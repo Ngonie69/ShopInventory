@@ -73,15 +73,44 @@ public class ActivityLogResult
     public int TotalPages { get; set; }
 }
 
+internal sealed class ApiPagedResult<T>
+{
+    public List<T> Items { get; set; } = new();
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalPages { get; set; }
+}
+
+internal sealed class ApiAuditLogItem
+{
+    public string Username { get; set; } = string.Empty;
+    public string? UserRole { get; set; }
+    public string Action { get; set; } = string.Empty;
+    public string? EntityType { get; set; }
+    public string? EntityId { get; set; }
+    public string? Details { get; set; }
+    public string? IpAddress { get; set; }
+    public string? UserAgent { get; set; }
+    public string? PageUrl { get; set; }
+    public bool IsSuccess { get; set; }
+    public string? ErrorMessage { get; set; }
+    public DateTime Timestamp { get; set; }
+}
+
 public class AuditService : IAuditService
 {
     private readonly IDbContextFactory<WebAppDbContext> _dbContextFactory;
+    private readonly HttpClient _httpClient;
     private readonly ILogger<AuditService> _logger;
     private readonly AuthenticationStateProvider _authStateProvider;
 
-    public AuditService(IDbContextFactory<WebAppDbContext> dbContextFactory, ILogger<AuditService> logger, AuthenticationStateProvider authStateProvider)
+    private const int ApiActivityPageSize = 500;
+
+    public AuditService(IDbContextFactory<WebAppDbContext> dbContextFactory, HttpClient httpClient, ILogger<AuditService> logger, AuthenticationStateProvider authStateProvider)
     {
         _dbContextFactory = dbContextFactory;
+        _httpClient = httpClient;
         _logger = logger;
         _authStateProvider = authStateProvider;
     }
@@ -122,83 +151,48 @@ public class AuditService : IAuditService
     public async Task<List<AuditLog>> GetLogsAsync(DateTime? fromDate = null, DateTime? toDate = null,
         string? username = null, string? action = null, int page = 1, int pageSize = 50)
     {
-        await using var db = await _dbContextFactory.CreateDbContextAsync();
+        var mergedLogs = await GetMergedAuditLogsAsync(
+            fromDate.HasValue ? IAuditService.ToUTC(fromDate.Value.Date) : null,
+            toDate.HasValue ? IAuditService.ToUTC(toDate.Value.Date.AddDays(1)).AddTicks(-1) : null);
 
-        var query = db.AuditLogs.AsQueryable();
-
-        // Convert CAT dates to UTC for database query
-        if (fromDate.HasValue)
-        {
-            var fromUtc = IAuditService.ToUTC(fromDate.Value.Date);
-            query = query.Where(l => l.Timestamp >= fromUtc);
-        }
-
-        if (toDate.HasValue)
-        {
-            var toUtc = IAuditService.ToUTC(toDate.Value.Date.AddDays(1));
-            query = query.Where(l => l.Timestamp < toUtc);
-        }
-
-        if (!string.IsNullOrWhiteSpace(username))
-            query = query.Where(l => l.Username.Contains(username));
-
-        if (!string.IsNullOrWhiteSpace(action))
-            query = query.Where(l => l.Action == action);
-
-        return await query
-            .OrderByDescending(l => l.Timestamp)
+        return mergedLogs
+            .Where(l => string.IsNullOrWhiteSpace(username) || l.Username.Contains(username, StringComparison.OrdinalIgnoreCase))
+            .Where(l => string.IsNullOrWhiteSpace(action) || string.Equals(l.Action, action, StringComparison.OrdinalIgnoreCase))
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToListAsync();
+            .ToList();
     }
 
     public async Task<int> GetLogCountAsync(DateTime? fromDate = null, DateTime? toDate = null,
         string? username = null, string? action = null)
     {
-        await using var db = await _dbContextFactory.CreateDbContextAsync();
+        var mergedLogs = await GetMergedAuditLogsAsync(
+            fromDate.HasValue ? IAuditService.ToUTC(fromDate.Value.Date) : null,
+            toDate.HasValue ? IAuditService.ToUTC(toDate.Value.Date.AddDays(1)).AddTicks(-1) : null);
 
-        var query = db.AuditLogs.AsQueryable();
-
-        // Convert CAT dates to UTC for database query
-        if (fromDate.HasValue)
-        {
-            var fromUtc = IAuditService.ToUTC(fromDate.Value.Date);
-            query = query.Where(l => l.Timestamp >= fromUtc);
-        }
-
-        if (toDate.HasValue)
-        {
-            var toUtc = IAuditService.ToUTC(toDate.Value.Date.AddDays(1));
-            query = query.Where(l => l.Timestamp < toUtc);
-        }
-
-        if (!string.IsNullOrWhiteSpace(username))
-            query = query.Where(l => l.Username.Contains(username));
-
-        if (!string.IsNullOrWhiteSpace(action))
-            query = query.Where(l => l.Action == action);
-
-        return await query.CountAsync();
+        return mergedLogs.Count(l =>
+            (string.IsNullOrWhiteSpace(username) || l.Username.Contains(username, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(action) || string.Equals(l.Action, action, StringComparison.OrdinalIgnoreCase)));
     }
 
     public async Task<List<string>> GetDistinctActionsAsync()
     {
-        await using var db = await _dbContextFactory.CreateDbContextAsync();
-        return await db.AuditLogs
+        return (await GetMergedAuditLogsAsync())
             .Select(l => l.Action)
+            .Where(a => !string.IsNullOrWhiteSpace(a))
             .Distinct()
             .OrderBy(a => a)
-            .ToListAsync();
+            .ToList();
     }
 
     public async Task<List<string>> GetDistinctUsersAsync()
     {
-        await using var db = await _dbContextFactory.CreateDbContextAsync();
-        return await db.AuditLogs
+        return (await GetMergedAuditLogsAsync())
             .Select(l => l.Username)
+            .Where(u => !string.IsNullOrWhiteSpace(u))
             .Distinct()
             .OrderBy(u => u)
-            .ToListAsync();
+            .ToList();
     }
 
     public async Task CleanupOldLogsAsync(int retentionDays)
@@ -257,26 +251,22 @@ public class AuditService : IAuditService
 
     public async Task<ActivityStats> GetActivityStatsAsync(DateTime startDate, DateTime endDate)
     {
-        await using var db = await _dbContextFactory.CreateDbContextAsync();
-
-        var query = db.AuditLogs.Where(l => l.Timestamp >= startDate && l.Timestamp <= endDate);
+        var logs = await GetMergedAuditLogsAsync(startDate, endDate);
 
         return new ActivityStats
         {
-            ActiveUsers = await query.Select(l => l.Username).Distinct().CountAsync(),
-            TotalActions = await query.CountAsync(),
-            LoginCount = await query.Where(l => l.Action.Contains("Login")).CountAsync(),
-            FailedActions = await query.Where(l => !l.IsSuccess).CountAsync()
+            ActiveUsers = logs.Select(l => l.Username).Where(u => !string.IsNullOrWhiteSpace(u)).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+            TotalActions = logs.Count,
+            LoginCount = logs.Count(l => l.Action.Contains("Login", StringComparison.OrdinalIgnoreCase)),
+            FailedActions = logs.Count(l => !l.IsSuccess)
         };
     }
 
     public async Task<List<UserActivitySummary>> GetMostActiveUsersAsync(DateTime startDate, DateTime endDate, int count = 10)
     {
-        await using var db = await _dbContextFactory.CreateDbContextAsync();
-
-        return await db.AuditLogs
-            .Where(l => l.Timestamp >= startDate && l.Timestamp <= endDate)
-            .GroupBy(l => l.Username)
+        return (await GetMergedAuditLogsAsync(startDate, endDate))
+            .Where(l => !string.IsNullOrWhiteSpace(l.Username))
+            .GroupBy(l => l.Username, StringComparer.OrdinalIgnoreCase)
             .Select(g => new UserActivitySummary
             {
                 Username = g.Key,
@@ -285,15 +275,12 @@ public class AuditService : IAuditService
             })
             .OrderByDescending(x => x.ActionCount)
             .Take(count)
-            .ToListAsync();
+            .ToList();
     }
 
     public async Task<List<ActionCount>> GetActionBreakdownAsync(DateTime startDate, DateTime endDate)
     {
-        await using var db = await _dbContextFactory.CreateDbContextAsync();
-
-        return await db.AuditLogs
-            .Where(l => l.Timestamp >= startDate && l.Timestamp <= endDate)
+        return (await GetMergedAuditLogsAsync(startDate, endDate))
             .GroupBy(l => l.Action)
             .Select(g => new ActionCount
             {
@@ -301,22 +288,19 @@ public class AuditService : IAuditService
                 Count = g.Count()
             })
             .OrderByDescending(x => x.Count)
-            .ToListAsync();
+            .ToList();
     }
 
     public async Task<List<HourlyCount>> GetHourlyActivityAsync(DateTime startDate, DateTime endDate)
     {
-        await using var db = await _dbContextFactory.CreateDbContextAsync();
-
-        var hourlyData = await db.AuditLogs
-            .Where(l => l.Timestamp >= startDate && l.Timestamp <= endDate)
+        var hourlyData = (await GetMergedAuditLogsAsync(startDate, endDate))
             .GroupBy(l => l.Timestamp.Hour)
             .Select(g => new HourlyCount
             {
                 Hour = g.Key,
                 Count = g.Count()
             })
-            .ToListAsync();
+            .ToList();
 
         // Fill in missing hours with 0
         return Enumerable.Range(0, 24)
@@ -330,33 +314,18 @@ public class AuditService : IAuditService
 
     public async Task<ActivityLogResult> GetActivityLogsAsync(DateTime startDate, DateTime endDate, string? username = null, string? action = null, int page = 1, int pageSize = 50)
     {
-        await using var db = await _dbContextFactory.CreateDbContextAsync();
+        var filteredLogs = (await GetMergedAuditLogsAsync(startDate, endDate))
+            .Where(l => string.IsNullOrWhiteSpace(username) || string.Equals(l.Username, username, StringComparison.OrdinalIgnoreCase))
+            .Where(l => string.IsNullOrWhiteSpace(action) || string.Equals(l.Action, action, StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
-        var query = db.AuditLogs.Where(l => l.Timestamp >= startDate && l.Timestamp <= endDate);
+        var totalCount = filteredLogs.Count;
 
-        if (!string.IsNullOrWhiteSpace(username))
-            query = query.Where(l => l.Username == username);
-
-        if (!string.IsNullOrWhiteSpace(action))
-            query = query.Where(l => l.Action == action);
-
-        var totalCount = await query.CountAsync();
-
-        var items = await query
-            .OrderByDescending(l => l.Timestamp)
+        var items = filteredLogs
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(l => new ActivityLog
-            {
-                Username = l.Username,
-                Action = l.Action,
-                EntityType = l.EntityType,
-                EntityId = l.EntityId,
-                Details = l.Details,
-                IsSuccess = l.IsSuccess,
-                Timestamp = l.Timestamp
-            })
-            .ToListAsync();
+            .Select(MapToActivityLog)
+            .ToList();
 
         return new ActivityLogResult
         {
@@ -368,25 +337,159 @@ public class AuditService : IAuditService
 
     public async Task<List<string>> GetUniqueUsersAsync(DateTime startDate, DateTime endDate)
     {
-        await using var db = await _dbContextFactory.CreateDbContextAsync();
-
-        return await db.AuditLogs
-            .Where(l => l.Timestamp >= startDate && l.Timestamp <= endDate)
+        return (await GetMergedAuditLogsAsync(startDate, endDate))
             .Select(l => l.Username)
-            .Distinct()
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(u => u)
-            .ToListAsync();
+            .ToList();
     }
 
     public async Task<List<string>> GetUniqueActionsAsync(DateTime startDate, DateTime endDate)
     {
+        return (await GetMergedAuditLogsAsync(startDate, endDate))
+            .Select(l => l.Action)
+            .Where(a => !string.IsNullOrWhiteSpace(a))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(a => a)
+            .ToList();
+    }
+
+    private async Task<List<AuditLog>> GetMergedAuditLogsAsync(DateTime? startDate = null, DateTime? endDate = null)
+    {
+        var localTask = GetLocalAuditLogsAsync(startDate, endDate);
+        var apiTask = GetApiAuditLogsAsync(startDate, endDate);
+
+        await Task.WhenAll(localTask, apiTask);
+
+        return DeduplicateLogs(localTask.Result.Concat(apiTask.Result));
+    }
+
+    private async Task<List<AuditLog>> GetLocalAuditLogsAsync(DateTime? startDate, DateTime? endDate)
+    {
         await using var db = await _dbContextFactory.CreateDbContextAsync();
 
-        return await db.AuditLogs
-            .Where(l => l.Timestamp >= startDate && l.Timestamp <= endDate)
-            .Select(l => l.Action)
-            .Distinct()
-            .OrderBy(a => a)
+        var query = db.AuditLogs.AsNoTracking().AsQueryable();
+
+        if (startDate.HasValue)
+            query = query.Where(l => l.Timestamp >= startDate.Value);
+
+        if (endDate.HasValue)
+            query = query.Where(l => l.Timestamp <= endDate.Value);
+
+        return await query
+            .OrderByDescending(l => l.Timestamp)
             .ToListAsync();
+    }
+
+    private async Task<List<AuditLog>> GetApiAuditLogsAsync(DateTime? startDate, DateTime? endDate)
+    {
+        var logs = new List<AuditLog>();
+        var page = 1;
+
+        try
+        {
+            while (true)
+            {
+                var response = await _httpClient.GetFromJsonAsync<ApiPagedResult<ApiAuditLogItem>>(
+                    BuildApiActivityUrl(page, ApiActivityPageSize, startDate, endDate));
+
+                if (response?.Items == null || response.Items.Count == 0)
+                    break;
+
+                logs.AddRange(response.Items.Select(MapToAuditLog));
+
+                if (response.Items.Count < ApiActivityPageSize || page >= response.TotalPages)
+                    break;
+
+                page++;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load API audit logs; falling back to legacy web audit logs only");
+        }
+
+        return logs;
+    }
+
+    private static string BuildApiActivityUrl(int page, int pageSize, DateTime? startDate, DateTime? endDate)
+    {
+        var query = new List<string>
+        {
+            $"page={page}",
+            $"pageSize={pageSize}"
+        };
+
+        if (startDate.HasValue)
+            query.Add($"startDate={Uri.EscapeDataString(startDate.Value.ToString("O"))}");
+
+        if (endDate.HasValue)
+            query.Add($"endDate={Uri.EscapeDataString(endDate.Value.ToString("O"))}");
+
+        return $"api/useractivity?{string.Join("&", query)}";
+    }
+
+    private static AuditLog MapToAuditLog(ApiAuditLogItem item) => new()
+    {
+        Username = item.Username,
+        UserRole = item.UserRole ?? string.Empty,
+        Action = item.Action,
+        EntityType = item.EntityType,
+        EntityId = item.EntityId,
+        Details = item.Details,
+        IpAddress = item.IpAddress,
+        UserAgent = item.UserAgent,
+        PageUrl = item.PageUrl,
+        IsSuccess = item.IsSuccess,
+        ErrorMessage = item.ErrorMessage,
+        Timestamp = item.Timestamp
+    };
+
+    private static ActivityLog MapToActivityLog(AuditLog log) => new()
+    {
+        Username = log.Username,
+        Action = log.Action,
+        EntityType = log.EntityType,
+        EntityId = log.EntityId,
+        Details = log.Details,
+        IsSuccess = log.IsSuccess,
+        Timestamp = log.Timestamp
+    };
+
+    private static List<AuditLog> DeduplicateLogs(IEnumerable<AuditLog> logs)
+    {
+        var deduped = new List<AuditLog>();
+
+        foreach (var group in logs
+            .OrderByDescending(l => l.Timestamp)
+            .GroupBy(l => new
+            {
+                Username = l.Username.ToUpperInvariant(),
+                UserRole = (l.UserRole ?? string.Empty).ToUpperInvariant(),
+                l.Action,
+                EntityType = l.EntityType ?? string.Empty,
+                EntityId = l.EntityId ?? string.Empty,
+                Details = l.Details ?? string.Empty,
+                ErrorMessage = l.ErrorMessage ?? string.Empty,
+                PageUrl = l.PageUrl ?? string.Empty,
+                l.IsSuccess
+            }))
+        {
+            AuditLog? previous = null;
+
+            foreach (var log in group.OrderByDescending(l => l.Timestamp))
+            {
+                if (previous != null && (previous.Timestamp - log.Timestamp).Duration() <= TimeSpan.FromSeconds(5))
+                    continue;
+
+                deduped.Add(log);
+                previous = log;
+            }
+        }
+
+        return deduped
+            .OrderByDescending(l => l.Timestamp)
+            .ToList();
     }
 }

@@ -3,12 +3,15 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.Merchandiser.Queries.GetMobileOrders;
 
 public sealed class GetMobileOrdersHandler(
-    ApplicationDbContext context
+    ApplicationDbContext context,
+    IAuditService auditService
 ) : IRequestHandler<GetMobileOrdersQuery, ErrorOr<SalesOrderListResponseDto>>
 {
     public async Task<ErrorOr<SalesOrderListResponseDto>> Handle(
@@ -64,7 +67,7 @@ public sealed class GetMobileOrdersHandler(
             })
             .ToListAsync(cancellationToken);
 
-        return new SalesOrderListResponseDto
+        var response = new SalesOrderListResponseDto
         {
             Page = page,
             PageSize = pageSize,
@@ -72,5 +75,21 @@ public sealed class GetMobileOrdersHandler(
             TotalPages = (int)Math.Ceiling((double)totalCount / pageSize),
             Orders = orders
         };
+
+        try
+        {
+            var statusLabel = request.Status?.ToString() ?? "All";
+            await auditService.LogAsync(
+                AuditActions.ViewMobileOrders,
+                "SalesOrder",
+                null,
+                $"Viewed mobile orders page {page} (size {pageSize}, status {statusLabel}). Returned {orders.Count} of {totalCount} orders.",
+                true);
+        }
+        catch
+        {
+        }
+
+        return response;
     }
 }

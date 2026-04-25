@@ -8529,12 +8529,15 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         return allOrders;
     }
 
-    private static string? BuildSalesOrderFilter(string? cardCode, DateTime? fromDate, DateTime? toDate, string? documentStatus, string? cancelled)
+    private static string? BuildSalesOrderFilter(string? cardCode, DateTime? fromDate, DateTime? toDate, string? documentStatus, string? cancelled, string? search)
     {
         var filters = new List<string>();
 
         if (!string.IsNullOrWhiteSpace(cardCode))
-            filters.Add($"CardCode eq '{SanitizeODataValue(cardCode)}'");
+        {
+            var customerSearch = SanitizeODataValue(cardCode.Trim());
+            filters.Add($"(contains(CardCode,'{customerSearch}') or contains(CardName,'{customerSearch}'))");
+        }
 
         if (fromDate.HasValue)
             filters.Add($"DocDate ge '{fromDate.Value:yyyy-MM-dd}'");
@@ -8548,7 +8551,28 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         if (!string.IsNullOrWhiteSpace(cancelled))
             filters.Add($"Cancelled eq '{cancelled}'");
 
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var trimmedSearch = search.Trim();
+            var searchFilters = new List<string>();
+            if (TryParseSalesOrderSearchDocNum(trimmedSearch, out var docNum))
+                searchFilters.Add($"DocNum eq {docNum}");
+
+            var sanitizedSearch = SanitizeODataValue(trimmedSearch);
+            searchFilters.Add($"contains(NumAtCard,'{sanitizedSearch}')");
+            filters.Add($"({string.Join(" or ", searchFilters)})");
+        }
+
         return filters.Count == 0 ? null : string.Join(" and ", filters);
+    }
+
+    private static bool TryParseSalesOrderSearchDocNum(string search, out int docNum)
+    {
+        var normalized = search.Trim();
+        if (normalized.StartsWith("SAP-", StringComparison.OrdinalIgnoreCase))
+            normalized = normalized[4..];
+
+        return int.TryParse(normalized, out docNum);
     }
 
     public async Task<List<SAPSalesOrder>> GetSalesOrderHeadersAsync(
@@ -8559,12 +8583,13 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         int pageSize = 20,
         string? documentStatus = null,
         string? cancelled = null,
+        string? search = null,
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var filter = BuildSalesOrderFilter(cardCode, fromDate, toDate, documentStatus, cancelled);
+        var filter = BuildSalesOrderFilter(cardCode, fromDate, toDate, documentStatus, cancelled, search);
         var urlBuilder = new StringBuilder("Orders?");
 
         if (!string.IsNullOrWhiteSpace(filter))
@@ -8644,12 +8669,12 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         return allOrders;
     }
 
-    public async Task<int> GetSalesOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? documentStatus = null, string? cancelled = null, CancellationToken cancellationToken = default)
+    public async Task<int> GetSalesOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? documentStatus = null, string? cancelled = null, string? search = null, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var filter = BuildSalesOrderFilter(cardCode, fromDate, toDate, documentStatus, cancelled);
+        var filter = BuildSalesOrderFilter(cardCode, fromDate, toDate, documentStatus, cancelled, search);
 
         var url = "Orders/$count";
         if (!string.IsNullOrWhiteSpace(filter))

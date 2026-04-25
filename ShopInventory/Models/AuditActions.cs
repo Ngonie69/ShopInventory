@@ -31,11 +31,18 @@ public static class AuditActions
 
     // Sales Order actions
     public const string CreateSalesOrder = "CreateSalesOrder";
+    public const string CreateMobileSalesOrder = "Create Mobile Sales Order";
     public const string UpdateSalesOrder = "UpdateSalesOrder";
     public const string ApproveSalesOrder = "ApproveSalesOrder";
     public const string PostSalesOrderToSAP = "PostSalesOrderToSAP";
     public const string ConvertOrderToInvoice = "ConvertOrderToInvoice";
     public const string DeleteSalesOrder = "DeleteSalesOrder";
+
+    // Mobile merchandiser actions
+    public const string ViewMobileCategories = "View Mobile Categories";
+    public const string ViewMobileProducts = "View Mobile Products";
+    public const string ViewMobileCustomerProducts = "View Mobile Customer Products";
+    public const string ViewMobileOrders = "View Mobile Orders";
 
     // Purchase Order actions
     public const string CreatePurchaseOrder = "CreatePurchaseOrder";

@@ -468,12 +468,17 @@ public class UserActivitySummary
 public class UserActivityItem
 {
     public int Id { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string? UserRole { get; set; }
     public string Action { get; set; } = string.Empty;
     public string? EntityType { get; set; }
     public string? EntityId { get; set; }
     public string? Details { get; set; }
+    public string? IpAddress { get; set; }
+    public string? UserAgent { get; set; }
     public string? PageUrl { get; set; }
     public bool IsSuccess { get; set; }
+    public string? ErrorMessage { get; set; }
     public DateTime Timestamp { get; set; }
 }
 

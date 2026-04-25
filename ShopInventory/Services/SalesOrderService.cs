@@ -121,6 +121,7 @@ public class SalesOrderService : ISalesOrderService
                     sapToDate,
                     documentStatus,
                     cancelled,
+                    search: null,
                     cancellationToken);
 
                 if (remainingSlots > 0)
@@ -136,6 +137,7 @@ public class SalesOrderService : ISalesOrderService
                             Math.Min(remainingSlots - fetched, 500),
                             documentStatus,
                             cancelled,
+                            search: null,
                             cancellationToken);
 
                         if (batch.Count == 0) break;

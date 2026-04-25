@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Services;
 
 namespace ShopInventory.Features.Merchandiser.Queries.GetActiveProducts;
@@ -11,6 +12,7 @@ namespace ShopInventory.Features.Merchandiser.Queries.GetActiveProducts;
 public sealed class GetActiveProductsHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
+    IAuditService auditService,
     ILogger<GetActiveProductsHandler> logger
 ) : IRequestHandler<GetActiveProductsQuery, ErrorOr<MerchandiserActiveProductListResponseDto>>
 {
@@ -94,13 +96,30 @@ public sealed class GetActiveProductsHandler(
 
         var products = projected.ToList();
 
-        return new MerchandiserActiveProductListResponseDto
+        var response = new MerchandiserActiveProductListResponseDto
         {
             TotalCount = totalCount,
             Page = page,
             PageSize = pageSize,
             Products = products
         };
+
+        try
+        {
+            var searchLabel = string.IsNullOrWhiteSpace(request.Search) ? "none" : request.Search.Trim();
+            var categoryLabel = string.IsNullOrWhiteSpace(request.Category) ? "all" : request.Category.Trim();
+            await auditService.LogAsync(
+                AuditActions.ViewMobileProducts,
+                "MerchandiserProduct",
+                null,
+                $"Viewed mobile products (search: {searchLabel}, category: {categoryLabel}, page: {page}, size: {pageSize}). Returned {products.Count} of {totalCount} products.",
+                true);
+        }
+        catch
+        {
+        }
+
+        return response;
     }
 
     private async Task BackfillMissingFieldsAsync(CancellationToken cancellationToken)

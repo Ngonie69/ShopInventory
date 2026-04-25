@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Services;
 
 namespace ShopInventory.Features.Merchandiser.Queries.GetCustomerProducts;
@@ -11,6 +12,7 @@ namespace ShopInventory.Features.Merchandiser.Queries.GetCustomerProducts;
 public sealed class GetCustomerProductsHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
+    IAuditService auditService,
     ILogger<GetCustomerProductsHandler> logger
 ) : IRequestHandler<GetCustomerProductsQuery, ErrorOr<List<MerchandiserActiveProductDto>>>
 {
@@ -35,7 +37,24 @@ public sealed class GetCustomerProductsHandler(
         if (activeItemCodes.Count == 0)
             return new List<MerchandiserActiveProductDto>();
 
-        return await GetProductDetailsFromSAP(activeItemCodes, request.CardCode, request.Search, request.Category, cancellationToken);
+        var products = await GetProductDetailsFromSAP(activeItemCodes, request.CardCode, request.Search, request.Category, cancellationToken);
+
+        try
+        {
+            var searchLabel = string.IsNullOrWhiteSpace(request.Search) ? "none" : request.Search.Trim();
+            var categoryLabel = string.IsNullOrWhiteSpace(request.Category) ? "all" : request.Category.Trim();
+            await auditService.LogAsync(
+                AuditActions.ViewMobileCustomerProducts,
+                "MerchandiserProduct",
+                request.CardCode,
+                $"Viewed mobile customer products for {request.CardCode} (search: {searchLabel}, category: {categoryLabel}). Returned {products.Count} products.",
+                true);
+        }
+        catch
+        {
+        }
+
+        return products;
     }
 
     private async Task<List<MerchandiserActiveProductDto>> GetProductDetailsFromSAP(
