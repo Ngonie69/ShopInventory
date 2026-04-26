@@ -970,6 +970,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _pageSize = AppSettings.PageSize;
         pageSize = AppSettings.PageSize;
         Logger.LogInformation("Payments page: OnInitializedAsync started");
         await LoadPayments();

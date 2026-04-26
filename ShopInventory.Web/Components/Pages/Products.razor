@@ -1158,12 +1158,12 @@
                                     <MudTd DataLabel="Available" Style="text-align:right">
                                         <span
                                             class="qty-cell @(context.QuantityAvailable > 0 ? "available" : "zero")">@FormatQuantity(context.QuantityAvailable,
-                                                                        context.UoM)</span>
+                                                                                                                    context.UoM)</span>
                                         </MudTd>
                                         <MudTd DataLabel="Committed" Style="text-align:right">
                                             <span
                                                 class="qty-cell @(context.QuantityCommitted > 0 ? "committed" : "zero")">@FormatQuantity(context.QuantityCommitted,
-                                                                            context.UoM)</span>
+                                                                                                                            context.UoM)</span>
                                             </MudTd>
                                             <MudTd DataLabel="UoM"><span class="uom-badge">@context.UoM</span></MudTd>
                                             <MudTd>
@@ -1300,7 +1300,7 @@
                                                     <tr>
                                                         <td style="font-weight:700;color:#667eea;">Total</td>
                                                         <td style="text-align:right;font-weight:700;color:#667eea;">@selectedProduct.Batches.Sum(b =>
-                                                                                                                                                                                                                                                                                                                                                            b.Quantity)</td>
+                                                                                                                                                                                                                                                                                                                                                                                                                        b.Quantity)</td>
                                                             <td colspan="4"></td>
                                                         </tr>
                                                     </tfoot>
@@ -1389,6 +1389,7 @@
 
     protected override void OnInitialized()
     {
+        _pageSize = AppSettings.PageSize;
         pageSize = AppSettings.PageSize;
     }
 

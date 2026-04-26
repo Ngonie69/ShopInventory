@@ -911,7 +911,7 @@
                     <div class="stat-icon approved"><i class="bi bi-check-circle"></i></div>
                     <div class="stat-info">
                         <div class="stat-value">@orders.Count(o => o.Status == PurchaseOrderStatus.Approved || o.Status ==
-                                                                                                                                                                                                                            PurchaseOrderStatus.PartiallyReceived)</div>
+                                                                                                                                                                                                                                                        PurchaseOrderStatus.PartiallyReceived)</div>
                             <div class="stat-label">Approved</div>
                         </div>
                     </div>
@@ -1016,7 +1016,7 @@
                                 </MudTd>
                                 <MudTd DataLabel="Delivery Date">
                                     <span style="font-size:.85rem;color:#374151;">@(context.DeliveryDate?.ToString("dd MMM yyyy") ??
-                                                                                                                                                                                                                                                                                                                    "—")</span>
+                                                                                                                                                                                                                                                                                                                                                            "—")</span>
                                     </MudTd>
                                     <MudTd DataLabel="Status">
                                         <span class="status-badge @GetStatusCssClass(context.Status)">@context.StatusName</span>
@@ -1050,7 +1050,7 @@
                                                 </MudButton>
                                             }
                                             @if (context.Status == PurchaseOrderStatus.Approved || context.Status ==
-                                                                                                                                                                                                                                                                                                                                                PurchaseOrderStatus.PartiallyReceived)
+                                                                                                                                                                                                                                                                                                                                                                                            PurchaseOrderStatus.PartiallyReceived)
                                             {
                                                 @if (string.Equals(context.Source, "SAP", StringComparison.OrdinalIgnoreCase))
                                                 {
@@ -1068,7 +1068,7 @@
                                                 }
                                             }
                                             @if (context.Status == PurchaseOrderStatus.Draft || context.Status ==
-                                                                                                                                                                                                                                                                                                                                                PurchaseOrderStatus.Cancelled)
+                                                                                                                                                                                                                                                                                                                                                                                            PurchaseOrderStatus.Cancelled)
                                             {
                                                 <MudButton Class="action-btn delete" OnClick="() => DeleteOrder(context.Id)" title="Delete">
                                                     <i class="bi bi-trash3"></i>
@@ -1199,7 +1199,7 @@
                                                 @if (line.QuantityRemaining > 0)
                                                 {
                                                     <span style="color:#d97706;font-weight:600;">@QuantityDisplay.Format(line.QuantityRemaining,
-                                                                                                                                                                                                    line.UoMCode)</span>
+                                                                                                                                                                                                                                                            line.UoMCode)</span>
                                                     }
                                                 else
                                                     {
@@ -1375,6 +1375,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _pageSize = AppSettings.PageSize;
         await LoadOrders();
         await AuditService.LogAsync(AuditActions.ViewPurchaseOrders, "PurchaseOrder", null);
     }

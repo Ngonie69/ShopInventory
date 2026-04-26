@@ -756,6 +756,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _pageSize = AppSettings.PageSize;
         await LoadQuotations();
         await AuditService.LogAsync(AuditActions.ViewQuotations, "Quotation", null);
     }

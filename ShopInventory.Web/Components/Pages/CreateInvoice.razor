@@ -1065,7 +1065,7 @@
                                                                         <span style="color:#d1d5db;">—</span>
                                                                         <span
                                                                             style="color:#6b7280; font-size:.85rem;">@TruncateName(line.ItemDescription,
-                                                                                                                                                                                                    40)</span>
+                                                                                                                                                                                                                                                                                40)</span>
                                                                         }
                                         else
                                                                         {
@@ -1074,9 +1074,10 @@
                                                                     </div>
                                                                     <div class="d-flex align-items-center gap-3">
                                                                         <div class="line-total-display" style="text-align:right; line-height:1.3;">
-                                                                            <div>@CalculateLineTotalInclVat(line).ToString("N2")</div>
-                                                                            <div style="font-size:.7rem; color:#6b7280; font-weight:400;">excl. VAT:
-                                                                                @CalculateLineTotal(line).ToString("N2")</div>
+                                                                            <div>@GetDisplayLineTotal(line).ToString("N2")</div>
+                                                                            <div style="font-size:.7rem; color:#6b7280; font-weight:400;">
+                                                                                @AlternatePriceLabel:
+                                                                                @GetAlternateLineTotal(line).ToString("N2")</div>
                                                                             </div>
                                                                             <MudButton Class="line-remove" OnClick="() => RemoveLine(index)"
                                                                                        title="Remove line">
@@ -1107,7 +1108,8 @@
                                                                                                 {
                                                                                                     var isSelected = lineState.SuggestedProduct?.ItemCode ==
                                                                                                     product.ItemCode;
-                                                                                                    var displayPrice = GetPriceForItem(product.ItemCode, product.Price);
+                                                                                                    var displayPrice = GetDisplayPrice(GetPriceForItem(product.ItemCode,
+                                                    product.Price));
                                                                                                     var isCustomerPrice =
                                                                                                     customerPriceListPrices.ContainsKey(product.ItemCode ?? "");
                                                                                                     <div class="dropdown-item @(isSelected ? "selected" : "")"
@@ -1118,11 +1120,13 @@
                                                                                                                     @product.ItemCode</div>
                                                                                                                     <small
                                                                                                                         style="@(isSelected ? "color:rgba(255,255,255,.7);" : "color:#6b7280;")">@TruncateName(product.ItemName,
-                                                                                                                                                                                                                                                                                                                30)</small>
+                                                                                                                                                                                                                                                                                                                                                                                                                                        30)</small>
                                                                                                                     </div>
                                                                                                                     <span
                                                                                                                         style="font-size:.78rem; font-weight:600; padding:.15rem .45rem; border-radius:5px; @(isSelected ? "background:rgba(255,255,255,.2); color:#fff;" : (isCustomerPrice ? "background:#d1fae5; color:#065f46;" : "background:#dbeafe; color:#1e40af;"))">
                                                                                                                         @displayPrice.ToString("N2")
+                                                                                                                        <span
+                                                                                                                        style="font-size:.62rem; font-weight:500; opacity:.8; margin-left:.2rem;">@DisplayPriceLabel</span>
                                                                                                                         @if (isCustomerPrice)
                                                                                                                         {
                                                                                                                             <i class="bi bi-check-circle ms-1"></i>
@@ -2354,6 +2358,25 @@ customerPriceListPrices.Count, priceListNum);
         // Fall back to default product price
         return defaultPrice;
     }
+
+    private decimal GetDisplayPrice(decimal amount)
+    {
+        return AppSettings.ShowPricesWithTax ? amount * (1 + VatRate) : amount;
+    }
+
+    private decimal GetDisplayLineTotal(CreateInvoiceLineRequest line)
+    {
+        return AppSettings.ShowPricesWithTax ? CalculateLineTotalInclVat(line) : CalculateLineTotal(line);
+    }
+
+    private decimal GetAlternateLineTotal(CreateInvoiceLineRequest line)
+    {
+        return AppSettings.ShowPricesWithTax ? CalculateLineTotal(line) : CalculateLineTotalInclVat(line);
+    }
+
+    private string DisplayPriceLabel => AppSettings.ShowPricesWithTax ? "incl. VAT" : "excl. VAT";
+
+    private string AlternatePriceLabel => AppSettings.ShowPricesWithTax ? "excl. VAT" : "incl. VAT";
 
     private async Task OnBPSearchBlur()
     {

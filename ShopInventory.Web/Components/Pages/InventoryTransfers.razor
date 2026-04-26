@@ -1083,8 +1083,8 @@
                     <div class="filter-field" style="min-width:220px;">
                         <label>Search</label>
                         <MudTextField @bind-Value="_requestSearchString" Placeholder="Doc #, route, comment..."
-                                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
-                                      Class="mt-0" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
+                                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="mt-0"
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
                     </div>
                     <div class="filter-field" style="min-width:150px;">
                         <label>From Warehouse</label>
@@ -1108,8 +1108,8 @@
                     </div>
                     <div class="filter-field" style="min-width:150px;">
                         <label>Status</label>
-                        <MudSelect T="string" @bind-Value="_requestStatusFilter" Dense="true"
-                                   Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                        <MudSelect T="string" @bind-Value="_requestStatusFilter" Dense="true" Variant="Variant.Outlined"
+                                   Margin="Margin.Dense" Clearable="true">
                             @foreach (var status in RequestStatusOptions)
                             {
                                 <MudSelectItem T="string" Value="@status">@status</MudSelectItem>
@@ -1118,8 +1118,8 @@
                     </div>
                     <div class="filter-field" style="min-width:200px;">
                         <label>Requester</label>
-                        <MudTextField @bind-Value="_requestRequesterFilter" Placeholder="Name or email..."
-                                      Class="mt-0" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
+                        <MudTextField @bind-Value="_requestRequesterFilter" Placeholder="Name or email..." Class="mt-0"
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
                     </div>
                     <div class="filter-field" style="min-width:150px;">
                         <label>From Date</label>
@@ -1200,7 +1200,8 @@
                                 <div class="empty-icon"><i class="bi bi-funnel"></i></div>
                                 <h6>No Matching Requests</h6>
                                 <p>No transfer requests match the current filters.</p>
-                                <MudButton Class="btn-clear" OnClick="ClearRequestFilters" Disabled="@(!HasActiveRequestFilters)">
+                                <MudButton Class="btn-clear" OnClick="ClearRequestFilters"
+                                           Disabled="@(!HasActiveRequestFilters)">
                                     Clear Filters
                                 </MudButton>
                             </div>
@@ -1322,7 +1323,7 @@
                                     <td><span class="wh-badge from" style="font-size:0.72rem;">@line.FromWarehouseCode</span></td>
                                     <td><span class="wh-badge to" style="font-size:0.72rem;">@line.ToWarehouseCode</span></td>
                                     <td style="text-align:right;font-weight:700;">@QuantityDisplay.Format(line.Quantity,
-                                                                                                            line.UoMCode)</td>
+                                                                                                                                                    line.UoMCode)</td>
                                         <td style="color:#6b7280;">@line.UoMCode</td>
                                     </tr>
                                 }
@@ -1441,7 +1442,7 @@
                                             <td><span class="wh-badge from" style="font-size:0.72rem;">@line.FromWarehouseCode</span></td>
                                             <td><span class="wh-badge to" style="font-size:0.72rem;">@line.ToWarehouseCode</span></td>
                                             <td style="text-align:right;font-weight:700;">@QuantityDisplay.Format(line.Quantity,
-                                                                                                                            line.UoMCode)</td>
+                                                                                                                                                                            line.UoMCode)</td>
                                                 <td style="color:#6b7280;">@line.UoMCode</td>
                                             </tr>
                                         }
@@ -1618,6 +1619,7 @@
     // ── Lifecycle ───────────────────────────────────────
     protected override void OnInitialized()
     {
+        _pageSize = AppSettings.PageSize;
         pageSize = AppSettings.PageSize;
     }
 

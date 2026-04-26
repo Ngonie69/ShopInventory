@@ -1199,7 +1199,7 @@
                                                            Size="Size.Small" />
                                         }
                                         @if (context.Status == CreditNoteStatus.Draft || context.Status ==
-                                                                                                                                                                                                                                    CreditNoteStatus.Cancelled)
+                                                                                                                                                                                                                                                                            CreditNoteStatus.Cancelled)
                                         {
                                             <MudIconButton Icon="@Icons.Material.Filled.Delete"
                                                            OnClick="() => DeleteCreditNote(context.Id)" title="Delete" Class="action-btn delete"
@@ -1508,7 +1508,7 @@
                                                                     @if (!string.IsNullOrEmpty(line.ItemDescription))
                                                                     {
                                                                         <span style="font-size:.82rem;color:#374151;">@TruncateText(line.ItemDescription,
-                                                                                                                                                                                                                                                                                                                                                        25)</span>
+                                                                                                                                                                                                                                                                                                                                                                                                                                    25)</span>
                                                                         }
                                                             else
                                                                         {
@@ -1653,6 +1653,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _pageSize = AppSettings.PageSize;
         // Default date range to current month so SAP queries are always date-filtered
         fromDate = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
         toDate = DateTime.Today;

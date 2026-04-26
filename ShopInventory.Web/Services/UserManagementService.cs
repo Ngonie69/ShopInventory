@@ -1,5 +1,6 @@
 using ShopInventory.Web.Models;
 using System.Net.Http.Json;
+using System.Text.Json;
 
 namespace ShopInventory.Web.Services;
 
@@ -17,6 +18,7 @@ public interface IUserManagementService
     Task<UserModel?> GetUserAsync(Guid id);
     Task CreateUserAsync(string username, string email, string password, string role);
     Task CreateUserAsync(UserFormModel model);
+    Task CreateMerchandiserAccountAsync(CreateMerchandiserAccountFormModel model, CancellationToken cancellationToken = default);
     Task UpdateUserAsync(Guid id, string email, string role);
     Task UpdateUserAsync(Guid id, UserFormModel model);
     Task DeleteUserAsync(Guid id);
@@ -224,6 +226,29 @@ public class UserManagementService : IUserManagementService
         }
     }
 
+    public async Task CreateMerchandiserAccountAsync(CreateMerchandiserAccountFormModel model, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync("api/usermanagement", new
+        {
+            Username = model.Username,
+            Email = model.Email,
+            Password = model.Password,
+            FirstName = model.FirstName,
+            LastName = model.LastName,
+            Role = "Merchandiser",
+            AssignedWarehouseCodes = model.AssignedWarehouseCodes,
+            AssignedCustomerCodes = model.AssignedCustomerCodes
+        }, cancellationToken);
+
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new HttpRequestException(ExtractApiErrorMessage(errorBody), null, response.StatusCode);
+    }
+
     public async Task UpdateUserAsync(Guid id, UserFormModel model)
     {
         var response = await _httpClient.PutAsJsonAsync($"api/usermanagement/{id}", new
@@ -307,6 +332,61 @@ public class UserManagementService : IUserManagementService
             _logger.LogError(ex, "Error fetching security stats");
             return new SecurityStats();
         }
+    }
+
+    private static string ExtractApiErrorMessage(string errorBody)
+    {
+        if (string.IsNullOrWhiteSpace(errorBody))
+        {
+            return "Request failed.";
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(errorBody);
+            var root = document.RootElement;
+
+            if (root.TryGetProperty("errors", out var errorsElement) && errorsElement.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var property in errorsElement.EnumerateObject())
+                {
+                    if (property.Value.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var error in property.Value.EnumerateArray())
+                        {
+                            var message = error.GetString();
+                            if (!string.IsNullOrWhiteSpace(message))
+                            {
+                                return message;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (root.TryGetProperty("title", out var titleElement))
+            {
+                var title = titleElement.GetString();
+                if (!string.IsNullOrWhiteSpace(title))
+                {
+                    return title;
+                }
+            }
+
+            if (root.TryGetProperty("message", out var messageElement))
+            {
+                var message = messageElement.GetString();
+                if (!string.IsNullOrWhiteSpace(message))
+                {
+                    return message;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return errorBody;
     }
 }
 

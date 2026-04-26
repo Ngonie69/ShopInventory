@@ -1724,6 +1724,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _pageSize = AppSettings.PageSize;
         // Default date range to current month so SAP queries are always date-filtered
         fromDate = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
         toDate = DateTime.Today;

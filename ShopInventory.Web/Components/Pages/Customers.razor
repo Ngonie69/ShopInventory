@@ -1004,7 +1004,7 @@
                                 <MudTd DataLabel="Currency">
                                     <span
                                         style="font-size:.82rem;padding:.15rem .45rem;border-radius:4px;background:#f3f4f6;color:#374151;font-weight:600;">@(context.Currency
-                                                                                                                                                                                                                                    ?? "USD")</span>
+                                                                                                                                                                                                                                                                            ?? "USD")</span>
                                     </MudTd>
                                     <MudTd DataLabel="Balance" Style="text-align:right">
                                         <span class="@(context.Balance > 0 ? "balance-positive" : "balance-zero")">
@@ -1260,6 +1260,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _pageSize = AppSettings.PageSize;
         await LoadCustomers();
         lastSyncTime = await BusinessPartnerService.GetLastSyncTimeAsync();
         await AuditService.LogAsync(AuditActions.ViewCustomers, "Customer", null);

@@ -1569,6 +1569,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _pageSize = AppSettings.PageSize;
         pageSize = AppSettings.PageSize;
         await LoadInvoices();
         await AuditService.LogAsync(AuditActions.ViewInvoices, "Invoice", null);

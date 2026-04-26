@@ -324,6 +324,7 @@ public static class Permissions
             "SalesRep" => new List<string>
             {
                 ViewDashboard,
+                CreateUsers,
                 ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders, PostSalesOrdersToSAP,
                 ViewTimesheets, ManageTimesheets
             },
