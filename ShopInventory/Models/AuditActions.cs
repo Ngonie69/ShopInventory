@@ -9,6 +9,10 @@ public static class AuditActions
     public const string Login = "Login";
     public const string Logout = "Logout";
     public const string LoginFailed = "LoginFailed";
+    public const string MobileBiometricLogin = "MobileBiometricLogin";
+    public const string MobileBiometricLoginFailed = "MobileBiometricLoginFailed";
+    public const string EnableMobileBiometricLogin = "EnableMobileBiometricLogin";
+    public const string DisableMobileBiometricLogin = "DisableMobileBiometricLogin";
     public const string PasskeyLogin = "PasskeyLogin";
     public const string PasskeyLoginFailed = "PasskeyLoginFailed";
     public const string RegisterPasskey = "RegisterPasskey";

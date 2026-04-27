@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Auth.Commands.BeginPasskeyLogin;
 using ShopInventory.Features.Auth.Commands.BeginPasskeyRegistration;
+using ShopInventory.Features.Auth.Commands.CompleteMobileBiometricLogin;
 using ShopInventory.Features.Auth.Commands.CompletePasskeyLogin;
 using ShopInventory.Features.Auth.Commands.CompletePasskeyRegistration;
 using ShopInventory.Features.Auth.Commands.CompleteTwoFactorLogin;
@@ -13,6 +14,7 @@ using ShopInventory.Features.Auth.Commands.Login;
 using ShopInventory.Features.Auth.Commands.Logout;
 using ShopInventory.Features.Auth.Commands.RefreshToken;
 using ShopInventory.Features.Auth.Commands.Register;
+using ShopInventory.Features.Auth.Commands.RecordMobileBiometricPreference;
 using ShopInventory.Features.Auth.Queries.GetCurrentUser;
 using ShopInventory.Features.Auth.Queries.GetPasskeys;
 
@@ -127,6 +129,43 @@ public class AuthController(IMediator mediator) : ApiControllerBase
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var result = await mediator.Send(new RefreshTokenCommand(request.RefreshToken, ipAddress), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpPost("mobile/biometric-login")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth")]
+    public async Task<IActionResult> CompleteMobileBiometricLogin(
+        [FromBody] MobileBiometricLoginRequest request,
+        CancellationToken cancellationToken)
+    {
+        var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var result = await mediator.Send(
+            new CompleteMobileBiometricLoginCommand(
+                request.RefreshToken,
+                ipAddress,
+                request.DeviceId,
+                request.DeviceName,
+                request.BiometricCapability),
+            cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpPost("mobile/biometric-preference")]
+    [Authorize]
+    public async Task<IActionResult> RecordMobileBiometricPreference(
+        [FromBody] MobileBiometricPreferenceRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(
+            new RecordMobileBiometricPreferenceCommand(
+                request.Enabled,
+                request.DeviceId,
+                request.DeviceName,
+                request.BiometricCapability),
+            cancellationToken);
+
+        return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
     [HttpPost("logout")]
