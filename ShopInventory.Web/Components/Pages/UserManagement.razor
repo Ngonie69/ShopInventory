@@ -76,7 +76,7 @@
                 <option value="locked">Locked</option>
             </select>
             @if (!string.IsNullOrEmpty(searchTerm) || !string.IsNullOrEmpty(roleFilter) ||
-                                                                                                                                !string.IsNullOrEmpty(statusFilter))
+                                                                                                                                                        !string.IsNullOrEmpty(statusFilter))
             {
                 <button class="um-btn um-btn-ghost" @onclick="ResetFilters">
                     <i class="bi bi-x-lg"></i> Clear
@@ -127,15 +127,9 @@
                             </div>
                             <div class="um-user-login">
                                 <span class="um-login-label">Last login</span>
-                                <span class="um-login-time">
-                                    @if (user.LastLoginAt.HasValue)
-                                    {
-                                        @GetRelativeTime(user.LastLoginAt.Value)
-                                    }
-                                    else
-                                    {
-                                        <text>Never</text>
-                                    }
+                                <span class="um-login-time @(user.LastLoginAt.HasValue ? string.Empty : "um-login-never")"
+                                      title="@GetLastLoginTitle(user.LastLoginAt)">
+                                    @GetLastLoginDisplay(user.LastLoginAt)
                                 </span>
                             </div>
                         </div>
@@ -203,7 +197,7 @@
             {
                 <div class="um-pagination">
                     <span class="um-page-info">Showing @((currentPage - 1) * pageSize + 1)–@Math.Min(currentPage * pageSize,
-                                                                                                                                                                                                                                                            users.Count + (currentPage - 1) * pageSize) of page @currentPage</span>
+                                                                                                                                                                                                                                                                                                            users.Count + (currentPage - 1) * pageSize) of page @currentPage</span>
                         <div class="um-page-buttons">
                             <button class="um-page-btn" disabled="@(currentPage <= 1)" @onclick="() => GoToPage(currentPage - 1)">
                                 <i class="bi bi-chevron-left"></i>
@@ -501,7 +495,7 @@
                                                                @onchange="(e) => ToggleCustomer(code, (bool)(e.Value ?? false))"
                                                                style="accent-color:#16a34a;" />
                                                         <span class="um-customer-code">@bp.CardCode</span>
-                                                        <span class="um-customer-name">– @bp.CardName</span>
+                                                        <span class="um-customer-name">– @GetBusinessPartnerDisplayName(bp)</span>
                                                     </label>
                                                 }
                                                 @if (!FilteredCustomers.Any())
@@ -516,8 +510,9 @@
                                                 <div style="margin-top:.4rem; display:flex; flex-wrap:wrap; gap:.3rem;">
                                                     @foreach (var custCode in userModel.AssignedCustomerCodes)
                                                     {
-                                                        var custName = availableCustomers.FirstOrDefault(c => c.CardCode == custCode)?.CardName ??
-                            custCode;
+                                                        var customer = availableCustomers.FirstOrDefault(c => string.Equals(c.CardCode, custCode,
+                            StringComparison.OrdinalIgnoreCase));
+                                                        var custName = customer is null ? custCode : GetBusinessPartnerDisplayName(customer);
                                                         <span class="um-customer-tag">
                                                             @custCode – @custName
                                                             <button type="button" class="um-customer-tag-remove"
@@ -865,9 +860,9 @@
                     <style>
                         /* ── Base ─────────────────────────────── */
                         .um-page {
-                            max-width: 1200px;
+                            max-width: 1280px;
                             margin: 0 auto;
-                            padding: 1.5rem;
+                            padding: 1.25rem 1.5rem 2rem;
                         }
 
                         /* ── Header ──────────────────────────── */
@@ -980,9 +975,10 @@
                             display: flex;
                             gap: .25rem;
                             background: #f3f4f6;
-                            border-radius: 12px;
+                            border: 1px solid #e5e7eb;
+                            border-radius: 8px;
                             padding: .3rem;
-                            margin-bottom: 1.5rem;
+                            margin-bottom: 1rem;
                         }
 
                         .um-tab {
@@ -992,7 +988,7 @@
                             justify-content: center;
                             gap: .5rem;
                             padding: .65rem 1rem;
-                            border-radius: 10px;
+                            border-radius: 6px;
                             border: none;
                             background: transparent;
                             color: #6b7280;
@@ -1032,7 +1028,7 @@
                         .um-filter-bar {
                             display: flex;
                             gap: .75rem;
-                            margin-bottom: 1.25rem;
+                            margin-bottom: 1rem;
                             flex-wrap: wrap;
                             align-items: center;
                         }
@@ -1045,7 +1041,7 @@
                             gap: .6rem;
                             background: white;
                             border: 1.5px solid #e5e7eb;
-                            border-radius: 10px;
+                            border-radius: 8px;
                             padding: .55rem .9rem;
                             transition: border-color .2s;
                         }
@@ -1072,7 +1068,7 @@
                         .um-select {
                             padding: .55rem .9rem;
                             border: 1.5px solid #e5e7eb;
-                            border-radius: 10px;
+                            border-radius: 8px;
                             font-size: .85rem;
                             color: #374151;
                             background: white;
@@ -1096,17 +1092,18 @@
                         .um-user-list {
                             display: flex;
                             flex-direction: column;
-                            gap: .5rem;
+                            gap: .45rem;
                         }
 
                         .um-user-card {
                             display: flex;
                             align-items: center;
                             justify-content: space-between;
+                            gap: .85rem;
                             background: white;
                             border: 1px solid #e5e7eb;
-                            border-radius: 12px;
-                            padding: .85rem 1.25rem;
+                            border-radius: 8px;
+                            padding: .7rem .95rem;
                             transition: all .2s;
                         }
 
@@ -1124,9 +1121,10 @@
                         }
 
                         .um-user-main {
-                            display: flex;
+                            display: grid;
+                            grid-template-columns: 42px minmax(220px, 1.4fr) minmax(180px, 1fr) minmax(130px, auto);
                             align-items: center;
-                            gap: 1rem;
+                            gap: .85rem;
                             flex: 1;
                             min-width: 0;
                         }
@@ -1134,7 +1132,7 @@
                         .um-avatar {
                             width: 42px;
                             height: 42px;
-                            border-radius: 12px;
+                            border-radius: 8px;
                             display: flex;
                             align-items: center;
                             justify-content: center;
@@ -1166,8 +1164,6 @@
 
                         .um-user-info {
                             min-width: 0;
-                            width: 200px;
-                            flex-shrink: 0;
                         }
 
                         .um-user-name {
@@ -1192,17 +1188,12 @@
                             gap: .4rem;
                             flex-wrap: wrap;
                             align-items: center;
-                            min-width: 220px;
-                            width: 220px;
-                            flex-shrink: 0;
+                            min-width: 0;
                         }
 
                         .um-user-login {
                             text-align: right;
-                            min-width: 110px;
-                            width: 110px;
-                            flex-shrink: 0;
-                            margin-left: auto;
+                            min-width: 130px;
                         }
 
                         .um-login-label {
@@ -1210,12 +1201,18 @@
                             font-size: .68rem;
                             color: #9ca3af;
                             text-transform: uppercase;
-                            letter-spacing: .5px;
+                            letter-spacing: 0;
                         }
 
                         .um-login-time {
                             font-size: .82rem;
-                            color: #6b7280;
+                            color: #374151;
+                            font-weight: 600;
+                            white-space: nowrap;
+                        }
+
+                        .um-login-never {
+                            color: #9ca3af;
                             font-weight: 500;
                         }
 
@@ -1292,6 +1289,8 @@
                             align-items: center;
                             gap: .25rem;
                             flex-shrink: 0;
+                            padding-left: .65rem;
+                            border-left: 1px solid #f3f4f6;
                         }
 
                         .um-action-btn {
@@ -2024,18 +2023,32 @@
                                 flex-direction: column;
                             }
 
+                            .um-user-card {
+                                flex-direction: column;
+                                align-items: stretch;
+                            }
+
                             .um-user-main {
-                                flex-wrap: wrap;
+                                grid-template-columns: 42px minmax(0, 1fr);
                             }
 
                             .um-user-meta {
-                                order: 3;
-                                width: 100%;
+                                grid-column: 1 / -1;
                                 margin-top: .5rem;
                             }
 
                             .um-user-login {
-                                order: 2;
+                                grid-column: 2;
+                                min-width: 0;
+                                text-align: left;
+                            }
+
+                            .um-user-actions {
+                                justify-content: flex-end;
+                                padding-left: 0;
+                                padding-top: .5rem;
+                                border-left: 0;
+                                border-top: 1px solid #f3f4f6;
                             }
 
                             .um-stats-grid {
@@ -2874,6 +2887,131 @@
                             border-color: rgba(239, 68, 68, .25) !important;
                             color: #fca5a5 !important;
                         }
+
+                        /* Effective dark theme overrides for this inline stylesheet */
+                        .dark-theme .um-title {
+                            color: #f8fafc;
+                        }
+
+                        .dark-theme .um-subtitle,
+                        .dark-theme .um-login-label,
+                        .dark-theme .um-page-info {
+                            color: #94a3b8;
+                        }
+
+                        .dark-theme .um-tabs,
+                        .dark-theme .um-search-box,
+                        .dark-theme .um-select,
+                        .dark-theme .um-page-btn {
+                            background: #111827;
+                            border-color: #334155;
+                            color: #e2e8f0;
+                        }
+
+                        .dark-theme .um-tab {
+                            color: #94a3b8;
+                        }
+
+                        .dark-theme .um-tab:hover {
+                            background: #1e293b;
+                            color: #f8fafc;
+                        }
+
+                        .dark-theme .um-tab.active {
+                            background: #1e293b;
+                            color: #a5b4fc;
+                            box-shadow: none;
+                        }
+
+                        .dark-theme .um-tab-count {
+                            background: #334155;
+                            color: #cbd5e1;
+                        }
+
+                        .dark-theme .um-search-box input {
+                            color: #f8fafc;
+                        }
+
+                        .dark-theme .um-search-box input::placeholder {
+                            color: #64748b;
+                        }
+
+                        .dark-theme .um-user-card {
+                            background: #111827;
+                            border-color: #334155;
+                            box-shadow: 0 1px 0 rgba(255, 255, 255, .03);
+                        }
+
+                        .dark-theme .um-user-card:hover {
+                            border-color: rgba(129, 140, 248, .45);
+                            background: #162033;
+                            box-shadow: 0 8px 24px rgba(15, 23, 42, .25);
+                        }
+
+                        .dark-theme .um-user-name,
+                        .dark-theme .um-login-time {
+                            color: #f8fafc;
+                        }
+
+                        .dark-theme .um-user-email,
+                        .dark-theme .um-login-never {
+                            color: #94a3b8;
+                        }
+
+                        .dark-theme .um-user-actions {
+                            border-left-color: #334155;
+                        }
+
+                        .dark-theme .um-action-btn {
+                            color: #94a3b8;
+                        }
+
+                        .dark-theme .um-action-btn:hover {
+                            background: #1e293b;
+                            border-color: #475569;
+                            color: #f8fafc;
+                        }
+
+                        .dark-theme .um-btn-ghost {
+                            color: #cbd5e1;
+                            border-color: #475569;
+                        }
+
+                        .dark-theme .um-btn-ghost:hover,
+                        .dark-theme .um-page-btn:hover:not(:disabled) {
+                            background: #1e293b;
+                            color: #f8fafc;
+                        }
+
+                        .dark-theme .um-page-btn.active {
+                            background: #6366f1;
+                            border-color: #6366f1;
+                            color: #fff;
+                        }
+
+                        .dark-theme .um-dropdown-menu {
+                            background: #111827;
+                            border-color: #334155;
+                            box-shadow: 0 16px 40px rgba(0, 0, 0, .35);
+                        }
+
+                        .dark-theme .um-dropdown-item {
+                            color: #e2e8f0;
+                        }
+
+                        .dark-theme .um-dropdown-item:hover {
+                            background: #1e293b;
+                        }
+
+                        .dark-theme .um-dropdown-divider {
+                            background: #334155;
+                        }
+
+                        @@media (max-width: 768px) {
+                            .dark-theme .um-user-actions {
+                                border-top-color: #334155;
+                            }
+                        }
                     </style>
 
 @code {
@@ -3090,8 +3228,8 @@ StringComparison.OrdinalIgnoreCase)))
         isLoadingCustomers = true;
         try
         {
-            var customers = await MasterDataCache.GetBusinessPartnersAsync();
-            availableCustomers = customers?.Where(c => c.IsActive && c.CardType == "cCustomer").ToList() ?? new();
+            var customers = await MasterDataCache.GetBusinessPartnersAsync(includeInactive: true);
+            availableCustomers = customers?.Where(IsCustomerBusinessPartner).ToList() ?? new();
         }
         catch (Exception ex)
         {
@@ -3101,6 +3239,21 @@ StringComparison.OrdinalIgnoreCase)))
         {
             isLoadingCustomers = false;
         }
+    }
+
+    private static bool IsCustomerBusinessPartner(BusinessPartnerDto businessPartner)
+    {
+        return string.Equals(businessPartner.CardType, "cCustomer", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(businessPartner.CardType, "C", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetBusinessPartnerDisplayName(BusinessPartnerDto businessPartner)
+    {
+        var displayName = string.IsNullOrWhiteSpace(businessPartner.CardName)
+            ? businessPartner.CardCode ?? string.Empty
+            : businessPartner.CardName;
+
+        return businessPartner.IsActive ? displayName : $"{displayName} (Inactive)";
     }
 
     private async Task LoadGLAccounts()
@@ -3618,6 +3771,41 @@ new();
         "AccountUnlocked" => "bi-unlock text-info",
         _ => "bi-info-circle text-secondary"
     };
+
+    private static string GetLastLoginDisplay(DateTime? utcDateTime)
+    {
+        if (!utcDateTime.HasValue)
+        {
+            return "Never";
+        }
+
+        var catDateTime = IAuditService.ToCAT(DateTime.SpecifyKind(utcDateTime.Value, DateTimeKind.Utc));
+        var catToday = IAuditService.ToCAT(DateTime.UtcNow).Date;
+
+        if (catDateTime.Date == catToday)
+        {
+            return $"Today {catDateTime:HH:mm}";
+        }
+
+        if (catDateTime.Date == catToday.AddDays(-1))
+        {
+            return $"Yesterday {catDateTime:HH:mm}";
+        }
+
+        return catDateTime.Year == catToday.Year
+            ? catDateTime.ToString("dd MMM HH:mm")
+            : catDateTime.ToString("dd MMM yyyy HH:mm");
+    }
+
+    private static string GetLastLoginTitle(DateTime? utcDateTime)
+    {
+        if (!utcDateTime.HasValue)
+        {
+            return "No successful login recorded";
+        }
+
+        return $"{IAuditService.ToCAT(DateTime.SpecifyKind(utcDateTime.Value, DateTimeKind.Utc)):dd MMM yyyy HH:mm:ss} CAT";
+    }
 
     private string GetRelativeTime(DateTime dateTime)
     {

@@ -107,6 +107,7 @@
         display: flex;
         align-items: center;
         gap: .85rem;
+        min-width: 0;
         border: 1px solid #e5e7eb;
         box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
         transition: box-shadow .2s;
@@ -154,10 +155,15 @@
         line-height: 1.2;
     }
 
+    .stat-info {
+        min-width: 0;
+    }
+
     .stat-info .stat-label {
         font-size: .78rem;
         color: #6b7280;
         font-weight: 500;
+        overflow-wrap: anywhere;
     }
 
     /* ── Filter Bar ──────────────────────────────────── */
@@ -966,12 +972,63 @@
             grid-template-columns: 1fr 1fr;
         }
 
+        .stat-card {
+            padding: 1rem;
+        }
+
+        .stat-info .stat-value {
+            font-size: 1.15rem;
+        }
+
         .detail-grid {
             grid-template-columns: 1fr;
         }
 
         .inv-header {
             flex-direction: column;
+            align-items: stretch;
+            gap: .85rem;
+        }
+
+        .inv-header-actions,
+        .inv-header-actions .btn-inv-gradient {
+            width: 100%;
+        }
+
+        .filter-bar {
+            padding: .85rem;
+        }
+
+        .filter-bar .filter-field {
+            min-width: 100%;
+            flex: 1 1 100%;
+        }
+
+        .filter-actions-row {
+            width: 100%;
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .filter-actions-row>* {
+            width: 100%;
+            justify-content: center;
+        }
+
+        .inv-table-wrap .mud-table-toolbar {
+            flex-direction: column;
+            align-items: stretch;
+            gap: .75rem;
+        }
+
+        .inv-table-wrap .mud-table-toolbar .mud-input-control {
+            width: 100%;
+        }
+    }
+
+    @@media (max-width: 640px) {
+        .stat-row {
+            grid-template-columns: 1fr;
         }
     }
 </style>
@@ -1052,11 +1109,11 @@
                               Placeholder="e.g. C001" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
                               Immediate="true" Class="mt-0" />
             </div>
-            <div class="filter-field" style="min-width:150px;">
+            <div class="filter-field">
                 <label>From Date</label>
                 <FlexibleDatePicker Label="From" @bind-Date="fromDate" Variant="Variant.Outlined" />
             </div>
-            <div class="filter-field" style="min-width:150px;">
+            <div class="filter-field">
                 <label>To Date</label>
                 <FlexibleDatePicker Label="To" @bind-Date="toDate" Variant="Variant.Outlined" />
             </div>

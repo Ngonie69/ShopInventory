@@ -2,8 +2,7 @@
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @inject ICustomerStatementService StatementService
-@inject ICustomerLinkedAccountService LinkedAccountService
-@inject IJSRuntime JSRuntime
+@inject ICustomerPortalSessionService CustomerSession
 @inject ILogger<CustomerPayments> Logger
 @attribute [AllowAnonymous]
 @rendermode InteractiveServer
@@ -296,6 +295,7 @@
     </div>
 
 @code {
+    private CustomerPortalSession? portalSession;
     private CustomerInfo? customerInfo;
     private List<CustomerPaymentSummary> payments = new();
     private bool isLoading = true;
@@ -333,19 +333,16 @@
     {
         try
         {
-            var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
+            portalSession = await CustomerSession.GetCurrentSessionAsync();
+            customerInfo = portalSession?.Customer;
 
-            if (!string.IsNullOrEmpty(customerInfoJson))
+            if (customerInfo != null)
             {
-                customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
-                if (customerInfo != null)
-                {
-                    isMultiAccount = customerInfo.AccountStructure == "Multi";
-                    if (isMultiAccount)
-                    {
-                        linkedAccounts = await LinkedAccountService.GetLinkedAccountsAsync(customerInfo.CardCode);
-                    }
-                }
+                isMultiAccount = customerInfo.AccountStructure == "Multi";
+                linkedAccounts = portalSession?.LinkedAccounts.ToList() ?? new List<LinkedAccountInfo>();
+                selectedAccountFilter = CustomerSession.CanAccessCardCode(portalSession, selectedAccountFilter)
+                    ? selectedAccountFilter
+                    : string.Empty;
             }
         }
         catch (Exception ex)
@@ -356,6 +353,14 @@
 
     private void OnAccountFilterChanged(string value)
     {
+        if (!CustomerSession.CanAccessCardCode(portalSession, value))
+        {
+            Logger.LogWarning("Rejected unauthorized customer payment account filter {CardCode}", value);
+            selectedAccountFilter = string.Empty;
+            currentPage = 1;
+            return;
+        }
+
         selectedAccountFilter = value;
         currentPage = 1;
     }

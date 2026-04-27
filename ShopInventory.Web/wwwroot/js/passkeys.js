@@ -15,14 +15,18 @@ window.passkeys = {
             throw new Error('Passkeys require a supported browser over HTTPS or localhost.');
         }
 
-        const publicKey = this.parseCreationOptions(optionsJson);
-        const credential = await navigator.credentials.create({ publicKey: publicKey });
+        try {
+            const publicKey = this.parseCreationOptions(optionsJson);
+            const credential = await navigator.credentials.create({ publicKey: publicKey });
 
-        if (!credential) {
-            throw new Error('No passkey was created.');
+            if (!credential) {
+                throw new Error('No passkey was created.');
+            }
+
+            return JSON.stringify(this.serializeAttestation(credential));
+        } catch (error) {
+            throw new Error(this.getUserSafeErrorMessage(error, 'register'));
         }
-
-        return JSON.stringify(this.serializeAttestation(credential));
     },
 
     authenticate: async function (optionsJson) {
@@ -30,14 +34,56 @@ window.passkeys = {
             throw new Error('Passkeys require a supported browser over HTTPS or localhost.');
         }
 
-        const publicKey = this.parseRequestOptions(optionsJson);
-        const assertion = await navigator.credentials.get({ publicKey: publicKey });
+        try {
+            const publicKey = this.parseRequestOptions(optionsJson);
+            const assertion = await navigator.credentials.get({ publicKey: publicKey });
 
-        if (!assertion) {
-            throw new Error('No passkey assertion was returned.');
+            if (!assertion) {
+                throw new Error('No passkey assertion was returned.');
+            }
+
+            return JSON.stringify(this.serializeAssertion(assertion));
+        } catch (error) {
+            throw new Error(this.getUserSafeErrorMessage(error, 'authenticate'));
+        }
+    },
+
+    getUserSafeErrorMessage: function (error, operation) {
+        const defaultMessage = operation === 'register'
+            ? 'Passkey registration could not be completed. Try again.'
+            : 'Passkey sign-in could not be completed. Try again or use your password.';
+
+        const name = error && typeof error.name === 'string' ? error.name : '';
+        const message = error && typeof error.message === 'string' ? error.message : '';
+        const normalized = `${name} ${message}`.toLowerCase();
+
+        if (normalized.includes('notallowederror') || normalized.includes('timed out') || normalized.includes('not allowed')) {
+            return operation === 'register'
+                ? 'Passkey registration was cancelled or timed out. Try again when you are ready.'
+                : 'Passkey sign-in was cancelled or timed out. Try again when you are ready.';
         }
 
-        return JSON.stringify(this.serializeAssertion(assertion));
+        if (normalized.includes('securityerror') || normalized.includes('https') || normalized.includes('secure context')) {
+            return 'Passkeys are only available in supported browsers over HTTPS or localhost.';
+        }
+
+        if (normalized.includes('notsupportederror') || normalized.includes('not supported')) {
+            return 'This browser or device does not support passkeys for this action.';
+        }
+
+        if (normalized.includes('invalidstateerror')) {
+            return operation === 'register'
+                ? 'This passkey is already registered on this device or account.'
+                : defaultMessage;
+        }
+
+        if (normalized.includes('aborterror')) {
+            return operation === 'register'
+                ? 'Passkey registration was interrupted. Try again.'
+                : 'Passkey sign-in was interrupted. Try again.';
+        }
+
+        return defaultMessage;
     },
 
     parseCreationOptions: function (optionsJson) {

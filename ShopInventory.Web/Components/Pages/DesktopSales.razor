@@ -459,15 +459,77 @@
         .filter-field input { width: 100%; min-width: unset; }
         .filter-actions-row { width: 100%; }
         .filter-actions-row button { flex: 1; }
+        .ds-table-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: .5rem;
+        }
         .ds-table { font-size: .78rem; }
-        .ds-table th, .ds-table td { padding: .4rem .5rem; }
-        .ds-drawer { width: 100% !important; }
+        .ds-table thead,
+        .lines-table thead { display: none; }
+        .ds-table,
+        .ds-table tbody,
+        .ds-table tr,
+        .ds-table td,
+        .lines-table,
+        .lines-table tbody,
+        .lines-table tr,
+        .lines-table td { display: block; width: 100%; }
+        .ds-table-wrap { overflow: visible; }
+        .ds-table tbody,
+        .lines-table tbody { display: grid; gap: .85rem; }
+        .ds-table tbody { padding: .85rem; }
+        .ds-table tbody tr,
+        .lines-table tbody tr {
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #fff;
+        }
+        .dark-theme .ds-table tbody tr,
+        .dark-theme .lines-table tbody tr {
+            background: #0f172a;
+            border-color: #334155;
+        }
+        .ds-table td,
+        .lines-table td {
+            display: grid;
+            grid-template-columns: minmax(96px, 112px) minmax(0, 1fr);
+            gap: .65rem;
+            padding: .65rem .85rem;
+            border-bottom: 1px solid #f3f4f6;
+        }
+        .dark-theme .ds-table td,
+        .dark-theme .lines-table td {
+            border-color: #1e293b;
+        }
+        .ds-table td:last-child,
+        .lines-table td:last-child { border-bottom: none; }
+        .ds-table td::before,
+        .lines-table td::before {
+            content: attr(data-label);
+            font-size: .68rem;
+            font-weight: 700;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            padding-top: .15rem;
+        }
+        .detail-grid { grid-template-columns: 1fr; }
+        .detail-drawer { width: 100%; max-width: 100%; }
     }
 
     @@media (max-width: 480px) {
         .stat-row { grid-template-columns: 1fr; }
         .ds-header-icon { width: 40px; height: 40px; font-size: 1.1rem; }
         .ds-header h2 { font-size: 1.3rem; }
+        .ds-table tbody { padding: .65rem; }
+        .ds-table td,
+        .lines-table td {
+            grid-template-columns: 1fr;
+            gap: .35rem;
+            padding: .65rem .75rem;
+        }
     }
 </style>
 
@@ -638,20 +700,20 @@
                         @foreach (var sale in sales)
                         {
                             <tr @onclick="() => SelectSale(sale)">
-                                <td><span class="item-code">@sale.ExternalReferenceId</span></td>
-                                <td>
+                                <td data-label="Ref"><span class="item-code">@sale.ExternalReferenceId</span></td>
+                                <td data-label="Customer">
                                     <div>@(sale.CardName ?? sale.CardCode)</div>
                                     @if (sale.CardName != null)
                                     {
                                         <div style="font-size:.72rem;color:#6b7280">@sale.CardCode</div>
                                     }
                                 </td>
-                                <td>@sale.WarehouseCode</td>
-                                <td><span class="amount-cell">@sale.Currency @sale.TotalAmount.ToString("N2")</span></td>
-                                <td><span class="amount-cell">@sale.AmountPaid.ToString("N2")</span></td>
-                                <td><span class="status-badge @GetFiscalStatusClass(sale.FiscalizationStatus)">@sale.FiscalizationStatus</span></td>
-                                <td><span class="status-badge @GetConsolidationStatusClass(sale.ConsolidationStatus)">@sale.ConsolidationStatus</span></td>
-                                <td>@sale.CreatedAt.AddHours(2).ToString("dd MMM HH:mm")</td>
+                                <td data-label="Warehouse">@sale.WarehouseCode</td>
+                                <td data-label="Amount"><span class="amount-cell">@sale.Currency @sale.TotalAmount.ToString("N2")</span></td>
+                                <td data-label="Paid"><span class="amount-cell">@sale.AmountPaid.ToString("N2")</span></td>
+                                <td data-label="Fiscal"><span class="status-badge @GetFiscalStatusClass(sale.FiscalizationStatus)">@sale.FiscalizationStatus</span></td>
+                                <td data-label="Consolidation"><span class="status-badge @GetConsolidationStatusClass(sale.ConsolidationStatus)">@sale.ConsolidationStatus</span></td>
+                                <td data-label="Date">@sale.CreatedAt.AddHours(2).ToString("dd MMM HH:mm")</td>
                             </tr>
                         }
                     </tbody>
@@ -757,16 +819,16 @@
                             @foreach (var line in selectedSale.Lines)
                             {
                                 <tr>
-                                    <td>
+                                    <td data-label="Item">
                                         <div style="font-weight:600;color:#10b981">@line.ItemCode</div>
                                         @if (!string.IsNullOrEmpty(line.ItemDescription))
                                         {
                                             <div style="font-size:.72rem;color:#6b7280">@line.ItemDescription</div>
                                         }
                                     </td>
-                                    <td>@QuantityDisplay.Format(line.Quantity)</td>
-                                    <td>@line.UnitPrice.ToString("N2")</td>
-                                    <td style="font-weight:600">@line.LineTotal.ToString("N2")</td>
+                                    <td data-label="Qty">@QuantityDisplay.Format(line.Quantity)</td>
+                                    <td data-label="Unit Price">@line.UnitPrice.ToString("N2")</td>
+                                    <td data-label="Total" style="font-weight:600">@line.LineTotal.ToString("N2")</td>
                                 </tr>
                             }
                         </tbody>

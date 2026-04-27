@@ -897,6 +897,10 @@ select.field-input-sm {
         align-items: flex-start;
     }
 
+    .settings-header-left {
+        align-items: flex-start;
+    }
+
     ::deep .btn-settings-save {
         width: 100%;
         justify-content: center;
@@ -953,10 +957,53 @@ select.field-input-sm {
         gap: 0.65rem;
     }
 
+    .setting-control {
+        width: 100%;
+        min-width: 0 !important;
+        max-width: 100%;
+        align-self: stretch;
+        flex-shrink: 1;
+    }
+
+    .setting-control > * {
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: 100%;
+    }
+
+    .field-input-sm {
+        max-width: none;
+    }
+
     .setting-item:hover {
         margin: 0;
         padding-left: 0;
         padding-right: 0;
+    }
+
+    .sync-card {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    ::deep .btn-sync {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .bp-search-wrap {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+    }
+
+    .bp-search-field {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .bp-count {
+        width: 100%;
     }
 
     .field-input-sm { max-width: 100%; }

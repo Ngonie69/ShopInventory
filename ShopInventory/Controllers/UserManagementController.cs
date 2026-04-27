@@ -7,12 +7,14 @@ using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Features.UserManagement.Queries.GetUsers;
 using ShopInventory.Features.UserManagement.Queries.GetUser;
+using ShopInventory.Features.UserManagement.Queries.GetManagedMerchandiserAccounts;
 using ShopInventory.Features.UserManagement.Queries.GetUserPermissions;
 using ShopInventory.Features.UserManagement.Queries.GetAvailablePermissions;
 using ShopInventory.Features.UserManagement.Queries.GetCurrentUser;
 using ShopInventory.Features.UserManagement.Queries.GetCurrentUserPermissions;
 using ShopInventory.Features.UserManagement.Commands.CreateUser;
 using ShopInventory.Features.UserManagement.Commands.UpdateUser;
+using ShopInventory.Features.UserManagement.Commands.UpdateMerchandiserAssignedCustomers;
 using ShopInventory.Features.UserManagement.Commands.DeleteUser;
 using ShopInventory.Features.UserManagement.Commands.UpdateUserPermissions;
 using ShopInventory.Features.UserManagement.Commands.UnlockUser;
@@ -54,6 +56,25 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
         return result.Match(
             value => CreatedAtAction(nameof(GetUser), new { id = value.Id }, value),
             errors => Problem(errors));
+    }
+
+    [HttpGet("merchandisers")]
+    [RequirePermission(Permission.CreateUsers)]
+    public async Task<IActionResult> GetManagedMerchandiserAccounts(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetManagedMerchandiserAccountsQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpPut("merchandisers/{id:guid}/assigned-customers")]
+    [RequirePermission(Permission.CreateUsers)]
+    public async Task<IActionResult> UpdateMerchandiserAssignedCustomers(
+        Guid id,
+        [FromBody] UpdateMerchandiserAssignedCustomersRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new UpdateMerchandiserAssignedCustomersCommand(id, request), cancellationToken);
+        return result.Match(_ => Ok(new { message = "Merchandiser assignments updated successfully" }), errors => Problem(errors));
     }
 
     [HttpPut("{id:guid}")]

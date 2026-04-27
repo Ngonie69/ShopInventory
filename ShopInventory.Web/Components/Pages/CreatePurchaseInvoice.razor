@@ -86,6 +86,47 @@
         .cpinv-grid { grid-template-columns: 1fr; }
         .cpinv-line-toolbar { align-items: stretch; }
         .cpinv-actions { width: 100%; }
+        .cpinv-actions > * { flex: 1 1 180px; }
+        .cpinv-line-toolbar > :first-child { width: 100%; }
+        .cpinv-line-table thead { display: none; }
+        .cpinv-line-table,
+        .cpinv-line-table tbody,
+        .cpinv-line-table tr,
+        .cpinv-line-table td { display: block; width: 100%; }
+        .cpinv-line-table tbody { display: grid; gap: .85rem; }
+        .cpinv-line-table tbody tr {
+            border: 1px solid #edf1f5;
+            border-radius: 14px;
+            padding: .4rem .75rem 0;
+            background: #fff;
+        }
+        .cpinv-line-table td {
+            display: grid;
+            grid-template-columns: minmax(92px, 108px) minmax(0, 1fr);
+            gap: .6rem;
+            padding: .5rem 0 .6rem;
+        }
+        .cpinv-line-table td::before {
+            content: attr(data-label);
+            font-size: .68rem;
+            font-weight: 700;
+            color: #607081;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            padding-top: .15rem;
+        }
+        .cpinv-line-total { white-space: normal; padding-top: 0; }
+        .cpinv-summary-row { flex-wrap: wrap; }
+    }
+
+    @@media (max-width: 480px) {
+        .cpinv-line-table tbody tr {
+            padding: .35rem .65rem 0;
+        }
+        .cpinv-line-table td {
+            grid-template-columns: 1fr;
+            gap: .35rem;
+        }
     }
 </style>
 
@@ -225,31 +266,31 @@
                                 var line = purchaseInvoice.Lines[index];
 
                                 <tr>
-                                    <td>
+                                    <td data-label="Item Code">
                                         <input type="text" @bind="line.ItemCode" @bind:event="oninput" @onblur="() => SyncProduct(index)" class="@(HasError($"Lines[{index}].ItemCode") ? "is-invalid" : string.Empty)" />
                                         @if (HasError($"Lines[{index}].ItemCode"))
                                         {
                                             <div class="invalid-feedback">@GetError($"Lines[{index}].ItemCode")</div>
                                         }
                                     </td>
-                                    <td>
+                                    <td data-label="Description">
                                         <input type="text" @bind="line.ItemDescription" placeholder="Item description" />
                                     </td>
-                                    <td>
+                                    <td data-label="Qty">
                                         <input type="number" min="0.01" step="0.01" @bind="line.Quantity" class="@(HasError($"Lines[{index}].Quantity") ? "is-invalid" : string.Empty)" />
                                         @if (HasError($"Lines[{index}].Quantity"))
                                         {
                                             <div class="invalid-feedback">@GetError($"Lines[{index}].Quantity")</div>
                                         }
                                     </td>
-                                    <td>
+                                    <td data-label="Unit Price">
                                         <input type="number" min="0.01" step="0.01" @bind="line.UnitPrice" class="@(HasError($"Lines[{index}].UnitPrice") ? "is-invalid" : string.Empty)" />
                                         @if (HasError($"Lines[{index}].UnitPrice"))
                                         {
                                             <div class="invalid-feedback">@GetError($"Lines[{index}].UnitPrice")</div>
                                         }
                                     </td>
-                                    <td>
+                                    <td data-label="Warehouse">
                                         <select @bind="line.WarehouseCode">
                                             <option value="">Select warehouse</option>
                                             @foreach (var warehouse in warehouses)
@@ -258,13 +299,13 @@
                                             }
                                         </select>
                                     </td>
-                                    <td>
+                                    <td data-label="Tax Code">
                                         <input type="text" @bind="line.TaxCode" placeholder="A15" />
                                     </td>
-                                    <td>
+                                    <td data-label="Line Total">
                                         <div class="cpinv-line-total">@CalculateLineTotal(line).ToString("N2")</div>
                                     </td>
-                                    <td>
+                                    <td data-label="Remove">
                                         <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveLine(index)" disabled="@(purchaseInvoice.Lines.Count == 1)">X</button>
                                     </td>
                                 </tr>

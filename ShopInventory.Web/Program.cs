@@ -1,5 +1,6 @@
 using Blazored.LocalStorage;
 using FluentValidation;
+using Microsoft.AspNetCore.Authorization;
 using MediatR;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -147,6 +148,12 @@ try
         }
     });
 
+    builder.Services.AddHttpClient("ShopInventoryApiUser", client =>
+    {
+        client.BaseAddress = new Uri(apiBaseUrl);
+        client.Timeout = TimeSpan.FromMinutes(5);
+    });
+
     // Register a scoped HttpClient that uses the factory
     builder.Services.AddScoped(sp =>
     {
@@ -157,13 +164,17 @@ try
     // Add Authentication State Provider
     builder.Services.AddScoped<CustomAuthStateProvider>();
     builder.Services.AddScoped<AuthenticationStateProvider>(sp => sp.GetRequiredService<CustomAuthStateProvider>());
+    builder.Services.AddScoped<AuthenticatedDownloadProxy>();
 
     // Add Authentication services - configure to not redirect (Blazor handles auth via AuthorizeRouteView)
     builder.Services.AddAuthentication(options =>
     {
         options.DefaultScheme = "BlazorServer";
-    }).AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, BlazorServerAuthHandler>("BlazorServer", null);
+    })
+    .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, BlazorServerAuthHandler>("BlazorServer", null)
+    .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, ApiBearerAuthenticationHandler>(ApiBearerAuthenticationHandler.SchemeName, null);
     builder.Services.AddAuthorizationCore();
+    builder.Services.AddAuthorization();
 
     builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
     builder.Services.AddValidatorsFromAssembly(typeof(Program).Assembly);
@@ -238,6 +249,7 @@ try
     // Add Customer Portal services
     builder.Services.AddScoped<ICustomerLinkedAccountService, CustomerLinkedAccountService>();
     builder.Services.AddScoped<ICustomerAuthService, CustomerAuthService>();
+    builder.Services.AddScoped<ICustomerPortalSessionService, CustomerPortalSessionService>();
     builder.Services.AddScoped<ICustomerStatementService, CustomerStatementService>();
     builder.Services.AddScoped<IPodService, PodService>();
 
@@ -335,6 +347,9 @@ try
 
     app.UseStaticFiles();
 
+    app.UseAuthentication();
+    app.UseAuthorization();
+
     app.UseAntiforgery();
 
     app.MapStaticAssets();
@@ -348,74 +363,63 @@ try
         .AllowAnonymous();
 
     // Minimal API endpoint for backup file downloads.
-    // The browser navigates here directly, so we use the factory-configured HttpClient
-    // (which carries the API key) to stream the file from the backend API.
-    app.MapGet("/download/backup/{id:int}", async (int id, IHttpClientFactory clientFactory, CancellationToken ct) =>
-    {
-        var client = clientFactory.CreateClient("ShopInventoryApi");
-
-        var response = await client.GetAsync($"api/backup/{id}/download", HttpCompletionOption.ResponseHeadersRead, ct);
-
-        if (!response.IsSuccessStatusCode)
+    app.MapGet("/download/backup/{id:int}", async (
+        int id,
+        HttpContext httpContext,
+        AuthenticatedDownloadProxy proxy,
+        CancellationToken ct) =>
+        await proxy.ProxyAsync(
+            httpContext,
+            $"api/backup/{id}/download",
+            $"backup-{id}.bak",
+            ["Admin"],
+            ct))
+        .RequireAuthorization(new AuthorizeAttribute
         {
-            return Results.StatusCode((int)response.StatusCode);
-        }
-
-        var stream = await response.Content.ReadAsStreamAsync(ct);
-        var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
-        var fileName = response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
-                       ?? $"backup-{id}.bak";
-
-        return Results.File(stream, contentType, fileName);
-    });
+            AuthenticationSchemes = ApiBearerAuthenticationHandler.SchemeName,
+            Roles = "Admin"
+        });
 
     // Minimal API endpoint for POD file viewing/downloads.
     // Streams the file directly via HTTP, bypassing the SignalR connection
     // which cannot handle large binary payloads (images/PDFs).
-    app.MapGet("/download/pod/{docEntry:int}/{attachmentId:int}", async (int docEntry, int attachmentId, IHttpClientFactory clientFactory, CancellationToken ct) =>
-    {
-        var client = clientFactory.CreateClient("ShopInventoryApi");
-
-        var response = await client.GetAsync(
+    app.MapGet("/download/pod/{docEntry:int}/{attachmentId:int}", async (
+        int docEntry,
+        int attachmentId,
+        HttpContext httpContext,
+        AuthenticatedDownloadProxy proxy,
+        CancellationToken ct) =>
+        await proxy.ProxyAsync(
+            httpContext,
             $"api/invoice/{docEntry}/attachments/{attachmentId}/download",
-            HttpCompletionOption.ResponseHeadersRead, ct);
-
-        if (!response.IsSuccessStatusCode)
+            $"pod-{attachmentId}",
+            ["Admin", "Cashier", "PodOperator", "Driver", "SalesRep"],
+            ct))
+        .RequireAuthorization(new AuthorizeAttribute
         {
-            return Results.StatusCode((int)response.StatusCode);
-        }
-
-        var stream = await response.Content.ReadAsStreamAsync(ct);
-        var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
-        var fileName = response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
-                       ?? $"pod-{attachmentId}";
-
-        return Results.File(stream, contentType, fileName);
-    });
+            AuthenticationSchemes = ApiBearerAuthenticationHandler.SchemeName,
+            Roles = "Admin,Cashier,PodOperator,Driver,SalesRep"
+        });
 
     // Minimal API endpoint for external purchase order file viewing/downloads.
     // Physical PO uploads come from the backend document system and need the
     // factory-configured API client to stream them back through the web app.
-    app.MapGet("/download/purchase-order/{attachmentId:int}", async (int attachmentId, IHttpClientFactory clientFactory, CancellationToken ct) =>
-    {
-        var client = clientFactory.CreateClient("ShopInventoryApi");
-
-        var response = await client.GetAsync(
-              $"api/document/attachments/{attachmentId}/download",
-            HttpCompletionOption.ResponseHeadersRead, ct);
-
-        if (!response.IsSuccessStatusCode)
+    app.MapGet("/download/purchase-order/{attachmentId:int}", async (
+        int attachmentId,
+        HttpContext httpContext,
+        AuthenticatedDownloadProxy proxy,
+        CancellationToken ct) =>
+        await proxy.ProxyAsync(
+            httpContext,
+            $"api/document/attachments/{attachmentId}/download",
+            $"purchase-order-{attachmentId}",
+            ["Admin", "Cashier", "Merchandiser", "SalesRep"],
+            ct))
+        .RequireAuthorization(new AuthorizeAttribute
         {
-            return Results.StatusCode((int)response.StatusCode);
-        }
-
-        var stream = await response.Content.ReadAsStreamAsync(ct);
-        var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
-        var fileName = response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
-                       ?? $"purchase-order-{attachmentId}";
-
-        return Results.File(stream, contentType, fileName);
-    });
+            AuthenticationSchemes = ApiBearerAuthenticationHandler.SchemeName,
+            Roles = "Admin,Cashier,Merchandiser,SalesRep"
+        });
 
     app.Run();
 }

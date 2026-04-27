@@ -1,5 +1,5 @@
 // Shop Inventory Service Worker
-const CACHE_NAME = 'shop-inventory-v6';
+const CACHE_NAME = 'shop-inventory-v8';
 const OFFLINE_URL = '/offline.html';
 
 // Only cache truly static assets that rarely change
@@ -75,6 +75,21 @@ function isDocumentRequest(request) {
         || acceptHeader.includes('text/html');
 }
 
+function isProtectedDownloadRequest(pathname) {
+    return pathname.startsWith('/download/');
+}
+
+function hasAuthorizationHeader(request) {
+    return request.headers.has('authorization');
+}
+
+function isApplicationRoute(pathname) {
+    return !pathname.includes('.') &&
+        !pathname.startsWith('/api/') &&
+        !pathname.startsWith('/download/') &&
+        !isBlazorAsset(pathname);
+}
+
 // Fetch event - handle requests
 self.addEventListener('fetch', (event) => {
     const { request } = event;
@@ -116,6 +131,19 @@ self.addEventListener('fetch', (event) => {
     // Also skip CSS/JS files that use query-string versioning (e.g., app.js?v=5)
     // These are app assets that should be served fresh by the server
     if (url.pathname.match(/\.(css|js)$/i)) {
+        return;
+    }
+
+    // Never intercept authenticated downloads or other bearer-authenticated GETs.
+    // These responses are user-scoped and can break previews if the service worker
+    // caches or replays them instead of letting the network handle the request.
+    if (isProtectedDownloadRequest(url.pathname) || hasAuthorizationHeader(request)) {
+        return;
+    }
+
+    // Let Blazor app routes such as /pods go straight to the server. The service worker
+    // should not synthesize JSON 503 responses for interactive page requests.
+    if (isApplicationRoute(url.pathname)) {
         return;
     }
 

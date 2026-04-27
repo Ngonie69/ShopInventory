@@ -1,23 +1,17 @@
 @page "/merchandiser-account"
-@using MediatR
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Forms
-@using ShopInventory.Web.Features.UserManagement.Commands.CreateMerchandiserAccount
-@using ShopInventory.Web.Models
 @attribute [Authorize(Roles = "Admin,SalesRep")]
-@inject IMediator Mediator
-@inject IMasterDataCacheService MasterDataCache
-@inject ISnackbar Snackbar
 @rendermode InteractiveServer
 
-<PageTitle>Create Merchandiser Account - Shop Inventory</PageTitle>
+<PageTitle>Manage Merchandiser Accounts - Shop Inventory</PageTitle>
 
 <div class="macc-page">
     <div class="macc-shell">
         <div class="macc-header">
             <div>
-                <h1>Create Merchandiser Account</h1>
-                <p>Sales reps can only create merchandiser accounts with assigned customer access.</p>
+                <h1>Manage Merchandiser Accounts</h1>
+                <p>Create merchandiser accounts, review existing profiles, and update assigned business partners.</p>
             </div>
         </div>
 
@@ -25,57 +19,58 @@
         {
             <div class="macc-state-card">
                 <div class="macc-spinner"></div>
-                <span>Loading customers and warehouses...</span>
+                <span>Loading merchandiser accounts, customers, and warehouses...</span>
             </div>
         }
         else
         {
-            <EditForm EditContext="@editContext" OnValidSubmit="CreateAccountAsync">
+            <EditForm EditContext="@createEditContext" OnValidSubmit="CreateAccountAsync">
                 <DataAnnotationsValidator />
 
                 <div class="macc-grid">
                     <section class="macc-card">
                         <div class="macc-card-header">
-                            <h2>Account Details</h2>
+                            <h2>Create Account</h2>
                             <span>Role is fixed to Merchandiser</span>
                         </div>
 
                         <div class="macc-field-grid">
                             <div class="macc-field">
                                 <label for="username">Username</label>
-                                <InputText id="username" class="macc-input" @bind-Value="form.Username" />
-                                <ValidationMessage For="() => form.Username" />
+                                <InputText id="username" class="macc-input" @bind-Value="createForm.Username" />
+                                <ValidationMessage For="() => createForm.Username" />
                             </div>
 
                             <div class="macc-field">
                                 <label for="email">Email</label>
-                                <InputText id="email" class="macc-input" @bind-Value="form.Email" />
-                                <ValidationMessage For="() => form.Email" />
+                                <InputText id="email" class="macc-input" @bind-Value="createForm.Email" />
+                                <ValidationMessage For="() => createForm.Email" />
                             </div>
 
                             <div class="macc-field">
                                 <label for="firstName">First Name</label>
-                                <InputText id="firstName" class="macc-input" @bind-Value="form.FirstName" />
-                                <ValidationMessage For="() => form.FirstName" />
+                                <InputText id="firstName" class="macc-input" @bind-Value="createForm.FirstName" />
+                                <ValidationMessage For="() => createForm.FirstName" />
                             </div>
 
                             <div class="macc-field">
                                 <label for="lastName">Last Name</label>
-                                <InputText id="lastName" class="macc-input" @bind-Value="form.LastName" />
-                                <ValidationMessage For="() => form.LastName" />
+                                <InputText id="lastName" class="macc-input" @bind-Value="createForm.LastName" />
+                                <ValidationMessage For="() => createForm.LastName" />
                             </div>
 
                             <div class="macc-field">
                                 <label for="password">Password</label>
-                                <InputText id="password" type="password" class="macc-input" @bind-Value="form.Password" />
-                                <ValidationMessage For="() => form.Password" />
+                                <InputText id="password" type="password" class="macc-input"
+                                           @bind-Value="createForm.Password" />
+                                <ValidationMessage For="() => createForm.Password" />
                             </div>
 
                             <div class="macc-field">
                                 <label for="confirmPassword">Confirm Password</label>
                                 <InputText id="confirmPassword" type="password" class="macc-input"
-                                           @bind-Value="form.ConfirmPassword" />
-                                <ValidationMessage For="() => form.ConfirmPassword" />
+                                           @bind-Value="createForm.ConfirmPassword" />
+                                <ValidationMessage For="() => createForm.ConfirmPassword" />
                             </div>
                         </div>
 
@@ -95,31 +90,32 @@
 
                     <section class="macc-card">
                         <div class="macc-card-header">
-                            <h2>Assigned Customers</h2>
-                            <span>@form.AssignedCustomerCodes.Count selected</span>
+                            <h2>Assigned Business Partners</h2>
+                            <span>@createForm.AssignedCustomerCodes.Count selected</span>
                         </div>
 
                         <div class="macc-field">
                             <label for="customerSearch">Search customers</label>
-                            <input id="customerSearch" class="macc-input" @bind="customerSearchTerm" @bind:event="oninput"
-                                   placeholder="Search by code or name" />
+                            <input id="customerSearch" class="macc-input" @bind="createCustomerSearchTerm"
+                                   @bind:event="oninput" placeholder="Search by code or name" />
                         </div>
 
-                        <ValidationMessage For="() => form.AssignedCustomerCodes" />
+                        <ValidationMessage For="() => createForm.AssignedCustomerCodes" />
 
                         <div class="macc-customer-list">
-                            @if (filteredCustomers.Any())
+                            @if (filteredCreateCustomers.Any())
                             {
-                                @foreach (var customer in filteredCustomers)
+                                @foreach (var customer in filteredCreateCustomers)
                                 {
                                     var cardCode = customer.CardCode ?? string.Empty;
-                                    var isSelected = form.AssignedCustomerCodes.Contains(cardCode);
+                                    var isSelected = createForm.AssignedCustomerCodes.Contains(cardCode,
+                        StringComparer.OrdinalIgnoreCase);
                                     <label class="macc-customer-item">
                                         <input type="checkbox" checked="@isSelected"
-                                               @onchange="args => ToggleCustomer(cardCode, args.Value as bool? == true)" />
+                                               @onchange="args => ToggleCreateCustomer(cardCode, args.Value as bool? == true)" />
                                         <span class="macc-customer-text">
                                             <strong>@cardCode</strong>
-                                            <span>@customer.CardName</span>
+                                            <span>@(customer.IsActive ? customer.CardName : $"{customer.CardName} (Inactive)")</span>
                                         </span>
                                     </label>
                                 }
@@ -132,346 +128,573 @@
                     </section>
                 </div>
 
-                <div class="macc-actions">
-                    <button type="submit" class="macc-submit" disabled="@isSaving">
-                        @(isSaving ? "Creating..." : "Create Merchandiser Account")
+                <div class="macc-actions macc-create-actions">
+                    <button type="submit" class="macc-submit" disabled="@isCreating">
+                        @(isCreating ? "Creating..." : "Create Merchandiser Account")
                     </button>
                 </div>
             </EditForm>
-        }
-    </div>
-</div>
 
-<style>
-    .macc-page {
-        min-height: 100vh;
-        padding: 1.5rem;
-        background:
-            radial-gradient(circle at top left, rgba(14, 165, 233, 0.10), transparent 28%),
-            linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
-    }
+            <section class="macc-card macc-account-section">
+                <div class="macc-card-header">
+                    <h2>Existing Merchandiser Accounts</h2>
+                    <span>@filteredMerchandisers.Count() visible</span>
+                </div>
 
-    .macc-shell {
-        max-width: 1200px;
-        margin: 0 auto;
-        display: flex;
-        flex-direction: column;
-        gap: 1.25rem;
-    }
+                <div class="macc-field">
+                    <label for="accountSearch">Search accounts</label>
+                    <input id="accountSearch" class="macc-input" @bind="accountSearchTerm" @bind:event="oninput"
+                           placeholder="Search by username, name, or email" />
+                </div>
 
-    .macc-header,
-    .macc-card,
-    .macc-state-card {
-        background: rgba(255, 255, 255, 0.92);
-        border: 1px solid rgba(148, 163, 184, 0.22);
-        border-radius: 24px;
-        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.10);
-    }
+                <div class="macc-account-list">
+                    @if (filteredMerchandisers.Any())
+                    {
+                        @foreach (var merchandiser in filteredMerchandisers)
+                        {
+                            var isEditing = editingMerchandiserId == merchandiser.Id;
+                            var selectedCount = isEditing ? editingAssignedCustomerCodes.Count :
+                merchandiser.AssignedCustomerCodes.Count;
 
-    .macc-header {
-        padding: 1.5rem 1.75rem;
-    }
+                            <article class="macc-account-item">
+                                <div class="macc-account-summary">
+                                    <div class="macc-account-heading">
+                                        <div>
+                                            <h3>@merchandiser.Username</h3>
+                                            <p>@GetMerchandiserSubtitle(merchandiser)</p>
+                                        </div>
+                                        <span class="macc-status @(merchandiser.IsActive ? "is-active" : "is-inactive")">
+                                            @(merchandiser.IsActive ? "Active" : "Inactive")
+                                        </span>
+                                    </div>
 
-    .macc-header h1 {
-        margin: 0;
-        font-size: 2rem;
-        font-weight: 700;
-        color: #0f172a;
-    }
+                                    <div class="macc-chip-group">
+                                        <span class="macc-chip macc-chip-warehouse">
+                                            @(string.IsNullOrWhiteSpace(merchandiser.AssignedWarehouseCode)
+                                                ? "No warehouse"
+                                                : $"Warehouse: {merchandiser.AssignedWarehouseCode}")
+                                        </span>
+                                        <span class="macc-chip macc-chip-count">@selectedCount BP assigned</span>
+                                    </div>
 
-    .macc-header p {
-        margin: .5rem 0 0;
-        color: #475569;
-    }
+                                    <div class="macc-bp-tags">
+                                        @foreach (var code in GetPreviewCustomerCodes(merchandiser))
+                                        {
+                                            <span class="macc-bp-tag">@GetCustomerDisplayName(code)</span>
+                                        }
 
-    .macc-grid {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-        gap: 1.25rem;
-    }
+                                        @if (merchandiser.AssignedCustomerCodes.Count > previewCustomerCodeLimit)
+                                        {
+                                            <span class="macc-bp-tag macc-bp-tag-muted">+@(merchandiser.AssignedCustomerCodes.Count -
+                                                                                previewCustomerCodeLimit) more</span>
+                                            }
+                                        </div>
 
-    .macc-card {
-        padding: 1.5rem;
-    }
+                                        <div class="macc-inline-actions">
+                                            <button type="button" class="macc-secondary-button"
+                                                    @onclick="() => BeginEditAssignedCustomers(merchandiser)">
+                                                @(isEditing ? "Editing Assignments" : "Edit Assignments")
+                                            </button>
+                                        </div>
+                                    </div>
 
-    .macc-card-header {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 1rem;
-        margin-bottom: 1rem;
-    }
+                                    @if (isEditing)
+                                    {
+                                        <div class="macc-editor-shell">
+                                            <div class="macc-card-header macc-editor-header">
+                                                <h2>Update Merchandiser Assignments</h2>
+                                                <span>@editingAssignedCustomerCodes.Count BP selected</span>
+                                            </div>
 
-    .macc-card-header h2 {
-        margin: 0;
-        font-size: 1.1rem;
-        font-weight: 700;
-        color: #0f172a;
-    }
+                                            <div class="macc-field">
+                                                <label for="editWarehouse">Assigned warehouse</label>
+                                                <select id="editWarehouse" class="macc-input" @bind="editingWarehouseCode">
+                                                    <option value="">No warehouse assigned</option>
+                                                    @foreach (var warehouse in warehouses)
+                                                    {
+                                                        <option value="@warehouse.WarehouseCode">@warehouse.WarehouseCode -
+                                                            @warehouse.WarehouseName</option>
+                                                        }
+                                                    </select>
+                                                </div>
 
-    .macc-card-header span,
-    .macc-field small,
-    .macc-empty {
-        color: #64748b;
-    }
+                                                <div class="macc-field">
+                                                    <label for="editCustomerSearch">Search business partners</label>
+                                                    <input id="editCustomerSearch" class="macc-input" @bind="editCustomerSearchTerm"
+                                                           @bind:event="oninput" placeholder="Search by code or name" />
+                                                </div>
 
-    .macc-field-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 1rem;
-    }
+                                                <div class="macc-customer-list macc-editor-list">
+                                                    @if (filteredEditCustomers.Any())
+                                                    {
+                                                        @foreach (var customer in filteredEditCustomers)
+                                                        {
+                                                            var cardCode = customer.CardCode ?? string.Empty;
+                                                            var isSelected = editingAssignedCustomerCodes.Contains(cardCode);
+                                                            <label class="macc-customer-item">
+                                                                <input type="checkbox" checked="@isSelected"
+                                                                       @onchange="args => ToggleEditCustomer(cardCode, args.Value as bool? == true)" />
+                                                                <span class="macc-customer-text">
+                                                                    <strong>@cardCode</strong>
+                                                                    <span>@(customer.IsActive ? customer.CardName : $"{customer.CardName} (Inactive)")</span>
+                                                                </span>
+                                                            </label>
+                                                        }
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="macc-empty">No business partners match the current search.</div>
+                                                    }
+                                                </div>
 
-    .macc-field {
-        display: flex;
-        flex-direction: column;
-        gap: .45rem;
-        margin-bottom: 1rem;
-    }
+                                                <div class="macc-actions macc-inline-actions">
+                                                    <button type="button" class="macc-submit" disabled="@isUpdating"
+                                                            @onclick="() => SaveAssignedCustomersAsync(merchandiser)">
+                                                        @(isUpdating ? "Saving..." : "Save Assignments")
+                                                    </button>
+                                                    <button type="button" class="macc-secondary-button" disabled="@isUpdating"
+                                                            @onclick="CancelEditAssignedCustomers">
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        }
+                                    </article>
+                                }
+                            }
+                    else
+                            {
+                                <div class="macc-empty-state">
+                                    <h3>No merchandiser accounts found</h3>
+                                    <p>Try a different search or create the first merchandiser account above.</p>
+                                </div>
+                            }
+                        </div>
+                    </section>
+                }
+            </div>
+        </div>
 
-    .macc-field label {
-        font-size: .92rem;
-        font-weight: 600;
-        color: #1e293b;
-    }
-
-    .macc-input {
-        width: 100%;
-        min-height: 44px;
-        padding: .75rem .9rem;
-        border-radius: 14px;
-        border: 1px solid #cbd5e1;
-        background: #fff;
-        color: #0f172a;
-    }
-
-    .macc-input:focus {
-        outline: none;
-        border-color: #0ea5e9;
-        box-shadow: 0 0 0 4px rgba(14, 165, 233, .14);
-    }
-
-    .macc-customer-list {
-        max-height: 420px;
-        overflow: auto;
-        padding-right: .25rem;
-        display: flex;
-        flex-direction: column;
-        gap: .65rem;
-    }
-
-    .macc-customer-item {
-        display: flex;
-        gap: .75rem;
-        align-items: flex-start;
-        padding: .85rem .9rem;
-        border-radius: 16px;
-        border: 1px solid #dbe4f0;
-        background: #f8fafc;
-        cursor: pointer;
-    }
-
-    .macc-customer-text {
-        display: flex;
-        flex-direction: column;
-        gap: .2rem;
-        color: #334155;
-    }
-
-    .macc-actions {
-        display: flex;
-        justify-content: flex-end;
-        margin-top: 1rem;
-    }
-
-    .macc-submit {
-        border: 0;
-        border-radius: 999px;
-        padding: .9rem 1.4rem;
-        min-width: 240px;
-        font-weight: 700;
-        color: #fff;
-        background: linear-gradient(135deg, #0284c7, #0f766e);
-        box-shadow: 0 16px 40px rgba(8, 47, 73, 0.22);
-    }
-
-    .macc-submit:disabled {
-        opacity: .7;
-        cursor: wait;
-    }
-
-    .macc-state-card {
-        padding: 1.5rem;
-        display: flex;
-        align-items: center;
-        gap: .9rem;
-        color: #334155;
-    }
-
-    .macc-spinner {
-        width: 20px;
-        height: 20px;
-        border-radius: 999px;
-        border: 3px solid rgba(14, 165, 233, .18);
-        border-top-color: #0284c7;
-        animation: macc-spin .8s linear infinite;
-    }
-
-    .validation-message {
-        color: #b91c1c;
-        font-size: .82rem;
-    }
-
-    :global(.dark-theme) .macc-page {
-        background:
-            radial-gradient(circle at top left, rgba(56, 189, 248, 0.14), transparent 28%),
-            linear-gradient(180deg, #0f172a 0%, #111827 100%);
-    }
-
-    :global(.dark-theme) .macc-header,
-    :global(.dark-theme) .macc-card,
-    :global(.dark-theme) .macc-state-card {
-        background: rgba(15, 23, 42, 0.92);
-        border-color: rgba(148, 163, 184, 0.18);
-        box-shadow: 0 24px 60px rgba(2, 6, 23, 0.35);
-    }
-
-    :global(.dark-theme) .macc-header h1,
-    :global(.dark-theme) .macc-card-header h2,
-    :global(.dark-theme) .macc-field label,
-    :global(.dark-theme) .macc-customer-text {
-        color: #e2e8f0;
-    }
-
-    :global(.dark-theme) .macc-header p,
-    :global(.dark-theme) .macc-card-header span,
-    :global(.dark-theme) .macc-field small,
-    :global(.dark-theme) .macc-empty,
-    :global(.dark-theme) .macc-state-card {
-        color: #94a3b8;
-    }
-
-    :global(.dark-theme) .macc-input {
-        background: #0f172a;
-        border-color: #334155;
-        color: #e2e8f0;
-    }
-
-    :global(.dark-theme) .macc-customer-item {
-        background: rgba(15, 23, 42, 0.7);
-        border-color: #334155;
-    }
-
-    @@media (max-width: 900px) {
-
-        .macc-grid,
-        .macc-field-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .macc-page {
-            padding: 1rem;
-        }
-    }
-
-    @@keyframes macc-spin {
-        to {
-            transform: rotate(360deg);
-        }
-    }
-</style>
-
-@code {
-    private readonly CreateMerchandiserAccountFormModel form = new();
-    private EditContext editContext = null!;
-    private List<BusinessPartnerDto> customers = new();
-    private List<WarehouseDto> warehouses = new();
-    private string customerSearchTerm = string.Empty;
-    private string selectedWarehouseCode = string.Empty;
-    private bool isLoading = true;
-    private bool isSaving;
-
-    private IEnumerable<BusinessPartnerDto> filteredCustomers =>
-        string.IsNullOrWhiteSpace(customerSearchTerm)
-            ? customers.OrderBy(customer => customer.CardCode).Take(150)
-            : customers.Where(customer =>
-                    (customer.CardCode?.Contains(customerSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                    (customer.CardName?.Contains(customerSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false))
-                .OrderBy(customer => customer.CardCode)
-                .Take(150);
-
-    protected override async Task OnInitializedAsync()
-    {
-        editContext = new EditContext(form);
-
-        try
-        {
-            var warehousesTask = MasterDataCache.GetWarehousesAsync();
-            var customersTask = MasterDataCache.GetBusinessPartnersAsync();
-            await Task.WhenAll(warehousesTask, customersTask);
-
-            warehouses = await warehousesTask;
-            customers = await customersTask;
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Failed to load merchandiser setup data: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            isLoading = false;
-        }
-    }
-
-    private async Task CreateAccountAsync()
-    {
-        isSaving = true;
-        try
-        {
-            form.AssignedWarehouseCodes = string.IsNullOrWhiteSpace(selectedWarehouseCode)
-                ? new List<string>()
-                : new List<string> { selectedWarehouseCode };
-
-            var result = await Mediator.Send(new CreateMerchandiserAccountCommand(form));
-            if (result.IsError)
-            {
-                Snackbar.Add(result.FirstError.Description, Severity.Error);
-                return;
+        <style>
+            .macc-page {
+                min-height: 100vh;
+                padding: 1.5rem;
+                background:
+                    radial-gradient(circle at top left, rgba(14, 165, 233, 0.10), transparent 28%),
+                    linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
             }
 
-            Snackbar.Add($"Merchandiser account {result.Value} created successfully.", Severity.Success);
-
-            form.Username = string.Empty;
-            form.Email = string.Empty;
-            form.Password = string.Empty;
-            form.ConfirmPassword = string.Empty;
-            form.FirstName = string.Empty;
-            form.LastName = string.Empty;
-            form.AssignedCustomerCodes.Clear();
-            form.AssignedWarehouseCodes.Clear();
-            selectedWarehouseCode = string.Empty;
-            customerSearchTerm = string.Empty;
-            editContext = new EditContext(form);
-        }
-        finally
-        {
-            isSaving = false;
-        }
-    }
-
-    private void ToggleCustomer(string cardCode, bool isSelected)
-    {
-        if (isSelected)
-        {
-            if (!form.AssignedCustomerCodes.Contains(cardCode, StringComparer.OrdinalIgnoreCase))
-            {
-                form.AssignedCustomerCodes.Add(cardCode);
+            .macc-shell {
+                max-width: 1280px;
+                margin: 0 auto;
+                display: flex;
+                flex-direction: column;
+                gap: 1.25rem;
             }
-        }
-        else
-        {
-            form.AssignedCustomerCodes.RemoveAll(code => string.Equals(code, cardCode, StringComparison.OrdinalIgnoreCase));
-        }
 
-        editContext.NotifyFieldChanged(new FieldIdentifier(form, nameof(form.AssignedCustomerCodes)));
-    }
-}
+            .macc-header,
+            .macc-card,
+            .macc-state-card {
+                background: rgba(255, 255, 255, 0.92);
+                border: 1px solid rgba(148, 163, 184, 0.22);
+                border-radius: 24px;
+                box-shadow: 0 24px 60px rgba(15, 23, 42, 0.10);
+            }
+
+            .macc-header {
+                padding: 1.5rem 1.75rem;
+            }
+
+            .macc-header h1 {
+                margin: 0;
+                font-size: 2rem;
+                font-weight: 700;
+                color: #0f172a;
+            }
+
+            .macc-header p {
+                margin: .5rem 0 0;
+                color: #475569;
+            }
+
+            .macc-grid {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+                gap: 1.25rem;
+            }
+
+            .macc-card {
+                padding: 1.5rem;
+            }
+
+            .macc-account-section {
+                display: flex;
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .macc-card-header {
+                display: flex;
+                align-items: baseline;
+                justify-content: space-between;
+                gap: 1rem;
+                margin-bottom: 1rem;
+            }
+
+            .macc-card-header h2,
+            .macc-account-heading h3,
+            .macc-empty-state h3 {
+                margin: 0;
+                color: #0f172a;
+            }
+
+            .macc-card-header h2 {
+                font-size: 1.1rem;
+                font-weight: 700;
+            }
+
+            .macc-card-header span,
+            .macc-field small,
+            .macc-empty,
+            .macc-account-heading p,
+            .macc-empty-state p {
+                color: #64748b;
+            }
+
+            .macc-field-grid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 1rem;
+            }
+
+            .macc-field {
+                display: flex;
+                flex-direction: column;
+                gap: .45rem;
+                margin-bottom: 1rem;
+            }
+
+            .macc-field label {
+                font-size: .92rem;
+                font-weight: 600;
+                color: #1e293b;
+            }
+
+            .macc-input {
+                width: 100%;
+                min-height: 44px;
+                padding: .75rem .9rem;
+                border-radius: 14px;
+                border: 1px solid #cbd5e1;
+                background: #fff;
+                color: #0f172a;
+            }
+
+            .macc-input:focus {
+                outline: none;
+                border-color: #0ea5e9;
+                box-shadow: 0 0 0 4px rgba(14, 165, 233, .14);
+            }
+
+            .macc-customer-list,
+            .macc-account-list {
+                display: flex;
+                flex-direction: column;
+                gap: .75rem;
+            }
+
+            .macc-customer-list {
+                max-height: 420px;
+                overflow: auto;
+                padding-right: .25rem;
+            }
+
+            .macc-account-item,
+            .macc-editor-shell {
+                border-radius: 18px;
+                border: 1px solid #dbe4f0;
+                background: #f8fafc;
+            }
+
+            .macc-account-item {
+                overflow: hidden;
+            }
+
+            .macc-account-summary,
+            .macc-editor-shell {
+                padding: 1rem 1.1rem;
+            }
+
+            .macc-account-heading {
+                display: flex;
+                align-items: flex-start;
+                justify-content: space-between;
+                gap: 1rem;
+            }
+
+            .macc-account-heading h3 {
+                font-size: 1rem;
+                font-weight: 700;
+            }
+
+            .macc-account-heading p {
+                margin: .3rem 0 0;
+            }
+
+            .macc-status {
+                display: inline-flex;
+                align-items: center;
+                border-radius: 999px;
+                padding: .3rem .7rem;
+                font-size: .75rem;
+                font-weight: 700;
+            }
+
+            .macc-status.is-active {
+                background: rgba(16, 185, 129, 0.15);
+                color: #047857;
+            }
+
+            .macc-status.is-inactive {
+                background: rgba(248, 113, 113, 0.16);
+                color: #b91c1c;
+            }
+
+            .macc-chip-group,
+            .macc-bp-tags,
+            .macc-inline-actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: .6rem;
+            }
+
+            .macc-chip-group,
+            .macc-bp-tags {
+                margin-top: .9rem;
+            }
+
+            .macc-chip,
+            .macc-bp-tag {
+                display: inline-flex;
+                align-items: center;
+                border-radius: 999px;
+                padding: .35rem .75rem;
+                font-size: .78rem;
+                font-weight: 600;
+            }
+
+            .macc-chip-warehouse {
+                background: rgba(14, 165, 233, 0.12);
+                color: #0369a1;
+            }
+
+            .macc-chip-count,
+            .macc-bp-tag {
+                background: rgba(148, 163, 184, 0.14);
+                color: #334155;
+            }
+
+            .macc-bp-tag-muted {
+                background: rgba(15, 23, 42, 0.08);
+                color: #475569;
+            }
+
+            .macc-customer-item {
+                display: flex;
+                gap: .75rem;
+                align-items: flex-start;
+                padding: .85rem .9rem;
+                border-radius: 16px;
+                border: 1px solid #dbe4f0;
+                background: #f8fafc;
+                cursor: pointer;
+            }
+
+            .macc-customer-text {
+                display: flex;
+                flex-direction: column;
+                gap: .2rem;
+                color: #334155;
+            }
+
+            .macc-actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: .75rem;
+                margin-top: 1rem;
+            }
+
+            .macc-create-actions {
+                margin-top: 1.1rem;
+            }
+
+            .macc-inline-actions {
+                margin-top: 1rem;
+            }
+
+            .macc-submit,
+            .macc-secondary-button {
+                border: 0;
+                border-radius: 999px;
+                padding: .9rem 1.4rem;
+                min-width: 200px;
+                font-weight: 700;
+            }
+
+            .macc-submit {
+                color: #fff;
+                background: linear-gradient(135deg, #0284c7, #0f766e);
+                box-shadow: 0 16px 40px rgba(8, 47, 73, 0.22);
+            }
+
+            .macc-secondary-button {
+                color: #0f172a;
+                background: rgba(148, 163, 184, 0.18);
+            }
+
+            .macc-submit:disabled,
+            .macc-secondary-button:disabled {
+                opacity: .7;
+                cursor: wait;
+            }
+
+            .macc-state-card,
+            .macc-empty-state {
+                padding: 1.5rem;
+                display: flex;
+                align-items: center;
+                gap: .9rem;
+                color: #334155;
+            }
+
+            .macc-empty-state {
+                flex-direction: column;
+                align-items: flex-start;
+                border: 1px dashed #cbd5e1;
+                border-radius: 18px;
+                background: #f8fafc;
+            }
+
+            .macc-editor-shell {
+                margin: 0 1rem 1rem;
+                border-style: dashed;
+                background: rgba(255, 255, 255, 0.72);
+            }
+
+            .macc-editor-header {
+                margin-bottom: .75rem;
+            }
+
+            .macc-editor-list {
+                max-height: 320px;
+            }
+
+            .macc-spinner {
+                width: 20px;
+                height: 20px;
+                border-radius: 999px;
+                border: 3px solid rgba(14, 165, 233, .18);
+                border-top-color: #0284c7;
+                animation: macc-spin .8s linear infinite;
+            }
+
+            .validation-message {
+                color: #b91c1c;
+                font-size: .82rem;
+            }
+
+            :global(.dark-theme) .macc-page {
+                background:
+                    radial-gradient(circle at top left, rgba(56, 189, 248, 0.14), transparent 28%),
+                    linear-gradient(180deg, #0f172a 0%, #111827 100%);
+            }
+
+            :global(.dark-theme) .macc-header,
+            :global(.dark-theme) .macc-card,
+            :global(.dark-theme) .macc-state-card {
+                background: rgba(15, 23, 42, 0.92);
+                border-color: rgba(148, 163, 184, 0.18);
+                box-shadow: 0 24px 60px rgba(2, 6, 23, 0.35);
+            }
+
+            :global(.dark-theme) .macc-account-item,
+            :global(.dark-theme) .macc-customer-item,
+            :global(.dark-theme) .macc-editor-shell,
+            :global(.dark-theme) .macc-empty-state {
+                background: rgba(15, 23, 42, 0.7);
+                border-color: #334155;
+            }
+
+            :global(.dark-theme) .macc-header h1,
+            :global(.dark-theme) .macc-card-header h2,
+            :global(.dark-theme) .macc-account-heading h3,
+            :global(.dark-theme) .macc-field label,
+            :global(.dark-theme) .macc-customer-text,
+            :global(.dark-theme) .macc-empty-state h3,
+            :global(.dark-theme) .macc-secondary-button {
+                color: #e2e8f0;
+            }
+
+            :global(.dark-theme) .macc-header p,
+            :global(.dark-theme) .macc-card-header span,
+            :global(.dark-theme) .macc-field small,
+            :global(.dark-theme) .macc-empty,
+            :global(.dark-theme) .macc-state-card,
+            :global(.dark-theme) .macc-account-heading p,
+            :global(.dark-theme) .macc-empty-state p {
+                color: #94a3b8;
+            }
+
+            :global(.dark-theme) .macc-input {
+                background: #0f172a;
+                border-color: #334155;
+                color: #e2e8f0;
+            }
+
+            :global(.dark-theme) .macc-chip-warehouse {
+                background: rgba(14, 165, 233, 0.18);
+                color: #7dd3fc;
+            }
+
+            :global(.dark-theme) .macc-chip-count,
+            :global(.dark-theme) .macc-bp-tag,
+            :global(.dark-theme) .macc-bp-tag-muted,
+            :global(.dark-theme) .macc-secondary-button {
+                background: rgba(148, 163, 184, 0.16);
+                color: #cbd5e1;
+            }
+
+            :global(.dark-theme) .macc-status.is-active {
+                background: rgba(16, 185, 129, 0.18);
+                color: #6ee7b7;
+            }
+
+            :global(.dark-theme) .macc-status.is-inactive {
+                background: rgba(248, 113, 113, 0.18);
+                color: #fca5a5;
+            }
+
+            @@media (max-width: 900px) {
+
+                .macc-grid,
+                .macc-field-grid {
+                    grid-template-columns: 1fr;
+                }
+
+                .macc-page {
+                    padding: 1rem;
+                }
+
+                .macc-actions,
+                .macc-account-heading {
+                    flex-direction: column;
+                    align-items: stretch;
+                }
+            }
+
+            @@keyframes macc-spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+        </style>

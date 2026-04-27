@@ -978,7 +978,7 @@ false, message);
         catch (Exception ex)
         {
             Logger.LogError(ex, "Exception during HandleLogin");
-            errorMessage = $"An error occurred: {ex.Message}";
+            errorMessage = "Sign-in could not be completed right now. Please try again.";
         }
         finally
         {
@@ -1048,12 +1048,12 @@ false, message);
         catch (JSException ex)
         {
             Logger.LogWarning(ex, "Passkey browser interaction failed");
-            errorMessage = ex.Message;
+            errorMessage = GetSafePasskeyErrorMessage(ex.Message);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Exception during HandlePasskeyLogin");
-            errorMessage = $"An error occurred: {ex.Message}";
+            errorMessage = "Passkey sign-in could not be completed. Try again or use your password.";
         }
         finally
         {
@@ -1093,7 +1093,7 @@ false, message);
         catch (Exception ex)
         {
             Logger.LogError(ex, "Exception during 2FA challenge submission");
-            errorMessage = $"An error occurred: {ex.Message}";
+            errorMessage = "Two-factor verification could not be completed right now. Please try again.";
         }
         finally
         {
@@ -1108,5 +1108,34 @@ false, message);
         twoFactorCode = string.Empty;
         isBackupCode = false;
         errorMessage = null;
+    }
+
+    private static string GetSafePasskeyErrorMessage(string? message)
+    {
+        const string defaultMessage = "Passkey sign-in could not be completed. Try again or use your password.";
+
+        if (string.IsNullOrWhiteSpace(message))
+            return defaultMessage;
+
+        var normalizedMessage = message.ToLowerInvariant();
+
+        if (ContainsAny(normalizedMessage, "cancelled or timed out", "canceled or timed out", "notallowederror", "timed out", "not allowed"))
+            return "Passkey sign-in was cancelled or timed out. Try again when you are ready.";
+
+        if (ContainsAny(normalizedMessage, "passkeys are only available", "passkeys require a supported browser", "securityerror", "secure context", "https"))
+            return "Passkeys are only available in supported browsers over HTTPS or localhost.";
+
+        if (ContainsAny(normalizedMessage, "browser or device does not support", "notsupportederror", "not supported"))
+            return "This browser or device does not support passkeys for this action.";
+
+        if (ContainsAny(normalizedMessage, "interrupted", "aborterror"))
+            return "Passkey sign-in was interrupted. Try again.";
+
+        return defaultMessage;
+    }
+
+    private static bool ContainsAny(string value, params string[] terms)
+    {
+        return terms.Any(value.Contains);
     }
 }

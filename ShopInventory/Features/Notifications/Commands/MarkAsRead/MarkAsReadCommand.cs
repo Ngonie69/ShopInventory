@@ -5,5 +5,6 @@ namespace ShopInventory.Features.Notifications.Commands.MarkAsRead;
 
 public sealed record MarkAsReadCommand(
     List<int> NotificationIds,
-    string? Username
+    string? Username,
+    IReadOnlyList<string> Roles
 ) : IRequest<ErrorOr<Success>>;

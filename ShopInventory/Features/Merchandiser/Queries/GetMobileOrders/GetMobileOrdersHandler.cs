@@ -19,7 +19,10 @@ public sealed class GetMobileOrdersHandler(
         CancellationToken cancellationToken)
     {
         var page = Math.Max(request.Page, 1);
-        var pageSize = Math.Clamp(request.PageSize, 1, 50);
+        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+        var fromDate = NormalizeUtcDate(request.FromDate);
+        var toExclusive = NormalizeUtcDate(request.ToDate)?.AddDays(1);
+        var search = NormalizeSearchValue(request.Search);
 
         var query = context.SalesOrders
             .AsNoTracking()
@@ -28,20 +31,48 @@ public sealed class GetMobileOrdersHandler(
         if (request.Status.HasValue)
             query = query.Where(o => o.Status == request.Status.Value);
 
+        if (fromDate.HasValue)
+            query = query.Where(o => o.OrderDate >= fromDate.Value);
+
+        if (toExclusive.HasValue)
+            query = query.Where(o => o.OrderDate < toExclusive.Value);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var searchPattern = $"%{search}%";
+            if (TryParseOrderNumber(search, out var docNumber))
+            {
+                query = query.Where(o =>
+                    EF.Functions.ILike(o.OrderNumber, searchPattern) ||
+                    (o.CustomerRefNo != null && EF.Functions.ILike(o.CustomerRefNo, searchPattern)) ||
+                    o.SAPDocNum == docNumber ||
+                    o.SAPDocEntry == docNumber);
+            }
+            else
+            {
+                query = query.Where(o =>
+                    EF.Functions.ILike(o.OrderNumber, searchPattern) ||
+                    (o.CustomerRefNo != null && EF.Functions.ILike(o.CustomerRefNo, searchPattern)));
+            }
+        }
+
         var totalCount = await query.CountAsync(cancellationToken);
         var orders = await query
             .OrderByDescending(o => o.OrderDate)
+            .ThenByDescending(o => o.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Include(o => o.Lines)
             .Select(o => new SalesOrderDto
             {
                 Id = o.Id,
+                SAPDocEntry = o.SAPDocEntry,
+                SAPDocNum = o.SAPDocNum,
                 OrderNumber = o.OrderNumber,
                 OrderDate = o.OrderDate,
                 DeliveryDate = o.DeliveryDate,
                 CardCode = o.CardCode,
                 CardName = o.CardName,
+                CustomerRefNo = o.CustomerRefNo,
                 Status = o.Status,
                 Comments = o.Comments,
                 Currency = o.Currency,
@@ -49,21 +80,12 @@ public sealed class GetMobileOrdersHandler(
                 TaxAmount = o.TaxAmount,
                 DocTotal = o.DocTotal,
                 CreatedAt = o.CreatedAt,
+                UpdatedAt = o.UpdatedAt,
+                IsSynced = o.IsSynced,
                 Source = o.Source,
                 MerchandiserNotes = o.MerchandiserNotes,
                 Latitude = o.Latitude,
-                Longitude = o.Longitude,
-                Lines = o.Lines.Select(l => new SalesOrderLineDto
-                {
-                    Id = l.Id,
-                    LineNum = l.LineNum,
-                    ItemCode = l.ItemCode,
-                    ItemDescription = l.ItemDescription,
-                    Quantity = l.Quantity,
-                    UnitPrice = l.UnitPrice,
-                    LineTotal = l.LineTotal,
-                    UoMCode = l.UoMCode
-                }).ToList()
+                Longitude = o.Longitude
             })
             .ToListAsync(cancellationToken);
 
@@ -91,5 +113,27 @@ public sealed class GetMobileOrdersHandler(
         }
 
         return response;
+    }
+
+    private static DateTime? NormalizeUtcDate(DateTime? value)
+    {
+        if (!value.HasValue)
+            return null;
+
+        return DateTime.SpecifyKind(value.Value.Date, DateTimeKind.Utc);
+    }
+
+    private static string? NormalizeSearchValue(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static bool TryParseOrderNumber(string search, out int docNumber)
+    {
+        var normalized = search.Trim();
+        if (normalized.StartsWith("SAP-", StringComparison.OrdinalIgnoreCase))
+            normalized = normalized[4..];
+
+        return int.TryParse(normalized, out docNumber);
     }
 }

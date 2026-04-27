@@ -2,7 +2,7 @@
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @inject IPodService PodService
-@inject ICustomerLinkedAccountService LinkedAccountService
+@inject ICustomerPortalSessionService CustomerSession
 @inject IJSRuntime JSRuntime
 @inject ILogger<CustomerPods> Logger
 @attribute [AllowAnonymous]
@@ -666,6 +666,7 @@
 </style>
 
 @code {
+    private CustomerPortalSession? portalSession;
     private CustomerInfo? customerInfo;
     private PodAttachmentListResponse? podResponse;
     private bool isLoading = false;
@@ -699,19 +700,16 @@
     {
         try
         {
-            var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
+            portalSession = await CustomerSession.GetCurrentSessionAsync();
+            customerInfo = portalSession?.Customer;
 
-            if (!string.IsNullOrEmpty(customerInfoJson))
+            if (customerInfo != null)
             {
-                customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
-                if (customerInfo != null)
-                {
-                    isMultiAccount = customerInfo.AccountStructure == "Multi";
-                    if (isMultiAccount)
-                    {
-                        linkedAccounts = await LinkedAccountService.GetLinkedAccountsAsync(customerInfo.CardCode);
-                    }
-                }
+                isMultiAccount = customerInfo.AccountStructure == "Multi";
+                linkedAccounts = portalSession?.LinkedAccounts.ToList() ?? new List<LinkedAccountInfo>();
+                selectedAccountFilter = CustomerSession.CanAccessCardCode(portalSession, selectedAccountFilter)
+                    ? selectedAccountFilter
+                    : string.Empty;
             }
         }
         catch (Exception ex)
@@ -722,16 +720,20 @@
 
     private async Task<List<string>> ResolveCardCodesAsync()
     {
-        if (!string.IsNullOrEmpty(selectedAccountFilter))
+        var cardCodes = CustomerSession.ResolveAccessibleCardCodes(portalSession, selectedAccountFilter).ToList();
+        if (cardCodes.Count > 0)
         {
-            return new List<string> { selectedAccountFilter };
+            return cardCodes;
         }
 
-        // Get all linked account card codes, and always include the portal user's own CardCode
-        var cardCodes = await LinkedAccountService.GetAllCardCodesAsync(customerInfo!.CardCode);
-        if (!cardCodes.Contains(customerInfo.CardCode, StringComparer.OrdinalIgnoreCase))
-            cardCodes.Add(customerInfo.CardCode);
-        return cardCodes;
+        if (!string.IsNullOrEmpty(selectedAccountFilter))
+        {
+            Logger.LogWarning("Rejected unauthorized customer POD account access {CardCode}", selectedAccountFilter);
+            selectedAccountFilter = string.Empty;
+        }
+
+        await Task.CompletedTask;
+        return new List<string>();
     }
 
     private async Task LoadData()
@@ -775,6 +777,13 @@
 
     private async Task OnAccountFilterChanged(string value)
     {
+        if (!CustomerSession.CanAccessCardCode(portalSession, value))
+        {
+            Logger.LogWarning("Rejected unauthorized customer POD account filter {CardCode}", value);
+            selectedAccountFilter = string.Empty;
+            return;
+        }
+
         selectedAccountFilter = value;
         await LoadData();
     }
@@ -783,8 +792,20 @@
     {
         try
         {
-            var url = $"/download/pod/{pod.InvoiceDocEntry}/{pod.Id}";
-            await JSRuntime.InvokeVoidAsync("open", url, "_blank");
+            if (!CustomerSession.CanAccessCardCode(portalSession, pod.CardCode))
+            {
+                Logger.LogWarning("Rejected unauthorized customer POD download {PodId} for {CardCode}", pod.Id, pod.CardCode);
+                return;
+            }
+
+            var content = await PodService.DownloadPodAsync(pod.InvoiceDocEntry, pod.Id);
+            if (content == null || content.Length == 0)
+            {
+                return;
+            }
+
+            var contentType = pod.MimeType ?? "application/octet-stream";
+            await JSRuntime.InvokeVoidAsync("downloadFile", pod.FileName, contentType, Convert.ToBase64String(content));
         }
         catch (Exception ex)
         {
@@ -795,20 +816,63 @@
     private static bool IsViewable(string? mimeType) =>
         mimeType != null && (mimeType.StartsWith("image/") || mimeType == "application/pdf");
 
-    private void ViewPod(PodAttachmentItemDto pod)
+    private async Task ViewPod(PodAttachmentItemDto pod)
     {
-        viewerPod = pod;
-        viewerFileName = pod.FileName;
-        viewerMimeType = pod.MimeType;
-        viewerDataUri = $"/download/pod/{pod.InvoiceDocEntry}/{pod.Id}";
-        showViewer = true;
-        isLoadingViewer = false;
+        try
+        {
+            if (!CustomerSession.CanAccessCardCode(portalSession, pod.CardCode))
+            {
+                Logger.LogWarning("Rejected unauthorized customer POD view {PodId} for {CardCode}", pod.Id, pod.CardCode);
+                return;
+            }
+
+            await RevokeViewerDataUriAsync();
+
+            viewerPod = pod;
+            viewerFileName = pod.FileName;
+            viewerMimeType = pod.MimeType;
+            viewerDataUri = null;
+            showViewer = true;
+            isLoadingViewer = true;
+            StateHasChanged();
+
+            var content = await PodService.DownloadPodAsync(pod.InvoiceDocEntry, pod.Id);
+            if (content == null || content.Length == 0)
+            {
+                showViewer = false;
+                return;
+            }
+
+            viewerDataUri = await JSRuntime.InvokeAsync<string>(
+                "createObjectUrlFromBase64",
+                viewerMimeType ?? "application/octet-stream",
+                Convert.ToBase64String(content));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error viewing POD {PodId}", pod.Id);
+            showViewer = false;
+        }
+        finally
+        {
+            isLoadingViewer = false;
+            StateHasChanged();
+        }
     }
 
-    private void CloseViewer()
+    private async Task CloseViewer()
     {
         showViewer = false;
-        viewerDataUri = null;
+        await RevokeViewerDataUriAsync();
         viewerPod = null;
+    }
+
+    private async Task RevokeViewerDataUriAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(viewerDataUri))
+        {
+            await JSRuntime.InvokeVoidAsync("revokeObjectUrl", viewerDataUri);
+            viewerDataUri = null;
+        }
     }
 }

@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Extensions;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -30,9 +31,12 @@ public sealed class UpdateUserHandler(
 
         var request = command.Request;
 
-        if (!string.IsNullOrEmpty(request.Email) && request.Email != user.Email)
+        if (!string.IsNullOrEmpty(request.Email) && !string.Equals(request.Email, user.Email, StringComparison.OrdinalIgnoreCase))
         {
-            if (await context.Users.AnyAsync(u => u.Email == request.Email && u.Id != command.Id, cancellationToken))
+            if (await context.Users
+                .Where(u => u.Id != command.Id)
+                .WhereEmailMatches(request.Email)
+                .AnyAsync(cancellationToken))
             {
                 return Errors.User.UpdateFailed("Email already exists");
             }

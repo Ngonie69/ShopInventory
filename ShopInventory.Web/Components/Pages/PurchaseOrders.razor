@@ -829,17 +829,86 @@
     @@media (max-width:768px) {
         .po-header {
             flex-direction: column;
+            align-items: stretch;
+            gap: .85rem;
+        }
+
+        .btn-po-gradient {
+            width: 100%;
+            justify-content: center;
         }
 
         .filter-bar {
             flex-direction: column;
+            padding: .85rem;
+        }
+
+        .source-toggle {
+            width: 100%;
+        }
+
+        .source-btn {
+            flex: 1 1 0;
+            justify-content: center;
+        }
+
+        .filter-bar .filter-field {
+            min-width: 100%;
+            flex: 1 1 100%;
+        }
+
+        .filter-actions-row {
+            width: 100%;
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .filter-actions-row > * {
+            width: 100%;
+            justify-content: center;
         }
 
         .stat-row {
             grid-template-columns: 1fr 1fr;
         }
 
+        .po-table-header {
+            flex-direction: column;
+            align-items: stretch;
+            gap: .75rem;
+        }
+
         .detail-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .detail-drawer,
+        .receive-modal {
+            width: 100vw;
+            max-width: 100vw;
+        }
+
+        .receive-modal {
+            height: 100vh;
+            max-height: 100vh;
+            border-radius: 0;
+        }
+
+        .drawer-footer,
+        .receive-modal-footer {
+            flex-direction: column-reverse;
+            align-items: stretch;
+        }
+
+        .drawer-footer > *,
+        .receive-modal-footer > * {
+            width: 100%;
+            justify-content: center;
+        }
+    }
+
+    @@media (max-width:640px) {
+        .stat-row {
             grid-template-columns: 1fr;
         }
     }
@@ -991,7 +1060,7 @@
                             <span class="po-count-badge">@totalCount total</span>
                         </div>
                         <MudTable @ref="@_table" Items="@orders" RowsPerPage="@_pageSize" Hover="true" Striped="true" Dense="true"
-                                  Breakpoint="Breakpoint.Sm" Loading="@isLoading" LoadingProgressColor="Color.Primary"
+                                  Breakpoint="Breakpoint.Md" Loading="@isLoading" LoadingProgressColor="Color.Primary"
                                   T="PurchaseOrderDto" Elevation="0" Style="background:transparent;">
                             <HeaderContent>
                                 <MudTh>Order #</MudTh>
@@ -1175,6 +1244,7 @@
                         @if (selectedOrder.Lines?.Any() == true)
                         {
                             <div class="detail-section-title"><i class="bi bi-list-ul"></i> Order Lines</div>
+                            <div style="overflow-x:auto;">
                             <table class="lines-table">
                                 <thead>
                                     <tr>
@@ -1230,6 +1300,7 @@
                                             }
                                         </tfoot>
                                     </table>
+                                    </div>
 
                                     <div class="total-banner">
                                         <span class="total-label">Total Amount</span>
@@ -1274,6 +1345,7 @@
                                         </div>
                                     }
 
+                                    <div style="overflow-x:auto;">
                                     <table class="lines-table">
                                         <thead>
                                             <tr>
@@ -1313,6 +1385,7 @@
                                             }
                                         </tbody>
                                     </table>
+                                    </div>
 
                                     <div style="margin-top:1rem;">
                                         <label

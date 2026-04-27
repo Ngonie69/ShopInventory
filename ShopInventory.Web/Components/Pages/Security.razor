@@ -6,6 +6,7 @@
 @inject IAuditService AuditService
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
+@inject ILogger<Security> Logger
 @attribute [Authorize]
 @rendermode InteractiveServer
 
@@ -1534,16 +1535,50 @@
         }
         catch (JSException ex)
         {
-            passkeyErrorMessage = ex.Message;
+            Logger.LogWarning(ex, "Passkey browser interaction failed during registration");
+            passkeyErrorMessage = GetSafePasskeyRegistrationErrorMessage(ex.Message);
         }
         catch (Exception ex)
         {
-            passkeyErrorMessage = $"Error registering passkey: {ex.Message}";
+            Logger.LogError(ex, "Unexpected error during passkey registration");
+            passkeyErrorMessage = "Passkey registration could not be completed right now. Please try again.";
         }
         finally
         {
             isRegisteringPasskey = false;
         }
+    }
+
+    private static string GetSafePasskeyRegistrationErrorMessage(string? message)
+    {
+        const string defaultMessage = "Passkey registration could not be completed right now. Please try again.";
+
+        if (string.IsNullOrWhiteSpace(message))
+            return defaultMessage;
+
+        var normalizedMessage = message.ToLowerInvariant();
+
+        if (ContainsAny(normalizedMessage, "cancelled or timed out", "canceled or timed out", "notallowederror", "timed out", "not allowed"))
+            return "Passkey registration was cancelled or timed out. Try again when you are ready.";
+
+        if (ContainsAny(normalizedMessage, "passkeys are only available", "passkeys require a supported browser", "securityerror", "secure context", "https"))
+            return "Passkeys are only available in supported browsers over HTTPS or localhost.";
+
+        if (ContainsAny(normalizedMessage, "browser or device does not support", "notsupportederror", "not supported"))
+            return "This browser or device does not support passkeys for this action.";
+
+        if (ContainsAny(normalizedMessage, "already registered", "invalidstateerror"))
+            return "This passkey is already registered on this device or account.";
+
+        if (ContainsAny(normalizedMessage, "interrupted", "aborterror"))
+            return "Passkey registration was interrupted. Try again.";
+
+        return defaultMessage;
+    }
+
+    private static bool ContainsAny(string value, params string[] terms)
+    {
+        return terms.Any(value.Contains);
     }
 
     private async Task LoadRecentActivityAsync()

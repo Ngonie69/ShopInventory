@@ -257,6 +257,106 @@ window.downloadFile = function (fileName, contentTypeOrBase64, base64Content) {
     window.URL.revokeObjectURL(url);
 };
 
+function getStoredBearerToken(tokenKey) {
+    const key = tokenKey || 'authToken';
+    const token = normalizeStoredToken(localStorage.getItem(key));
+    if (!token) {
+        throw new Error('Authentication token is missing. Please sign in again.');
+    }
+
+    return token;
+}
+
+function normalizeStoredToken(value) {
+    if (!value) {
+        return '';
+    }
+
+    const trimmed = String(value).trim();
+    if (!trimmed) {
+        return '';
+    }
+
+    try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed === 'string') {
+            return parsed.trim();
+        }
+    } catch {
+        // Tokens written without Blazored.LocalStorage JSON serialization are already usable.
+    }
+
+    return trimmed;
+}
+
+function getFileNameFromDisposition(disposition, fallbackFileName) {
+    if (!disposition) {
+        return fallbackFileName || 'download';
+    }
+
+    const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match?.[1]) {
+        return decodeURIComponent(utf8Match[1].replace(/"/g, '').trim());
+    }
+
+    const fileNameMatch = disposition.match(/filename="?([^";]+)"?/i);
+    return fileNameMatch?.[1]?.trim() || fallbackFileName || 'download';
+}
+
+async function fetchAuthenticatedBlob(url, tokenKey, fallbackFileName) {
+    const token = getStoredBearerToken(tokenKey);
+    const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${token}`
+        },
+        credentials: 'same-origin'
+    });
+
+    if (!response.ok) {
+        throw new Error(`Download failed with status ${response.status}`);
+    }
+
+    return {
+        blob: await response.blob(),
+        fileName: getFileNameFromDisposition(response.headers.get('Content-Disposition'), fallbackFileName)
+    };
+}
+
+window.downloadAuthenticatedFile = async function (url, fallbackFileName, tokenKey) {
+    const result = await fetchAuthenticatedBlob(url, tokenKey || 'authToken', fallbackFileName);
+    const objectUrl = URL.createObjectURL(result.blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = result.fileName || fallbackFileName || 'download';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 5000);
+};
+
+window.createAuthenticatedObjectUrl = async function (url, tokenKey) {
+    const result = await fetchAuthenticatedBlob(url, tokenKey || 'authToken');
+    return URL.createObjectURL(result.blob);
+};
+
+window.createObjectUrlFromBase64 = function (contentType, base64Content) {
+    const binaryString = atob(base64Content);
+    const byteArray = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+        byteArray[i] = binaryString.charCodeAt(i);
+    }
+
+    const blob = new Blob([byteArray], { type: contentType || 'application/octet-stream' });
+    return URL.createObjectURL(blob);
+};
+
+window.revokeObjectUrl = function (url) {
+    if (url && url.startsWith('blob:')) {
+        URL.revokeObjectURL(url);
+    }
+};
+
 // Print HTML content using a hidden iframe (avoids popup blocker issues in Blazor Server)
 window.printReportHtml = function (htmlContent) {
     var iframe = document.getElementById('_reportPrintFrame');

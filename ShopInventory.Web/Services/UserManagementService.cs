@@ -1,4 +1,7 @@
+using Blazored.LocalStorage;
 using ShopInventory.Web.Models;
+using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 
@@ -19,6 +22,8 @@ public interface IUserManagementService
     Task CreateUserAsync(string username, string email, string password, string role);
     Task CreateUserAsync(UserFormModel model);
     Task CreateMerchandiserAccountAsync(CreateMerchandiserAccountFormModel model, CancellationToken cancellationToken = default);
+    Task<List<ManagedMerchandiserAccountModel>> GetManagedMerchandiserAccountsAsync(CancellationToken cancellationToken = default);
+    Task UpdateMerchandiserAssignedCustomersAsync(Guid userId, IReadOnlyCollection<string> assignedWarehouseCodes, IReadOnlyCollection<string> assignedCustomerCodes, CancellationToken cancellationToken = default);
     Task UpdateUserAsync(Guid id, string email, string role);
     Task UpdateUserAsync(Guid id, UserFormModel model);
     Task DeleteUserAsync(Guid id);
@@ -40,12 +45,17 @@ public interface IUserManagementService
 /// </summary>
 public class UserManagementService : IUserManagementService
 {
-    private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILocalStorageService _localStorage;
     private readonly ILogger<UserManagementService> _logger;
 
-    public UserManagementService(HttpClient httpClient, ILogger<UserManagementService> logger)
+    public UserManagementService(
+        IHttpClientFactory httpClientFactory,
+        ILocalStorageService localStorage,
+        ILogger<UserManagementService> logger)
     {
-        _httpClient = httpClient;
+        _httpClientFactory = httpClientFactory;
+        _localStorage = localStorage;
         _logger = logger;
     }
 
@@ -53,6 +63,7 @@ public class UserManagementService : IUserManagementService
     {
         try
         {
+            var client = await CreateAuthenticatedClientAsync();
             var url = $"api/usermanagement?page={page}&pageSize={pageSize}";
             if (!string.IsNullOrEmpty(search)) url += $"&search={Uri.EscapeDataString(search)}";
             if (!string.IsNullOrEmpty(role)) url += $"&role={role}";
@@ -61,7 +72,7 @@ public class UserManagementService : IUserManagementService
                 if (status == "active") url += "&isActive=true";
                 else if (status == "inactive") url += "&isActive=false";
             }
-            return await _httpClient.GetFromJsonAsync<UserListResponse>(url) ?? new UserListResponse();
+            return await client.GetFromJsonAsync<UserListResponse>(url) ?? new UserListResponse();
         }
         catch (Exception ex)
         {
@@ -74,7 +85,8 @@ public class UserManagementService : IUserManagementService
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<UserModel>($"api/user/{id}");
+            var client = await CreateAuthenticatedClientAsync();
+            return await client.GetFromJsonAsync<UserModel>($"api/user/{id}");
         }
         catch (Exception ex)
         {
@@ -85,7 +97,8 @@ public class UserManagementService : IUserManagementService
 
     public async Task CreateUserAsync(string username, string email, string password, string role)
     {
-        var response = await _httpClient.PostAsJsonAsync("api/user", new CreateUserRequest
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.PostAsJsonAsync("api/user", new CreateUserRequest
         {
             Username = username,
             Email = email,
@@ -95,14 +108,14 @@ public class UserManagementService : IUserManagementService
 
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadAsStringAsync();
-            throw new Exception($"Failed to create user: {error}");
+            await ThrowApiExceptionAsync(response, "Failed to create user.");
         }
     }
 
     public async Task UpdateUserAsync(Guid id, string email, string role)
     {
-        var response = await _httpClient.PutAsJsonAsync($"api/user/{id}", new UpdateUserRequest
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.PutAsJsonAsync($"api/user/{id}", new UpdateUserRequest
         {
             Email = email,
             Role = role
@@ -110,81 +123,62 @@ public class UserManagementService : IUserManagementService
 
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadAsStringAsync();
-            throw new Exception($"Failed to update user: {error}");
+            await ThrowApiExceptionAsync(response, "Failed to update user.");
         }
     }
 
     public async Task DeleteUserAsync(Guid id)
     {
-        var response = await _httpClient.DeleteAsync($"api/user/{id}");
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.DeleteAsync($"api/user/{id}");
 
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadAsStringAsync();
-            throw new Exception($"Failed to delete user: {error}");
+            await ThrowApiExceptionAsync(response, "Failed to delete user.");
         }
     }
 
     public async Task ChangePasswordAsync(Guid id, string newPassword)
     {
-        var response = await _httpClient.PostAsJsonAsync($"api/user/{id}/change-password", new { NewPassword = newPassword });
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.PostAsJsonAsync($"api/user/{id}/change-password", new { NewPassword = newPassword });
 
         if (!response.IsSuccessStatusCode)
         {
-            var errorBody = await response.Content.ReadAsStringAsync();
-            var message = "An unexpected error occurred";
-            try
-            {
-                if (!string.IsNullOrWhiteSpace(errorBody))
-                {
-                    var errorObj = System.Text.Json.JsonDocument.Parse(errorBody);
-                    if (errorObj.RootElement.TryGetProperty("message", out var msgProp))
-                        message = msgProp.GetString() ?? message;
-                    else if (errorObj.RootElement.TryGetProperty("Message", out var msgProp2))
-                        message = msgProp2.GetString() ?? message;
-                }
-            }
-            catch { /* not JSON, use default */ }
-
-            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
-                response.StatusCode == System.Net.HttpStatusCode.Forbidden)
-                message = "Authentication failed. Please log out and log in again.";
-
-            throw new Exception(message);
+            await ThrowApiExceptionAsync(response, "Failed to change password.");
         }
     }
 
     public async Task UnlockUserAsync(Guid id)
     {
-        var response = await _httpClient.PostAsync($"api/user/{id}/unlock", null);
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.PostAsync($"api/user/{id}/unlock", null);
 
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadAsStringAsync();
-            throw new Exception($"Failed to unlock user: {error}");
+            await ThrowApiExceptionAsync(response, "Failed to unlock user.");
         }
     }
 
     public async Task ActivateUserAsync(Guid id)
     {
-        var response = await _httpClient.PostAsync($"api/user/{id}/activate", null);
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.PostAsync($"api/user/{id}/activate", null);
 
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadAsStringAsync();
-            throw new Exception($"Failed to activate user: {error}");
+            await ThrowApiExceptionAsync(response, "Failed to activate user.");
         }
     }
 
     public async Task DeactivateUserAsync(Guid id)
     {
-        var response = await _httpClient.PostAsync($"api/user/{id}/deactivate", null);
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.PostAsync($"api/user/{id}/deactivate", null);
 
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadAsStringAsync();
-            throw new Exception($"Failed to deactivate user: {error}");
+            await ThrowApiExceptionAsync(response, "Failed to deactivate user.");
         }
     }
 
@@ -192,7 +186,8 @@ public class UserManagementService : IUserManagementService
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<List<string>>("api/user/roles") ?? new List<string>();
+            var client = await CreateAuthenticatedClientAsync();
+            return await client.GetFromJsonAsync<List<string>>("api/user/roles") ?? new List<string>();
         }
         catch (Exception ex)
         {
@@ -203,7 +198,8 @@ public class UserManagementService : IUserManagementService
 
     public async Task CreateUserAsync(UserFormModel model)
     {
-        var response = await _httpClient.PostAsJsonAsync("api/usermanagement", new
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.PostAsJsonAsync("api/usermanagement", new
         {
             Username = model.Username,
             Email = model.Email,
@@ -221,14 +217,14 @@ public class UserManagementService : IUserManagementService
 
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadAsStringAsync();
-            throw new Exception($"Failed to create user: {error}");
+            await ThrowApiExceptionAsync(response, "Failed to create user.");
         }
     }
 
     public async Task CreateMerchandiserAccountAsync(CreateMerchandiserAccountFormModel model, CancellationToken cancellationToken = default)
     {
-        var response = await _httpClient.PostAsJsonAsync("api/usermanagement", new
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.PostAsJsonAsync("api/usermanagement", new
         {
             Username = model.Username,
             Email = model.Email,
@@ -245,13 +241,52 @@ public class UserManagementService : IUserManagementService
             return;
         }
 
-        var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-        throw new HttpRequestException(ExtractApiErrorMessage(errorBody), null, response.StatusCode);
+        await ThrowApiExceptionAsync(response, "Failed to create merchandiser account.");
+    }
+
+    public async Task<List<ManagedMerchandiserAccountModel>> GetManagedMerchandiserAccountsAsync(CancellationToken cancellationToken = default)
+    {
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.GetAsync("api/usermanagement/merchandisers", cancellationToken);
+
+        if (response.IsSuccessStatusCode)
+        {
+            return await response.Content.ReadFromJsonAsync<List<ManagedMerchandiserAccountModel>>(cancellationToken: cancellationToken)
+                ?? new List<ManagedMerchandiserAccountModel>();
+        }
+
+        await ThrowApiExceptionAsync(response, "Failed to load merchandiser accounts.");
+        return new List<ManagedMerchandiserAccountModel>();
+    }
+
+    public async Task UpdateMerchandiserAssignedCustomersAsync(
+        Guid userId,
+        IReadOnlyCollection<string> assignedWarehouseCodes,
+        IReadOnlyCollection<string> assignedCustomerCodes,
+        CancellationToken cancellationToken = default)
+    {
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.PutAsJsonAsync(
+            $"api/usermanagement/merchandisers/{userId}/assigned-customers",
+            new
+            {
+                AssignedWarehouseCodes = assignedWarehouseCodes,
+                AssignedCustomerCodes = assignedCustomerCodes
+            },
+            cancellationToken);
+
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        await ThrowApiExceptionAsync(response, "Failed to update assigned customers.");
     }
 
     public async Task UpdateUserAsync(Guid id, UserFormModel model)
     {
-        var response = await _httpClient.PutAsJsonAsync($"api/usermanagement/{id}", new
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.PutAsJsonAsync($"api/usermanagement/{id}", new
         {
             Email = model.Email,
             FirstName = model.FirstName,
@@ -268,8 +303,7 @@ public class UserManagementService : IUserManagementService
 
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadAsStringAsync();
-            throw new Exception($"Failed to update user: {error}");
+            await ThrowApiExceptionAsync(response, "Failed to update user.");
         }
     }
 
@@ -277,7 +311,8 @@ public class UserManagementService : IUserManagementService
     {
         try
         {
-            var response = await _httpClient.GetFromJsonAsync<AvailablePermissionsResponse>("api/usermanagement/permissions/available");
+            var client = await CreateAuthenticatedClientAsync();
+            var response = await client.GetFromJsonAsync<AvailablePermissionsResponse>("api/usermanagement/permissions/available");
             return response?.PermissionsByCategory;
         }
         catch (Exception ex)
@@ -289,7 +324,8 @@ public class UserManagementService : IUserManagementService
 
     public async Task UpdateUserPermissionsAsync(Guid userId, List<string> permissions)
     {
-        var response = await _httpClient.PutAsJsonAsync($"api/usermanagement/{userId}/permissions", new
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.PutAsJsonAsync($"api/usermanagement/{userId}/permissions", new
         {
             Permissions = permissions,
             ReplaceAll = true
@@ -297,19 +333,18 @@ public class UserManagementService : IUserManagementService
 
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadAsStringAsync();
-            throw new Exception($"Failed to update permissions: {error}");
+            await ThrowApiExceptionAsync(response, "Failed to update permissions.");
         }
     }
 
     public async Task ResetTwoFactorAsync(Guid userId)
     {
-        var response = await _httpClient.PostAsync($"api/usermanagement/{userId}/reset-2fa", null);
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.PostAsync($"api/usermanagement/{userId}/reset-2fa", null);
 
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadAsStringAsync();
-            throw new Exception($"Failed to reset 2FA: {error}");
+            await ThrowApiExceptionAsync(response, "Failed to reset 2FA.");
         }
     }
 
@@ -334,59 +369,142 @@ public class UserManagementService : IUserManagementService
         }
     }
 
-    private static string ExtractApiErrorMessage(string errorBody)
+    private async Task<HttpClient> CreateAuthenticatedClientAsync()
     {
-        if (string.IsNullOrWhiteSpace(errorBody))
-        {
-            return "Request failed.";
-        }
-
         try
         {
-            using var document = JsonDocument.Parse(errorBody);
-            var root = document.RootElement;
-
-            if (root.TryGetProperty("errors", out var errorsElement) && errorsElement.ValueKind == JsonValueKind.Object)
+            var token = await _localStorage.GetItemAsync<string>("authToken");
+            if (string.IsNullOrWhiteSpace(token))
             {
-                foreach (var property in errorsElement.EnumerateObject())
+                _logger.LogWarning("Missing auth token for user management API call");
+                throw new HttpRequestException(
+                    "Authentication failed. Please log out and log in again.",
+                    null,
+                    HttpStatusCode.Unauthorized);
+            }
+
+            var client = _httpClientFactory.CreateClient("ShopInventoryApiUser");
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            return client;
+        }
+        catch (HttpRequestException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not access auth token for user management API call");
+            throw new HttpRequestException(
+                "Authentication failed. Please log out and log in again.",
+                null,
+                HttpStatusCode.Unauthorized);
+        }
+    }
+
+    private static async Task ThrowApiExceptionAsync(HttpResponseMessage response, string fallbackMessage)
+    {
+        var errorBody = await response.Content.ReadAsStringAsync();
+        throw new HttpRequestException(
+            ExtractApiErrorMessage(errorBody, response.StatusCode, fallbackMessage),
+            null,
+            response.StatusCode);
+    }
+
+    private static string ExtractApiErrorMessage(
+        string errorBody,
+        HttpStatusCode? statusCode = null,
+        string? fallbackMessage = null)
+    {
+        string? extractedMessage = null;
+
+        if (!string.IsNullOrWhiteSpace(errorBody))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(errorBody);
+                var root = document.RootElement;
+
+                if (root.TryGetProperty("errors", out var errorsElement) && errorsElement.ValueKind == JsonValueKind.Object)
                 {
-                    if (property.Value.ValueKind == JsonValueKind.Array)
+                    foreach (var property in errorsElement.EnumerateObject())
                     {
-                        foreach (var error in property.Value.EnumerateArray())
+                        if (property.Value.ValueKind == JsonValueKind.Array)
                         {
-                            var message = error.GetString();
-                            if (!string.IsNullOrWhiteSpace(message))
+                            foreach (var error in property.Value.EnumerateArray())
                             {
-                                return message;
+                                var message = error.GetString();
+                                if (!string.IsNullOrWhiteSpace(message))
+                                {
+                                    extractedMessage = message;
+                                    break;
+                                }
                             }
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(extractedMessage))
+                        {
+                            break;
                         }
                     }
                 }
-            }
 
-            if (root.TryGetProperty("title", out var titleElement))
-            {
-                var title = titleElement.GetString();
-                if (!string.IsNullOrWhiteSpace(title))
+                if (string.IsNullOrWhiteSpace(extractedMessage) && root.TryGetProperty("title", out var titleElement))
                 {
-                    return title;
+                    var title = titleElement.GetString();
+                    if (!string.IsNullOrWhiteSpace(title))
+                    {
+                        extractedMessage = title;
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(extractedMessage) && root.TryGetProperty("message", out var messageElement))
+                {
+                    var message = messageElement.GetString();
+                    if (!string.IsNullOrWhiteSpace(message))
+                    {
+                        extractedMessage = message;
+                    }
                 }
             }
-
-            if (root.TryGetProperty("message", out var messageElement))
+            catch (JsonException)
             {
-                var message = messageElement.GetString();
-                if (!string.IsNullOrWhiteSpace(message))
-                {
-                    return message;
-                }
             }
         }
-        catch (JsonException)
+
+        if (statusCode == HttpStatusCode.Unauthorized)
         {
+            return "Authentication failed. Please log out and log in again.";
         }
 
-        return errorBody;
+        if (statusCode == HttpStatusCode.Forbidden)
+        {
+            if (ContainsAuthenticationFailure(extractedMessage) || ContainsAuthenticationFailure(errorBody))
+            {
+                return "Authentication failed. Please log out and log in again.";
+            }
+
+            return "You do not have permission to perform this action.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(extractedMessage))
+        {
+            return extractedMessage;
+        }
+
+        if (!string.IsNullOrWhiteSpace(fallbackMessage))
+        {
+            return fallbackMessage;
+        }
+
+        return string.IsNullOrWhiteSpace(errorBody) ? "Request failed." : errorBody;
+    }
+
+    private static bool ContainsAuthenticationFailure(string? message)
+    {
+        return !string.IsNullOrWhiteSpace(message) &&
+               (message.Contains("not authenticated", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("unauthenticated", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("authentication failed", StringComparison.OrdinalIgnoreCase));
     }
 }
 

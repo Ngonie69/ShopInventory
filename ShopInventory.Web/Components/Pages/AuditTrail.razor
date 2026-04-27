@@ -180,25 +180,25 @@
                             @foreach (var log in filteredLogs)
                             {
                                 <tr class="@(log.IsSuccess ? "" : "row-failed")" @onclick="() => SelectLog(log)">
-                                    <td class="col-timestamp">
+                                    <td class="col-timestamp" data-label="Timestamp">
                                         <div class="timestamp-cell">
                                             <span class="ts-date">@IAuditService.ToCAT(log.Timestamp).ToString("dd MMM yyyy")</span>
                                             <span class="ts-time">@IAuditService.ToCAT(log.Timestamp).ToString("HH:mm:ss")</span>
                                         </div>
                                     </td>
-                                    <td class="col-user">
+                                    <td class="col-user" data-label="User">
                                         <div class="user-cell">
                                             <div class="user-avatar">@GetInitials(log.Username)</div>
                                             <span class="user-name">@log.Username</span>
                                         </div>
                                     </td>
-                                    <td class="col-role">
+                                    <td class="col-role" data-label="Role">
                                         <span class="role-badge @GetRoleBadgeClass(log.UserRole)">@log.UserRole</span>
                                     </td>
-                                    <td class="col-action">
+                                    <td class="col-action" data-label="Action">
                                         <span class="action-badge @GetActionBadgeClass(log.Action)">@FormatAction(log.Action)</span>
                                     </td>
-                                    <td class="col-details">
+                                    <td class="col-details" data-label="Details">
                                         <div class="details-cell">
                                             @if (!string.IsNullOrEmpty(log.EntityType))
                                             {
@@ -216,7 +216,7 @@
                                             }
                                         </div>
                                     </td>
-                                    <td class="col-status">
+                                    <td class="col-status" data-label="Status">
                                         @if (log.IsSuccess)
                                         {
                                             <span class="status-badge status-success">
@@ -1371,6 +1371,120 @@
                 background: #450a0a55;
             }
 
+            /* Effective dark theme overrides for the app's .dark-theme root class */
+            .dark-theme .audit-page {
+                color: #e2e8f0;
+            }
+
+            .dark-theme .audit-page .header-title,
+            .dark-theme .audit-page .stat-value,
+            .dark-theme .audit-page .table-title,
+            .dark-theme .audit-page .ts-date,
+            .dark-theme .audit-page .user-name,
+            .dark-theme .audit-page .detail-value {
+                color: #f8fafc !important;
+            }
+
+            .dark-theme .audit-page .header-subtitle,
+            .dark-theme .audit-page .stat-label,
+            .dark-theme .audit-page .filter-label,
+            .dark-theme .audit-page .record-count,
+            .dark-theme .audit-page .ts-time,
+            .dark-theme .audit-page .detail-label,
+            .dark-theme .audit-page .detail-text,
+            .dark-theme .audit-page .page-info {
+                color: #94a3b8 !important;
+            }
+
+            .dark-theme .audit-page .stat-card,
+            .dark-theme .audit-page .filter-panel,
+            .dark-theme .audit-page .table-container,
+            .dark-theme .audit-page .detail-drawer {
+                background: #111827 !important;
+                border-color: #334155 !important;
+                color: #e2e8f0 !important;
+            }
+
+            .dark-theme .audit-page .filter-header,
+            .dark-theme .audit-page .audit-table thead th,
+            .dark-theme .audit-page .search-box,
+            .dark-theme .audit-page .filter-select,
+            .dark-theme .audit-page .page-btn,
+            .dark-theme .audit-page .detail-pre {
+                background: #0f172a !important;
+                border-color: #334155 !important;
+                color: #e2e8f0 !important;
+            }
+
+            .dark-theme .audit-page .filter-select,
+            .dark-theme .audit-page .search-box input {
+                color: #f8fafc !important;
+            }
+
+            .dark-theme .audit-page .search-box input::placeholder {
+                color: #64748b;
+            }
+
+            .dark-theme .audit-page .table-toolbar,
+            .dark-theme .audit-page .table-footer,
+            .dark-theme .audit-page .audit-table thead th,
+            .dark-theme .audit-page .audit-table tbody tr,
+            .dark-theme .audit-page .audit-table td {
+                border-color: #334155 !important;
+            }
+
+            .dark-theme .audit-page .audit-table td {
+                color: #cbd5e1 !important;
+            }
+
+            .dark-theme .audit-page .audit-table tbody tr:hover,
+            .dark-theme .audit-page .page-btn:hover:not(:disabled) {
+                background: #1e293b !important;
+            }
+
+            .dark-theme .audit-page .audit-table tbody tr.row-failed {
+                background: rgba(127, 29, 29, .32) !important;
+            }
+
+            .dark-theme .audit-page .audit-table tbody tr.row-failed:hover {
+                background: rgba(127, 29, 29, .48) !important;
+            }
+
+            .dark-theme .audit-page .detail-drawer {
+                box-shadow: -10px 0 32px rgba(0, 0, 0, .45);
+            }
+
+            .dark-theme .audit-page .drawer-body {
+                background: #111827 !important;
+            }
+
+            .dark-theme .audit-page .detail-pre {
+                white-space: pre-wrap;
+                word-break: break-word;
+            }
+
+            .dark-theme .audit-page .entity-tag,
+            .dark-theme .audit-page .role-default,
+            .dark-theme .audit-page .action-default {
+                background: #1e293b !important;
+                color: #cbd5e1 !important;
+            }
+
+            .dark-theme .audit-page .empty-state h3 {
+                color: #cbd5e1 !important;
+            }
+
+            .dark-theme .audit-page .empty-state,
+            .dark-theme .audit-page .empty-state p {
+                color: #94a3b8 !important;
+            }
+
+            .dark-theme .audit-page .alert-error {
+                background: #450a0a !important;
+                border-color: #7f1d1d !important;
+                color: #fca5a5 !important;
+            }
+
             /* ===== Responsive ===== */
             @@media (max-width: 768px) {
                 .audit-page {
@@ -1396,8 +1510,102 @@
                     justify-content: flex-start;
                 }
 
+                .table-toolbar {
+                    align-items: stretch;
+                }
+
+                .search-box {
+                    min-width: 0;
+                    width: 100%;
+                }
+
                 .stats-grid {
                     grid-template-columns: repeat(2, 1fr);
+                }
+
+                .audit-table thead {
+                    display: none;
+                }
+
+                .audit-table,
+                .audit-table tbody,
+                .audit-table tr,
+                .audit-table td {
+                    display: block;
+                    width: 100%;
+                }
+
+                .audit-table-wrap {
+                    padding: .85rem;
+                }
+
+                .audit-table tbody {
+                    display: grid;
+                    gap: .85rem;
+                }
+
+                .audit-table tbody tr {
+                    border: 1px solid #e5e7eb;
+                    border-radius: 12px;
+                    overflow: hidden;
+                    background: white;
+                    box-shadow: 0 8px 20px rgba(15, 23, 42, .06);
+                }
+
+                .dark-theme .audit-page .audit-table tbody tr {
+                    background: #111827 !important;
+                    border-color: #334155 !important;
+                    box-shadow: 0 8px 20px rgba(0, 0, 0, .22);
+                }
+
+                .audit-table td {
+                    display: grid;
+                    grid-template-columns: minmax(88px, 104px) minmax(0, 1fr);
+                    gap: .75rem;
+                    padding: .75rem 1rem;
+                    border-bottom: 1px solid #f3f4f6;
+                }
+
+                .audit-table td:last-child {
+                    border-bottom: none;
+                }
+
+                .audit-table td::before {
+                    content: attr(data-label);
+                    font-size: .68rem;
+                    font-weight: 700;
+                    color: #6b7280;
+                    text-transform: uppercase;
+                    letter-spacing: .08em;
+                    padding-top: .15rem;
+                }
+
+                .dark-theme .audit-page .audit-table td::before {
+                    color: #94a3b8;
+                }
+
+                .col-timestamp,
+                .col-user,
+                .col-role,
+                .col-action,
+                .col-status {
+                    width: auto;
+                }
+
+                .user-cell,
+                .timestamp-cell,
+                .status-badge,
+                .role-badge,
+                .action-badge {
+                    min-width: 0;
+                }
+
+                .user-name,
+                .detail-text,
+                .error-text,
+                .entity-tag {
+                    overflow-wrap: anywhere;
+                    word-break: break-word;
                 }
 
                 .table-footer {
@@ -1412,6 +1620,26 @@
                 .detail-drawer {
                     width: 100%;
                     max-width: 100%;
+                }
+            }
+
+            @@media (max-width: 480px) {
+                .stats-grid {
+                    grid-template-columns: 1fr;
+                }
+
+                .audit-table-wrap {
+                    padding: .65rem;
+                }
+
+                .audit-table td {
+                    grid-template-columns: 1fr;
+                    gap: .35rem;
+                    padding: .7rem .85rem;
+                }
+
+                .audit-table td::before {
+                    padding-top: 0;
                 }
             }
         </style>

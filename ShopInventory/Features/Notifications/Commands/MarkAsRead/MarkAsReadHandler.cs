@@ -13,7 +13,7 @@ public sealed class MarkAsReadHandler(
         CancellationToken cancellationToken)
     {
         await notificationService.MarkAsReadAsync(
-            command.Username, command.NotificationIds, cancellationToken);
+            command.Username, command.Roles, command.NotificationIds, cancellationToken);
         return Result.Success;
     }
 }

@@ -4,6 +4,7 @@ using System.Text.Json;
 using MediatR;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Extensions;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -55,12 +56,12 @@ public sealed class CreateUserHandler(
             }
         }
 
-        if (await context.Users.AnyAsync(user => user.Username == request.Username, cancellationToken))
+        if (await context.Users.WhereUsernameMatches(request.Username).AnyAsync(cancellationToken))
         {
             return Errors.UserManagement.CreationFailed("Username already exists");
         }
 
-        if (await context.Users.AnyAsync(user => user.Email == request.Email, cancellationToken))
+        if (!string.IsNullOrWhiteSpace(request.Email) && await context.Users.WhereEmailMatches(request.Email).AnyAsync(cancellationToken))
         {
             return Errors.UserManagement.CreationFailed("Email already exists");
         }

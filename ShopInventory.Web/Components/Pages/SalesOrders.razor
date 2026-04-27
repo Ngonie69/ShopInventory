@@ -869,14 +869,44 @@
     @@media (max-width:768px) {
         .so-header {
             flex-direction: column;
+            align-items: stretch;
+            gap: .85rem;
+        }
+
+        .btn-so-gradient {
+            width: 100%;
+            justify-content: center;
         }
 
         .filter-bar {
             flex-direction: column;
+            padding: .85rem;
+        }
+
+        .filter-bar .filter-field {
+            min-width: 100%;
+            flex: 1 1 100%;
+        }
+
+        .filter-actions-row {
+            width: 100%;
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .filter-actions-row > * {
+            width: 100%;
+            justify-content: center;
         }
 
         .stat-row {
             grid-template-columns: 1fr 1fr;
+        }
+
+        .so-table-header {
+            flex-direction: column;
+            align-items: stretch;
+            gap: .75rem;
         }
 
         .detail-grid,

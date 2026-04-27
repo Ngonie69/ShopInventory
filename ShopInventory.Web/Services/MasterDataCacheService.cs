@@ -14,7 +14,7 @@ namespace ShopInventory.Web.Services;
 /// </summary>
 public interface IMasterDataCacheService
 {
-    Task<List<BusinessPartnerDto>> GetBusinessPartnersAsync(bool forceRefresh = false);
+    Task<List<BusinessPartnerDto>> GetBusinessPartnersAsync(bool forceRefresh = false, bool includeInactive = false);
     Task<List<ProductDto>> GetProductsAsync(bool forceRefresh = false);
     Task<List<ProductDto>> GetProductsAsync(string warehouseCode, bool forceRefresh = false);
     Task<List<WarehouseDto>> GetWarehousesAsync(bool forceRefresh = false);
@@ -67,6 +67,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     // In-memory cache for database data (fast reads)
     private static List<ProductDto>? _cachedProducts;
     private static List<BusinessPartnerDto>? _cachedBusinessPartners;
+    private static List<BusinessPartnerDto>? _cachedAllBusinessPartners;
     private static List<WarehouseDto>? _cachedWarehouses;
     private static List<GLAccountDto>? _cachedGLAccounts;
     private static List<CostCentreDto>? _cachedCostCentres;
@@ -74,6 +75,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     private static readonly ConcurrentDictionary<int, (Dictionary<string, decimal> Prices, DateTime LoadedAt)> _cachedPriceListPrices = new();
     private static DateTime _productsLoadedAt = DateTime.MinValue;
     private static DateTime _bpLoadedAt = DateTime.MinValue;
+    private static DateTime _allBpLoadedAt = DateTime.MinValue;
     private static DateTime _warehousesLoadedAt = DateTime.MinValue;
     private static DateTime _glAccountsLoadedAt = DateTime.MinValue;
     private static DateTime _costCentresLoadedAt = DateTime.MinValue;
@@ -844,7 +846,11 @@ public class MasterDataCacheService : IMasterDataCacheService
 
             await db.SaveChangesAsync();
             await UpdateSyncInfoAsync(db, BusinessPartnersCacheKey, apiPartners.Count, true, null);
-            _lastRefreshTimes[BusinessPartnersCacheKey] = DateTime.Now;
+            _lastRefreshTimes[BusinessPartnersCacheKey] = DateTime.UtcNow;
+            _cachedBusinessPartners = null;
+            _cachedAllBusinessPartners = null;
+            _bpLoadedAt = DateTime.MinValue;
+            _allBpLoadedAt = DateTime.MinValue;
 
             _logger.LogInformation(
                 "Business partners sync completed: {Inserted} inserted, {Updated} updated",
@@ -898,56 +904,41 @@ public class MasterDataCacheService : IMasterDataCacheService
             prices.Count, priceListNum);
     }
 
-    public async Task<List<BusinessPartnerDto>> GetBusinessPartnersAsync(bool forceRefresh = false)
+    public async Task<List<BusinessPartnerDto>> GetBusinessPartnersAsync(bool forceRefresh = false, bool includeInactive = false)
     {
+        var cachedPartners = includeInactive ? _cachedAllBusinessPartners : _cachedBusinessPartners;
+        var loadedAt = includeInactive ? _allBpLoadedAt : _bpLoadedAt;
+
         // Return from memory cache if valid
-        if (!forceRefresh && _cachedBusinessPartners != null &&
-            (DateTime.Now - _bpLoadedAt) < MemoryCacheDuration)
+        if (!forceRefresh && cachedPartners != null &&
+            (DateTime.UtcNow - loadedAt) < MemoryCacheDuration)
         {
-            _logger.LogDebug("Returning {Count} business partners from memory cache", _cachedBusinessPartners.Count);
-            return _cachedBusinessPartners;
+            _logger.LogDebug("Returning {Count} business partners from memory cache", cachedPartners.Count);
+            return cachedPartners;
         }
 
         var loadLock = GetLoadLock(BusinessPartnersCacheKey);
         await loadLock.WaitAsync();
         try
         {
+            cachedPartners = includeInactive ? _cachedAllBusinessPartners : _cachedBusinessPartners;
+            loadedAt = includeInactive ? _allBpLoadedAt : _bpLoadedAt;
+
             // Double-check after acquiring lock
-            if (!forceRefresh && _cachedBusinessPartners != null &&
-                (DateTime.Now - _bpLoadedAt) < MemoryCacheDuration)
+            if (!forceRefresh && cachedPartners != null &&
+                (DateTime.UtcNow - loadedAt) < MemoryCacheDuration)
             {
-                return _cachedBusinessPartners;
+                return cachedPartners;
             }
 
             await using var db = await _dbContextFactory.CreateDbContextAsync();
 
             // ALWAYS load from database first for quick response
-            var partners = await db.CachedBusinessPartners
-                .Where(p => p.IsActive)
-                .OrderBy(p => p.CardCode)
-                .Select(p => new BusinessPartnerDto
-                {
-                    CardCode = p.CardCode,
-                    CardName = p.CardName,
-                    CardType = p.CardType,
-                    GroupCode = p.GroupCode,
-                    Phone1 = p.Phone1,
-                    Phone2 = p.Phone2,
-                    Email = p.Email,
-                    Address = p.Address,
-                    City = p.City,
-                    Country = p.Country,
-                    Currency = p.Currency,
-                    Balance = p.Balance,
-                    IsActive = p.IsActive,
-                    PriceListNum = p.PriceListNum
-                })
-                .ToListAsync();
+            var partners = await LoadBusinessPartnersFromDatabaseAsync(db, includeInactive);
 
             // Store in memory cache immediately
-            _cachedBusinessPartners = partners;
-            _bpLoadedAt = DateTime.Now;
-            _lastRefreshTimes[BusinessPartnersCacheKey] = DateTime.Now;
+            CacheBusinessPartners(partners, includeInactive);
+            _lastRefreshTimes[BusinessPartnersCacheKey] = DateTime.UtcNow;
 
             _logger.LogDebug("Loaded {Count} business partners from database into memory cache", partners.Count);
 
@@ -967,29 +958,8 @@ public class MasterDataCacheService : IMasterDataCacheService
                             await SyncBusinessPartnersFromApiAsync();
                             // Reload from database after sync
                             await using var bgDb = await _dbContextFactory.CreateDbContextAsync();
-                            var updatedPartners = await bgDb.CachedBusinessPartners
-                                .Where(p => p.IsActive)
-                                .OrderBy(p => p.CardCode)
-                                .Select(p => new BusinessPartnerDto
-                                {
-                                    CardCode = p.CardCode,
-                                    CardName = p.CardName,
-                                    CardType = p.CardType,
-                                    GroupCode = p.GroupCode,
-                                    Phone1 = p.Phone1,
-                                    Phone2 = p.Phone2,
-                                    Email = p.Email,
-                                    Address = p.Address,
-                                    City = p.City,
-                                    Country = p.Country,
-                                    Currency = p.Currency,
-                                    Balance = p.Balance,
-                                    IsActive = p.IsActive,
-                                    PriceListNum = p.PriceListNum
-                                })
-                                .ToListAsync();
-                            _cachedBusinessPartners = updatedPartners;
-                            _bpLoadedAt = DateTime.Now;
+                            var updatedPartners = await LoadBusinessPartnersFromDatabaseAsync(bgDb, includeInactive);
+                            CacheBusinessPartners(updatedPartners, includeInactive);
                             _logger.LogInformation("Background sync completed, updated {Count} business partners in cache", updatedPartners.Count);
                         }
                         catch (Exception ex)
@@ -1015,29 +985,8 @@ public class MasterDataCacheService : IMasterDataCacheService
                             await SyncBusinessPartnersFromApiAsync();
                             // Reload from database after sync
                             await using var bgDb = await _dbContextFactory.CreateDbContextAsync();
-                            var updatedPartners = await bgDb.CachedBusinessPartners
-                                .Where(p => p.IsActive)
-                                .OrderBy(p => p.CardCode)
-                                .Select(p => new BusinessPartnerDto
-                                {
-                                    CardCode = p.CardCode,
-                                    CardName = p.CardName,
-                                    CardType = p.CardType,
-                                    GroupCode = p.GroupCode,
-                                    Phone1 = p.Phone1,
-                                    Phone2 = p.Phone2,
-                                    Email = p.Email,
-                                    Address = p.Address,
-                                    City = p.City,
-                                    Country = p.Country,
-                                    Currency = p.Currency,
-                                    Balance = p.Balance,
-                                    IsActive = p.IsActive,
-                                    PriceListNum = p.PriceListNum
-                                })
-                                .ToListAsync();
-                            _cachedBusinessPartners = updatedPartners;
-                            _bpLoadedAt = DateTime.Now;
+                            var updatedPartners = await LoadBusinessPartnersFromDatabaseAsync(bgDb, includeInactive);
+                            CacheBusinessPartners(updatedPartners, includeInactive);
                             _logger.LogInformation("Initial sync completed, loaded {Count} business partners", updatedPartners.Count);
                         }
                         catch (Exception ex)
@@ -1058,6 +1007,52 @@ public class MasterDataCacheService : IMasterDataCacheService
         {
             loadLock.Release();
         }
+    }
+
+    private static async Task<List<BusinessPartnerDto>> LoadBusinessPartnersFromDatabaseAsync(
+        WebAppDbContext db,
+        bool includeInactive)
+    {
+        IQueryable<CachedBusinessPartner> query = db.CachedBusinessPartners.AsNoTracking();
+
+        if (!includeInactive)
+        {
+            query = query.Where(p => p.IsActive);
+        }
+
+        return await query
+            .OrderBy(p => p.CardCode)
+            .Select(p => new BusinessPartnerDto
+            {
+                CardCode = p.CardCode,
+                CardName = p.CardName,
+                CardType = p.CardType,
+                GroupCode = p.GroupCode,
+                Phone1 = p.Phone1,
+                Phone2 = p.Phone2,
+                Email = p.Email,
+                Address = p.Address,
+                City = p.City,
+                Country = p.Country,
+                Currency = p.Currency,
+                Balance = p.Balance,
+                IsActive = p.IsActive,
+                PriceListNum = p.PriceListNum
+            })
+            .ToListAsync();
+    }
+
+    private static void CacheBusinessPartners(List<BusinessPartnerDto> partners, bool includeInactive)
+    {
+        if (includeInactive)
+        {
+            _cachedAllBusinessPartners = partners;
+            _allBpLoadedAt = DateTime.UtcNow;
+            return;
+        }
+
+        _cachedBusinessPartners = partners;
+        _bpLoadedAt = DateTime.UtcNow;
     }
 
     #endregion
@@ -1859,6 +1854,7 @@ public class MasterDataCacheService : IMasterDataCacheService
             // Clear all memory caches
             _cachedProducts = null;
             _cachedBusinessPartners = null;
+            _cachedAllBusinessPartners = null;
             _cachedWarehouses = null;
             _cachedGLAccounts = null;
             _cachedCostCentres = null;
@@ -1868,6 +1864,7 @@ public class MasterDataCacheService : IMasterDataCacheService
             // Reset load times
             _productsLoadedAt = DateTime.MinValue;
             _bpLoadedAt = DateTime.MinValue;
+            _allBpLoadedAt = DateTime.MinValue;
             _warehousesLoadedAt = DateTime.MinValue;
             _glAccountsLoadedAt = DateTime.MinValue;
             _costCentresLoadedAt = DateTime.MinValue;
@@ -1889,7 +1886,9 @@ public class MasterDataCacheService : IMasterDataCacheService
                     break;
                 case BusinessPartnersCacheKey:
                     _cachedBusinessPartners = null;
+                    _cachedAllBusinessPartners = null;
                     _bpLoadedAt = DateTime.MinValue;
+                    _allBpLoadedAt = DateTime.MinValue;
                     break;
                 case WarehousesCacheKey:
                     _cachedWarehouses = null;

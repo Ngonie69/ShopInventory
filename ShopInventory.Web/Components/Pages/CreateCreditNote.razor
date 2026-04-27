@@ -469,6 +469,97 @@
         .form-field.full {
             grid-column: span 1;
         }
+
+        .line-items-header {
+            flex-direction: column;
+            align-items: stretch;
+            gap: .5rem;
+        }
+
+        .btn-add-line,
+        .btn-create,
+        .btn-secondary-action {
+            width: 100%;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .line-items-table thead {
+            display: none;
+        }
+
+        .line-items-table,
+        .line-items-table tbody,
+        .line-items-table tr,
+        .line-items-table td {
+            display: block;
+            width: 100%;
+        }
+
+        .line-items-table tbody {
+            display: grid;
+            gap: .85rem;
+        }
+
+        .line-items-table tbody tr {
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: .45rem .75rem 0;
+            background: #fff;
+        }
+
+        .line-items-table tbody td {
+            display: grid;
+            grid-template-columns: minmax(92px, 108px) minmax(0, 1fr);
+            gap: .6rem;
+            padding: .45rem 0 .55rem;
+        }
+
+        .line-items-table tbody td::before {
+            content: attr(data-label);
+            font-size: .68rem;
+            font-weight: 700;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            padding-top: .15rem;
+        }
+
+        .line-items-table input,
+        .line-items-table select {
+            min-height: 42px;
+        }
+
+        .line-total-cell {
+            text-align: left;
+            padding-right: 0;
+        }
+
+        .line-items-summary,
+        .form-footer {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .line-items-summary .summary-label {
+            margin-right: 0;
+        }
+
+        .cn-dropdown {
+            min-width: min(260px, calc(100vw - 4rem)) !important;
+            max-width: calc(100vw - 4rem);
+        }
+    }
+
+    @@media (max-width: 480px) {
+        .line-items-table tbody tr {
+            padding: .35rem .65rem 0;
+        }
+
+        .line-items-table tbody td {
+            grid-template-columns: 1fr;
+            gap: .35rem;
+        }
     }
 </style>
 
@@ -623,7 +714,7 @@
                                                     var line = newCreditNote.Lines[idx];
                                                     var lineState = GetCnLineState(idx);
                                                     <tr>
-                                                        <td style="position:relative;">
+                                                        <td style="position:relative;" data-label="Item Code">
                                                             <input type="text" value="@line.ItemCode"
                                                                    @oninput="(e) => OnCnItemCodeInput(idx, e.Value?.ToString())"
                                                                    @onfocus="() => OnCnItemCodeFocus(idx)" @onblur="() => OnCnItemCodeBlur(idx)"
@@ -652,7 +743,7 @@
                                                                 </div>
                                                             }
                                                         </td>
-                                                        <td>
+                                                        <td data-label="Description">
                                                             @if (!string.IsNullOrEmpty(line.ItemDescription))
                                                             {
                                                                 <span style="font-size:.82rem;color:#374151;">@TruncateText(line.ItemDescription,
@@ -663,12 +754,12 @@
                                                                     <span style="font-size:.8rem;color:#9ca3af;">—</span>
                                                                 }
                                                             </td>
-                                                            <td><input type="number" @bind="line.Quantity" min="0.0001" step="1" /></td>
-                                                            <td><input type="number" @bind="line.UnitPrice" min="0" step="0.01" /></td>
-                                                            <td><input type="number" @bind="line.DiscountPercent" min="0" max="100" step="0.01" />
+                                                            <td data-label="Qty"><input type="number" @bind="line.Quantity" min="0.0001" step="1" /></td>
+                                                            <td data-label="Unit Price"><input type="number" @bind="line.UnitPrice" min="0" step="0.01" /></td>
+                                                            <td data-label="Disc %"><input type="number" @bind="line.DiscountPercent" min="0" max="100" step="0.01" />
                                                             </td>
-                                                            <td><input type="number" @bind="line.TaxPercent" min="0" max="100" step="0.01" /></td>
-                                                            <td>
+                                                            <td data-label="Tax %"><input type="number" @bind="line.TaxPercent" min="0" max="100" step="0.01" /></td>
+                                                            <td data-label="Warehouse">
                                                                 <select @bind="line.WarehouseCode">
                                                                     <option value="">—</option>
                                                                     @foreach (var wh in cachedWarehouses)
@@ -677,8 +768,8 @@
                                                                     }
                                                                 </select>
                                                             </td>
-                                                            <td class="line-total-cell">@CalculateLineTotal(line).ToString("N2")</td>
-                                                            <td>
+                                                            <td class="line-total-cell" data-label="Line Total">@CalculateLineTotal(line).ToString("N2")</td>
+                                                            <td data-label="Remove">
                                                                 <button type="button" class="btn-remove-line" @onclick="() => RemoveLine(idx)">
                                                                     <i class="bi bi-trash"></i>
                                                                 </button>

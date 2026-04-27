@@ -14,7 +14,7 @@ public sealed class GetNotificationsHandler(
         CancellationToken cancellationToken)
     {
         var notifications = await notificationService.GetNotificationsAsync(
-            request.Username, request.Role, request.Page, request.PageSize,
+            request.Username, request.Roles, request.Page, request.PageSize,
             request.UnreadOnly, request.Category, cancellationToken);
         return notifications;
     }

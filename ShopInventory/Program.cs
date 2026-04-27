@@ -15,6 +15,7 @@ using ShopInventory.Data;
 using ShopInventory.Middleware;
 using ShopInventory.Services;
 using System.IO.Compression;
+using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -266,43 +267,75 @@ try
     var rateLimitSettings = builder.Configuration.GetSection("RateLimit").Get<RateLimitSettings>()
         ?? new RateLimitSettings();
 
+    var securitySettings = builder.Configuration.GetSection("Security").Get<SecuritySettings>()
+        ?? new SecuritySettings();
+
+    var apiKeyRateLimitPartitions = securitySettings.ApiKeys
+        .Where(key => key.IsActive && !string.IsNullOrWhiteSpace(key.Key))
+        .ToDictionary(key => key.Key, key => key, StringComparer.Ordinal);
+
     builder.Services.AddRateLimiter(options =>
     {
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-        // Global rate limiting policy
-        options.AddFixedWindowLimiter("fixed", opt =>
+        // Default fixed window policy, partitioned by API key, authenticated user, or IP.
+        options.AddPolicy("fixed", httpContext =>
         {
-            opt.PermitLimit = rateLimitSettings.PermitLimit;
-            opt.Window = TimeSpan.FromSeconds(rateLimitSettings.WindowSeconds);
-            opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-            opt.QueueLimit = rateLimitSettings.QueueLimit;
+            if (IsRateLimitWhitelisted(httpContext, rateLimitSettings))
+                return RateLimitPartition.GetNoLimiter(GetIpPartitionKey(httpContext));
+
+            return RateLimitPartition.GetFixedWindowLimiter(
+                GetClientPartitionKey(httpContext, rateLimitSettings, apiKeyRateLimitPartitions),
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = rateLimitSettings.PermitLimit,
+                    Window = TimeSpan.FromSeconds(rateLimitSettings.WindowSeconds),
+                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                    QueueLimit = rateLimitSettings.QueueLimit
+                });
         });
 
         // Stricter rate limiting for authentication endpoints
-        options.AddFixedWindowLimiter("auth", opt =>
+        options.AddPolicy("auth", httpContext =>
         {
-            opt.PermitLimit = rateLimitSettings.AuthEndpointPermitLimit;
-            opt.Window = TimeSpan.FromSeconds(rateLimitSettings.AuthEndpointWindowSeconds);
-            opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-            opt.QueueLimit = 2;
+            if (IsRateLimitWhitelisted(httpContext, rateLimitSettings))
+                return RateLimitPartition.GetNoLimiter(GetIpPartitionKey(httpContext));
+
+            return RateLimitPartition.GetFixedWindowLimiter(
+                GetClientPartitionKey(httpContext, rateLimitSettings, apiKeyRateLimitPartitions),
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = rateLimitSettings.AuthEndpointPermitLimit,
+                    Window = TimeSpan.FromSeconds(rateLimitSettings.AuthEndpointWindowSeconds),
+                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                    QueueLimit = 2
+                });
         });
 
         // Sliding window for API endpoints
-        options.AddSlidingWindowLimiter("api", opt =>
+        options.AddPolicy("api", httpContext =>
         {
-            opt.PermitLimit = rateLimitSettings.PermitLimit;
-            opt.Window = TimeSpan.FromSeconds(rateLimitSettings.WindowSeconds);
-            opt.SegmentsPerWindow = 4;
-            opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-            opt.QueueLimit = rateLimitSettings.QueueLimit;
+            if (IsRateLimitWhitelisted(httpContext, rateLimitSettings))
+                return RateLimitPartition.GetNoLimiter(GetIpPartitionKey(httpContext));
+
+            return RateLimitPartition.GetSlidingWindowLimiter(
+                GetClientPartitionKey(httpContext, rateLimitSettings, apiKeyRateLimitPartitions),
+                _ => new SlidingWindowRateLimiterOptions
+                {
+                    PermitLimit = rateLimitSettings.PermitLimit,
+                    Window = TimeSpan.FromSeconds(rateLimitSettings.WindowSeconds),
+                    SegmentsPerWindow = 4,
+                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                    QueueLimit = rateLimitSettings.QueueLimit
+                });
         });
 
         // Custom response for rate limit exceeded
         options.OnRejected = async (context, cancellationToken) =>
         {
             var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
-            logger.LogWarning("Rate limit exceeded for IP: {IpAddress}, Path: {Path}",
+            logger.LogWarning("Rate limit exceeded for client: {ClientPartition}, IP: {IpAddress}, Path: {Path}",
+                GetClientPartitionKey(context.HttpContext, rateLimitSettings, apiKeyRateLimitPartitions),
                 context.HttpContext.Connection.RemoteIpAddress,
                 context.HttpContext.Request.Path);
 
@@ -321,9 +354,6 @@ try
     builder.Services.AddSignalR();
 
     // Configure CORS
-    var securitySettings = builder.Configuration.GetSection("Security").Get<SecuritySettings>()
-        ?? new SecuritySettings();
-
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("AllowConfiguredOrigins", policy =>
@@ -626,11 +656,13 @@ try
     // Apply CORS
     app.UseCors("AllowConfiguredOrigins");
 
+    // Authentication must run before rate limiting so authenticated users get per-user quotas.
+    app.UseAuthentication();
+
     // Apply rate limiting
     app.UseRateLimiter();
 
-    // Authentication & Authorization
-    app.UseAuthentication();
+    // Authorization
     app.UseAuthorization();
 
     // Idempotency check after auth (needs user context for better key scoping)
@@ -672,5 +704,55 @@ catch (Exception ex)
 finally
 {
     Log.CloseAndFlush();
+}
+
+static string GetClientPartitionKey(
+    HttpContext httpContext,
+    RateLimitSettings settings,
+    IReadOnlyDictionary<string, ApiKeyConfig> apiKeyRateLimitPartitions)
+{
+    if (httpContext.Request.Headers.TryGetValue("X-API-Key", out var apiKeyHeaderValues))
+    {
+        var apiKey = apiKeyHeaderValues.FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(apiKey)
+            && apiKeyRateLimitPartitions.TryGetValue(apiKey, out var keyConfig)
+            && keyConfig.ExpiresAt.HasValue
+            && keyConfig.ExpiresAt.Value >= DateTime.UtcNow)
+        {
+            var keyName = string.IsNullOrWhiteSpace(keyConfig.Name) ? "unnamed" : keyConfig.Name;
+            return $"api-key:{keyName}";
+        }
+    }
+
+    if (httpContext.User.Identity?.IsAuthenticated == true)
+    {
+        var userId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? httpContext.User.FindFirstValue("sub")
+            ?? httpContext.User.Identity.Name;
+
+        if (!string.IsNullOrWhiteSpace(userId))
+            return $"user:{userId}";
+    }
+
+    if (settings.EnableIpRateLimiting)
+        return GetIpPartitionKey(httpContext);
+
+    return "anonymous";
+}
+
+static string GetIpPartitionKey(HttpContext httpContext)
+{
+    var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
+    return string.IsNullOrWhiteSpace(ipAddress) ? "ip:unknown" : $"ip:{ipAddress}";
+}
+
+static bool IsRateLimitWhitelisted(HttpContext httpContext, RateLimitSettings settings)
+{
+    if (settings.IpWhitelist.Count == 0)
+        return false;
+
+    var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
+    return !string.IsNullOrWhiteSpace(ipAddress)
+        && settings.IpWhitelist.Contains(ipAddress, StringComparer.OrdinalIgnoreCase);
 }
 

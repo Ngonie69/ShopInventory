@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using ShopInventory.Common.Extensions;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -129,7 +130,8 @@ public class AuthService : IAuthService
 
         // Find user in database (case-insensitive username)
         var user = await _dbContext.Users
-            .FirstOrDefaultAsync(u => u.Username == request.Username);
+            .WhereUsernameMatches(request.Username)
+            .FirstOrDefaultAsync();
 
         if (user == null)
         {
@@ -297,14 +299,14 @@ public class AuthService : IAuthService
     public async Task<User?> RegisterUserAsync(string username, string email, string password, string role)
     {
         // Check if username already exists
-        if (await _dbContext.Users.AnyAsync(u => u.Username == username))
+        if (await _dbContext.Users.WhereUsernameMatches(username).AnyAsync())
         {
             _logger.LogWarning("Registration attempt with existing username: {Username}", username);
             return null;
         }
 
         // Check if email already exists
-        if (!string.IsNullOrEmpty(email) && await _dbContext.Users.AnyAsync(u => u.Email == email))
+        if (!string.IsNullOrEmpty(email) && await _dbContext.Users.WhereEmailMatches(email).AnyAsync())
         {
             _logger.LogWarning("Registration attempt with existing email: {Email}", email);
             return null;
@@ -331,7 +333,8 @@ public class AuthService : IAuthService
     public async Task<User?> GetUserByUsernameAsync(string username)
     {
         return await _dbContext.Users
-            .FirstOrDefaultAsync(u => u.Username == username);
+            .WhereUsernameMatches(username)
+            .FirstOrDefaultAsync();
     }
 
     public async Task<AuthLoginResponse?> CompleteTwoFactorLoginAsync(

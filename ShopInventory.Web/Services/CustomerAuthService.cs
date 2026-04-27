@@ -23,6 +23,7 @@ public interface ICustomerAuthService
     Task<(bool Success, string Message)> RequestPasswordResetAsync(CustomerPasswordResetRequest request, string ipAddress);
     Task<(bool Success, string Message)> ResetPasswordAsync(string token, string newPassword, string ipAddress);
     Task<CustomerInfo?> GetCustomerInfoAsync(string cardCode);
+    Task<CustomerInfo?> GetCustomerInfoFromTokenAsync(string token);
     Task<bool> ValidateTokenAsync(string token);
     Task RevokeAllTokensAsync(string cardCode, string ipAddress, string reason);
     bool IsLockedOut(string cardCode, string ipAddress);
@@ -702,13 +703,67 @@ public class CustomerAuthService : ICustomerAuthService
         return await GetCustomerInfoFromSAPAsync(cardCode);
     }
 
+    public async Task<CustomerInfo?> GetCustomerInfoFromTokenAsync(string token)
+    {
+        var principal = ValidateTokenAndGetPrincipal(token);
+        if (principal == null)
+        {
+            return null;
+        }
+
+        var cardCode = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+        var portalType = principal.FindFirst("portal_type")?.Value;
+        if (string.IsNullOrWhiteSpace(cardCode) || !string.Equals(portalType, "customer", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+        var user = await dbContext.Set<CustomerPortalUser>()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.CardCode == cardCode);
+
+        if (user == null || !user.IsActive || user.Status != "Active" || user.LockedUntil > DateTime.UtcNow)
+        {
+            return null;
+        }
+
+        var customerInfo = await GetCustomerInfoFromSAPAsync(user.CardCode) ?? new CustomerInfo
+        {
+            CardCode = user.CardCode,
+            CardName = user.CardName,
+            Email = user.Email
+        };
+
+        customerInfo.CardCode = user.CardCode;
+        if (string.IsNullOrWhiteSpace(customerInfo.CardName))
+        {
+            customerInfo.CardName = user.CardName;
+        }
+
+        customerInfo.Email ??= user.Email;
+        customerInfo.LastLoginAt = user.LastLoginAt;
+
+        return customerInfo;
+    }
+
     /// <summary>
     /// Validate JWT token
     /// </summary>
-    public async Task<bool> ValidateTokenAsync(string token)
+    public Task<bool> ValidateTokenAsync(string token)
+    {
+        return Task.FromResult(ValidateTokenAndGetPrincipal(token) != null);
+    }
+
+    private ClaimsPrincipal? ValidateTokenAndGetPrincipal(string token)
     {
         try
         {
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                return null;
+            }
+
             var tokenHandler = new JwtSecurityTokenHandler();
             var validationParameters = new TokenValidationParameters
             {
@@ -722,12 +777,12 @@ public class CustomerAuthService : ICustomerAuthService
                 ClockSkew = TimeSpan.Zero
             };
 
-            tokenHandler.ValidateToken(token, validationParameters, out _);
-            return true;
+            var principal = tokenHandler.ValidateToken(token, validationParameters, out _);
+            return principal;
         }
         catch
         {
-            return false;
+            return null;
         }
     }
 

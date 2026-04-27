@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Extensions;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -93,7 +94,8 @@ public class PasswordResetService : IPasswordResetService
 
         var user = await _context.Users
             .AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Email == normalizedEmail);
+            .WhereEmailMatches(normalizedEmail)
+            .FirstOrDefaultAsync();
 
         if (user == null)
         {
@@ -303,7 +305,8 @@ public class PasswordResetService : IPasswordResetService
         var normalizedUsername = username.Trim();
 
         var user = await _context.Users.AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Username == normalizedUsername);
+            .WhereUsernameMatches(normalizedUsername)
+            .FirstOrDefaultAsync();
         return user?.Id;
     }
 
@@ -359,7 +362,9 @@ public class PasswordResetService : IPasswordResetService
         if (usernameChanged)
         {
             var usernameTaken = await _context.Users
-                .AnyAsync(u => u.Id != userId && u.Username == requestedUsername);
+                .Where(u => u.Id != userId)
+                .WhereUsernameMatches(requestedUsername!)
+                .AnyAsync();
             if (usernameTaken)
             {
                 return ServiceResult<UpdateCredentialsResponse>.Failure("Username is already taken");
@@ -369,7 +374,9 @@ public class PasswordResetService : IPasswordResetService
         if (emailChanged && !string.IsNullOrWhiteSpace(requestedEmail))
         {
             var emailTaken = await _context.Users
-                .AnyAsync(u => u.Id != userId && u.Email == requestedEmail);
+                .Where(u => u.Id != userId)
+                .WhereEmailMatches(requestedEmail)
+                .AnyAsync();
             if (emailTaken)
             {
                 return ServiceResult<UpdateCredentialsResponse>.Failure("Email is already in use");
@@ -414,7 +421,8 @@ public class PasswordResetService : IPasswordResetService
 
         // This method is for testing purposes only - should not be exposed in production
         var user = await _context.Users
-            .FirstOrDefaultAsync(u => u.Email == normalizedEmail);
+            .WhereEmailMatches(normalizedEmail)
+            .FirstOrDefaultAsync();
 
         if (user == null) return null;
 

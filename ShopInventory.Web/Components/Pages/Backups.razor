@@ -116,17 +116,17 @@
                         @foreach (var backup in backups)
                         {
                             <tr class="bak-row">
-                                <td>
+                                <td data-label="File Name">
                                     <div class="bak-file-name">@backup.FileName</div>
                                     @if (!string.IsNullOrEmpty(backup.Description))
                                     {
                                         <div class="bak-file-desc">@backup.Description</div>
                                     }
                                 </td>
-                                <td>
+                                <td data-label="Type">
                                     <span class="bak-badge @GetTypeBadgeClass(backup.BackupType)">@backup.BackupType</span>
                                 </td>
-                                <td>
+                                <td data-label="Status">
                                     <span class="bak-badge @GetStatusBadgeClass(backup.Status)">
                                         @if (backup.Status == "InProgress")
                                         {
@@ -140,9 +140,9 @@
                                            title="@backup.ErrorMessage"></i>
                                     }
                                 </td>
-                                <td class="bak-cell-mono">@backup.SizeFormatted</td>
-                                <td>@backup.StartedAt.ToString("dd MMM HH:mm")</td>
-                                <td>
+                                <td class="bak-cell-mono" data-label="Size">@backup.SizeFormatted</td>
+                                <td data-label="Started">@backup.StartedAt.ToString("dd MMM HH:mm")</td>
+                                <td data-label="Duration">
                                     @if (backup.Duration.HasValue)
                                     {
                                         @backup.Duration.Value.ToString(@"mm\:ss")
@@ -156,8 +156,8 @@
                                         <span class="bak-cell-muted">—</span>
                                     }
                                 </td>
-                                <td>@(backup.CreatedByUserName ?? "System")</td>
-                                <td>
+                                <td data-label="Created By">@(backup.CreatedByUserName ?? "System")</td>
+                                <td data-label="Storage">
                                     @if (backup.IsOffsite)
                                     {
                                         <span class="bak-badge bak-badge-green">
@@ -171,7 +171,7 @@
                                         </span>
                                     }
                                 </td>
-                                <td>
+                                <td data-label="Actions">
                                     <div class="bak-actions">
                                         @if (backup.Status == "Completed")
                                         {
@@ -1044,6 +1044,12 @@
                 align-items: flex-start;
             }
 
+            .bak-section-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: .5rem;
+            }
+
             .bak-stats-grid {
                 grid-template-columns: repeat(2, 1fr);
             }
@@ -1052,11 +1058,110 @@
                 flex-direction: column;
                 gap: .75rem;
             }
+
+            .bak-table thead {
+                display: none;
+            }
+
+            .bak-table,
+            .bak-table tbody,
+            .bak-table tr,
+            .bak-table td {
+                display: block;
+                width: 100%;
+            }
+
+            .bak-table-wrap {
+                padding: .85rem;
+            }
+
+            .bak-table tbody {
+                display: grid;
+                gap: .85rem;
+            }
+
+            .bak-row {
+                display: block;
+                border: 1px solid #e5e7eb;
+                border-radius: 14px;
+                overflow: hidden;
+                background: white;
+                box-shadow: 0 10px 24px rgba(15, 23, 42, .06);
+            }
+
+            .bak-row:last-child td {
+                border-bottom: 1px solid #f3f4f6;
+            }
+
+            .bak-row td:last-child {
+                border-bottom: none;
+            }
+
+            .bak-table tbody td {
+                display: grid;
+                grid-template-columns: minmax(88px, 104px) minmax(0, 1fr);
+                gap: .7rem;
+                padding: .75rem 1rem;
+            }
+
+            .bak-table tbody td::before {
+                content: attr(data-label);
+                font-size: .68rem;
+                font-weight: 700;
+                color: #6b7280;
+                text-transform: uppercase;
+                letter-spacing: .08em;
+                padding-top: .15rem;
+            }
+
+            .bak-actions {
+                flex-wrap: wrap;
+            }
+
+            .bak-file-name,
+            .bak-file-desc,
+            .bak-cell-mono {
+                overflow-wrap: anywhere;
+                word-break: break-word;
+            }
+
+            .bak-detail-row {
+                flex-direction: column;
+                gap: .15rem;
+            }
+
+            .bak-detail-row span {
+                min-width: 0;
+            }
+
+            .bak-modal-footer {
+                flex-direction: column-reverse;
+            }
+
+            .bak-modal-footer > * {
+                width: 100%;
+            }
         }
 
         @@media (max-width: 480px) {
             .bak-stats-grid {
                 grid-template-columns: 1fr;
+            }
+
+            .bak-table-wrap {
+                padding: .65rem;
+            }
+
+            .bak-table tbody td {
+                grid-template-columns: 1fr;
+                gap: .35rem;
+                padding: .7rem .85rem;
+            }
+
+            .bak-toast {
+                left: 1rem;
+                right: 1rem;
+                bottom: 1rem;
             }
         }
     </style>
@@ -1133,7 +1238,8 @@
                 showCreateModal = false;
                 newBackup = new();
                 ShowToast("Backup created successfully");
-                await AuditService.LogAsync(AuditActions.CreateBackup, "Backup", result.Id.ToString(), $"Type: {result.BackupType}", true);
+                await AuditService.LogAsync(AuditActions.CreateBackup, "Backup", result.Id.ToString(), $"Type: {result.BackupType}",
+true);
                 await LoadData();
             }
             else
@@ -1227,7 +1333,7 @@
             var backup = backups?.FirstOrDefault(b => b.Id == id);
             if (backup == null) return;
 
-            await JS.InvokeVoidAsync("open", $"/download/backup/{id}", "_blank");
+            await JS.InvokeVoidAsync("downloadAuthenticatedFile", $"/download/backup/{id}", backup.FileName);
             await AuditService.LogAsync(AuditActions.DownloadBackup, "Backup", id.ToString());
         }
         catch (Exception ex)

@@ -31,9 +31,13 @@ public class NotificationController(IMediator mediator) : ApiControllerBase
         CancellationToken cancellationToken = default)
     {
         var username = User.FindFirst(ClaimTypes.Name)?.Value;
-        var role = User.FindFirst(ClaimTypes.Role)?.Value;
+        var roles = User.FindAll(ClaimTypes.Role)
+            .Select(claim => claim.Value)
+            .Where(role => !string.IsNullOrWhiteSpace(role))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
-        var result = await mediator.Send(new GetNotificationsQuery(page, pageSize, unreadOnly, category, username, role), cancellationToken);
+        var result = await mediator.Send(new GetNotificationsQuery(page, pageSize, unreadOnly, category, username, roles), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
@@ -45,9 +49,13 @@ public class NotificationController(IMediator mediator) : ApiControllerBase
     public async Task<IActionResult> GetUnreadCount(CancellationToken cancellationToken)
     {
         var username = User.FindFirst(ClaimTypes.Name)?.Value;
-        var role = User.FindFirst(ClaimTypes.Role)?.Value;
+        var roles = User.FindAll(ClaimTypes.Role)
+            .Select(claim => claim.Value)
+            .Where(role => !string.IsNullOrWhiteSpace(role))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
-        var result = await mediator.Send(new GetUnreadCountQuery(username, role), cancellationToken);
+        var result = await mediator.Send(new GetUnreadCountQuery(username, roles), cancellationToken);
         return result.Match(value => Ok(new { unreadCount = value }), errors => Problem(errors));
     }
 
@@ -59,8 +67,13 @@ public class NotificationController(IMediator mediator) : ApiControllerBase
     public async Task<IActionResult> MarkAsRead([FromBody] MarkNotificationsReadRequest request, CancellationToken cancellationToken)
     {
         var username = User.FindFirst(ClaimTypes.Name)?.Value;
+        var roles = User.FindAll(ClaimTypes.Role)
+            .Select(claim => claim.Value)
+            .Where(role => !string.IsNullOrWhiteSpace(role))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
-        var result = await mediator.Send(new MarkAsReadCommand(request.NotificationIds ?? [], username), cancellationToken);
+        var result = await mediator.Send(new MarkAsReadCommand(request.NotificationIds ?? [], username, roles), cancellationToken);
         return result.Match(_ => Ok(new { Message = "Notifications marked as read" }), errors => Problem(errors));
     }
 

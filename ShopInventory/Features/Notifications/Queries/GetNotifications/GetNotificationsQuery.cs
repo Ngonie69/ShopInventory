@@ -10,5 +10,5 @@ public sealed record GetNotificationsQuery(
     bool UnreadOnly,
     string? Category,
     string? Username,
-    string? Role
+    IReadOnlyList<string> Roles
 ) : IRequest<ErrorOr<NotificationListResponseDto>>;

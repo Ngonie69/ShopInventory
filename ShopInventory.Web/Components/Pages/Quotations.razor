@@ -128,11 +128,69 @@
     @@keyframes scaleIn { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: scale(1); } }
 
     @@media (max-width:768px) {
-        .qt-header { flex-direction: column; }
-        .filter-bar { flex-direction: column; }
+        .qt-header {
+            flex-direction: column;
+            align-items: stretch;
+            gap: .85rem;
+        }
+        .btn-qt-gradient {
+            width: 100%;
+            justify-content: center;
+        }
+        .filter-bar {
+            flex-direction: column;
+            padding: .85rem;
+        }
+        .source-toggle {
+            width: 100%;
+        }
+        .source-btn {
+            flex: 1 1 0;
+            justify-content: center;
+        }
+        .filter-bar .filter-field {
+            min-width: 100%;
+            flex: 1 1 100%;
+        }
+        .filter-actions-row {
+            width: 100%;
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .filter-actions-row > * {
+            width: 100%;
+            justify-content: center;
+        }
         .stat-row { grid-template-columns: 1fr 1fr; }
+        .qt-table-header {
+            flex-direction: column;
+            align-items: stretch;
+            gap: .75rem;
+        }
         .detail-grid, .form-grid { grid-template-columns: 1fr; }
         .form-field.full { grid-column: span 1; }
+        .detail-drawer,
+        .create-modal { width: 100vw; max-width: 100vw; }
+        .create-modal {
+            height: 100vh;
+            max-height: 100vh;
+            border-radius: 0;
+        }
+        .drawer-footer,
+        .create-modal-footer,
+        .pager-row {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .drawer-footer > *,
+        .create-modal-footer > * {
+            width: 100%;
+            justify-content: center;
+        }
+    }
+
+    @@media (max-width:640px) {
+        .stat-row { grid-template-columns: 1fr; }
     }
 
     .source-toggle { display: flex; border: 1px solid #d1d5db; border-radius: 8px; overflow: hidden; }
@@ -279,7 +337,7 @@
                     <span class="qt-count-badge">@totalCount total</span>
                 </div>
                 <MudTable @ref="@_table" Items="@quotations" RowsPerPage="@_pageSize" Hover="true" Striped="true" Dense="true"
-                          Breakpoint="Breakpoint.Sm" Loading="@isLoading" LoadingProgressColor="Color.Warning" T="QuotationDto"
+                          Breakpoint="Breakpoint.Md" Loading="@isLoading" LoadingProgressColor="Color.Warning" T="QuotationDto"
                           Elevation="0" Style="background:transparent;">
                     <HeaderContent>
                         <MudTh>Quote #</MudTh>
@@ -459,6 +517,7 @@
             }
 
             <div class="detail-section-title"><i class="bi bi-list-ul"></i> Line Items (@selectedQuotation.Lines.Count)</div>
+            <div style="overflow-x:auto;">
             <table class="lines-table">
                 <thead>
                     <tr>
@@ -514,6 +573,7 @@
                     </tr>
                 </tfoot>
             </table>
+            </div>
         </div>
         <div class="drawer-footer">
             @if ((selectedQuotation.Status == QuotationStatus.Approved || selectedQuotation.Status == QuotationStatus.Accepted) && selectedQuotation.SalesOrderId == null)
@@ -635,6 +695,7 @@
                         }
                         else
                         {
+                            <div style="overflow-x:auto;">
                             <table class="lines-table" style="margin-bottom:.5rem;">
                                 <thead>
                                     <tr>
@@ -679,6 +740,7 @@
                                     }
                                 </tbody>
                             </table>
+                            </div>
 
                             <div style="text-align:right;padding:.5rem .75rem;">
                                 <span style="font-weight:700;font-size:.95rem;color:#d97706;">

@@ -1580,7 +1580,7 @@
         try
         {
             var url = $"/download/pod/{pod.InvoiceDocEntry}/{pod.Id}";
-            await JS.InvokeVoidAsync("open", url, "_blank");
+            await JS.InvokeVoidAsync("downloadAuthenticatedFile", url, pod.FileName);
         }
         catch (Exception ex)
         {
@@ -1591,21 +1591,50 @@
     private static bool IsViewable(string? mimeType) =>
         mimeType != null && (mimeType.StartsWith("image/") || mimeType == "application/pdf");
 
-    private void ViewPod(PodAttachmentItemDto pod)
+    private async Task ViewPod(PodAttachmentItemDto pod)
     {
-        viewerPod = pod;
-        viewerFileName = pod.FileName;
-        viewerMimeType = pod.MimeType;
-        viewerDataUri = $"/download/pod/{pod.InvoiceDocEntry}/{pod.Id}";
-        showViewer = true;
-        isLoadingViewer = false;
+        try
+        {
+            await RevokeViewerDataUriAsync();
+
+            viewerPod = pod;
+            viewerFileName = pod.FileName;
+            viewerMimeType = pod.MimeType;
+            viewerDataUri = null;
+            showViewer = true;
+            isLoadingViewer = true;
+            StateHasChanged();
+
+            viewerDataUri = await JS.InvokeAsync<string>(
+                "createAuthenticatedObjectUrl",
+                $"/download/pod/{pod.InvoiceDocEntry}/{pod.Id}");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error viewing POD {PodId}", pod.Id);
+            showViewer = false;
+        }
+        finally
+        {
+            isLoadingViewer = false;
+            StateHasChanged();
+        }
     }
 
-    private void CloseViewer()
+    private async Task CloseViewer()
     {
         showViewer = false;
-        viewerDataUri = null;
+        await RevokeViewerDataUriAsync();
         viewerPod = null;
+    }
+
+    private async Task RevokeViewerDataUriAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(viewerDataUri))
+        {
+            await JS.InvokeVoidAsync("revokeObjectUrl", viewerDataUri);
+            viewerDataUri = null;
+        }
     }
 
     private void ConfirmDeletePod(PodAttachmentItemDto pod)

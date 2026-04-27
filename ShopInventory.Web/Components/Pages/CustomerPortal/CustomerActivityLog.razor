@@ -1,7 +1,7 @@
 @page "/customer-portal/activity-log"
 @using ShopInventory.Web.Models
 @inject ICustomerAuthService CustomerAuthService
-@inject IJSRuntime JSRuntime
+@inject ICustomerPortalSessionService CustomerSession
 @inject NavigationManager NavigationManager
 @inject ILogger<CustomerActivityLog> Logger
 @attribute [AllowAnonymous]
@@ -169,6 +169,7 @@
 </div>
 
 @code {
+    private CustomerPortalSession? portalSession;
     private CustomerInfo? customerInfo;
     private List<CustomerSecurityAuditLog> logs = new();
     private bool isLoading = true;
@@ -183,15 +184,8 @@
         {
             try
             {
-                var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
-
-                if (string.IsNullOrEmpty(customerInfoJson))
-                {
-                    customerInfo = null;
-                    return;
-                }
-
-                customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
+                portalSession = await CustomerSession.GetCurrentSessionAsync();
+                customerInfo = portalSession?.Customer;
 
                 if (customerInfo != null)
                 {

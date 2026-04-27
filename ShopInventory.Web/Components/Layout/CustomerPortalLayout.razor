@@ -2,6 +2,7 @@
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
 @inject IThemeService ThemeService
+@inject ICustomerPortalSessionService CustomerSession
 @implements IDisposable
 @using MudBlazor
 
@@ -125,7 +126,6 @@
         var theme = await ThemeService.GetThemeAsync();
         _isDarkMode = ThemeService.IsDarkMode;
         ThemeService.OnThemeChanged += OnThemeChanged;
-        await LoadCustomerInfo();
         NavigationManager.LocationChanged += OnLocationChanged;
     }
 
@@ -136,6 +136,7 @@
             var theme = await ThemeService.GetThemeAsync();
             _isDarkMode = ThemeService.IsDarkMode;
             try { await JSRuntime.InvokeVoidAsync("themeManager.setTheme", theme, false); } catch { }
+            await LoadCustomerInfo();
             StateHasChanged();
         }
     }
@@ -144,17 +145,9 @@
     {
         try
         {
-            var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
-
-            if (!string.IsNullOrEmpty(customerInfoJson))
-            {
-                var info = System.Text.Json.JsonSerializer.Deserialize<ShopInventory.Web.Models.CustomerInfo>(customerInfoJson);
-                if (info != null)
-                {
-                    customerName = info.CardName;
-                    customerCode = info.CardCode;
-                }
-            }
+            var session = await CustomerSession.GetCurrentSessionAsync();
+            customerName = session?.Customer.CardName;
+            customerCode = session?.Customer.CardCode;
         }
         catch
         {
@@ -188,9 +181,7 @@
 
     private async Task Logout()
     {
-        await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "customerToken");
-        await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "customerRefreshToken");
-        await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "customerInfo");
+        await CustomerSession.ClearSessionAsync();
 
         NavigationManager.NavigateTo("/customer-portal/login", forceLoad: true);
     }

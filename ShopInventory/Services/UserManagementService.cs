@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using ShopInventory.Common.Extensions;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -148,13 +149,13 @@ public class UserManagementService : IUserManagementService
     public async Task<ServiceResult<UserDetailDto>> CreateUserAsync(CreateUserDetailRequest request)
     {
         // Check for existing username
-        if (await _context.Users.AnyAsync(u => u.Username == request.Username))
+        if (await _context.Users.WhereUsernameMatches(request.Username).AnyAsync())
         {
             return ServiceResult<UserDetailDto>.Failure("Username already exists");
         }
 
         // Check for existing email
-        if (await _context.Users.AnyAsync(u => u.Email == request.Email))
+        if (!string.IsNullOrWhiteSpace(request.Email) && await _context.Users.WhereEmailMatches(request.Email).AnyAsync())
         {
             return ServiceResult<UserDetailDto>.Failure("Email already exists");
         }
@@ -256,9 +257,12 @@ public class UserManagementService : IUserManagementService
         }
 
         // Update email if provided
-        if (!string.IsNullOrWhiteSpace(request.Email) && request.Email != user.Email)
+        if (!string.IsNullOrWhiteSpace(request.Email) && !string.Equals(request.Email, user.Email, StringComparison.OrdinalIgnoreCase))
         {
-            if (await _context.Users.AnyAsync(u => u.Id != userId && u.Email == request.Email))
+            if (await _context.Users
+                .Where(u => u.Id != userId)
+                .WhereEmailMatches(request.Email)
+                .AnyAsync())
             {
                 return ServiceResult.Failure("Email already exists");
             }

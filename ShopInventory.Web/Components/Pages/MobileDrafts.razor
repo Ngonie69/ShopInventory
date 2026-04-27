@@ -431,6 +431,44 @@
         gap: .4rem;
     }
 
+    .order-lines-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: .75rem;
+        margin-bottom: .75rem;
+        flex-wrap: wrap;
+    }
+
+    .order-lines-heading .detail-section-title {
+        margin-bottom: 0;
+    }
+
+    .line-count-pills {
+        display: flex;
+        align-items: center;
+        gap: .45rem;
+        flex-wrap: wrap;
+    }
+
+    .line-count-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        padding: .25rem .6rem;
+        border-radius: 999px;
+        background: #eff6ff;
+        color: #1d4ed8;
+        font-size: .75rem;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .line-count-pill.items {
+        background: #ecfdf5;
+        color: #047857;
+    }
+
     .lines-table {
         width: 100%;
         font-size: .85rem;
@@ -617,6 +655,16 @@
     .dark-theme .md-po-viewer-body,
     .dark-theme .md-po-viewer-pdf {
         background: #0f172a;
+    }
+
+    .dark-theme .line-count-pill {
+        background: rgba(59, 130, 246, .18);
+        color: #93c5fd;
+    }
+
+    .dark-theme .line-count-pill.items {
+        background: rgba(16, 185, 129, .18);
+        color: #6ee7b7;
     }
 
     @@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -1035,7 +1083,13 @@
 
             @if (selectedOrder.Lines?.Any() == true)
             {
-                <div class="detail-section-title"><i class="bi bi-list-ul"></i> Order Lines</div>
+                <div class="order-lines-heading">
+                    <div class="detail-section-title"><i class="bi bi-list-ul"></i> Order Lines</div>
+                    <div class="line-count-pills" aria-label="Order item counts">
+                        <span class="line-count-pill"><i class="bi bi-list-check"></i> @FormatOrderLineCount(selectedOrder)</span>
+                        <span class="line-count-pill items"><i class="bi bi-box-seam"></i> @FormatOrderItemCount(selectedOrder)</span>
+                    </div>
+                </div>
                 <table class="lines-table">
                     <thead>
                         <tr>
@@ -1059,6 +1113,10 @@
                         }
                     </tbody>
                     <tfoot>
+                        <tr>
+                            <td colspan="4" style="text-align:right;font-weight:600;">Item Count:</td>
+                            <td style="text-align:right;font-weight:600;">@FormatOrderItemCount(selectedOrder)</td>
+                        </tr>
                         <tr>
                             <td colspan="4" style="text-align:right;font-weight:600;">Subtotal:</td>
                             <td style="text-align:right;font-weight:600;">@selectedOrder.SubTotal.ToString("N2")</td>
@@ -1147,7 +1205,13 @@
                 </div>
             </div>
             <div class="md-po-viewer-body">
-                @if (purchaseOrderViewerMimeType?.StartsWith("image/") == true)
+                @if (isLoadingPurchaseOrderViewer)
+                {
+                    <div class="d-flex justify-content-center align-items-center h-100">
+                        <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+                    </div>
+                }
+                else if (purchaseOrderViewerMimeType?.StartsWith("image/") == true)
                 {
                     <img src="@purchaseOrderViewerDataUri" alt="@purchaseOrderViewerFileName" class="md-po-viewer-image" />
                 }
@@ -1171,6 +1235,7 @@
     private string? errorMessage;
     private string? purchaseOrderAttachmentError;
     private bool showPurchaseOrderViewer;
+    private bool isLoadingPurchaseOrderViewer;
     private string? purchaseOrderViewerDataUri;
     private string? purchaseOrderViewerFileName;
     private string? purchaseOrderViewerMimeType;
@@ -1264,18 +1329,25 @@
         if (!TryBeginOrderAction(order.Id, OrderActionType.View))
             return;
 
-        ClosePurchaseOrderViewer();
+        await ClosePurchaseOrderViewer();
         selectedOrder = order;
         StateHasChanged();
 
         try
         {
-            await LoadPurchaseOrderAttachmentsAsync(order);
+            var detailOrder = await SalesOrderService.GetSalesOrderByIdAsync(order.Id) ?? order;
+            if (!ReferenceEquals(detailOrder, order))
+            {
+                selectedOrder = detailOrder;
+                StateHasChanged();
+            }
+
+            await LoadPurchaseOrderAttachmentsAsync(detailOrder);
 
             // If order lines have no prices (mobile drafts), fetch from SAP using the BP's price list
-            if (OrderHasMissingPrices(order))
+            if (OrderHasMissingPrices(detailOrder))
             {
-                await PopulateOrderPricesAsync(order);
+                await PopulateOrderPricesAsync(detailOrder);
             }
 
             StateHasChanged();
@@ -1287,9 +1359,9 @@
         }
     }
 
-    private void ClearSelectedOrder()
+    private async Task ClearSelectedOrder()
     {
-        ClosePurchaseOrderViewer();
+        await ClosePurchaseOrderViewer();
         selectedOrder = null;
         purchaseOrderAttachments.Clear();
         purchaseOrderAttachmentError = null;
@@ -1361,25 +1433,47 @@
         };
     }
 
-    private void ViewPurchaseOrderAttachment(DocumentAttachmentDto attachment)
+    private async Task ViewPurchaseOrderAttachment(DocumentAttachmentDto attachment)
     {
         var mimeType = GetPurchaseOrderViewerMimeType(attachment);
 
         if (mimeType == null)
             return;
 
-        purchaseOrderViewerAttachment = attachment;
-        purchaseOrderViewerFileName = attachment.FileName;
-        purchaseOrderViewerMimeType = mimeType;
-        purchaseOrderViewerDataUri = $"/download/purchase-order/{attachment.Id}";
-        showPurchaseOrderViewer = true;
+        try
+        {
+            await RevokePurchaseOrderViewerDataUriAsync();
+
+            purchaseOrderViewerAttachment = attachment;
+            purchaseOrderViewerFileName = attachment.FileName;
+            purchaseOrderViewerMimeType = mimeType;
+            purchaseOrderViewerDataUri = null;
+            showPurchaseOrderViewer = true;
+            isLoadingPurchaseOrderViewer = true;
+            StateHasChanged();
+
+            purchaseOrderViewerDataUri = await JS.InvokeAsync<string>(
+                "createAuthenticatedObjectUrl",
+                $"/download/purchase-order/{attachment.Id}");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to view physical purchase order attachment {AttachmentId}", attachment.Id);
+            Snackbar.Add("Failed to load the purchase order attachment.", Severity.Error);
+            showPurchaseOrderViewer = false;
+        }
+        finally
+        {
+            isLoadingPurchaseOrderViewer = false;
+            StateHasChanged();
+        }
     }
 
     private async Task DownloadPurchaseOrderAttachment(DocumentAttachmentDto attachment)
     {
         try
         {
-            await JS.InvokeVoidAsync("open", $"/download/purchase-order/{attachment.Id}", "_blank");
+            await JS.InvokeVoidAsync("downloadAuthenticatedFile", $"/download/purchase-order/{attachment.Id}", attachment.FileName);
         }
         catch (Exception ex)
         {
@@ -1388,13 +1482,22 @@
         }
     }
 
-    private void ClosePurchaseOrderViewer()
+    private async Task ClosePurchaseOrderViewer()
     {
         showPurchaseOrderViewer = false;
-        purchaseOrderViewerDataUri = null;
+        await RevokePurchaseOrderViewerDataUriAsync();
         purchaseOrderViewerFileName = null;
         purchaseOrderViewerMimeType = null;
         purchaseOrderViewerAttachment = null;
+    }
+
+    private async Task RevokePurchaseOrderViewerDataUriAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(purchaseOrderViewerDataUri))
+        {
+            await JS.InvokeVoidAsync("revokeObjectUrl", purchaseOrderViewerDataUri);
+            purchaseOrderViewerDataUri = null;
+        }
     }
 
     private async Task RefreshSelectedOrderAsync()
@@ -1403,7 +1506,7 @@
             return;
 
         var refreshedOrder = orders?.FirstOrDefault(o => o.Id == selectedOrder.Id);
-        if (refreshedOrder != null)
+        if (refreshedOrder != null && (refreshedOrder.Lines?.Any() == true || selectedOrder.Lines?.Any() != true))
         {
             selectedOrder = refreshedOrder;
             return;
@@ -1556,6 +1659,18 @@
     private bool IsOrderActionBusy(int id, OrderActionType action)
         => orderActionStates.TryGetValue(id, out var currentAction) && currentAction == action;
 
+    private static string FormatOrderLineCount(SalesOrderDto order)
+    {
+        var lineCount = order.Lines?.Count ?? 0;
+        return $"{lineCount:N0} {(lineCount == 1 ? "line" : "lines")}";
+    }
+
+    private static string FormatOrderItemCount(SalesOrderDto order)
+    {
+        var itemCount = order.Lines?.Sum(line => line.Quantity) ?? 0m;
+        return $"{QuantityDisplay.Format(itemCount)} {(itemCount == 1m ? "item" : "items")}";
+    }
+
     private async Task ApproveOrder(int id)
     {
         if (!TryBeginOrderAction(id, OrderActionType.Approve))
@@ -1610,7 +1725,7 @@
             if (result != null)
             {
                 Snackbar.Add($"Order {result.OrderNumber} posted to SAP successfully! (Doc #{result.SAPDocNum})", Severity.Success);
-                ClearSelectedOrder();
+                await ClearSelectedOrder();
                 await LoadOrders();
             }
             else

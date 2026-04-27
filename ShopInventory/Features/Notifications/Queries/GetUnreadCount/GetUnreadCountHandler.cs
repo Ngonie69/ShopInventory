@@ -13,7 +13,7 @@ public sealed class GetUnreadCountHandler(
         CancellationToken cancellationToken)
     {
         var count = await notificationService.GetUnreadCountAsync(
-            request.Username, request.Role, cancellationToken);
+            request.Username, request.Roles, cancellationToken);
         return count;
     }
 }

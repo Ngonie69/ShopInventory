@@ -2,8 +2,7 @@
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @inject ICustomerStatementService StatementService
-@inject ICustomerLinkedAccountService LinkedAccountService
-@inject IJSRuntime JSRuntime
+@inject ICustomerPortalSessionService CustomerSession
 @inject ILogger<CustomerItemSummary> Logger
 @attribute [AllowAnonymous]
 @rendermode InteractiveServer
@@ -256,6 +255,7 @@
         </div>
 
 @code {
+    private CustomerPortalSession? portalSession;
     private CustomerInfo? customerInfo;
     private List<ItemCodeSummary>? items;
     private bool isLoading = true;
@@ -288,19 +288,16 @@
     {
         try
         {
-            var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
+            portalSession = await CustomerSession.GetCurrentSessionAsync();
+            customerInfo = portalSession?.Customer;
 
-            if (!string.IsNullOrEmpty(customerInfoJson))
+            if (customerInfo != null)
             {
-                customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
-                if (customerInfo != null)
-                {
-                    isMultiAccount = customerInfo.AccountStructure == "Multi";
-                    if (isMultiAccount)
-                    {
-                        linkedAccounts = await LinkedAccountService.GetLinkedAccountsAsync(customerInfo.CardCode);
-                    }
-                }
+                isMultiAccount = customerInfo.AccountStructure == "Multi";
+                linkedAccounts = portalSession?.LinkedAccounts.ToList() ?? new List<LinkedAccountInfo>();
+                selectedAccountFilter = CustomerSession.CanAccessCardCode(portalSession, selectedAccountFilter)
+                    ? selectedAccountFilter
+                    : string.Empty;
             }
         }
         catch (Exception ex)
@@ -322,6 +319,13 @@
             if (customerInfo != null)
             {
                 var cardCode = string.IsNullOrEmpty(selectedAccountFilter) ? customerInfo.CardCode : selectedAccountFilter;
+                if (!CustomerSession.CanAccessCardCode(portalSession, cardCode))
+                {
+                    Logger.LogWarning("Rejected unauthorized customer item summary account access {CardCode}", cardCode);
+                    selectedAccountFilter = string.Empty;
+                    return;
+                }
+
                 items = await StatementService.GetItemCodeSummaryAsync(cardCode, fromDate, toDate);
                 availableCategories = items
                     .Select(i => i.ItemGroup)
@@ -356,6 +360,13 @@
 
     private async Task OnAccountFilterChanged(string value)
     {
+        if (!CustomerSession.CanAccessCardCode(portalSession, value))
+        {
+            Logger.LogWarning("Rejected unauthorized customer item summary account filter {CardCode}", value);
+            selectedAccountFilter = string.Empty;
+            return;
+        }
+
         selectedAccountFilter = value;
         if (hasLoadedData)
         {

@@ -19,6 +19,7 @@ using ShopInventory.Features.Merchandiser.Queries.GetCustomerProducts;
 using ShopInventory.Features.Merchandiser.Queries.GetGlobalProducts;
 using ShopInventory.Features.Merchandiser.Queries.GetMerchandiserProducts;
 using ShopInventory.Features.Merchandiser.Queries.GetMerchandisers;
+using ShopInventory.Features.Merchandiser.Queries.GetMobileOrderById;
 using ShopInventory.Features.Merchandiser.Queries.GetMobileOrders;
 using ShopInventory.Features.Merchandiser.Queries.GetProductCategories;
 using ShopInventory.Features.Merchandiser.Queries.GetSapSalesItems;
@@ -177,13 +178,29 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] SalesOrderStatus? status = null,
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] string? search = null,
         CancellationToken cancellationToken = default)
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (!Guid.TryParse(userIdClaim, out var userId))
             return Forbid();
 
-        var result = await mediator.Send(new GetMobileOrdersQuery(userId, page, pageSize, status), cancellationToken);
+        var result = await mediator.Send(
+            new GetMobileOrdersQuery(userId, page, pageSize, status, fromDate, toDate, search),
+            cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpGet("mobile/orders/{id:int}")]
+    public async Task<IActionResult> GetMobileOrderById(int id, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!Guid.TryParse(userIdClaim, out var userId))
+            return Forbid();
+
+        var result = await mediator.Send(new GetMobileOrderByIdQuery(userId, id), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

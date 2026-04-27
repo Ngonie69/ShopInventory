@@ -9,5 +9,8 @@ public sealed record GetMobileOrdersQuery(
     Guid UserId,
     int Page,
     int PageSize,
-    SalesOrderStatus? Status
+    SalesOrderStatus? Status,
+    DateTime? FromDate,
+    DateTime? ToDate,
+    string? Search
 ) : IRequest<ErrorOr<SalesOrderListResponseDto>>;

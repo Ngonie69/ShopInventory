@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
@@ -16,18 +17,23 @@ public class NotificationHub : Hub
     public override async Task OnConnectedAsync()
     {
         var username = Context.User?.Identity?.Name;
-        var role = Context.User?.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+        var roles = Context.User?
+            .FindAll(ClaimTypes.Role)
+            .Select(claim => claim.Value)
+            .Where(role => !string.IsNullOrWhiteSpace(role))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray() ?? [];
 
         if (!string.IsNullOrEmpty(username))
             await Groups.AddToGroupAsync(Context.ConnectionId, $"user:{username}");
 
-        if (!string.IsNullOrEmpty(role))
+        foreach (var role in roles)
             await Groups.AddToGroupAsync(Context.ConnectionId, $"role:{role}");
 
         // Everyone joins the broadcast group
         await Groups.AddToGroupAsync(Context.ConnectionId, "all");
 
-        _logger.LogInformation("NotificationHub: {Username} connected (role={Role})", username, role);
+        _logger.LogInformation("NotificationHub: {Username} connected (roles={Roles})", username, string.Join(",", roles));
         await base.OnConnectedAsync();
     }
 

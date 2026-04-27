@@ -22,6 +22,11 @@ public class BlazorServerAuthHandler : AuthenticationHandler<AuthenticationSchem
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
+        if (Request.Path.StartsWithSegments("/download"))
+        {
+            return Task.FromResult(AuthenticateResult.NoResult());
+        }
+
         // Return a successful authenticated principal to let the request through.
         // Blazor's AuthorizeRouteView will handle real authorization using JWT from localStorage.
         // The authentication type must be set for IsAuthenticated to return true.

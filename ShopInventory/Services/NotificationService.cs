@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Notifications;
 using ShopInventory.Hubs;
 using ShopInventory.Models;
 
@@ -13,9 +14,9 @@ namespace ShopInventory.Services;
 public interface INotificationService
 {
     Task<NotificationDto> CreateNotificationAsync(CreateNotificationRequest request, CancellationToken cancellationToken = default);
-    Task<NotificationListResponseDto> GetNotificationsAsync(string? username, string? role, int page = 1, int pageSize = 20, bool unreadOnly = false, string? category = null, CancellationToken cancellationToken = default);
-    Task<int> GetUnreadCountAsync(string? username, string? role, CancellationToken cancellationToken = default);
-    Task MarkAsReadAsync(string? username, List<int>? notificationIds, CancellationToken cancellationToken = default);
+    Task<NotificationListResponseDto> GetNotificationsAsync(string? username, IReadOnlyCollection<string>? roles, int page = 1, int pageSize = 20, bool unreadOnly = false, string? category = null, CancellationToken cancellationToken = default);
+    Task<int> GetUnreadCountAsync(string? username, IReadOnlyCollection<string>? roles, CancellationToken cancellationToken = default);
+    Task MarkAsReadAsync(string? username, IReadOnlyCollection<string>? roles, List<int>? notificationIds, CancellationToken cancellationToken = default);
     Task DeleteNotificationAsync(int id, CancellationToken cancellationToken = default);
     Task CleanupExpiredNotificationsAsync(CancellationToken cancellationToken = default);
     Task CreateLowStockAlertAsync(string itemCode, string itemName, decimal currentStock, decimal reorderLevel, CancellationToken cancellationToken = default);
@@ -68,6 +69,7 @@ public class NotificationService : INotificationService
         _logger.LogInformation("Created notification: {Title} for {Target}", request.Title, request.TargetUsername ?? request.TargetRole ?? "all");
 
         var dto = MapToDto(notification);
+        var broadcastAudienceRoles = NotificationAudienceRules.GetBroadcastAudienceRoles(request.Category);
 
         // Broadcast via SignalR
         try
@@ -76,6 +78,8 @@ public class NotificationService : INotificationService
                 await _hubContext.Clients.Group($"user:{request.TargetUsername}").SendAsync("ReceiveNotification", dto);
             else if (!string.IsNullOrEmpty(request.TargetRole))
                 await _hubContext.Clients.Group($"role:{request.TargetRole}").SendAsync("ReceiveNotification", dto);
+            else if (broadcastAudienceRoles.Length > 0)
+                await _hubContext.Clients.Groups(broadcastAudienceRoles.Select(role => $"role:{role}").ToList()).SendAsync("ReceiveNotification", dto);
             else
                 await _hubContext.Clients.Group("all").SendAsync("ReceiveNotification", dto);
         }
@@ -104,6 +108,13 @@ public class NotificationService : INotificationService
                 await _pushService.SendToUsernameAsync(request.TargetUsername, request.Title, request.Message, pushData, cancellationToken);
             else if (!string.IsNullOrEmpty(request.TargetRole))
                 await _pushService.SendToRoleAsync(request.TargetRole, request.Title, request.Message, pushData, cancellationToken);
+            else if (broadcastAudienceRoles.Length > 0)
+            {
+                foreach (var targetRole in broadcastAudienceRoles)
+                {
+                    await _pushService.SendToRoleAsync(targetRole, request.Title, request.Message, pushData, cancellationToken);
+                }
+            }
             else
                 await _pushService.SendToAllAsync(request.Title, request.Message, pushData, cancellationToken);
         }
@@ -118,17 +129,9 @@ public class NotificationService : INotificationService
     /// <summary>
     /// Get notifications for a user
     /// </summary>
-    public async Task<NotificationListResponseDto> GetNotificationsAsync(string? username, string? role, int page = 1, int pageSize = 20, bool unreadOnly = false, string? category = null, CancellationToken cancellationToken = default)
+    public async Task<NotificationListResponseDto> GetNotificationsAsync(string? username, IReadOnlyCollection<string>? roles, int page = 1, int pageSize = 20, bool unreadOnly = false, string? category = null, CancellationToken cancellationToken = default)
     {
-        var now = DateTime.UtcNow;
-        var query = _context.Notifications
-            .AsNoTracking()
-            .Where(n => n.ExpiresAt == null || n.ExpiresAt > now)
-            .Where(n =>
-                (n.TargetUsername == null && n.TargetRole == null) || // Broadcast
-                n.TargetUsername == username || // Direct to user
-                n.TargetRole == role // Role-based
-            );
+        var query = BuildVisibleNotificationsQuery(username, roles);
 
         if (unreadOnly)
         {
@@ -170,28 +173,20 @@ public class NotificationService : INotificationService
     /// <summary>
     /// Get unread notification count
     /// </summary>
-    public async Task<int> GetUnreadCountAsync(string? username, string? role, CancellationToken cancellationToken = default)
+    public async Task<int> GetUnreadCountAsync(string? username, IReadOnlyCollection<string>? roles, CancellationToken cancellationToken = default)
     {
-        var now = DateTime.UtcNow;
-
-        return await _context.Notifications
-            .AsNoTracking()
-            .Where(n => n.ExpiresAt == null || n.ExpiresAt > now)
+        return await BuildVisibleNotificationsQuery(username, roles)
             .Where(n => !n.IsRead)
-            .Where(n =>
-                (n.TargetUsername == null && n.TargetRole == null) ||
-                n.TargetUsername == username ||
-                n.TargetRole == role
-            )
             .CountAsync(cancellationToken);
     }
 
     /// <summary>
     /// Mark notifications as read
     /// </summary>
-    public async Task MarkAsReadAsync(string? username, List<int>? notificationIds, CancellationToken cancellationToken = default)
+    public async Task MarkAsReadAsync(string? username, IReadOnlyCollection<string>? roles, List<int>? notificationIds, CancellationToken cancellationToken = default)
     {
-        var query = _context.Notifications.AsTracking().Where(n => !n.IsRead);
+        var query = BuildVisibleNotificationsQuery(username, roles, asTracking: true)
+            .Where(n => !n.IsRead);
 
         if (notificationIds != null && notificationIds.Any())
         {
@@ -209,6 +204,46 @@ public class NotificationService : INotificationService
         await _context.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Marked {Count} notifications as read for {User}", notifications.Count, username ?? "user");
+    }
+
+    private IQueryable<Notification> BuildVisibleNotificationsQuery(
+        string? username,
+        IReadOnlyCollection<string>? roles,
+        bool asTracking = false)
+    {
+        var normalizedRoles = NotificationAudienceRules.NormalizeRoles(roles);
+        var hasUsername = !string.IsNullOrWhiteSpace(username);
+        var hasRoles = normalizedRoles.Length > 0;
+        var canSeeSalesBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.SalesAudienceRoles);
+        var canSeeInvoiceBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.InvoiceAudienceRoles);
+        var canSeePaymentBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.PaymentAudienceRoles);
+        var canSeeInventoryBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.InventoryAudienceRoles);
+        var canSeePurchasingBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.PurchasingAudienceRoles);
+        var canSeePodBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.PodAudienceRoles);
+        var now = DateTime.UtcNow;
+
+        var query = asTracking ? _context.Notifications.AsTracking() : _context.Notifications.AsNoTracking();
+        query = query.Where(n => n.ExpiresAt == null || n.ExpiresAt > now);
+
+        if (NotificationAudienceRules.IsAdmin(normalizedRoles))
+        {
+            return query.Where(n =>
+                (n.TargetUsername == null && n.TargetRole == null) ||
+                (hasUsername && n.TargetUsername == username) ||
+                (hasRoles && n.TargetRole != null && normalizedRoles.Contains(n.TargetRole)));
+        }
+
+        return query.Where(n =>
+            (hasUsername && n.TargetUsername == username) ||
+            (hasRoles && n.TargetRole != null && normalizedRoles.Contains(n.TargetRole)) ||
+            (n.TargetUsername == null && n.TargetRole == null && (
+                NotificationAudienceRules.GlobalBroadcastCategories.Contains(n.Category) ||
+                (canSeeSalesBroadcasts && NotificationAudienceRules.SalesBroadcastCategories.Contains(n.Category)) ||
+                (canSeeInvoiceBroadcasts && NotificationAudienceRules.InvoiceBroadcastCategories.Contains(n.Category)) ||
+                (canSeePaymentBroadcasts && NotificationAudienceRules.PaymentBroadcastCategories.Contains(n.Category)) ||
+                (canSeeInventoryBroadcasts && NotificationAudienceRules.InventoryBroadcastCategories.Contains(n.Category)) ||
+                (canSeePurchasingBroadcasts && NotificationAudienceRules.PurchasingBroadcastCategories.Contains(n.Category)) ||
+                (canSeePodBroadcasts && NotificationAudienceRules.PodBroadcastCategories.Contains(n.Category)))));
     }
 
     /// <summary>

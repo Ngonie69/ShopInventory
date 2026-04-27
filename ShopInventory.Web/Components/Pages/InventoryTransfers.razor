@@ -806,6 +806,71 @@
 
         .it-header {
             flex-direction: column;
+            align-items: stretch;
+            gap: 0.85rem;
+        }
+
+        .it-header-actions,
+        .it-header-actions .btn-gradient,
+        .it-header-actions .btn-outline-action {
+            width: 100%;
+        }
+
+        .it-tabs {
+            overflow-x: auto;
+        }
+
+        .it-tab {
+            flex: 1 0 auto;
+            min-width: max-content;
+            padding: 0.75rem 1rem;
+        }
+
+        .filter-bar {
+            padding: 0.85rem;
+        }
+
+        .filter-bar .filter-field {
+            min-width: 100%;
+            flex: 1 1 100%;
+        }
+
+        .filter-bar .filter-actions-row {
+            width: 100%;
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .filter-bar .filter-actions-row>* {
+            width: 100%;
+            justify-content: center;
+        }
+
+        .it-tab-body .mud-table-toolbar {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 0.75rem;
+        }
+
+        .it-tab-body .mud-table-toolbar .mud-input-control {
+            width: 100%;
+        }
+
+        .it-request-toolbar {
+            flex-direction: column;
+            align-items: stretch !important;
+            gap: 0.75rem;
+        }
+
+        .it-request-toolbar-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .it-request-toolbar-actions>* {
+            width: 100%;
+            justify-content: center;
         }
     }
 </style>
@@ -920,7 +985,7 @@
 
                 <!-- Filter Bar -->
                 <div class="filter-bar">
-                    <div class="filter-field" style="min-width:220px;">
+                    <div class="filter-field">
                         <label>Warehouse <span class="text-danger">*</span></label>
                         @if (isLoadingWarehouses)
                         {
@@ -949,11 +1014,11 @@
                             </MudAutocomplete>
                         }
                     </div>
-                    <div class="filter-field" style="min-width:150px;">
+                    <div class="filter-field">
                         <label>From Date</label>
                         <FlexibleDatePicker Label="From" @bind-Date="fromDate" Variant="Variant.Outlined" />
                     </div>
-                    <div class="filter-field" style="min-width:150px;">
+                    <div class="filter-field">
                         <label>To Date</label>
                         <FlexibleDatePicker Label="To" @bind-Date="toDate" Variant="Variant.Outlined" />
                     </div>
@@ -1065,11 +1130,11 @@
             {
                 <!-- ══════ TRANSFER REQUESTS TAB ══════ -->
 
-                <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-3 it-request-toolbar">
                     <h6 class="fw-bold mb-0" style="color:#1a1a2e;">
                         <i class="bi bi-file-earmark-text me-2 text-primary"></i>Transfer Requests
                     </h6>
-                    <div class="d-flex gap-2">
+                    <div class="d-flex gap-2 it-request-toolbar-actions">
                         <MudButton Class="btn-clear" OnClick="RefreshTransferRequests" Disabled="@isLoadingRequests">
                             <i class="bi bi-arrow-clockwise"></i> Refresh
                         </MudButton>
@@ -1080,13 +1145,13 @@
                 </div>
 
                 <div class="filter-bar">
-                    <div class="filter-field" style="min-width:220px;">
+                    <div class="filter-field">
                         <label>Search</label>
                         <MudTextField @bind-Value="_requestSearchString" Placeholder="Doc #, route, comment..."
                                       Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="mt-0"
                                       Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
                     </div>
-                    <div class="filter-field" style="min-width:150px;">
+                    <div class="filter-field">
                         <label>From Warehouse</label>
                         <MudSelect T="string" @bind-Value="_requestFromWarehouseFilter" Dense="true"
                                    Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
@@ -1096,7 +1161,7 @@
                             }
                         </MudSelect>
                     </div>
-                    <div class="filter-field" style="min-width:150px;">
+                    <div class="filter-field">
                         <label>To Warehouse</label>
                         <MudSelect T="string" @bind-Value="_requestToWarehouseFilter" Dense="true"
                                    Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
@@ -1106,7 +1171,7 @@
                             }
                         </MudSelect>
                     </div>
-                    <div class="filter-field" style="min-width:150px;">
+                    <div class="filter-field">
                         <label>Status</label>
                         <MudSelect T="string" @bind-Value="_requestStatusFilter" Dense="true" Variant="Variant.Outlined"
                                    Margin="Margin.Dense" Clearable="true">
@@ -1116,16 +1181,16 @@
                             }
                         </MudSelect>
                     </div>
-                    <div class="filter-field" style="min-width:200px;">
+                    <div class="filter-field">
                         <label>Requester</label>
                         <MudTextField @bind-Value="_requestRequesterFilter" Placeholder="Name or email..." Class="mt-0"
                                       Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
                     </div>
-                    <div class="filter-field" style="min-width:150px;">
+                    <div class="filter-field">
                         <label>From Date</label>
                         <FlexibleDatePicker Label="From" @bind-Date="requestFromDate" Variant="Variant.Outlined" />
                     </div>
-                    <div class="filter-field" style="min-width:150px;">
+                    <div class="filter-field">
                         <label>To Date</label>
                         <FlexibleDatePicker Label="To" @bind-Date="requestToDate" Variant="Variant.Outlined" />
                     </div>
@@ -1323,7 +1388,7 @@
                                     <td><span class="wh-badge from" style="font-size:0.72rem;">@line.FromWarehouseCode</span></td>
                                     <td><span class="wh-badge to" style="font-size:0.72rem;">@line.ToWarehouseCode</span></td>
                                     <td style="text-align:right;font-weight:700;">@QuantityDisplay.Format(line.Quantity,
-                                                                                                                                                    line.UoMCode)</td>
+                                                                                                                                                                                            line.UoMCode)</td>
                                         <td style="color:#6b7280;">@line.UoMCode</td>
                                     </tr>
                                 }
@@ -1442,7 +1507,7 @@
                                             <td><span class="wh-badge from" style="font-size:0.72rem;">@line.FromWarehouseCode</span></td>
                                             <td><span class="wh-badge to" style="font-size:0.72rem;">@line.ToWarehouseCode</span></td>
                                             <td style="text-align:right;font-weight:700;">@QuantityDisplay.Format(line.Quantity,
-                                                                                                                                                                            line.UoMCode)</td>
+                                                                                                                                                                                                                            line.UoMCode)</td>
                                                 <td style="color:#6b7280;">@line.UoMCode</td>
                                             </tr>
                                         }

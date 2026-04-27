@@ -4,7 +4,7 @@
 @page "/customer-portal/statements"
 @using ShopInventory.Web.Models
 @inject ICustomerStatementService StatementService
-@inject ICustomerLinkedAccountService LinkedAccountService
+@inject ICustomerPortalSessionService CustomerSession
 @inject IJSRuntime JSRuntime
 @inject ILogger<CustomerStatements> Logger
 @attribute [AllowAnonymous]
@@ -462,6 +462,7 @@
     </style>
 
 @code {
+    private CustomerPortalSession? portalSession;
     private CustomerInfo? customerInfo;
     private CustomerStatementResponse? statement;
     private DateTime? fromDate = IAuditService.ToCAT(DateTime.UtcNow).AddMonths(-3);
@@ -494,19 +495,16 @@
     {
         try
         {
-            var customerInfoJson = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "customerInfo");
+            portalSession = await CustomerSession.GetCurrentSessionAsync();
+            customerInfo = portalSession?.Customer;
 
-            if (!string.IsNullOrEmpty(customerInfoJson))
+            if (customerInfo != null)
             {
-                customerInfo = System.Text.Json.JsonSerializer.Deserialize<CustomerInfo>(customerInfoJson);
-                if (customerInfo != null)
-                {
-                    isMultiAccount = customerInfo.AccountStructure == "Multi";
-                    if (isMultiAccount)
-                    {
-                        linkedAccounts = await LinkedAccountService.GetLinkedAccountsAsync(customerInfo.CardCode);
-                    }
-                }
+                isMultiAccount = customerInfo.AccountStructure == "Multi";
+                linkedAccounts = portalSession?.LinkedAccounts.ToList() ?? new List<LinkedAccountInfo>();
+                selectedAccountFilter = CustomerSession.CanAccessCardCode(portalSession, selectedAccountFilter)
+                    ? selectedAccountFilter
+                    : string.Empty;
             }
         }
         catch (Exception ex)
@@ -524,6 +522,13 @@
 
     private void OnAccountFilterChanged(string value)
     {
+        if (!CustomerSession.CanAccessCardCode(portalSession, value))
+        {
+            Logger.LogWarning("Rejected unauthorized customer statement account filter {CardCode}", value);
+            selectedAccountFilter = string.Empty;
+            return;
+        }
+
         selectedAccountFilter = value;
     }
 
@@ -536,7 +541,9 @@
         try
         {
             var request = BuildRequest();
-            var cardCode = string.IsNullOrEmpty(selectedAccountFilter) ? customerInfo.CardCode : selectedAccountFilter;
+            var cardCode = ResolveSelectedCardCode();
+            if (cardCode == null) return;
+
             statement = await StatementService.GetStatementAsync(cardCode, request);
         }
         catch (Exception ex)
@@ -559,7 +566,10 @@
         try
         {
             var request = BuildRequest();
-            var pdfBytes = await StatementService.GenerateStatementPdfAsync(customerInfo.CardCode, request);
+            var cardCode = ResolveSelectedCardCode();
+            if (cardCode == null) return;
+
+            var pdfBytes = await StatementService.GenerateStatementPdfAsync(cardCode, request);
 
             if (pdfBytes == null || pdfBytes.Length == 0)
             {
@@ -582,7 +592,7 @@
             }
 
             var base64 = Convert.ToBase64String(pdfBytes);
-            var fileName = $"Statement_{customerInfo.CardCode}_{IAuditService.ToCAT(DateTime.UtcNow):yyyyMMdd}.pdf";
+            var fileName = $"Statement_{cardCode}_{IAuditService.ToCAT(DateTime.UtcNow):yyyyMMdd}.pdf";
 
             await JSRuntime.InvokeVoidAsync("downloadFile", fileName, base64);
         }
@@ -596,6 +606,24 @@
             isDownloading = false;
             StateHasChanged();
         }
+    }
+
+    private string? ResolveSelectedCardCode()
+    {
+        if (customerInfo == null)
+        {
+            return null;
+        }
+
+        var cardCode = string.IsNullOrEmpty(selectedAccountFilter) ? customerInfo.CardCode : selectedAccountFilter;
+        if (CustomerSession.CanAccessCardCode(portalSession, cardCode))
+        {
+            return cardCode;
+        }
+
+        Logger.LogWarning("Rejected unauthorized customer statement account access {CardCode}", cardCode);
+        selectedAccountFilter = string.Empty;
+        return null;
     }
 
     private string FormatCurrency(decimal amount)

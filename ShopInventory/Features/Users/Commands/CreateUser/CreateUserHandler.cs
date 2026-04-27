@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Extensions;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -29,12 +30,12 @@ public sealed class CreateUserHandler(
             return Errors.User.CreationFailed("Username and password are required");
         }
 
-        if (await context.Users.AnyAsync(u => u.Username == request.Username, cancellationToken))
+        if (await context.Users.WhereUsernameMatches(request.Username).AnyAsync(cancellationToken))
         {
             return Errors.User.DuplicateUsername;
         }
 
-        if (!string.IsNullOrEmpty(request.Email) && await context.Users.AnyAsync(u => u.Email == request.Email, cancellationToken))
+        if (!string.IsNullOrEmpty(request.Email) && await context.Users.WhereEmailMatches(request.Email).AnyAsync(cancellationToken))
         {
             return Errors.User.CreationFailed("Email already exists");
         }
