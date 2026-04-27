@@ -1854,7 +1854,7 @@
         // Fetch the full order with lines from the API
         try
         {
-            var fullOrder = await SalesOrderService.GetSalesOrderByIdAsync(order.Id);
+            var fullOrder = await SalesOrderService.GetSalesOrderDetailsAsync(order);
             if (fullOrder != null)
             {
                 selectedOrder = fullOrder;
@@ -1886,7 +1886,7 @@
 
         try
         {
-            var fullOrder = await SalesOrderService.GetSalesOrderByIdAsync(selectedOrder.Id);
+            var fullOrder = await SalesOrderService.GetSalesOrderDetailsAsync(selectedOrder);
             if (fullOrder != null)
             {
                 selectedOrder = fullOrder;

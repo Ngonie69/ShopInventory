@@ -127,6 +127,9 @@ public class MerchandiserOrderRequest
 
     public string? DeviceInfo { get; set; }
 
+    [MaxLength(100, ErrorMessage = "Client request ID must not exceed 100 characters")]
+    public string? ClientRequestId { get; set; }
+
     public DateTime? DeliveryDate { get; set; }
 
     [Required(ErrorMessage = "At least one item is required")]

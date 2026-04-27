@@ -18,6 +18,7 @@ using ShopInventory.Features.Invoices.Queries.GetPagedInvoices;
 using ShopInventory.Features.Invoices.Queries.GetPodDashboard;
 using ShopInventory.Features.Invoices.Queries.GetPodUploadStatus;
 using ShopInventory.Features.Invoices.Queries.ValidateInvoice;
+using ShopInventory.Features.Invoices.Queries.ValidateBulkPods;
 
 namespace ShopInventory.Controllers;
 
@@ -99,6 +100,18 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(new GetInvoiceByDocNumQuery(docNum), cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPost("pods/validate-bulk")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
+    [ProducesResponseType(typeof(BulkPodValidationResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ValidateBulkPods(
+        [FromBody] BulkPodValidationRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(new ValidateBulkPodsQuery(request.DocNums), cancellationToken);
         return result.Match(Ok, Problem);
     }
 

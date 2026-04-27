@@ -978,7 +978,7 @@
         try
         {
             // Load order and master data in parallel
-            var orderTask = SalesOrderService.GetSalesOrderByIdAsync(Id);
+            var orderTask = SalesOrderService.GetLocalSalesOrderByIdAsync(Id);
             var warehouseTask = CacheService.GetWarehousesAsync();
             var productTask = CacheService.GetProductsAsync();
 

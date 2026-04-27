@@ -9,7 +9,9 @@ public interface ISalesOrderService
 {
     Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20, SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null, string? search = null);
     Task<SalesOrderDto?> GetSalesOrderByIdAsync(int id);
+    Task<SalesOrderDto?> GetLocalSalesOrderByIdAsync(int id);
     Task<SalesOrderDto?> GetSalesOrderByNumberAsync(string orderNumber);
+    Task<SalesOrderDto?> GetSalesOrderDetailsAsync(SalesOrderDto order);
     Task<SalesOrderDto?> CreateSalesOrderAsync(CreateSalesOrderRequest request);
     Task<SalesOrderDto?> UpdateSalesOrderAsync(int id, CreateSalesOrderRequest request);
     Task<SalesOrderDto?> UpdateStatusAsync(int id, SalesOrderStatus status, string? comments = null);
@@ -115,6 +117,7 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             return await _httpClient.GetFromJsonAsync<SalesOrderDto>($"api/salesorder/{id}");
         }
         catch (Exception ex)
@@ -124,10 +127,25 @@ public class SalesOrderService : ISalesOrderService
         }
     }
 
+    public async Task<SalesOrderDto?> GetLocalSalesOrderByIdAsync(int id)
+    {
+        try
+        {
+            await EnsureAuthenticationAsync();
+            return await _httpClient.GetFromJsonAsync<SalesOrderDto>($"api/salesorder/local/{id}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching local sales order {Id}", id);
+            return null;
+        }
+    }
+
     public async Task<SalesOrderDto?> GetSalesOrderByNumberAsync(string orderNumber)
     {
         try
         {
+            await EnsureAuthenticationAsync();
             return await _httpClient.GetFromJsonAsync<SalesOrderDto>($"api/salesorder/number/{Uri.EscapeDataString(orderNumber)}");
         }
         catch (Exception ex)
@@ -135,6 +153,29 @@ public class SalesOrderService : ISalesOrderService
             _logger.LogError(ex, "Error fetching sales order by number {OrderNumber}", orderNumber);
             return null;
         }
+    }
+
+    public async Task<SalesOrderDto?> GetSalesOrderDetailsAsync(SalesOrderDto order)
+    {
+        if (ShouldLoadFromLocal(order))
+        {
+            var localOrder = await GetLocalSalesOrderByIdAsync(order.Id);
+            if (localOrder != null)
+                return localOrder;
+
+            if (!string.IsNullOrWhiteSpace(order.OrderNumber))
+                return await GetSalesOrderByNumberAsync(order.OrderNumber);
+        }
+
+        var sapDocEntry = order.SAPDocEntry ?? order.Id;
+        return await GetSalesOrderByIdAsync(sapDocEntry);
+    }
+
+    private static bool ShouldLoadFromLocal(SalesOrderDto order)
+    {
+        return !order.IsSynced ||
+            (!string.IsNullOrWhiteSpace(order.OrderNumber) &&
+                !order.OrderNumber.StartsWith("SAP-", StringComparison.OrdinalIgnoreCase));
     }
 
     public async Task<SalesOrderDto?> CreateSalesOrderAsync(CreateSalesOrderRequest request)

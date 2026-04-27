@@ -1731,39 +1731,6 @@
         return null;
     }
 
-    private async Task<(InvoiceDto? Invoice, bool Success)> LookupInvoiceWithRetryAsync(int docNum, CancellationToken ct)
-    {
-        const int maxRetries = 3;
-        for (var attempt = 1; attempt <= maxRetries; attempt++)
-        {
-            ct.ThrowIfCancellationRequested();
-            try
-            {
-                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
-                var inv = await InvoiceService.GetInvoiceByDocNumAsync(docNum);
-                return (inv, true);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw; // User cancelled — propagate
-            }
-            catch (Exception ex)
-            {
-                if (attempt < maxRetries)
-                {
-                    Logger.LogWarning(ex, "Invoice lookup for #{DocNum} failed (attempt {Attempt}/{Max}), retrying...", docNum, attempt, maxRetries);
-                    await Task.Delay(attempt * 500, ct); // Backoff: 500ms, 1s, 1.5s
-                }
-                else
-                {
-                    Logger.LogWarning(ex, "Invoice lookup for #{DocNum} failed after {Max} attempts", docNum, maxRetries);
-                }
-            }
-        }
-        return (null, false);
-    }
-
     private async Task ValidateBulkFiles()
     {
         if (isBulkValidating || bulkMappings.Count == 0) return;
@@ -1844,56 +1811,21 @@
             .Distinct()
             .ToList();
 
-        var invoiceCache = new System.Collections.Concurrent.ConcurrentDictionary<int, InvoiceDto?>();
-        var podCountCache = new System.Collections.Concurrent.ConcurrentDictionary<int, int>();
-        var failedLookups = new System.Collections.Concurrent.ConcurrentBag<int>();
-
-        var validationSemaphore = new SemaphoreSlim(20, 20);
-        var validated = 0;
         var totalToValidate = docNums.Count;
         bulkValidationProgress = $"(0/{totalToValidate})";
+        await InvokeAsync(StateHasChanged);
 
-        var validationTasks = docNums.Select(async docNum =>
-        {
-            await validationSemaphore.WaitAsync(ct);
-            try
-            {
-                var (inv, success) = await LookupInvoiceWithRetryAsync(docNum, ct);
-                if (success)
-                {
-                    invoiceCache[docNum] = inv;
-                    if (inv != null)
-                    {
-                        try
-                        {
-                            var existing = await PodService.GetInvoicePodsAsync(inv.DocEntry);
-                            podCountCache[docNum] = existing?.TotalCount ?? 0;
-                        }
-                        catch
-                        {
-                            podCountCache[docNum] = 0;
-                        }
-                    }
-                }
-                else
-                {
-                    failedLookups.Add(docNum);
-                }
+        var validationResponse = totalToValidate == 0
+            ? new BulkPodValidationResponse()
+            : await PodService.ValidateBulkPodsAsync(docNums, ct);
 
-                var done = Interlocked.Increment(ref validated);
-                if (done % 10 == 0 || done == totalToValidate)
-                {
-                    bulkValidationProgress = $"({done}/{totalToValidate})";
-                    await InvokeAsync(StateHasChanged);
-                }
-            }
-            finally
-            {
-                validationSemaphore.Release();
-            }
-        }).ToArray();
+        var validationResults = validationResponse?.Results
+            .GroupBy(result => result.DocNum)
+            .ToDictionary(group => group.Key, group => group.First())
+            ?? new Dictionary<int, BulkPodValidationResult>();
 
-        await Task.WhenAll(validationTasks);
+        bulkValidationProgress = $"({totalToValidate}/{totalToValidate})";
+        await InvokeAsync(StateHasChanged);
 
         foreach (var map in mappings)
         {
@@ -1911,27 +1843,29 @@
                 continue;
             }
 
-            if (failedLookups.Contains(map.DocNum.Value))
+            if (!validationResults.TryGetValue(map.DocNum.Value, out var validationResult))
             {
                 map.Status = BulkFileStatus.Error;
-                map.ErrorMessage = $"Invoice #{map.DocNum} lookup failed (SAP timeout)";
+                map.ErrorMessage = validationResponse == null
+                    ? "Invoice lookup failed (API unavailable or rate limited)"
+                    : $"Invoice #{map.DocNum} not found in SAP";
                 continue;
             }
 
-            if (invoiceCache.TryGetValue(map.DocNum.Value, out var invoice) && invoice != null)
+            if (validationResult.Found && validationResult.DocEntry.HasValue)
             {
-                if (ExcludedCardCodes.Contains(invoice.CardCode ?? ""))
+                if (ExcludedCardCodes.Contains(validationResult.CardCode ?? ""))
                 {
-                    map.DocEntry = invoice.DocEntry;
-                    map.CardName = invoice.CardName;
+                    map.DocEntry = validationResult.DocEntry;
+                    map.CardName = validationResult.CardName;
                     map.Status = BulkFileStatus.Error;
-                    map.ErrorMessage = $"Excluded BP ({invoice.CardCode})";
+                    map.ErrorMessage = $"Excluded BP ({validationResult.CardCode})";
                 }
                 else
                 {
-                    map.DocEntry = invoice.DocEntry;
-                    map.CardName = invoice.CardName;
-                    map.ExistingPodCount = podCountCache.GetValueOrDefault(map.DocNum.Value, 0);
+                    map.DocEntry = validationResult.DocEntry;
+                    map.CardName = validationResult.CardName;
+                    map.ExistingPodCount = validationResult.ExistingPodCount;
                     if (map.ExistingPodCount > 0)
                     {
                         map.Status = BulkFileStatus.Skipped;
@@ -1946,7 +1880,7 @@
             else
             {
                 map.Status = BulkFileStatus.Error;
-                map.ErrorMessage = $"Invoice #{map.DocNum} not found in SAP";
+                map.ErrorMessage = validationResult.ErrorMessage ?? $"Invoice #{map.DocNum} not found in SAP";
             }
         }
     }

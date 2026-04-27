@@ -643,9 +643,7 @@ public class SalesOrderService : ISalesOrderService
         {
             if (queueEntry.PricesResolvedAt == null)
             {
-                using var priceCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                priceCts.CancelAfter(TimeSpan.FromSeconds(180));
-                await ResolveMobileOrderPricesAsync(order, priceCts.Token);
+                await ResolveMobileOrderPricesAsync(order, cancellationToken);
 
                 queueEntry.PricesResolvedAt = DateTime.UtcNow;
                 queueEntry.LastError = null;
@@ -671,6 +669,10 @@ public class SalesOrderService : ISalesOrderService
                 "Completed durable post-save processing for mobile sales order {OrderNumber} ({OrderId})",
                 order.OrderNumber,
                 order.Id);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -791,12 +793,25 @@ public class SalesOrderService : ISalesOrderService
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        _logger.LogError(
-            ex,
-            "Failed durable post-save processing for mobile sales order {SalesOrderId}. Queue entry {QueueId} moved to {Status}.",
-            queueEntry.SalesOrderId,
-            queueEntry.Id,
-            queueEntry.Status);
+        if (queueEntry.Status == MobileOrderPostProcessingQueueStatus.RequiresReview)
+        {
+            _logger.LogError(
+                ex,
+                "Failed durable post-save processing for mobile sales order {SalesOrderId}. Queue entry {QueueId} moved to {Status}.",
+                queueEntry.SalesOrderId,
+                queueEntry.Id,
+                queueEntry.Status);
+        }
+        else
+        {
+            _logger.LogWarning(
+                ex,
+                "Retryable durable post-save processing failure for mobile sales order {SalesOrderId}. Queue entry {QueueId} moved to {Status}; next retry at {NextRetryAt}.",
+                queueEntry.SalesOrderId,
+                queueEntry.Id,
+                queueEntry.Status,
+                queueEntry.NextRetryAt);
+        }
     }
 
     public async Task<SalesOrderDto> UpdateAsync(int id, CreateSalesOrderRequest request, CancellationToken cancellationToken = default)

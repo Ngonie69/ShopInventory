@@ -23,6 +23,7 @@ public class IdempotencyMiddleware
     // Paths that require idempotency (write operations on SAP or business-critical endpoints)
     private static readonly string[] IdempotencyRequiredPaths =
     {
+            "/api/merchandiser/mobile/order",
             "/api/invoice", "/api/salesorder", "/api/creditnote",
             "/api/incomingpayment", "/api/inventorytransfer", "/api/payment",
             "/api/purchaseorder", "/api/purchaseinvoice", "/api/goodsreceiptpurchaseorder",

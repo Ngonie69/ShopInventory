@@ -169,6 +169,11 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         if (!Guid.TryParse(userIdClaim, out var userId))
             return Forbid();
 
+        if (string.IsNullOrWhiteSpace(request.ClientRequestId) && Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyValues))
+        {
+            request.ClientRequestId = idempotencyValues.FirstOrDefault();
+        }
+
         var result = await mediator.Send(new SubmitMobileOrderCommand(request, userId), cancellationToken);
         return result.Match(value => CreatedAtAction(nameof(GetMobileOrders), null, value), errors => Problem(errors));
     }

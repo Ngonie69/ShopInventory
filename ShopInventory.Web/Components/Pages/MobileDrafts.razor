@@ -1335,7 +1335,7 @@
 
         try
         {
-            var detailOrder = await SalesOrderService.GetSalesOrderByIdAsync(order.Id) ?? order;
+            var detailOrder = await SalesOrderService.GetSalesOrderDetailsAsync(order) ?? order;
             if (!ReferenceEquals(detailOrder, order))
             {
                 selectedOrder = detailOrder;
@@ -1514,7 +1514,7 @@
 
         try
         {
-            var fullOrder = await SalesOrderService.GetSalesOrderByIdAsync(selectedOrder.Id);
+            var fullOrder = await SalesOrderService.GetSalesOrderDetailsAsync(selectedOrder);
             if (fullOrder != null)
             {
                 selectedOrder = fullOrder;

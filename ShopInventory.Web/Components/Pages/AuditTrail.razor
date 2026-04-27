@@ -1708,6 +1708,8 @@
     private static string FormatAction(string? action)
     {
         if (string.IsNullOrEmpty(action)) return "";
+        if (action == AuditActions.RefreshToken) return "Session Renewed";
+
         // Insert space before uppercase letters: "ViewInvoice" → "View Invoice"
         return System.Text.RegularExpressions.Regex.Replace(action, "(?<=[a-z])(?=[A-Z])", " ");
     }

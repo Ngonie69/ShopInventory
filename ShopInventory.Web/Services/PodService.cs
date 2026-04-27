@@ -9,6 +9,7 @@ public interface IPodService
     Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? search = null);
     Task<PodAttachmentListResponse?> GetAllPodsForAccountsAsync(int page, int pageSize, List<string> cardCodes, DateTime? fromDate = null, DateTime? toDate = null);
     Task<DocumentAttachmentListResponse?> GetInvoicePodsAsync(int docEntry);
+    Task<BulkPodValidationResponse?> ValidateBulkPodsAsync(IEnumerable<int> docNums, CancellationToken cancellationToken = default);
     Task<(bool Success, string Message, DocumentAttachmentDto? Attachment)> UploadPodAsync(int docEntry, Stream fileStream, string fileName, string contentType, string? description = null, string? uploadedByUsername = null);
     Task<byte[]?> DownloadPodAsync(int docEntry, int attachmentId);
     Task<bool> DeletePodAsync(int attachmentId);
@@ -77,6 +78,34 @@ public class PodService : IPodService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching PODs for invoice {DocEntry}", docEntry);
+            return null;
+        }
+    }
+
+    public async Task<BulkPodValidationResponse?> ValidateBulkPodsAsync(IEnumerable<int> docNums, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var request = new BulkPodValidationRequest
+            {
+                DocNums = docNums.Where(docNum => docNum > 0).Distinct().ToList()
+            };
+
+            var response = await _httpClient.PostAsJsonAsync("api/invoice/pods/validate-bulk", request, cancellationToken);
+            if (response.IsSuccessStatusCode)
+                return await response.Content.ReadFromJsonAsync<BulkPodValidationResponse>(cancellationToken);
+
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogWarning("Bulk POD validation failed: {StatusCode} {Error}", (int)response.StatusCode, error);
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error validating bulk POD invoice numbers");
             return null;
         }
     }

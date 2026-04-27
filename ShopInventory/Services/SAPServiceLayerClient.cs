@@ -848,6 +848,62 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         return result?.Value?.FirstOrDefault();
     }
 
+    public async Task<List<Invoice>> GetInvoicesByDocNumsAsync(
+        IEnumerable<int> docNums,
+        CancellationToken cancellationToken = default)
+    {
+        var distinctDocNums = docNums
+            .Where(docNum => docNum > 0)
+            .Distinct()
+            .ToList();
+
+        if (distinctDocNums.Count == 0)
+            return [];
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var allInvoices = new List<Invoice>();
+
+        foreach (var chunk in distinctDocNums.Chunk(50))
+        {
+            var currentSession = _sessionId;
+            var filter = string.Join(" or ", chunk.Select(docNum => $"DocNum eq {docNum}"));
+            var url = $"Invoices?$filter={filter}&$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency&$top={chunk.Length}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to bulk get invoices by DocNum: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to bulk get invoices: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var result = JsonSerializer.Deserialize<SAPResponse<Invoice>>(content);
+            if (result?.Value is { Count: > 0 })
+                allInvoices.AddRange(result.Value);
+        }
+
+        return allInvoices
+            .GroupBy(invoice => invoice.DocNum)
+            .Select(group => group.First())
+            .ToList();
+    }
+
     public async Task<List<Invoice>> GetInvoicesByCustomerAsync(
         string cardCode,
         CancellationToken cancellationToken = default)
@@ -2926,7 +2982,6 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
     public async Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, IEnumerable<string>? itemCodes, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
         var safeCardCode = SanitizeODataValue(cardCode);
         var safeItemCodes = itemCodes?
             .Where(code => !string.IsNullOrWhiteSpace(code))
@@ -2937,78 +2992,87 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         // Use OData SpecialPrices endpoint — OSPP is not on the SQL table allowlist.
         // Fetch the full entity so we can honor validity windows and ignore expired BP overrides.
         var result = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
-        var skip = 0;
         const int pageSize = 100;
         var todayUtc = DateTime.UtcNow.Date;
         var filteredOutCount = 0;
+        var itemCodeBatches = BuildSpecialPriceItemCodeBatches(safeCardCode, safeItemCodes);
+
+        if (safeItemCodes is { Count: > 0 } && itemCodeBatches.Count > 1)
+        {
+            _logger.LogInformation(
+                "Fetching special prices for BP {CardCode} in {BatchCount} SAP-safe batches for {ItemCount} requested items",
+                cardCode,
+                itemCodeBatches.Count,
+                safeItemCodes.Count);
+        }
 
         try
         {
-            while (true)
+            foreach (var itemCodeBatch in itemCodeBatches)
             {
-                var filter = $"CardCode eq '{safeCardCode}'";
-                if (safeItemCodes is { Count: > 0 })
+                var skip = 0;
+
+                while (true)
                 {
-                    var itemFilter = string.Join(" or ", safeItemCodes.Select(code => $"ItemCode eq '{code}'"));
-                    filter = $"{filter} and ({itemFilter})";
-                }
+                    var filter = BuildSpecialPriceFilter(safeCardCode, itemCodeBatch);
+                    var url = $"SpecialPrices?$filter={filter}&$top={pageSize}&$skip={skip}";
+                    var requestSession = _sessionId;
 
-                var url = $"SpecialPrices?$filter={filter}&$top={pageSize}&$skip={skip}";
-
-                var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                httpRequest.Headers.Add("Prefer", "odata.maxpagesize=100");
-
-                var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-
-                if (response.StatusCode == HttpStatusCode.Unauthorized)
-                {
-                    await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-                    httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-                    httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                    var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+                    httpRequest.Headers.Add("Cookie", $"B1SESSION={requestSession}");
                     httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                     httpRequest.Headers.Add("Prefer", "odata.maxpagesize=100");
-                    response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-                }
 
-                if (!response.IsSuccessStatusCode)
-                {
-                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                    _logger.LogWarning("Failed to get special prices for BP {CardCode}: {StatusCode} - {Error}",
-                        cardCode, response.StatusCode, errorContent);
-                    break;
-                }
+                    var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
 
-                var content = await response.Content.ReadAsStringAsync(cancellationToken);
-                using var doc = JsonDocument.Parse(content);
-                var count = 0;
-
-                if (doc.RootElement.TryGetProperty("value", out var valueArray))
-                {
-                    foreach (var item in valueArray.EnumerateArray())
+                    if (response.StatusCode == HttpStatusCode.Unauthorized)
                     {
-                        count++;
-                        var itemCode = item.TryGetProperty("ItemCode", out var ic) ? ic.GetString() : null;
-                        if (string.IsNullOrWhiteSpace(itemCode))
-                            continue;
+                        await HandleAuthFailureAsync(requestSession, cancellationToken);
 
-                        if (!TryExtractCurrentSpecialPrice(item, todayUtc, out var price))
-                        {
-                            filteredOutCount++;
-                            continue;
-                        }
-
-                        result[itemCode] = price;
+                        httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+                        httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                        httpRequest.Headers.Add("Prefer", "odata.maxpagesize=100");
+                        response = await _httpClient.SendAsync(httpRequest, cancellationToken);
                     }
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                        _logger.LogWarning("Failed to get special prices for BP {CardCode}: {StatusCode} - {Error}",
+                            cardCode, response.StatusCode, errorContent);
+                        break;
+                    }
+
+                    var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                    using var doc = JsonDocument.Parse(content);
+                    var count = 0;
+
+                    if (doc.RootElement.TryGetProperty("value", out var valueArray))
+                    {
+                        foreach (var item in valueArray.EnumerateArray())
+                        {
+                            count++;
+                            var itemCode = item.TryGetProperty("ItemCode", out var ic) ? ic.GetString() : null;
+                            if (string.IsNullOrWhiteSpace(itemCode))
+                                continue;
+
+                            if (!TryExtractCurrentSpecialPrice(item, todayUtc, out var price))
+                            {
+                                filteredOutCount++;
+                                continue;
+                            }
+
+                            result[itemCode] = price;
+                        }
+                    }
+
+                    // No more pages
+                    if (count < pageSize)
+                        break;
+
+                    skip += pageSize;
                 }
-
-                // No more pages
-                if (count < pageSize)
-                    break;
-
-                skip += pageSize;
             }
         }
         catch (Exception ex)
@@ -3030,6 +3094,46 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             cardCode,
             safeItemCodes is { Count: > 0 } ? $" across {safeItemCodes.Count} requested items" : string.Empty);
         return result;
+    }
+
+    private const int MaxSpecialPricesFilterLength = 1200;
+
+    private static List<IReadOnlyList<string>> BuildSpecialPriceItemCodeBatches(
+        string safeCardCode,
+        IReadOnlyList<string>? safeItemCodes)
+    {
+        if (safeItemCodes is not { Count: > 0 })
+            return new List<IReadOnlyList<string>> { Array.Empty<string>() };
+
+        var batches = new List<IReadOnlyList<string>>();
+        var currentBatch = new List<string>();
+
+        foreach (var safeItemCode in safeItemCodes)
+        {
+            currentBatch.Add(safeItemCode);
+
+            if (currentBatch.Count <= 1 || BuildSpecialPriceFilter(safeCardCode, currentBatch).Length <= MaxSpecialPricesFilterLength)
+                continue;
+
+            currentBatch.RemoveAt(currentBatch.Count - 1);
+            batches.Add(currentBatch);
+            currentBatch = new List<string> { safeItemCode };
+        }
+
+        if (currentBatch.Count > 0)
+            batches.Add(currentBatch);
+
+        return batches;
+    }
+
+    private static string BuildSpecialPriceFilter(string safeCardCode, IReadOnlyCollection<string> safeItemCodes)
+    {
+        var filter = $"CardCode eq '{safeCardCode}'";
+        if (safeItemCodes.Count == 0)
+            return filter;
+
+        var itemFilter = string.Join(" or ", safeItemCodes.Select(code => $"ItemCode eq '{code}'"));
+        return $"{filter} and ({itemFilter})";
     }
 
     private static bool TryExtractCurrentSpecialPrice(JsonElement item, DateTime todayUtc, out decimal price)
@@ -9868,6 +9972,43 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         };
     }
 
+    private void TryDeleteCopiedSapAttachment(SapAttachmentFileInfo fileInfo)
+    {
+        try
+        {
+            using var shareConnection = ConnectToSapShareIfNeeded(fileInfo.AttachmentsPath);
+            if (File.Exists(fileInfo.DestinationPath))
+            {
+                File.Delete(fileInfo.DestinationPath);
+                _logger.LogInformation("Deleted copied SAP attachment file {Path} after Service Layer rejection", fileInfo.DestinationPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not delete copied SAP attachment file {Path} after Service Layer rejection", fileInfo.DestinationPath);
+        }
+    }
+
+    private string CreateSapAttachmentFailureMessage(string operation, HttpStatusCode statusCode, string errorContent)
+    {
+        var sapError = ExtractSAPErrorMessage(errorContent) ?? errorContent;
+        if (IsSapAttachmentFolderConfigurationError(errorContent))
+        {
+            return $"{operation}: SAP Business One reports that its Attachments Folder is not defined or no longer valid. " +
+                "Configure SAP B1 General Settings > Path > Attachments Folder to an existing folder reachable by the Service Layer. " +
+                $"The API is currently copying POD files to '{_settings.AttachmentsPath}', so SAP's attachment folder should match that location or SAP:AttachmentsPath should be updated to the folder SAP uses. " +
+                $"SAP response ({statusCode}): {sapError}";
+        }
+
+        return $"{operation}: {statusCode} - {sapError}";
+    }
+
+    private static bool IsSapAttachmentFolderConfigurationError(string errorContent)
+    {
+        return errorContent.Contains("-5002", StringComparison.OrdinalIgnoreCase) &&
+            errorContent.Contains("Attachments folder", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// Copies a file to the SAP attachments network share and creates an Attachments2 metadata
     /// Uploads a file to SAP as an attachment via the Attachments2 JSON API.
@@ -9877,48 +10018,66 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
     /// </summary>
     public async Task<int> UploadAttachmentToSAPAsync(Stream fileStream, string fileName, CancellationToken cancellationToken = default)
     {
-        var fileInfo = await CopyAttachmentToSapShareAsync(fileStream, fileName, cancellationToken);
+        SapAttachmentFileInfo? fileInfo = null;
+        var serviceLayerAcceptedFile = false;
 
-        // 2. Create the Attachments2 record via Service Layer JSON POST
-        await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
-
-        var payload = new JsonObject
+        try
         {
-            ["Attachments2_Lines"] = new JsonArray(CreateAttachmentLinePayload(fileInfo))
-        };
+            fileInfo = await CopyAttachmentToSapShareAsync(fileStream, fileName, cancellationToken);
 
-        var json = payload.ToJsonString();
+            // 2. Create the Attachments2 record via Service Layer JSON POST
+            await EnsureAuthenticatedAsync(cancellationToken);
+            var currentSession = _sessionId;
 
-        _logger.LogDebug("SAP Attachments2 POST payload: {Payload}", json);
+            var payload = new JsonObject
+            {
+                ["Attachments2_Lines"] = new JsonArray(CreateAttachmentLinePayload(fileInfo))
+            };
 
-        var httpRequest = CreateSapJsonRequest(HttpMethod.Post, "Attachments2", json);
+            var json = payload.ToJsonString();
 
-        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            _logger.LogDebug("SAP Attachments2 POST payload: {Payload}", json);
 
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            var httpRequest = CreateSapJsonRequest(HttpMethod.Post, "Attachments2", json);
 
-            httpRequest = CreateSapJsonRequest(HttpMethod.Post, "Attachments2", json);
-            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                httpRequest = CreateSapJsonRequest(HttpMethod.Post, "Attachments2", json);
+                response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                var failureMessage = CreateSapAttachmentFailureMessage("Failed to create SAP Attachments2 record", response.StatusCode, errorContent);
+                _logger.LogError("Failed to create SAP Attachments2 record: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new InvalidOperationException(failureMessage);
+            }
+
+            serviceLayerAcceptedFile = true;
+
+            var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogDebug("SAP Attachments2 response: {Response}", responseContent);
+            using var doc = JsonDocument.Parse(responseContent);
+            var absoluteEntry = doc.RootElement.GetProperty("AbsoluteEntry").GetInt32();
+
+            _logger.LogInformation("SAP attachment created with AbsoluteEntry: {AbsoluteEntry} (file: {FileName}.{Ext})",
+                absoluteEntry, fileInfo.FileName, fileInfo.FileExtension);
+            return absoluteEntry;
         }
-
-        if (!response.IsSuccessStatusCode)
+        catch
         {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to create SAP Attachments2 record: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to create SAP Attachments2 record: {response.StatusCode} - {errorContent}");
+            if (fileInfo is not null && !serviceLayerAcceptedFile)
+            {
+                TryDeleteCopiedSapAttachment(fileInfo);
+            }
+
+            throw;
         }
-
-        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
-        _logger.LogDebug("SAP Attachments2 response: {Response}", responseContent);
-        using var doc = JsonDocument.Parse(responseContent);
-        var absoluteEntry = doc.RootElement.GetProperty("AbsoluteEntry").GetInt32();
-
-        _logger.LogInformation("SAP attachment created with AbsoluteEntry: {AbsoluteEntry} (file: {FileName}.{Ext})",
-            absoluteEntry, fileInfo.FileName, fileInfo.FileExtension);
-        return absoluteEntry;
     }
 
     /// <summary>
@@ -9926,8 +10085,6 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
     /// </summary>
     public async Task<int> AppendAttachmentToSAPAsync(int attachmentEntry, Stream fileStream, string fileName, CancellationToken cancellationToken = default)
     {
-        var fileInfo = await CopyAttachmentToSapShareAsync(fileStream, fileName, cancellationToken);
-
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
@@ -9967,47 +10124,66 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             }
         }
 
-        attachmentLines.Add(CreateAttachmentLinePayload(fileInfo));
+        SapAttachmentFileInfo? fileInfo = null;
+        var serviceLayerAcceptedFile = false;
 
-        var patchPayload = new JsonObject
+        try
         {
-            ["Attachments2_Lines"] = attachmentLines
-        }.ToJsonString();
+            fileInfo = await CopyAttachmentToSapShareAsync(fileStream, fileName, cancellationToken);
+            attachmentLines.Add(CreateAttachmentLinePayload(fileInfo));
 
-        _logger.LogDebug(
-            "SAP Attachments2 PATCH payload for {AttachmentEntry}: {Payload}",
-            attachmentEntry,
-            patchPayload);
+            var patchPayload = new JsonObject
+            {
+                ["Attachments2_Lines"] = attachmentLines
+            }.ToJsonString();
 
-        var patchRequest = CreateSapJsonRequest(HttpMethod.Patch, $"Attachments2({attachmentEntry})", patchPayload);
-        var patchResponse = await _httpClient.SendAsync(patchRequest, cancellationToken);
-
-        if (patchResponse.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-            patchRequest = CreateSapJsonRequest(HttpMethod.Patch, $"Attachments2({attachmentEntry})", patchPayload);
-            patchResponse = await _httpClient.SendAsync(patchRequest, cancellationToken);
-        }
-
-        if (!patchResponse.IsSuccessStatusCode)
-        {
-            var errorContent = await patchResponse.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError(
-                "Failed to append file to SAP attachment {AttachmentEntry}: {StatusCode} - {Error}",
+            _logger.LogDebug(
+                "SAP Attachments2 PATCH payload for {AttachmentEntry}: {Payload}",
                 attachmentEntry,
-                patchResponse.StatusCode,
-                errorContent);
-            throw new Exception($"Failed to append file to SAP attachment {attachmentEntry}: {patchResponse.StatusCode} - {errorContent}");
+                patchPayload);
+
+            var patchRequest = CreateSapJsonRequest(HttpMethod.Patch, $"Attachments2({attachmentEntry})", patchPayload);
+            var patchResponse = await _httpClient.SendAsync(patchRequest, cancellationToken);
+
+            if (patchResponse.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                patchRequest = CreateSapJsonRequest(HttpMethod.Patch, $"Attachments2({attachmentEntry})", patchPayload);
+                patchResponse = await _httpClient.SendAsync(patchRequest, cancellationToken);
+            }
+
+            if (!patchResponse.IsSuccessStatusCode)
+            {
+                var errorContent = await patchResponse.Content.ReadAsStringAsync(cancellationToken);
+                var failureMessage = CreateSapAttachmentFailureMessage($"Failed to append file to SAP attachment {attachmentEntry}", patchResponse.StatusCode, errorContent);
+                _logger.LogError(
+                    "Failed to append file to SAP attachment {AttachmentEntry}: {StatusCode} - {Error}",
+                    attachmentEntry,
+                    patchResponse.StatusCode,
+                    errorContent);
+                throw new InvalidOperationException(failureMessage);
+            }
+
+            serviceLayerAcceptedFile = true;
+
+            _logger.LogInformation(
+                "Appended file {FileName}.{FileExtension} to SAP attachment {AttachmentEntry}",
+                fileInfo.FileName,
+                fileInfo.FileExtension,
+                attachmentEntry);
+
+            return attachmentEntry;
         }
+        catch
+        {
+            if (fileInfo is not null && !serviceLayerAcceptedFile)
+            {
+                TryDeleteCopiedSapAttachment(fileInfo);
+            }
 
-        _logger.LogInformation(
-            "Appended file {FileName}.{FileExtension} to SAP attachment {AttachmentEntry}",
-            fileInfo.FileName,
-            fileInfo.FileExtension,
-            attachmentEntry);
-
-        return attachmentEntry;
+            throw;
+        }
     }
 
     /// <summary>

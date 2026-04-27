@@ -1099,7 +1099,7 @@
                             <CellTemplate>
                                 <MudChip T="string" Color="@GetActionChipColor(context.Item.Action)" Size="Size.Small"
                                          Style="font-weight: 600;">
-                                    @context.Item.Action
+                                    @FormatAction(context.Item.Action)
                                 </MudChip>
                             </CellTemplate>
                         </PropertyColumn>
@@ -1192,7 +1192,7 @@
                     </div>
                     <div class="detail-item">
                         <div class="detail-label">Action</div>
-                        <div class="detail-value">@selectedActivity.Action</div>
+                        <div class="detail-value">@FormatAction(selectedActivity.Action)</div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-label">Timestamp</div>
@@ -1296,6 +1296,7 @@
     private Color GetActionChipColor(string action) => action switch
     {
         "Login" or "Logout" => Color.Success,
+        "RefreshToken" => Color.Info,
         "LoginFailed" => Color.Error,
         var a when a.StartsWith("Create") => Color.Primary,
         var a when a.StartsWith("Update") => Color.Warning,
@@ -1304,6 +1305,14 @@
         var a when a.StartsWith("Sync") => Color.Default,
         _ => Color.Default
     };
+
+    private static string FormatAction(string? action)
+    {
+        if (string.IsNullOrEmpty(action)) return string.Empty;
+        if (action == "RefreshToken") return "Session Renewed";
+
+        return System.Text.RegularExpressions.Regex.Replace(action, "(?<=[a-z])(?=[A-Z])", " ");
+    }
 
     protected override async Task OnInitializedAsync()
     {

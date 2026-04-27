@@ -57,6 +57,9 @@ public sealed class SubmitMobileOrderHandler(
             DeliveryDate = command.Request.DeliveryDate,
             Comments = command.Request.Notes,
             Source = SalesOrderSource.Mobile,
+            ClientRequestId = string.IsNullOrWhiteSpace(command.Request.ClientRequestId)
+                ? null
+                : command.Request.ClientRequestId.Trim(),
             MerchandiserNotes = command.Request.Notes,
             DeviceInfo = command.Request.DeviceInfo,
             Lines = command.Request.Items.Select(item => new CreateSalesOrderLineRequest

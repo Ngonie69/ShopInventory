@@ -77,6 +77,7 @@ public static class AuditActions
     public const string Login = "Login";
     public const string Logout = "Logout";
     public const string LoginFailed = "LoginFailed";
+    public const string RefreshToken = "RefreshToken";
 
     // Invoice actions
     public const string ViewInvoices = "ViewInvoices";

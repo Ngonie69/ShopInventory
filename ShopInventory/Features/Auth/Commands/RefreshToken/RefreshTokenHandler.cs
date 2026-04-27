@@ -25,7 +25,11 @@ public sealed class RefreshTokenHandler(
             return Errors.Auth.InvalidRefreshToken;
         }
 
-        try { await auditService.LogAsync(AuditActions.RefreshToken, "User"); } catch { }
+        var username = result.User?.Username ?? "Unknown";
+        var role = result.User?.Role ?? "Unknown";
+        var details = $"Session renewed for {username}; refresh token rotated from IP {command.IpAddress}.";
+
+        try { await auditService.LogAsync(AuditActions.RefreshToken, username, role, "Session", username, details); } catch { }
         return result;
     }
 }

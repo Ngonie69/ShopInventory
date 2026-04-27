@@ -12,6 +12,7 @@ using ShopInventory.Features.SalesOrders.Commands.PostToSAP;
 using ShopInventory.Features.SalesOrders.Commands.UpdateSalesOrder;
 using ShopInventory.Features.SalesOrders.Commands.UpdateSalesOrderStatus;
 using ShopInventory.Features.SalesOrders.Queries.GetAllSalesOrders;
+using ShopInventory.Features.SalesOrders.Queries.GetLocalSalesOrderById;
 using ShopInventory.Features.SalesOrders.Queries.GetSalesOrderById;
 using ShopInventory.Features.SalesOrders.Queries.GetSalesOrderByNumber;
 using ShopInventory.Models.Entities;
@@ -61,6 +62,19 @@ public class SalesOrderController(IMediator mediator) : ApiControllerBase
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetSalesOrderByIdQuery(id), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Get locally persisted sales order by ID
+    /// </summary>
+    [HttpGet("local/{id:int}")]
+    [RequirePermission(Permission.ViewSalesOrders)]
+    [ProducesResponseType(typeof(SalesOrderDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetLocalById(int id, CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetLocalSalesOrderByIdQuery(id), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
