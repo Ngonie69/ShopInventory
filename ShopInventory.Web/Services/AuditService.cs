@@ -41,6 +41,9 @@ public interface IAuditService
     Task<List<AuditLog>> GetLogsAsync(DateTime? fromDate = null, DateTime? toDate = null,
         string? username = null, string? action = null, int page = 1, int pageSize = 50);
 
+    Task<AuditLogPageResult> GetLogPageAsync(DateTime? fromDate = null, DateTime? toDate = null,
+        string? username = null, string? action = null, int page = 1, int pageSize = 50);
+
     Task<int> GetLogCountAsync(DateTime? fromDate = null, DateTime? toDate = null,
         string? username = null, string? action = null);
 
@@ -73,6 +76,12 @@ public class ActivityLogResult
     public int TotalPages { get; set; }
 }
 
+public class AuditLogPageResult
+{
+    public List<AuditLog> Items { get; set; } = new();
+    public bool HasMore { get; set; }
+}
+
 internal sealed class ApiPagedResult<T>
 {
     public List<T> Items { get; set; } = new();
@@ -84,6 +93,7 @@ internal sealed class ApiPagedResult<T>
 
 internal sealed class ApiAuditLogItem
 {
+    public int Id { get; set; }
     public string Username { get; set; } = string.Empty;
     public string? UserRole { get; set; }
     public string Action { get; set; } = string.Empty;
@@ -98,6 +108,12 @@ internal sealed class ApiAuditLogItem
     public DateTime Timestamp { get; set; }
 }
 
+internal sealed class ApiAuditFilterOptions
+{
+    public List<string> Users { get; set; } = new();
+    public List<string> Actions { get; set; } = new();
+}
+
 public class AuditService : IAuditService
 {
     private readonly IDbContextFactory<WebAppDbContext> _dbContextFactory;
@@ -106,6 +122,8 @@ public class AuditService : IAuditService
     private readonly AuthenticationStateProvider _authStateProvider;
 
     private const int ApiActivityPageSize = 500;
+    private const int LocalAuditPageSize = 500;
+    private static readonly TimeSpan AuditDeduplicationWindow = TimeSpan.FromSeconds(5);
 
     public AuditService(IDbContextFactory<WebAppDbContext> dbContextFactory, HttpClient httpClient, ILogger<AuditService> logger, AuthenticationStateProvider authStateProvider)
     {
@@ -151,47 +169,77 @@ public class AuditService : IAuditService
     public async Task<List<AuditLog>> GetLogsAsync(DateTime? fromDate = null, DateTime? toDate = null,
         string? username = null, string? action = null, int page = 1, int pageSize = 50)
     {
-        var mergedLogs = await GetMergedAuditLogsAsync(
-            fromDate.HasValue ? IAuditService.ToUTC(fromDate.Value.Date) : null,
-            toDate.HasValue ? IAuditService.ToUTC(toDate.Value.Date.AddDays(1)).AddTicks(-1) : null);
+        var pageResult = await GetLogPageAsync(fromDate, toDate, username, action, page, pageSize);
+        return pageResult.Items;
+    }
 
-        return mergedLogs
-            .Where(l => string.IsNullOrWhiteSpace(username) || l.Username.Contains(username, StringComparison.OrdinalIgnoreCase))
-            .Where(l => string.IsNullOrWhiteSpace(action) || string.Equals(l.Action, action, StringComparison.OrdinalIgnoreCase))
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToList();
+    public async Task<AuditLogPageResult> GetLogPageAsync(DateTime? fromDate = null, DateTime? toDate = null,
+        string? username = null, string? action = null, int page = 1, int pageSize = 50)
+    {
+        var safePage = Math.Max(1, page);
+        var safePageSize = Math.Max(1, pageSize);
+        var skipCount = checked((safePage - 1) * safePageSize);
+        var (startDateUtc, endDateUtc) = NormalizeAuditDateRange(fromDate, toDate);
+
+        var (items, hasMore, _) = await QueryMergedAuditLogsAsync(
+            startDateUtc,
+            endDateUtc,
+            username,
+            action,
+            skipCount,
+            safePageSize,
+            includeTotalCount: false);
+
+        return new AuditLogPageResult
+        {
+            Items = items,
+            HasMore = hasMore
+        };
     }
 
     public async Task<int> GetLogCountAsync(DateTime? fromDate = null, DateTime? toDate = null,
         string? username = null, string? action = null)
     {
-        var mergedLogs = await GetMergedAuditLogsAsync(
-            fromDate.HasValue ? IAuditService.ToUTC(fromDate.Value.Date) : null,
-            toDate.HasValue ? IAuditService.ToUTC(toDate.Value.Date.AddDays(1)).AddTicks(-1) : null);
+        var (startDateUtc, endDateUtc) = NormalizeAuditDateRange(fromDate, toDate);
+        var (_, _, totalCount) = await QueryMergedAuditLogsAsync(
+            startDateUtc,
+            endDateUtc,
+            username,
+            action,
+            skipCount: 0,
+            takeCount: 0,
+            includeTotalCount: true);
 
-        return mergedLogs.Count(l =>
-            (string.IsNullOrWhiteSpace(username) || l.Username.Contains(username, StringComparison.OrdinalIgnoreCase)) &&
-            (string.IsNullOrWhiteSpace(action) || string.Equals(l.Action, action, StringComparison.OrdinalIgnoreCase)));
+        return totalCount;
     }
 
     public async Task<List<string>> GetDistinctActionsAsync()
     {
-        return (await GetMergedAuditLogsAsync())
-            .Select(l => l.Action)
-            .Where(a => !string.IsNullOrWhiteSpace(a))
-            .Distinct()
-            .OrderBy(a => a)
+        var localActionsTask = GetLocalDistinctActionsAsync();
+        var apiOptionsTask = GetApiAuditFilterOptionsAsync();
+
+        await Task.WhenAll(localActionsTask, apiOptionsTask);
+
+        return localActionsTask.Result
+            .Concat(apiOptionsTask.Result.Actions)
+            .Where(action => !string.IsNullOrWhiteSpace(action))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(action => action, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
     public async Task<List<string>> GetDistinctUsersAsync()
     {
-        return (await GetMergedAuditLogsAsync())
-            .Select(l => l.Username)
-            .Where(u => !string.IsNullOrWhiteSpace(u))
-            .Distinct()
-            .OrderBy(u => u)
+        var localUsersTask = GetLocalDistinctUsersAsync();
+        var apiOptionsTask = GetApiAuditFilterOptionsAsync();
+
+        await Task.WhenAll(localUsersTask, apiOptionsTask);
+
+        return localUsersTask.Result
+            .Concat(apiOptionsTask.Result.Users)
+            .Where(username => !string.IsNullOrWhiteSpace(username))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(username => username, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
@@ -379,6 +427,7 @@ public class AuditService : IAuditService
 
         return await query
             .OrderByDescending(l => l.Timestamp)
+            .ThenByDescending(l => l.Id)
             .ToListAsync();
     }
 
@@ -413,7 +462,251 @@ public class AuditService : IAuditService
         return logs;
     }
 
-    private static string BuildApiActivityUrl(int page, int pageSize, DateTime? startDate, DateTime? endDate)
+    private async Task<List<string>> GetLocalDistinctActionsAsync()
+    {
+        await using var db = await _dbContextFactory.CreateDbContextAsync();
+
+        return await db.AuditLogs
+            .AsNoTracking()
+            .Where(log => log.Action != null && log.Action != string.Empty)
+            .Select(log => log.Action)
+            .Distinct()
+            .OrderBy(action => action)
+            .ToListAsync();
+    }
+
+    private async Task<List<string>> GetLocalDistinctUsersAsync()
+    {
+        await using var db = await _dbContextFactory.CreateDbContextAsync();
+
+        return await db.AuditLogs
+            .AsNoTracking()
+            .Where(log => log.Username != null && log.Username != string.Empty)
+            .Select(log => log.Username)
+            .Distinct()
+            .OrderBy(username => username)
+            .ToListAsync();
+    }
+
+    private async Task<ApiAuditFilterOptions> GetApiAuditFilterOptionsAsync(DateTime? startDate = null, DateTime? endDate = null)
+    {
+        try
+        {
+            var response = await _httpClient.GetFromJsonAsync<ApiAuditFilterOptions>(
+                BuildApiFilterOptionsUrl(startDate, endDate));
+
+            return response ?? new ApiAuditFilterOptions();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load API audit filter options; falling back to legacy web audit logs only");
+            return new ApiAuditFilterOptions();
+        }
+    }
+
+    private static IQueryable<AuditLog> BuildLocalAuditQuery(
+        WebAppDbContext db,
+        DateTime? startDate,
+        DateTime? endDate,
+        string? username,
+        string? action)
+    {
+        var query = db.AuditLogs.AsNoTracking().AsQueryable();
+
+        if (startDate.HasValue)
+            query = query.Where(log => log.Timestamp >= startDate.Value);
+
+        if (endDate.HasValue)
+            query = query.Where(log => log.Timestamp <= endDate.Value);
+
+        if (!string.IsNullOrWhiteSpace(username))
+            query = query.Where(log => log.Username == username);
+
+        if (!string.IsNullOrWhiteSpace(action))
+            query = query.Where(log => log.Action == action);
+
+        return query;
+    }
+
+    private async Task<(List<AuditLog> Items, bool HasMore, int TotalCount)> QueryMergedAuditLogsAsync(
+        DateTime? startDate,
+        DateTime? endDate,
+        string? username,
+        string? action,
+        int skipCount,
+        int takeCount,
+        bool includeTotalCount)
+    {
+        var pageItems = takeCount > 0 ? new List<AuditLog>(takeCount) : new List<AuditLog>();
+        var latestAcceptedTimestamps = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+        var acceptedCount = 0;
+
+        await using var db = await _dbContextFactory.CreateDbContextAsync();
+
+        var localBuffer = new List<AuditLog>();
+        var localIndex = 0;
+        var localOffset = 0;
+        var localExhausted = false;
+        AuditLog? localCurrent = null;
+
+        var apiBuffer = new List<AuditLog>();
+        var apiIndex = 0;
+        var apiPage = 1;
+        var apiExhausted = false;
+        AuditLog? apiCurrent = null;
+
+        async Task<bool> MoveLocalAsync()
+        {
+            while (true)
+            {
+                if (localIndex < localBuffer.Count)
+                {
+                    localCurrent = localBuffer[localIndex++];
+                    return true;
+                }
+
+                if (localExhausted)
+                {
+                    localCurrent = null;
+                    return false;
+                }
+
+                localBuffer = await BuildLocalAuditQuery(db, startDate, endDate, username, action)
+                    .OrderByDescending(log => log.Timestamp)
+                    .ThenByDescending(log => log.Id)
+                    .Skip(localOffset)
+                    .Take(LocalAuditPageSize)
+                    .ToListAsync();
+
+                localOffset += localBuffer.Count;
+                localIndex = 0;
+
+                if (localBuffer.Count == 0)
+                {
+                    localExhausted = true;
+                }
+            }
+        }
+
+        async Task<bool> MoveApiAsync()
+        {
+            while (true)
+            {
+                if (apiIndex < apiBuffer.Count)
+                {
+                    apiCurrent = apiBuffer[apiIndex++];
+                    return true;
+                }
+
+                if (apiExhausted)
+                {
+                    apiCurrent = null;
+                    return false;
+                }
+
+                try
+                {
+                    var response = await _httpClient.GetFromJsonAsync<ApiPagedResult<ApiAuditLogItem>>(
+                        BuildApiActivityUrl(apiPage, ApiActivityPageSize, startDate, endDate, username, action));
+
+                    if (response?.Items == null || response.Items.Count == 0)
+                    {
+                        apiExhausted = true;
+                        continue;
+                    }
+
+                    apiBuffer = response.Items
+                        .Select(MapToAuditLog)
+                        .ToList();
+                    apiIndex = 0;
+                    apiPage++;
+
+                    if (response.Items.Count < ApiActivityPageSize || response.Page >= response.TotalPages)
+                    {
+                        apiExhausted = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to stream API audit logs; falling back to legacy web audit logs only");
+                    apiExhausted = true;
+                }
+            }
+        }
+
+        var hasLocal = await MoveLocalAsync();
+        var hasApi = await MoveApiAsync();
+
+        while (hasLocal || hasApi)
+        {
+            var takeLocal = ShouldTakeLocal(localCurrent, apiCurrent);
+            var current = takeLocal ? localCurrent! : apiCurrent!;
+
+            if (TryKeepDeduplicatedLog(current, latestAcceptedTimestamps))
+            {
+                acceptedCount++;
+
+                if (takeCount > 0 && acceptedCount > skipCount && pageItems.Count < takeCount)
+                {
+                    pageItems.Add(current);
+                }
+
+                if (!includeTotalCount && takeCount > 0 && acceptedCount > skipCount + takeCount)
+                {
+                    return (pageItems, true, 0);
+                }
+            }
+
+            if (takeLocal)
+            {
+                hasLocal = await MoveLocalAsync();
+            }
+            else
+            {
+                hasApi = await MoveApiAsync();
+            }
+        }
+
+        var hasMore = takeCount > 0 && acceptedCount > skipCount + takeCount;
+        return (pageItems, hasMore, acceptedCount);
+    }
+
+    private static (DateTime? StartDateUtc, DateTime? EndDateUtc) NormalizeAuditDateRange(DateTime? fromDate, DateTime? toDate)
+    {
+        DateTime? startDateUtc = fromDate.HasValue ? IAuditService.ToUTC(fromDate.Value.Date) : null;
+        DateTime? endDateUtc = toDate.HasValue ? IAuditService.ToUTC(toDate.Value.Date.AddDays(1)).AddTicks(-1) : null;
+        return (startDateUtc, endDateUtc);
+    }
+
+    private static bool ShouldTakeLocal(AuditLog? localLog, AuditLog? apiLog)
+    {
+        if (localLog is null)
+        {
+            return false;
+        }
+
+        if (apiLog is null)
+        {
+            return true;
+        }
+
+        var timestampCompare = localLog.Timestamp.CompareTo(apiLog.Timestamp);
+        if (timestampCompare != 0)
+        {
+            return timestampCompare > 0;
+        }
+
+        var idCompare = localLog.Id.CompareTo(apiLog.Id);
+        return idCompare >= 0;
+    }
+
+    private static string BuildApiActivityUrl(
+        int page,
+        int pageSize,
+        DateTime? startDate,
+        DateTime? endDate,
+        string? username = null,
+        string? action = null)
     {
         var query = new List<string>
         {
@@ -427,14 +720,36 @@ public class AuditService : IAuditService
         if (endDate.HasValue)
             query.Add($"endDate={Uri.EscapeDataString(endDate.Value.ToString("O"))}");
 
+        if (!string.IsNullOrWhiteSpace(username))
+            query.Add($"username={Uri.EscapeDataString(username)}");
+
+        if (!string.IsNullOrWhiteSpace(action))
+            query.Add($"action={Uri.EscapeDataString(action)}");
+
         return $"api/useractivity?{string.Join("&", query)}";
+    }
+
+    private static string BuildApiFilterOptionsUrl(DateTime? startDate, DateTime? endDate)
+    {
+        var query = new List<string>();
+
+        if (startDate.HasValue)
+            query.Add($"startDate={Uri.EscapeDataString(startDate.Value.ToString("O"))}");
+
+        if (endDate.HasValue)
+            query.Add($"endDate={Uri.EscapeDataString(endDate.Value.ToString("O"))}");
+
+        return query.Count == 0
+            ? "api/useractivity/filter-options"
+            : $"api/useractivity/filter-options?{string.Join("&", query)}";
     }
 
     private static AuditLog MapToAuditLog(ApiAuditLogItem item) => new()
     {
-        Username = item.Username,
+        Id = item.Id,
+        Username = item.Username ?? string.Empty,
         UserRole = item.UserRole ?? string.Empty,
-        Action = item.Action,
+        Action = item.Action ?? string.Empty,
         EntityType = item.EntityType,
         EntityId = item.EntityId,
         Details = item.Details,
@@ -461,35 +776,50 @@ public class AuditService : IAuditService
     {
         var deduped = new List<AuditLog>();
 
-        foreach (var group in logs
+        var latestAcceptedTimestamps = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+
+        foreach (var log in logs
             .OrderByDescending(l => l.Timestamp)
-            .GroupBy(l => new
-            {
-                Username = l.Username.ToUpperInvariant(),
-                UserRole = (l.UserRole ?? string.Empty).ToUpperInvariant(),
-                l.Action,
-                EntityType = l.EntityType ?? string.Empty,
-                EntityId = l.EntityId ?? string.Empty,
-                Details = l.Details ?? string.Empty,
-                ErrorMessage = l.ErrorMessage ?? string.Empty,
-                PageUrl = l.PageUrl ?? string.Empty,
-                l.IsSuccess
-            }))
+            .ThenByDescending(l => l.Id))
         {
-            AuditLog? previous = null;
-
-            foreach (var log in group.OrderByDescending(l => l.Timestamp))
+            if (!TryKeepDeduplicatedLog(log, latestAcceptedTimestamps))
             {
-                if (previous != null && (previous.Timestamp - log.Timestamp).Duration() <= TimeSpan.FromSeconds(5))
-                    continue;
-
-                deduped.Add(log);
-                previous = log;
+                continue;
             }
+
+            deduped.Add(log);
         }
 
         return deduped
             .OrderByDescending(l => l.Timestamp)
+            .ThenByDescending(l => l.Id)
             .ToList();
+    }
+
+    private static bool TryKeepDeduplicatedLog(AuditLog log, IDictionary<string, DateTime> latestAcceptedTimestamps)
+    {
+        var dedupKey = BuildDedupKey(log);
+        if (latestAcceptedTimestamps.TryGetValue(dedupKey, out var latestAcceptedTimestamp) &&
+            latestAcceptedTimestamp - log.Timestamp <= AuditDeduplicationWindow)
+        {
+            return false;
+        }
+
+        latestAcceptedTimestamps[dedupKey] = log.Timestamp;
+        return true;
+    }
+
+    private static string BuildDedupKey(AuditLog log)
+    {
+        return string.Join('\u001F',
+            (log.Username ?? string.Empty).ToUpperInvariant(),
+            (log.UserRole ?? string.Empty).ToUpperInvariant(),
+            log.Action ?? string.Empty,
+            log.EntityType ?? string.Empty,
+            log.EntityId ?? string.Empty,
+            log.Details ?? string.Empty,
+            log.ErrorMessage ?? string.Empty,
+            log.PageUrl ?? string.Empty,
+            log.IsSuccess);
     }
 }

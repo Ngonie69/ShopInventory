@@ -1,4 +1,5 @@
 using ClosedXML.Excel;
+using ShopInventory.Web.Features.Reports.Queries.GetMerchandiserPurchaseOrderReport;
 using ShopInventory.Web.Models;
 using System.Text;
 
@@ -25,6 +26,7 @@ public interface IReportExportService
     byte[] ExportTimesheetReportToExcel(TimesheetReportResponse report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
+    byte[] ExportMerchandiserPurchaseOrderReportToExcel(GetMerchandiserPurchaseOrderReportResult report);
     string GeneratePrintableHtml(string title, string content, DateTime? fromDate = null, DateTime? toDate = null);
 }
 
@@ -44,11 +46,24 @@ public class ReportExportService : IReportExportService
     private static readonly XLColor DangerRed = XLColor.FromHtml("#c62828");
     private static readonly XLColor WarningOrange = XLColor.FromHtml("#e65100");
 
+    private static DateTime EnsureUtc(DateTime value) =>
+        value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+
+    private static DateTime CurrentCatNow() => IAuditService.ToCAT(DateTime.UtcNow);
+
+    private static string FormatCatDateTime(DateTime utcDateTime) =>
+        IAuditService.ToCAT(EnsureUtc(utcDateTime)).ToString("dd MMM yyyy HH:mm");
+
+    private static string FormatCatDate(DateTime utcDateTime) =>
+        IAuditService.ToCAT(EnsureUtc(utcDateTime)).ToString("dd MMM yyyy");
+
     /// <summary>
     /// Creates the professional report header on a worksheet and returns the next available row.
     /// </summary>
     private static int WriteReportHeader(IXLWorksheet ws, string reportTitle, int colSpan, DateTime? fromDate = null, DateTime? toDate = null, string? subtitle = null)
     {
+        var generatedAt = CurrentCatNow();
+
         // Company name
         ws.Range(1, 1, 1, colSpan).Merge();
         ws.Cell(1, 1).Value = CompanyName;
@@ -78,11 +93,11 @@ public class ReportExportService : IReportExportService
         // Period / date line
         string dateLine;
         if (fromDate.HasValue && toDate.HasValue)
-            dateLine = $"Period: {fromDate:dd MMM yyyy} \u2013 {toDate:dd MMM yyyy}     |     Generated: {DateTime.Now:dd MMM yyyy HH:mm}";
+            dateLine = $"Period: {fromDate:dd MMM yyyy} \u2013 {toDate:dd MMM yyyy}     |     Generated: {generatedAt:dd MMM yyyy HH:mm} CAT";
         else if (subtitle != null)
-            dateLine = $"{subtitle}     |     Generated: {DateTime.Now:dd MMM yyyy HH:mm}";
+            dateLine = $"{subtitle}     |     Generated: {generatedAt:dd MMM yyyy HH:mm} CAT";
         else
-            dateLine = $"Generated: {DateTime.Now:dd MMM yyyy HH:mm}";
+            dateLine = $"Generated: {generatedAt:dd MMM yyyy HH:mm} CAT";
 
         ws.Range(5, 1, 5, colSpan).Merge();
         ws.Cell(5, 1).Value = dateLine;
@@ -197,11 +212,13 @@ public class ReportExportService : IReportExportService
     /// </summary>
     private static void WriteFooter(IXLWorksheet ws, int row, int colSpan)
     {
+        var generatedAt = CurrentCatNow();
+
         row += 2;
         ws.Range(row, 1, row, colSpan).Merge();
         ws.Range(row, 1, row, colSpan).Style.Border.TopBorder = XLBorderStyleValues.Thin;
         ws.Range(row, 1, row, colSpan).Style.Border.TopBorderColor = BorderGray;
-        ws.Cell(row, 1).Value = $"CONFIDENTIAL  \u2022  {CompanyName}  \u2022  {SystemName}  \u2022  Generated {DateTime.Now:dd MMM yyyy HH:mm}";
+        ws.Cell(row, 1).Value = $"CONFIDENTIAL  \u2022  {CompanyName}  \u2022  {SystemName}  \u2022  Generated {generatedAt:dd MMM yyyy HH:mm} CAT";
         ws.Cell(row, 1).Style.Font.FontSize = 8;
         ws.Cell(row, 1).Style.Font.FontColor = XLColor.FromHtml("#9e9e9e");
         ws.Cell(row, 1).Style.Font.Italic = true;
@@ -1215,14 +1232,278 @@ public class ReportExportService : IReportExportService
         return WorkbookToBytes(workbook);
     }
 
+    public byte[] ExportMerchandiserPurchaseOrderReportToExcel(GetMerchandiserPurchaseOrderReportResult report)
+    {
+        using var workbook = new XLWorkbook();
+
+        var overview = workbook.Worksheets.Add("Overview");
+        int row = WriteReportHeader(overview, "Merchandiser Purchase Order Report", 8, report.FromDate, report.ToDate);
+
+        WriteKpiCard(overview, row, 1, "Merchandisers", report.TotalMerchandisers.ToString("N0"));
+        WriteKpiCard(overview, row, 2, "Orders", report.TotalOrders.ToString("N0"));
+        WriteKpiCard(overview, row, 3, "With PO", report.OrdersWithAttachments.ToString("N0"), SuccessGreen);
+        WriteKpiCard(overview, row, 4, "Without PO", report.OrdersWithoutAttachments.ToString("N0"), WarningOrange);
+        WriteKpiCard(overview, row, 5, "Attachments", report.TotalAttachments.ToString("N0"));
+        WriteKpiCard(overview, row, 6, "Order Value", report.TotalOrderValue.ToString("N2"));
+        row += 3;
+
+        overview.Range(row, 1, row, 8).Merge();
+        overview.Cell(row, 1).Value = "MERCHANDISER BREAKDOWN";
+        overview.Cell(row, 1).Style.Font.Bold = true;
+        overview.Cell(row, 1).Style.Font.FontSize = 11;
+        overview.Cell(row, 1).Style.Font.FontColor = LightNavy;
+        row++;
+
+        if (report.Merchandisers.Any())
+        {
+            overview.Cell(row, 1).Value = "Username";
+            overview.Cell(row, 2).Value = "Full Name";
+            overview.Cell(row, 3).Value = "Orders";
+            overview.Cell(row, 4).Value = "With PO";
+            overview.Cell(row, 5).Value = "Attachments";
+            overview.Cell(row, 6).Value = "Synced";
+            overview.Cell(row, 7).Value = "Total Value";
+            overview.Cell(row, 8).Value = "Latest Activity (CAT)";
+            StyleTableHeader(overview, row, 8);
+            int freezeAt = row;
+            row++;
+            int dataStart = row;
+
+            foreach (var merchandiser in report.Merchandisers)
+            {
+                overview.Cell(row, 1).Value = merchandiser.Username;
+                overview.Cell(row, 2).Value = merchandiser.FullName;
+                overview.Cell(row, 3).Value = merchandiser.OrderCount;
+                overview.Cell(row, 4).Value = merchandiser.OrdersWithAttachments;
+                overview.Cell(row, 5).Value = merchandiser.AttachmentCount;
+                overview.Cell(row, 6).Value = merchandiser.SyncedOrders;
+                overview.Cell(row, 7).Value = merchandiser.TotalOrderValue;
+                overview.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
+                overview.Cell(row, 8).Value = merchandiser.LatestOrderCreatedAtUtc.HasValue
+                    ? FormatCatDateTime(merchandiser.LatestOrderCreatedAtUtc.Value)
+                    : "Not available";
+                row++;
+            }
+
+            StyleDataRows(overview, dataStart, row - 1, 8);
+            WriteFooter(overview, row, 8);
+            FinalizeSheet(overview, 8, freezeAt, landscape: true);
+        }
+        else
+        {
+            overview.Range(row, 1, row, 8).Merge();
+            overview.Cell(row, 1).Value = "No merchandiser activity matched the selected filters.";
+            overview.Cell(row, 1).Style.Font.Italic = true;
+            overview.Cell(row, 1).Style.Font.FontColor = XLColor.FromHtml("#616161");
+            WriteFooter(overview, row + 1, 8);
+            FinalizeSheet(overview, 8, landscape: true);
+        }
+
+        var ordersSheet = workbook.Worksheets.Add("Orders");
+        int orderRow = WriteReportHeader(ordersSheet, "Merchandiser Order Register", 16, report.FromDate, report.ToDate);
+        ordersSheet.Cell(orderRow, 1).Value = "Order #";
+        ordersSheet.Cell(orderRow, 2).Value = "Attachment Ref";
+        ordersSheet.Cell(orderRow, 3).Value = "Created (CAT)";
+        ordersSheet.Cell(orderRow, 4).Value = "Order Date (CAT)";
+        ordersSheet.Cell(orderRow, 5).Value = "Merchandiser";
+        ordersSheet.Cell(orderRow, 6).Value = "Customer Code";
+        ordersSheet.Cell(orderRow, 7).Value = "Customer Name";
+        ordersSheet.Cell(orderRow, 8).Value = "SAP Doc #";
+        ordersSheet.Cell(orderRow, 9).Value = "SAP DocEntry";
+        ordersSheet.Cell(orderRow, 10).Value = "Status";
+        ordersSheet.Cell(orderRow, 11).Value = "Synced";
+        ordersSheet.Cell(orderRow, 12).Value = "PO Files";
+        ordersSheet.Cell(orderRow, 13).Value = "Currency";
+        ordersSheet.Cell(orderRow, 14).Value = "Doc Total";
+        ordersSheet.Cell(orderRow, 15).Value = "Line Count";
+        ordersSheet.Cell(orderRow, 16).Value = "Total Qty";
+        StyleTableHeader(ordersSheet, orderRow, 16);
+        int ordersFreeze = orderRow;
+        orderRow++;
+
+        if (report.Orders.Any())
+        {
+            int ordersStart = orderRow;
+            foreach (var order in report.Orders)
+            {
+                ordersSheet.Cell(orderRow, 1).Value = order.OrderNumber;
+                ordersSheet.Cell(orderRow, 2).Value = order.AttachmentReference;
+                ordersSheet.Cell(orderRow, 3).Value = FormatCatDateTime(order.CreatedAtUtc);
+                ordersSheet.Cell(orderRow, 4).Value = FormatCatDate(order.OrderDateUtc);
+                ordersSheet.Cell(orderRow, 5).Value = $"{order.MerchandiserFullName} ({order.MerchandiserUsername})";
+                ordersSheet.Cell(orderRow, 6).Value = order.CardCode;
+                ordersSheet.Cell(orderRow, 7).Value = order.CardName ?? string.Empty;
+                ordersSheet.Cell(orderRow, 8).Value = order.SapDocNum?.ToString() ?? "Pending";
+                ordersSheet.Cell(orderRow, 9).Value = order.SapDocEntry?.ToString() ?? "Not synced";
+                ordersSheet.Cell(orderRow, 10).Value = order.StatusLabel;
+                ordersSheet.Cell(orderRow, 11).Value = order.IsSynced ? "Yes" : "No";
+                ordersSheet.Cell(orderRow, 12).Value = order.AttachmentCount;
+                ordersSheet.Cell(orderRow, 13).Value = order.Currency ?? string.Empty;
+                ordersSheet.Cell(orderRow, 14).Value = order.DocTotal;
+                ordersSheet.Cell(orderRow, 14).Style.NumberFormat.Format = "#,##0.00";
+                ordersSheet.Cell(orderRow, 15).Value = order.ItemCount;
+                ordersSheet.Cell(orderRow, 16).Value = order.TotalQuantity;
+                ordersSheet.Cell(orderRow, 16).Style.NumberFormat.Format = "#,##0.00";
+                row++;
+                orderRow++;
+            }
+
+            StyleDataRows(ordersSheet, ordersStart, orderRow - 1, 16);
+        }
+        else
+        {
+            ordersSheet.Range(orderRow, 1, orderRow, 16).Merge();
+            ordersSheet.Cell(orderRow, 1).Value = "No orders matched the selected filters.";
+            ordersSheet.Cell(orderRow, 1).Style.Font.Italic = true;
+            ordersSheet.Cell(orderRow, 1).Style.Font.FontColor = XLColor.FromHtml("#616161");
+        }
+
+        WriteFooter(ordersSheet, orderRow, 16);
+        FinalizeSheet(ordersSheet, 16, ordersFreeze, landscape: true);
+
+        var attachmentsSheet = workbook.Worksheets.Add("Attachments");
+        int attachmentRow = WriteReportHeader(attachmentsSheet, "Uploaded Purchase Orders", 11, report.FromDate, report.ToDate);
+        attachmentsSheet.Cell(attachmentRow, 1).Value = "Order #";
+        attachmentsSheet.Cell(attachmentRow, 2).Value = "SAP Doc #";
+        attachmentsSheet.Cell(attachmentRow, 3).Value = "Attachment Ref";
+        attachmentsSheet.Cell(attachmentRow, 4).Value = "Merchandiser";
+        attachmentsSheet.Cell(attachmentRow, 5).Value = "Customer";
+        attachmentsSheet.Cell(attachmentRow, 6).Value = "File Name";
+        attachmentsSheet.Cell(attachmentRow, 7).Value = "Mime Type";
+        attachmentsSheet.Cell(attachmentRow, 8).Value = "Size (bytes)";
+        attachmentsSheet.Cell(attachmentRow, 9).Value = "Uploaded (CAT)";
+        attachmentsSheet.Cell(attachmentRow, 10).Value = "Uploaded By";
+        attachmentsSheet.Cell(attachmentRow, 11).Value = "Description";
+        StyleTableHeader(attachmentsSheet, attachmentRow, 11);
+        int attachmentsFreeze = attachmentRow;
+        attachmentRow++;
+
+        var attachmentDetails = report.Orders
+            .SelectMany(order => order.Attachments.Select(attachment => new
+            {
+                order.OrderNumber,
+                order.SapDocNum,
+                order.AttachmentReference,
+                order.MerchandiserFullName,
+                order.MerchandiserUsername,
+                order.CardCode,
+                order.CardName,
+                Attachment = attachment
+            }))
+            .ToList();
+
+        if (attachmentDetails.Any())
+        {
+            int attachmentsStart = attachmentRow;
+            foreach (var detail in attachmentDetails)
+            {
+                attachmentsSheet.Cell(attachmentRow, 1).Value = detail.OrderNumber;
+                attachmentsSheet.Cell(attachmentRow, 2).Value = detail.SapDocNum?.ToString() ?? "Pending";
+                attachmentsSheet.Cell(attachmentRow, 3).Value = detail.AttachmentReference;
+                attachmentsSheet.Cell(attachmentRow, 4).Value = $"{detail.MerchandiserFullName} ({detail.MerchandiserUsername})";
+                attachmentsSheet.Cell(attachmentRow, 5).Value = $"{detail.CardCode} - {detail.CardName}";
+                attachmentsSheet.Cell(attachmentRow, 6).Value = detail.Attachment.FileName;
+                attachmentsSheet.Cell(attachmentRow, 7).Value = detail.Attachment.MimeType ?? string.Empty;
+                attachmentsSheet.Cell(attachmentRow, 8).Value = detail.Attachment.FileSizeBytes;
+                attachmentsSheet.Cell(attachmentRow, 9).Value = FormatCatDateTime(detail.Attachment.UploadedAtUtc);
+                attachmentsSheet.Cell(attachmentRow, 10).Value = detail.Attachment.UploadedByUsername ?? string.Empty;
+                attachmentsSheet.Cell(attachmentRow, 11).Value = detail.Attachment.Description ?? string.Empty;
+                attachmentRow++;
+            }
+
+            StyleDataRows(attachmentsSheet, attachmentsStart, attachmentRow - 1, 11);
+        }
+        else
+        {
+            attachmentsSheet.Range(attachmentRow, 1, attachmentRow, 11).Merge();
+            attachmentsSheet.Cell(attachmentRow, 1).Value = "No uploaded purchase-order attachments were returned for this report.";
+            attachmentsSheet.Cell(attachmentRow, 1).Style.Font.Italic = true;
+            attachmentsSheet.Cell(attachmentRow, 1).Style.Font.FontColor = XLColor.FromHtml("#616161");
+        }
+
+        WriteFooter(attachmentsSheet, attachmentRow, 11);
+        FinalizeSheet(attachmentsSheet, 11, attachmentsFreeze, landscape: true);
+
+        var linesSheet = workbook.Worksheets.Add("Order Lines");
+        int lineRow = WriteReportHeader(linesSheet, "Merchandiser Order Lines", 12, report.FromDate, report.ToDate);
+        linesSheet.Cell(lineRow, 1).Value = "Order #";
+        linesSheet.Cell(lineRow, 2).Value = "SAP Doc #";
+        linesSheet.Cell(lineRow, 3).Value = "Attachment Ref";
+        linesSheet.Cell(lineRow, 4).Value = "Merchandiser";
+        linesSheet.Cell(lineRow, 5).Value = "Customer";
+        linesSheet.Cell(lineRow, 6).Value = "Line #";
+        linesSheet.Cell(lineRow, 7).Value = "Item Code";
+        linesSheet.Cell(lineRow, 8).Value = "Description";
+        linesSheet.Cell(lineRow, 9).Value = "Qty";
+        linesSheet.Cell(lineRow, 10).Value = "Fulfilled";
+        linesSheet.Cell(lineRow, 11).Value = "Warehouse";
+        linesSheet.Cell(lineRow, 12).Value = "Line Total";
+        StyleTableHeader(linesSheet, lineRow, 12);
+        int linesFreeze = lineRow;
+        lineRow++;
+
+        var lineDetails = report.Orders
+            .SelectMany(order => order.Lines.Select(line => new
+            {
+                order.OrderNumber,
+                order.SapDocNum,
+                order.AttachmentReference,
+                order.MerchandiserFullName,
+                order.MerchandiserUsername,
+                order.CardCode,
+                order.CardName,
+                Line = line
+            }))
+            .ToList();
+
+        if (lineDetails.Any())
+        {
+            int linesStart = lineRow;
+            foreach (var detail in lineDetails)
+            {
+                linesSheet.Cell(lineRow, 1).Value = detail.OrderNumber;
+                linesSheet.Cell(lineRow, 2).Value = detail.SapDocNum?.ToString() ?? "Pending";
+                linesSheet.Cell(lineRow, 3).Value = detail.AttachmentReference;
+                linesSheet.Cell(lineRow, 4).Value = $"{detail.MerchandiserFullName} ({detail.MerchandiserUsername})";
+                linesSheet.Cell(lineRow, 5).Value = $"{detail.CardCode} - {detail.CardName}";
+                linesSheet.Cell(lineRow, 6).Value = detail.Line.LineNum;
+                linesSheet.Cell(lineRow, 7).Value = detail.Line.ItemCode;
+                linesSheet.Cell(lineRow, 8).Value = detail.Line.ItemDescription ?? string.Empty;
+                linesSheet.Cell(lineRow, 9).Value = detail.Line.Quantity;
+                linesSheet.Cell(lineRow, 9).Style.NumberFormat.Format = "#,##0.00";
+                linesSheet.Cell(lineRow, 10).Value = detail.Line.QuantityFulfilled;
+                linesSheet.Cell(lineRow, 10).Style.NumberFormat.Format = "#,##0.00";
+                linesSheet.Cell(lineRow, 11).Value = detail.Line.WarehouseCode ?? string.Empty;
+                linesSheet.Cell(lineRow, 12).Value = detail.Line.LineTotal;
+                linesSheet.Cell(lineRow, 12).Style.NumberFormat.Format = "#,##0.00";
+                lineRow++;
+            }
+
+            StyleDataRows(linesSheet, linesStart, lineRow - 1, 12);
+        }
+        else
+        {
+            linesSheet.Range(lineRow, 1, lineRow, 12).Merge();
+            linesSheet.Cell(lineRow, 1).Value = "No line items were returned for this report.";
+            linesSheet.Cell(lineRow, 1).Style.Font.Italic = true;
+            linesSheet.Cell(lineRow, 1).Style.Font.FontColor = XLColor.FromHtml("#616161");
+        }
+
+        WriteFooter(linesSheet, lineRow, 12);
+        FinalizeSheet(linesSheet, 12, linesFreeze, landscape: true);
+
+        return WorkbookToBytes(workbook);
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // PDF / PRINTABLE HTML
     // ═══════════════════════════════════════════════════════════════
     public string GeneratePrintableHtml(string title, string content, DateTime? fromDate = null, DateTime? toDate = null)
     {
+        var generatedAt = CurrentCatNow();
         var period = fromDate.HasValue && toDate.HasValue
             ? $"<p class='period'>Period: {fromDate:dd MMM yyyy} \u2013 {toDate:dd MMM yyyy}</p>"
-            : $"<p class='period'>Report Date: {DateTime.Now:dd MMM yyyy}</p>";
+            : $"<p class='period'>Report Date: {generatedAt:dd MMM yyyy}</p>";
 
         return $@"<!DOCTYPE html>
 <html><head><meta charset='utf-8'/>
@@ -1348,7 +1629,7 @@ public class ReportExportService : IReportExportService
   <p class='system-name'>{SystemName}</p>
   <p class='report-title'>{title}</p>
   {period}
-  <p class='generated'>Generated: {DateTime.Now:dd MMM yyyy HH:mm}</p>
+        <p class='generated'>Generated: {generatedAt:dd MMM yyyy HH:mm} CAT</p>
 </div>
 {content}
 <div class='footer'>

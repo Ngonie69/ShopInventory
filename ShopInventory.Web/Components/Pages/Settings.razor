@@ -15,6 +15,7 @@
 @inject IJSRuntime JS
 @inject IThemeService ThemeService
 @inject ISAPSettingsService SAPSettingsService
+@inject IMobileVersionPolicySettingsService MobileVersionPolicySettingsService
 @attribute [Authorize(Roles = "Admin")]
 @rendermode InteractiveServer
 
@@ -101,6 +102,11 @@
                             @onclick="() => SelectCategory(SAPCategory)">
                         <i class="bi bi-cloud-arrow-up"></i>
                         <span>SAP Connection</span>
+                    </button>
+                    <button class="@($"sidebar-item {(selectedCategory == MobileAppCategory ? "active" : "")}")"
+                            @onclick="() => SelectCategory(MobileAppCategory)">
+                        <i class="bi bi-phone"></i>
+                        <span>Mobile App</span>
                     </button>
                     @foreach (var category in categories.Where(c => new[] { SettingCategories.API }.Contains(c)))
                     {
@@ -460,6 +466,363 @@
                                             </MudButton>
                                         </div>
                                     }
+                                </div>
+                            }
+                else if (selectedCategory == MobileAppCategory)
+                            {
+                                <div class="settings-section" style="animation-delay: 0.05s;">
+                                    <div class="section-header">
+                                        <div class="section-icon" style="background: linear-gradient(135deg, #ea580c, #f59e0b);">
+                                            <i class="bi bi-phone" style="color: white;"></i>
+                                        </div>
+                                        <div>
+                                            <h5 class="section-title">Mobile App Version Policy</h5>
+                                            <p class="section-desc">Control the minimum supported Android version, upgrade guidance, and app-store link shown to mobile users.</p>
+                                        </div>
+                                    </div>
+
+                                    @if (isLoadingMobileVersionPolicy)
+                                    {
+                                        <div style="text-align:center; padding:2rem;">
+                                            <MudProgressCircular Indeterminate="true" Size="Size.Medium" />
+                                            <MudText Typo="Typo.body2" Class="mt-2">Loading mobile app policy...</MudText>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 12px; padding: 1rem; margin-bottom: 1rem; color: #92400e;">
+                                            <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+                                                <i class="bi bi-info-circle-fill" style="font-size: 1rem; margin-top: 0.125rem;"></i>
+                                                <div>
+                                                    <div style="font-weight: 600; margin-bottom: 0.25rem;">Version ordering</div>
+                                                    <div>Use <strong>minimum supported &lt;= recommended &lt;= latest</strong>. Leave recommended or minimum blank to fall back to the next higher version.</div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="setting-items">
+                                            @if (!string.IsNullOrWhiteSpace(mobileVersionPolicyMessage))
+                                            {
+                                                <div class="settings-alert @(mobileVersionPolicySaveSucceeded ? "settings-alert-success" : "settings-alert-error")"
+                                                     style="margin-bottom: 1rem;">
+                                                    <i class="bi @(mobileVersionPolicySaveSucceeded ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+                                                    <span>@mobileVersionPolicyMessage</span>
+                                                    <MudIconButton Icon="@Icons.Material.Filled.Close" Class="settings-alert-close"
+                                                                   OnClick="() => mobileVersionPolicyMessage = null" Size="Size.Small" />
+                                                </div>
+                                            }
+
+                                            <div class="setting-item">
+                                                <div class="setting-info">
+                                                    <label class="setting-label">
+                                                        <i class="bi bi-shield-check me-1"></i>Version Policy Enabled
+                                                    </label>
+                                                    <span class="setting-desc">Turn Android version enforcement on or off without redeploying the API.</span>
+                                                </div>
+                                                <div class="setting-control">
+                                                    <MudCheckBox @bind-Value="mobileVersionPolicyEnabled" Label="Enforce Android app versions" Dense="true" />
+                                                </div>
+                                            </div>
+
+                                            <div class="setting-item">
+                                                <div class="setting-info">
+                                                    <label class="setting-label">
+                                                        <i class="bi bi-card-heading me-1"></i>Require Version Headers
+                                                    </label>
+                                                    <span class="setting-desc">Require Android requests to include <strong>X-App-Platform</strong> and <strong>X-App-Version</strong> metadata.</span>
+                                                </div>
+                                                <div class="setting-control">
+                                                    <MudCheckBox @bind-Value="mobileVersionPolicyRequireHeaders" Label="Require headers on protected API calls" Dense="true" />
+                                                </div>
+                                            </div>
+
+                                            <div class="setting-item">
+                                                <div class="setting-info">
+                                                    <label class="setting-label">
+                                                        <i class="bi bi-arrow-up-circle me-1"></i>Latest Version
+                                                    </label>
+                                                    <span class="setting-desc">The current Android release shown to the app and used as the upper version bound.</span>
+                                                </div>
+                                                <div class="setting-control" style="min-width: 350px;">
+                                                    <MudTextField @bind-Value="mobileVersionPolicyLatestVersion" Label="Latest version" Variant="Variant.Outlined"
+                                                                  Margin="Margin.Dense" Placeholder="1.0.2" FullWidth="true" />
+                                                </div>
+                                            </div>
+
+                                            <div class="setting-item">
+                                                <div class="setting-info">
+                                                    <label class="setting-label">
+                                                        <i class="bi bi-bell me-1"></i>Recommended Version
+                                                    </label>
+                                                    <span class="setting-desc">Versions below this value will be warned but can still continue.</span>
+                                                </div>
+                                                <div class="setting-control" style="min-width: 350px;">
+                                                    <MudTextField @bind-Value="mobileVersionPolicyRecommendedVersion" Label="Recommended version" Variant="Variant.Outlined"
+                                                                  Margin="Margin.Dense" Placeholder="1.0.2" FullWidth="true" />
+                                                </div>
+                                            </div>
+
+                                            <div class="setting-item">
+                                                <div class="setting-info">
+                                                    <label class="setting-label">
+                                                        <i class="bi bi-slash-circle me-1"></i>Minimum Supported Version
+                                                    </label>
+                                                    <span class="setting-desc">Versions below this value are blocked until the user upgrades.</span>
+                                                </div>
+                                                <div class="setting-control" style="min-width: 350px;">
+                                                    <MudTextField @bind-Value="mobileVersionPolicyMinimumSupportedVersion" Label="Minimum supported version"
+                                                                  Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="1.0.1" FullWidth="true" />
+                                                </div>
+                                            </div>
+
+                                            <div class="setting-item">
+                                                <div class="setting-info">
+                                                    <label class="setting-label">
+                                                        <i class="bi bi-google-play me-1"></i>Google Play URL
+                                                    </label>
+                                                    <span class="setting-desc">Store link used by the mobile app when users choose to update.</span>
+                                                </div>
+                                                <div class="setting-control" style="min-width: 350px;">
+                                                    <MudTextField @bind-Value="mobileVersionPolicyGooglePlayUrl" Label="Google Play URL" Variant="Variant.Outlined"
+                                                                  Margin="Margin.Dense" Placeholder="https://play.google.com/store/apps/details?id=com.shopinventory.mobile"
+                                                                  FullWidth="true" />
+                                                </div>
+                                            </div>
+
+                                            <div class="setting-item" style="align-items: flex-start;">
+                                                <div class="setting-info">
+                                                    <label class="setting-label">
+                                                        <i class="bi bi-journal-text me-1"></i>Release Notes
+                                                    </label>
+                                                    <span class="setting-desc">Optional notes shown to the app when a newer version is available.</span>
+                                                </div>
+                                                <div class="setting-control" style="min-width: 350px;">
+                                                    <MudTextField @bind-Value="mobileVersionPolicyReleaseNotes" Label="Release notes" Variant="Variant.Outlined"
+                                                                  Margin="Margin.Dense" Lines="3" FullWidth="true" />
+                                                </div>
+                                            </div>
+
+                                            <div class="setting-item" style="align-items: flex-start;">
+                                                <div class="setting-info">
+                                                    <label class="setting-label">
+                                                        <i class="bi bi-chat-left-text me-1"></i>Warn Message
+                                                    </label>
+                                                    <span class="setting-desc">Optional message shown when the current app build is still usable but outdated.</span>
+                                                </div>
+                                                <div class="setting-control" style="min-width: 350px;">
+                                                    <MudTextField @bind-Value="mobileVersionPolicyWarnMessage" Label="Warn message" Variant="Variant.Outlined"
+                                                                  Margin="Margin.Dense" Lines="3" FullWidth="true" />
+                                                </div>
+                                            </div>
+
+                                            <div class="setting-item" style="align-items: flex-start;">
+                                                <div class="setting-info">
+                                                    <label class="setting-label">
+                                                        <i class="bi bi-exclamation-octagon me-1"></i>Block Message
+                                                    </label>
+                                                    <span class="setting-desc">Optional message shown when the current build is below the minimum supported version.</span>
+                                                </div>
+                                                <div class="setting-control" style="min-width: 350px;">
+                                                    <MudTextField @bind-Value="mobileVersionPolicyBlockMessage" Label="Block message" Variant="Variant.Outlined"
+                                                                  Margin="Margin.Dense" Lines="3" FullWidth="true" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="section-actions">
+                                            <MudButton OnClick="SaveMobileVersionPolicySettings" Variant="Variant.Filled" Color="Color.Primary"
+                                                       Disabled="@(!CanSaveMobileVersionPolicy)" StartIcon="@Icons.Material.Filled.Save">
+                                                @if (isSavingMobileVersionPolicy)
+                                                {
+                                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                                                }
+                                                Save Mobile App Policy
+                                            </MudButton>
+                                        </div>
+                                    }
+                                </div>
+                            }
+        else if (selectedCategory == SettingCategories.Printing)
+                            {
+                                var savedPrinters = GetSavedPrintersList();
+                                var defaultPrinter = GetDefaultPrinter();
+                                var printerOptions = GetPrinterOptions(savedPrinters, defaultPrinter);
+                                var availablePrinters = GetAvailablePrinters(savedPrinters);
+
+                                <div class="settings-section printing-section" style="animation-delay: 0.05s;">
+                                    <div class="section-header printing-header">
+                                        <div class="section-icon section-icon-amber">
+                                            <i class="bi bi-printer"></i>
+                                        </div>
+                                        <div>
+                                            <h5 class="section-title">Printing</h5>
+                                            <p class="section-desc">Invoice print behavior, default printer preference, and cashier quick picks.</p>
+                                        </div>
+                                        <button type="button" class="btn-icon-action" @onclick="RefreshInstalledPrinters" title="Refresh printer list">
+                                            <i class="bi bi-arrow-clockwise"></i>
+                                        </button>
+                                    </div>
+
+                                    @if (!string.IsNullOrWhiteSpace(printingMessage))
+                                    {
+                                        <div class="settings-alert @(printingMessageSuccess ? "settings-alert-success" : "settings-alert-error")">
+                                            <i class="bi @(printingMessageSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+                                            <span>@printingMessage</span>
+                                            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="settings-alert-close"
+                                                           OnClick="() => printingMessage = null" Size="Size.Small" />
+                                        </div>
+                                    }
+
+                                    <div class="printing-overview">
+                                        <div class="printing-stat">
+                                            <span>Installed</span>
+                                            <strong>@installedPrinters.Count</strong>
+                                        </div>
+                                        <div class="printing-stat">
+                                            <span>Saved</span>
+                                            <strong>@savedPrinters.Count</strong>
+                                        </div>
+                                        <div class="printing-stat">
+                                            <span>Copies</span>
+                                            <strong>@GetPrintCopies()</strong>
+                                        </div>
+                                        <div class="printing-stat printing-stat-wide">
+                                            <span>Default</span>
+                                            <strong>@(string.IsNullOrWhiteSpace(defaultPrinter) ? "System default" : defaultPrinter)</strong>
+                                        </div>
+                                    </div>
+
+                                    <div class="setting-items printing-settings-list">
+                                        <div class="setting-item">
+                                            <div class="setting-info">
+                                                <label class="setting-label">
+                                                    <i class="bi bi-lightning-charge me-1"></i>Auto Print Invoice
+                                                </label>
+                                                <span class="setting-desc">Open the invoice PDF print flow automatically after a successful invoice.</span>
+                                            </div>
+                                            <div class="setting-control">
+                                                <label class="toggle-switch">
+                                                    <input type="checkbox" checked="@GetBoolValue(SettingKeys.AutoPrintInvoice)"
+                                                           @onchange="e => OnBoolSettingChanged(SettingKeys.AutoPrintInvoice, e)" />
+                                                    <span class="toggle-slider"></span>
+                                                    <span class="toggle-text">@(GetBoolValue(SettingKeys.AutoPrintInvoice) ? "On" : "Off")</span>
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <div class="setting-item">
+                                            <div class="setting-info">
+                                                <label class="setting-label">
+                                                    <i class="bi bi-files me-1"></i>Print Copies
+                                                </label>
+                                                <span class="setting-desc">Default number of invoice copies, capped to keep accidental repeats under control.</span>
+                                            </div>
+                                            <div class="setting-control">
+                                                <input type="number" class="field-input field-input-sm print-copy-input" min="1" max="10"
+                                                       value="@GetPrintCopies()"
+                                                       @onchange="OnPrintCopiesChanged" />
+                                            </div>
+                                        </div>
+
+                                        <div class="setting-item">
+                                            <div class="setting-info">
+                                                <label class="setting-label">
+                                                    <i class="bi bi-star me-1"></i>Default Printer
+                                                </label>
+                                                <span class="setting-desc">The printer highlighted first when invoices are printed from the web app.</span>
+                                            </div>
+                                            <div class="setting-control printer-default-control">
+                                                <select class="field-input field-input-sm printer-select" value="@defaultPrinter"
+                                                        @onchange="OnDefaultPrinterChanged">
+                                                    <option value="">System default</option>
+                                                    @foreach (var printer in printerOptions)
+                                                    {
+                                                        <option value="@printer">@printer</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="printing-manager">
+                                        <div class="printer-manager-header">
+                                            <div>
+                                                <h6>Quick Pick Printers</h6>
+                                                <p>Saved printers appear in the invoice print dialog for faster cashier selection.</p>
+                                            </div>
+                                            <span>@savedPrinters.Count saved</span>
+                                        </div>
+
+                                        @if (savedPrinters.Any())
+                                        {
+                                            <div class="printer-chip-list">
+                                                @foreach (var printer in savedPrinters)
+                                                {
+                                                    var isDefault = IsSamePrinter(printer, defaultPrinter);
+                                                    <div class="printer-chip @(isDefault ? "printer-chip-default" : string.Empty)">
+                                                        <i class="bi @(isDefault ? "bi-star-fill" : "bi-printer")"></i>
+                                                        <span>@printer</span>
+                                                        @if (!isDefault)
+                                                        {
+                                                            <button type="button" class="printer-chip-action" @onclick="() => SetDefaultPrinter(printer)" title="Set as default">
+                                                                <i class="bi bi-star"></i>
+                                                            </button>
+                                                        }
+                                                        <button type="button" class="printer-chip-action printer-chip-remove" @onclick="() => RemoveSavedPrinter(printer)" title="Remove">
+                                                            <i class="bi bi-x-lg"></i>
+                                                        </button>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="printer-empty-state">
+                                                <i class="bi bi-printer"></i>
+                                                <span>No quick pick printers saved yet.</span>
+                                            </div>
+                                        }
+
+                                        <div class="printer-add-grid">
+                                            <div class="printer-add-row">
+                                                <select class="field-input printer-select" @bind="printerToAdd" disabled="@(!availablePrinters.Any())">
+                                                    <option value="">Select an installed printer</option>
+                                                    @foreach (var printer in availablePrinters)
+                                                    {
+                                                        <option value="@printer">@printer</option>
+                                                    }
+                                                </select>
+                                                <button type="button" class="btn-secondary-action" @onclick="AddSelectedPrinter" disabled="@string.IsNullOrWhiteSpace(printerToAdd)">
+                                                    <i class="bi bi-plus-lg"></i>
+                                                    Add
+                                                </button>
+                                            </div>
+
+                                            <div class="printer-add-row">
+                                                <input type="text" class="field-input" placeholder="Type a printer name or network path"
+                                                       @bind="customPrinterName" @bind:event="oninput" />
+                                                <button type="button" class="btn-secondary-action" @onclick="AddCustomPrinter" disabled="@string.IsNullOrWhiteSpace(customPrinterName)">
+                                                    <i class="bi bi-plus-lg"></i>
+                                                    Add Custom
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="printing-test-panel">
+                                        <div>
+                                            <h6>Test Output</h6>
+                                            <p>Send a clean test page through the same browser print path used by reports.</p>
+                                        </div>
+                                        <MudButton OnClick="PrintSettingsTestPage" Disabled="@isTestingPrinter" Variant="Variant.Filled"
+                                                   Color="Color.Primary" StartIcon="@Icons.Material.Filled.Print">
+                                            @if (isTestingPrinter)
+                                            {
+                                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                                            }
+                                            Test Print
+                                        </MudButton>
+                                    </div>
                                 </div>
                             }
         else if (selectedCategory == DangerZoneCategory)
@@ -918,6 +1281,7 @@
     private const string DangerZoneCategory = "Danger Zone";
     private const string PaymentsCategory = "Payments";
     private const string SAPCategory = "SAP Connection";
+    private const string MobileAppCategory = "Mobile App";
 
     private List<AppSetting> allSettings = new();
     private List<AppSetting> categorySettings = new();
@@ -997,8 +1361,31 @@
     private bool sapConnectionSuccess = false;
     private string? sapConnectionMessage;
 
+    // Mobile app version policy fields
+    private bool isLoadingMobileVersionPolicy = false;
+    private bool isSavingMobileVersionPolicy = false;
+    private bool mobileVersionPolicyEnabled = true;
+    private bool mobileVersionPolicyRequireHeaders = true;
+    private string mobileVersionPolicyLatestVersion = string.Empty;
+    private string mobileVersionPolicyRecommendedVersion = string.Empty;
+    private string mobileVersionPolicyMinimumSupportedVersion = string.Empty;
+    private string mobileVersionPolicyGooglePlayUrl = string.Empty;
+    private string mobileVersionPolicyReleaseNotes = string.Empty;
+    private string mobileVersionPolicyWarnMessage = string.Empty;
+    private string mobileVersionPolicyBlockMessage = string.Empty;
+    private bool mobileVersionPolicySaveSucceeded = false;
+    private string? mobileVersionPolicyMessage;
+
+    private bool CanSaveMobileVersionPolicy => !isSavingMobileVersionPolicy
+        && (!mobileVersionPolicyEnabled || !string.IsNullOrWhiteSpace(mobileVersionPolicyLatestVersion));
+
     // Printer discovery
     private List<string> installedPrinters = new();
+    private string printerToAdd = string.Empty;
+    private string customPrinterName = string.Empty;
+    private bool isTestingPrinter = false;
+    private string? printingMessage;
+    private bool printingMessageSuccess = true;
 
     protected override async Task OnInitializedAsync()
     {
@@ -1007,6 +1394,7 @@
         await LoadLastSyncTimes();
         await LoadPaymentSettingsData();
         await LoadSAPSettings();
+        await LoadMobileVersionPolicySettings();
         LoadInstalledPrinters();
         await LogAudit(AuditActions.ViewSettings);
     }
@@ -1085,20 +1473,244 @@
         if (string.IsNullOrWhiteSpace(json) || json == "[]") return new();
         try
         {
-            return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new();
+            return (System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new())
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Select(p => p.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
-        catch { return new(); }
+        catch
+        {
+            return new();
+        }
+    }
+
+    private string GetDefaultPrinter() => GetValue(SettingKeys.PrinterName).Trim();
+
+    private int GetPrintCopies()
+    {
+        return int.TryParse(GetValue(SettingKeys.PrintCopies), out var copies)
+            ? Math.Clamp(copies, 1, 10)
+            : 1;
+    }
+
+    private List<string> GetPrinterOptions(List<string>? savedPrinters = null, string? defaultPrinter = null)
+    {
+        var options = new List<string>();
+        AddUniquePrinters(options, installedPrinters);
+        AddUniquePrinters(options, savedPrinters ?? GetSavedPrintersList());
+
+        if (!string.IsNullOrWhiteSpace(defaultPrinter))
+        {
+            AddUniquePrinters(options, new[] { defaultPrinter });
+        }
+
+        return options
+            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private List<string> GetAvailablePrinters(List<string>? savedPrinters = null)
+    {
+        var saved = savedPrinters ?? GetSavedPrintersList();
+        return installedPrinters
+            .Where(printer => !saved.Any(savedPrinter => IsSamePrinter(savedPrinter, printer)))
+            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static bool IsSamePrinter(string? left, string? right) =>
+        string.Equals(left?.Trim(), right?.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private static void AddUniquePrinters(List<string> target, IEnumerable<string> printers)
+    {
+        foreach (var printer in printers)
+        {
+            var name = printer?.Trim();
+            if (!string.IsNullOrWhiteSpace(name) && !target.Any(existing => IsSamePrinter(existing, name)))
+            {
+                target.Add(name);
+            }
+        }
+    }
+
+    private void SaveSavedPrintersList(List<string> printers)
+    {
+        var normalized = new List<string>();
+        AddUniquePrinters(normalized, printers);
+        normalized = normalized.OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
+        editedValues[SettingKeys.SavedPrinters] = System.Text.Json.JsonSerializer.Serialize(normalized);
+        hasChanges = true;
     }
 
     private void OnSavedPrinterToggled(string printer, bool isChecked)
     {
         var list = GetSavedPrintersList();
-        if (isChecked && !list.Contains(printer))
-            list.Add(printer);
+        if (isChecked && !list.Any(saved => IsSamePrinter(saved, printer)))
+        {
+            list.Add(printer.Trim());
+        }
         else if (!isChecked)
-            list.Remove(printer);
-        editedValues[SettingKeys.SavedPrinters] = System.Text.Json.JsonSerializer.Serialize(list);
+        {
+            list.RemoveAll(saved => IsSamePrinter(saved, printer));
+        }
+
+        SaveSavedPrintersList(list);
+    }
+
+    private void OnDefaultPrinterChanged(ChangeEventArgs e)
+    {
+        var printer = e.Value?.ToString()?.Trim() ?? string.Empty;
+        editedValues[SettingKeys.PrinterName] = printer;
+
+        if (!string.IsNullOrWhiteSpace(printer))
+        {
+            var saved = GetSavedPrintersList();
+            if (!saved.Any(existing => IsSamePrinter(existing, printer)))
+            {
+                saved.Add(printer);
+                SaveSavedPrintersList(saved);
+            }
+        }
+
         hasChanges = true;
+    }
+
+    private void OnPrintCopiesChanged(ChangeEventArgs e)
+    {
+        var copies = int.TryParse(e.Value?.ToString(), out var parsed) ? parsed : 1;
+        editedValues[SettingKeys.PrintCopies] = Math.Clamp(copies, 1, 10).ToString();
+        hasChanges = true;
+    }
+
+    private void SetDefaultPrinter(string printer)
+    {
+        editedValues[SettingKeys.PrinterName] = printer.Trim();
+        OnSavedPrinterToggled(printer, true);
+    }
+
+    private void AddSelectedPrinter()
+    {
+        if (string.IsNullOrWhiteSpace(printerToAdd))
+            return;
+
+        AddPrinterToQuickPicks(printerToAdd);
+        printerToAdd = string.Empty;
+    }
+
+    private void AddCustomPrinter()
+    {
+        if (string.IsNullOrWhiteSpace(customPrinterName))
+            return;
+
+        AddPrinterToQuickPicks(customPrinterName);
+        customPrinterName = string.Empty;
+    }
+
+    private void AddPrinterToQuickPicks(string printer)
+    {
+        var name = printer.Trim();
+        if (string.IsNullOrWhiteSpace(name))
+            return;
+
+        var saved = GetSavedPrintersList();
+        if (!saved.Any(existing => IsSamePrinter(existing, name)))
+        {
+            saved.Add(name);
+            SaveSavedPrintersList(saved);
+        }
+
+        if (string.IsNullOrWhiteSpace(GetDefaultPrinter()))
+        {
+            editedValues[SettingKeys.PrinterName] = name;
+            hasChanges = true;
+        }
+    }
+
+    private void RemoveSavedPrinter(string printer)
+    {
+        var saved = GetSavedPrintersList();
+        saved.RemoveAll(existing => IsSamePrinter(existing, printer));
+        SaveSavedPrintersList(saved);
+
+        if (IsSamePrinter(GetDefaultPrinter(), printer))
+        {
+            editedValues[SettingKeys.PrinterName] = string.Empty;
+            hasChanges = true;
+        }
+    }
+
+    private void RefreshInstalledPrinters()
+    {
+        LoadInstalledPrinters();
+        printerToAdd = string.Empty;
+        printingMessageSuccess = true;
+        printingMessage = $"Found {installedPrinters.Count} printer{(installedPrinters.Count == 1 ? string.Empty : "s")}.";
+    }
+
+    private async Task PrintSettingsTestPage()
+    {
+        isTestingPrinter = true;
+        printingMessage = null;
+
+        try
+        {
+            await JS.InvokeVoidAsync("printReportHtml", BuildPrinterTestHtml());
+            printingMessageSuccess = true;
+            printingMessage = "Test print opened successfully.";
+            await LogAudit(AuditActions.UpdateSettings, "Ran printer test from settings");
+        }
+        catch (Exception ex)
+        {
+            printingMessageSuccess = false;
+            printingMessage = $"Test print failed: {ex.Message}";
+        }
+        finally
+        {
+            isTestingPrinter = false;
+        }
+    }
+
+    private string BuildPrinterTestHtml()
+    {
+        var generatedAt = IAuditService.ToCAT(DateTime.UtcNow).ToString("dd MMM yyyy HH:mm:ss");
+        var defaultPrinter = string.IsNullOrWhiteSpace(GetDefaultPrinter()) ? "System default" : GetDefaultPrinter();
+        var encodedDefaultPrinter = System.Net.WebUtility.HtmlEncode(defaultPrinter);
+        var encodedUser = System.Net.WebUtility.HtmlEncode(currentUsername);
+
+        return $$"""
+            <!doctype html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>ShopInventory Printer Test</title>
+                <style>
+                    body { font-family: Arial, sans-serif; color: #111827; padding: 32px; }
+                    .sheet { max-width: 720px; margin: 0 auto; border: 1px solid #d1d5db; padding: 28px; }
+                    h1 { margin: 0 0 8px; font-size: 24px; }
+                    p { color: #4b5563; margin: 0 0 24px; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #e5e7eb; }
+                    th { width: 34%; color: #374151; background: #f9fafb; }
+                    .mark { margin-top: 28px; padding: 14px; border: 1px dashed #9ca3af; text-align: center; font-weight: 700; }
+                </style>
+            </head>
+            <body>
+                <div class="sheet">
+                    <h1>ShopInventory Printer Test</h1>
+                    <p>This page confirms that the browser print path is available.</p>
+                    <table>
+                        <tr><th>Generated</th><td>{{generatedAt}} CAT</td></tr>
+                        <tr><th>User</th><td>{{encodedUser}}</td></tr>
+                        <tr><th>Default printer preference</th><td>{{encodedDefaultPrinter}}</td></tr>
+                        <tr><th>Copies preference</th><td>{{GetPrintCopies()}}</td></tr>
+                    </table>
+                    <div class="mark">If this printed cleanly, invoice print rendering is working.</div>
+                </div>
+            </body>
+            </html>
+            """;
     }
 
     private void OnBoolSettingChanged(string key, ChangeEventArgs e)
@@ -1532,6 +2144,86 @@
         finally
         {
             isSAPTesting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadMobileVersionPolicySettings()
+    {
+        isLoadingMobileVersionPolicy = true;
+
+        try
+        {
+            var settings = await MobileVersionPolicySettingsService.GetSettingsAsync();
+            if (settings == null)
+            {
+                mobileVersionPolicySaveSucceeded = false;
+                mobileVersionPolicyMessage = "Failed to load mobile app policy settings.";
+                return;
+            }
+
+            mobileVersionPolicyEnabled = settings.Enabled;
+            mobileVersionPolicyRequireHeaders = settings.RequireHeaders;
+            mobileVersionPolicyLatestVersion = settings.LatestVersion;
+            mobileVersionPolicyRecommendedVersion = settings.RecommendedVersion;
+            mobileVersionPolicyMinimumSupportedVersion = settings.MinimumSupportedVersion;
+            mobileVersionPolicyGooglePlayUrl = settings.GooglePlayUrl;
+            mobileVersionPolicyReleaseNotes = settings.ReleaseNotes;
+            mobileVersionPolicyWarnMessage = settings.WarnMessage;
+            mobileVersionPolicyBlockMessage = settings.BlockMessage;
+        }
+        catch (Exception ex)
+        {
+            mobileVersionPolicySaveSucceeded = false;
+            mobileVersionPolicyMessage = $"Failed to load mobile app policy settings: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingMobileVersionPolicy = false;
+        }
+    }
+
+    private async Task SaveMobileVersionPolicySettings()
+    {
+        isSavingMobileVersionPolicy = true;
+        mobileVersionPolicyMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var request = new MobileVersionPolicySettingsUpdateRequest
+            {
+                Enabled = mobileVersionPolicyEnabled,
+                RequireHeaders = mobileVersionPolicyRequireHeaders,
+                LatestVersion = mobileVersionPolicyLatestVersion.Trim(),
+                RecommendedVersion = mobileVersionPolicyRecommendedVersion.Trim(),
+                MinimumSupportedVersion = mobileVersionPolicyMinimumSupportedVersion.Trim(),
+                GooglePlayUrl = mobileVersionPolicyGooglePlayUrl.Trim(),
+                ReleaseNotes = mobileVersionPolicyReleaseNotes.Trim(),
+                WarnMessage = mobileVersionPolicyWarnMessage.Trim(),
+                BlockMessage = mobileVersionPolicyBlockMessage.Trim()
+            };
+
+            var result = await MobileVersionPolicySettingsService.UpdateSettingsAsync(request);
+            mobileVersionPolicySaveSucceeded = result.Success;
+            mobileVersionPolicyMessage = result.Message;
+
+            if (result.Success)
+            {
+                await LoadMobileVersionPolicySettings();
+                await LogAudit(
+                    AuditActions.UpdateSettings,
+                    $"Updated mobile version policy (minimum: {mobileVersionPolicyMinimumSupportedVersion}, recommended: {mobileVersionPolicyRecommendedVersion}, latest: {mobileVersionPolicyLatestVersion})");
+            }
+        }
+        catch (Exception ex)
+        {
+            mobileVersionPolicySaveSucceeded = false;
+            mobileVersionPolicyMessage = $"Failed to save mobile app policy settings: {ex.Message}";
+        }
+        finally
+        {
+            isSavingMobileVersionPolicy = false;
             StateHasChanged();
         }
     }

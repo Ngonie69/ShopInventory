@@ -17,7 +17,7 @@ public sealed class CreateUserHandler(
     ILogger<CreateUserHandler> logger
 ) : IRequestHandler<CreateUserCommand, ErrorOr<UserCreatedResponseDto>>
 {
-    private static readonly string[] ValidRoles = { "Admin", "Cashier", "StockController", "DepotController", "PodOperator", "Driver", "Merchandiser", "SalesRep" };
+    private static readonly string[] ValidRoles = { "Admin", "Manager", "Cashier", "StockController", "DepotController", "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer" };
 
     public async Task<ErrorOr<UserCreatedResponseDto>> Handle(
         CreateUserCommand command,

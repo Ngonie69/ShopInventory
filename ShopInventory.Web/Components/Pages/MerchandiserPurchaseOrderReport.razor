@@ -1,0 +1,557 @@
+@page "/reports/merchandiser-purchase-orders"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Features.Reports.Queries.GetMerchandiserPurchaseOrderReport
+@attribute [Authorize(Roles = "Admin,Manager,MerchandiserPurchaseOrderViewer")]
+@rendermode InteractiveServer
+
+<PageTitle>Merchandiser Purchase Order Report</PageTitle>
+
+<style>
+    .mpor-page { max-width: 1500px; margin: 0 auto; padding: 1.5rem; }
+    .mpor-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
+    .mpor-title h1 { margin: 0; font-size: 1.75rem; font-weight: 800; color: #172033; }
+    .mpor-title p { margin: .4rem 0 0; color: #5f6b7a; max-width: 760px; }
+    .mpor-meta { display: flex; flex-wrap: wrap; gap: .65rem; align-items: center; color: #5f6b7a; font-size: .85rem; }
+    .mpor-pill { display: inline-flex; align-items: center; gap: .45rem; padding: .35rem .7rem; border-radius: 999px; background: #eef6ff; color: #29507e; font-weight: 700; }
+    .mpor-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
+    .mpor-alert { border-radius: 14px; padding: .9rem 1rem; margin-bottom: 1rem; border: 1px solid transparent; }
+    .mpor-alert.error { background: #fff1f1; border-color: #f3c4c4; color: #8f2727; }
+    .mpor-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.15rem; }
+    .mpor-stat { background: linear-gradient(180deg, #f9fcff 0%, #fff 100%); border: 1px solid #d8e5f2; border-radius: 18px; padding: 1rem 1.1rem; box-shadow: 0 10px 30px rgba(23, 32, 51, .05); }
+    .mpor-stat-label { color: #29507e; font-size: .76rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+    .mpor-stat-value { margin-top: .35rem; font-size: 1.55rem; font-weight: 800; color: #172033; }
+    .mpor-filters { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; padding: 1rem; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.15rem; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); }
+    .mpor-field label { display: block; font-size: .78rem; font-weight: 700; color: #5f6b7a; margin-bottom: .35rem; text-transform: uppercase; letter-spacing: .05em; }
+    .mpor-field input, .mpor-field select { width: 100%; border: 1px solid #d7dee7; border-radius: 12px; padding: .75rem .85rem; background: #fbfcfe; color: #172033; }
+    .mpor-field small { display: block; margin-top: .35rem; color: #7c8798; }
+    .mpor-filter-actions { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; }
+    .mpor-summary-panel, .mpor-panel { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); overflow: hidden; }
+    .mpor-summary-panel { margin-bottom: 1rem; }
+    .mpor-panel-header { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-bottom: 1px solid #eef2f6; }
+    .mpor-panel-header h2 { margin: 0; font-size: 1rem; font-weight: 700; color: #172033; }
+    .mpor-panel-header span { color: #5f6b7a; font-size: .85rem; }
+    .mpor-summary-wrap, .mpor-table-wrap { overflow-x: auto; }
+    .mpor-summary-table, .mpor-table { width: 100%; border-collapse: collapse; }
+    .mpor-summary-table th, .mpor-table th { text-align: left; padding: .9rem 1rem; font-size: .76rem; color: #6b7280; text-transform: uppercase; letter-spacing: .06em; background: #fbfcfe; border-bottom: 1px solid #eef2f6; }
+    .mpor-summary-table td, .mpor-table td { padding: .95rem 1rem; border-bottom: 1px solid #f3f5f8; color: #172033; vertical-align: top; }
+    .mpor-row { transition: background-color .15s ease; }
+    .mpor-row:hover { background: #eef8ff; }
+    .mpor-doc { font-weight: 700; }
+    .mpor-subtext { display: block; margin-top: .2rem; font-size: .8rem; color: #6b7280; }
+    .mpor-badge { display: inline-flex; align-items: center; justify-content: center; padding: .28rem .6rem; border-radius: 999px; font-size: .74rem; font-weight: 700; }
+    .mpor-badge.with-po { background: #e8f7ec; color: #1f7a38; }
+    .mpor-badge.no-po { background: #fff2df; color: #a05a00; }
+    .mpor-status { display: inline-flex; align-items: center; border-radius: 999px; padding: .3rem .65rem; font-size: .75rem; font-weight: 700; }
+    .mpor-status.open { background: #fff2df; color: #a05a00; }
+    .mpor-status.good { background: #e8f7ec; color: #1f7a38; }
+    .mpor-status.bad { background: #fdecec; color: #a12828; }
+    .mpor-status.hold { background: #ece8ff; color: #5b3da8; }
+    .mpor-detail { padding: 1rem 1.1rem 1.2rem; }
+    .mpor-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; margin-bottom: 1rem; }
+    .mpor-detail-card { border: 1px solid #edf1f5; border-radius: 14px; padding: .85rem .95rem; background: #fbfcfe; }
+    .mpor-detail-card label { display: block; font-size: .72rem; font-weight: 700; color: #8a94a4; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .25rem; }
+    .mpor-detail-card div { color: #172033; font-weight: 600; }
+    .mpor-section { margin-top: 1rem; }
+    .mpor-section h3 { margin: 0 0 .75rem; font-size: .92rem; font-weight: 700; color: #172033; }
+    .mpor-attachment-list, .mpor-line-list { display: grid; gap: .75rem; }
+    .mpor-attachment, .mpor-line { border: 1px solid #edf1f5; border-radius: 14px; padding: .85rem .95rem; background: #fff; }
+    .mpor-attachment-top, .mpor-line-top { display: flex; justify-content: space-between; gap: .85rem; align-items: flex-start; }
+    .mpor-attachment-name, .mpor-line-code { font-weight: 700; color: #172033; }
+    .mpor-attachment-meta, .mpor-line-meta { margin-top: .25rem; color: #6b7280; font-size: .82rem; }
+    .mpor-attachment-actions { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+    .mpor-action-cell { width: 1%; white-space: nowrap; }
+    .mpor-empty, .mpor-loading { padding: 2.2rem 1.3rem; text-align: center; color: #6b7280; }
+    .mpor-empty strong, .mpor-loading strong { display: block; color: #172033; margin-bottom: .4rem; }
+    .mpor-pagination {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: .6rem;
+        padding: 1rem 1.25rem;
+        border-top: 1px solid #eef2f6;
+        background: #fbfcfe;
+    }
+    .mpor-page-meta {
+        color: #6b7280;
+        font-size: .82rem;
+        text-align: center;
+    }
+    .mpor-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, .45);
+        z-index: 1098;
+        animation: mporFadeIn .2s ease;
+    }
+    .mpor-detail-drawer {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: min(640px, 95vw);
+        height: 100vh;
+        background: #fff;
+        z-index: 1099;
+        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
+        display: flex;
+        flex-direction: column;
+        animation: mporSlideInRight .25s ease;
+    }
+    .mpor-drawer-header {
+        padding: 1.15rem 1.5rem;
+        background: linear-gradient(135deg, #2563eb, #1e40af);
+        color: #fff;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: .75rem;
+        flex-shrink: 0;
+    }
+    .mpor-drawer-header h5 { margin: 0; font-weight: 600; font-size: 1.05rem; }
+    .mpor-close-drawer {
+        background: rgba(255, 255, 255, .15);
+        border: none;
+        color: #fff;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background .15s;
+        font-size: 1rem;
+    }
+    .mpor-close-drawer:hover { background: rgba(255, 255, 255, .25); }
+    .mpor-drawer-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.5rem;
+        background: #fff;
+    }
+    .mpor-drawer-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        gap: .5rem;
+        justify-content: flex-end;
+        flex-shrink: 0;
+        background: #fff;
+    }
+    .mpor-viewer-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.65);
+        backdrop-filter: blur(4px);
+        z-index: 1100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+    }
+    .mpor-viewer-container {
+        background: #fff;
+        border-radius: 16px;
+        width: min(1100px, 92vw);
+        max-height: 92vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        box-shadow: 0 24px 48px rgba(15, 23, 42, 0.22);
+    }
+    .mpor-viewer-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .mpor-viewer-header h6 {
+        margin: 0;
+        color: #111827;
+        font-size: 1rem;
+        font-weight: 600;
+    }
+    .mpor-viewer-body {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f8fafc;
+        overflow: auto;
+        min-height: 320px;
+        max-height: calc(92vh - 78px);
+    }
+    .mpor-viewer-image {
+        max-width: 100%;
+        height: auto;
+        object-fit: contain;
+    }
+    .mpor-viewer-pdf {
+        width: 100%;
+        height: calc(92vh - 78px);
+        border: none;
+        background: #fff;
+    }
+    .dark-theme .mpor-title h1, .dark-theme .mpor-panel-header h2, .dark-theme .mpor-stat-value, .dark-theme .mpor-summary-table td, .dark-theme .mpor-table td, .dark-theme .mpor-detail-card div, .dark-theme .mpor-section h3, .dark-theme .mpor-attachment-name, .dark-theme .mpor-line-code, .dark-theme .mpor-empty strong, .dark-theme .mpor-loading strong { color: #edf2f7; }
+    .dark-theme .mpor-title p, .dark-theme .mpor-panel-header span, .dark-theme .mpor-subtext, .dark-theme .mpor-empty, .dark-theme .mpor-loading, .dark-theme .mpor-detail-card label, .dark-theme .mpor-attachment-meta, .dark-theme .mpor-line-meta, .dark-theme .mpor-stat-label, .dark-theme .mpor-field label, .dark-theme .mpor-meta, .dark-theme .mpor-field small { color: #a9b4c2; }
+    .dark-theme .mpor-stat, .dark-theme .mpor-filters, .dark-theme .mpor-summary-panel, .dark-theme .mpor-panel { background: #16202c; border-color: #2a3645; box-shadow: none; }
+    .dark-theme .mpor-field input, .dark-theme .mpor-field select, .dark-theme .mpor-detail-card, .dark-theme .mpor-attachment, .dark-theme .mpor-line { background: #101823; border-color: #2a3645; color: #edf2f7; }
+    .dark-theme .mpor-summary-table th, .dark-theme .mpor-table th { background: #101823; border-color: #2a3645; color: #a9b4c2; }
+    .dark-theme .mpor-summary-table td, .dark-theme .mpor-table td, .dark-theme .mpor-panel-header { border-color: #2a3645; }
+    .dark-theme .mpor-row:hover { background: #1f2c3b; }
+    .dark-theme .mpor-pill { background: #263647; color: #9fc7ff; }
+    .dark-theme .mpor-detail-drawer,
+    .dark-theme .mpor-drawer-body,
+    .dark-theme .mpor-drawer-footer { background: #16202c; }
+    .dark-theme .mpor-drawer-footer { border-color: #2a3645; }
+    .dark-theme .mpor-pagination { background: #101823; border-color: #2a3645; }
+    .dark-theme .mpor-page-meta { color: #a9b4c2; }
+    .dark-theme .mpor-viewer-container {
+        background: #1e293b;
+        border: 1px solid #334155;
+    }
+    .dark-theme .mpor-viewer-header { border-color: #334155; }
+    .dark-theme .mpor-viewer-header h6 { color: #e2e8f0; }
+    .dark-theme .mpor-viewer-body,
+    .dark-theme .mpor-viewer-pdf { background: #0f172a; }
+    @@keyframes mporFadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @@keyframes mporSlideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+    @@media (max-width: 1180px) { .mpor-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @@media (max-width: 720px) { .mpor-page { padding: 1rem; } .mpor-filters { grid-template-columns: 1fr; } .mpor-detail-grid { grid-template-columns: 1fr; } .mpor-attachment-top { flex-direction: column; align-items: stretch; } .mpor-attachment-actions { justify-content: stretch; } .mpor-attachment-actions .btn { width: 100%; } .mpor-detail-drawer { width: 100%; } .mpor-drawer-body { padding: 1rem; } .mpor-drawer-footer { padding: 1rem; } .mpor-viewer-overlay { padding: .75rem; } .mpor-viewer-header { padding: .85rem 1rem; align-items: flex-start; } .mpor-viewer-container { width: 100%; max-height: 94vh; } }
+</style>
+
+<div class="mpor-page">
+    <div class="mpor-header">
+        <div class="mpor-title">
+            <h1>Merchandiser PO Report</h1>
+            <p>Track mobile sales orders created by merchandisers, see their SAP document linkage, and confirm exactly which orders carry uploaded external purchase orders.</p>
+        </div>
+        <div class="mpor-actions">
+            <button class="btn btn-outline-secondary" @onclick="ExportToExcelAsync" disabled="@(isLoading || isExporting || reportResult.Orders.Count == 0)">Export Excel</button>
+            <button class="btn btn-dark" @onclick="ExportToPdfAsync" disabled="@(isLoading || isExporting || reportResult.Orders.Count == 0)">Export PDF</button>
+            <button class="btn btn-outline-secondary" @onclick="ReloadAsync" disabled="@(isLoading || isExporting)">Refresh</button>
+        </div>
+    </div>
+
+    <div class="mpor-meta">
+        <span class="mpor-pill">Generated @FormatCatDateTime(reportResult.GeneratedAtUtc)</span>
+        <span>Showing CAT timestamps for uploaded and created activity.</span>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="mpor-alert error">@errorMessage</div>
+    }
+
+    <div class="mpor-stats">
+        <div class="mpor-stat"><div class="mpor-stat-label">Merchandisers</div><div class="mpor-stat-value">@reportResult.TotalMerchandisers</div></div>
+        <div class="mpor-stat"><div class="mpor-stat-label">Orders</div><div class="mpor-stat-value">@reportResult.TotalOrders</div></div>
+        <div class="mpor-stat"><div class="mpor-stat-label">With PO</div><div class="mpor-stat-value">@reportResult.OrdersWithAttachments</div></div>
+        <div class="mpor-stat"><div class="mpor-stat-label">Attachments</div><div class="mpor-stat-value">@reportResult.TotalAttachments</div></div>
+        <div class="mpor-stat"><div class="mpor-stat-label">Synced to SAP</div><div class="mpor-stat-value">@reportResult.SyncedOrders</div></div>
+    </div>
+
+    <div class="mpor-filters">
+        <div class="mpor-field">
+            <label>Search</label>
+            <input type="text" @bind="searchTerm" @bind:event="oninput" placeholder="Order, customer, merchandiser, or SAP doc" />
+            <small>Matches order number, customer reference, customer, merchandiser, and SAP document numbers.</small>
+        </div>
+        <div class="mpor-field">
+            <label>Merchandiser</label>
+            <select @bind="selectedMerchandiserValue">
+                <option value="">All merchandisers</option>
+                @foreach (var merchandiser in reportResult.Merchandisers)
+                {
+                    <option value="@merchandiser.MerchandiserUserId">@merchandiser.FullName (@merchandiser.Username)</option>
+                }
+            </select>
+            <small>Use the report summary to narrow down to one merchandiser.</small>
+        </div>
+        <div class="mpor-field">
+            <label>Attachment Status</label>
+            <select @bind="attachmentFilter">
+                <option value="all">All orders</option>
+                <option value="with">Only orders with uploaded POs</option>
+                <option value="without">Only orders without uploaded POs</option>
+            </select>
+        </div>
+        <div class="mpor-field">
+            <label>From Date</label>
+            <input type="date" @bind-value="fromDate" @bind-value:format="yyyy-MM-dd" />
+        </div>
+        <div class="mpor-field">
+            <label>To Date</label>
+            <input type="date" @bind-value="toDate" @bind-value:format="yyyy-MM-dd" />
+        </div>
+        <div class="mpor-filter-actions">
+            <button class="btn btn-dark" @onclick="ApplyFiltersAsync" disabled="@(isLoading || isExporting)">Apply Filters</button>
+            <button class="btn btn-outline-secondary" @onclick="ClearFiltersAsync" disabled="@(isLoading || isExporting)">Clear</button>
+        </div>
+    </div>
+
+    <section class="mpor-summary-panel">
+        <div class="mpor-panel-header">
+            <h2>Merchandiser Breakdown</h2>
+            <span>@reportResult.Merchandisers.Count merchandisers in scope</span>
+        </div>
+        @if (reportResult.Merchandisers.Count == 0)
+        {
+            <div class="mpor-empty"><strong>No merchandiser activity matched the current filters.</strong>Adjust the date range or attachment filter and try again.</div>
+        }
+        else
+        {
+            <div class="mpor-summary-wrap">
+                <table class="mpor-summary-table">
+                    <thead>
+                        <tr>
+                            <th>Merchandiser</th>
+                            <th>Orders</th>
+                            <th>With PO</th>
+                            <th>Attachments</th>
+                            <th>Synced</th>
+                            <th>Total Value</th>
+                            <th>Latest Activity</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var merchandiser in reportResult.Merchandisers)
+                        {
+                            <tr>
+                                <td><span class="mpor-doc">@merchandiser.FullName</span><span class="mpor-subtext">@merchandiser.Username</span></td>
+                                <td>@merchandiser.OrderCount</td>
+                                <td>@merchandiser.OrdersWithAttachments</td>
+                                <td>@merchandiser.AttachmentCount</td>
+                                <td>@merchandiser.SyncedOrders</td>
+                                <td>@merchandiser.TotalOrderValue.ToString("N2")</td>
+                                <td>@FormatCatDateTime(merchandiser.LatestOrderCreatedAtUtc)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    @if (isLoading)
+    {
+        <div class="mpor-panel"><div class="mpor-loading"><strong>Loading merchandiser purchase order activity...</strong>Please wait while the report is assembled.</div></div>
+    }
+    else
+    {
+        <section class="mpor-panel">
+            <div class="mpor-panel-header">
+                <h2>Order Register</h2>
+                <span>@OrderRegisterPageSummary</span>
+            </div>
+            @if (reportResult.Orders.Count == 0)
+            {
+                <div class="mpor-empty"><strong>No sales orders matched the current filters.</strong>Try widening the date range or switching the attachment filter.</div>
+            }
+            else
+            {
+                <div class="mpor-table-wrap">
+                    <table class="mpor-table">
+                        <thead>
+                            <tr>
+                                <th>Order</th>
+                                <th>Merchandiser</th>
+                                <th>Customer</th>
+                                <th>SAP</th>
+                                <th>Created</th>
+                                <th>Total</th>
+                                <th>PO</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var order in PagedOrders)
+                            {
+                                <tr class="mpor-row">
+                                    <td>
+                                        <span class="mpor-doc">@order.OrderNumber</span>
+                                        <span class="mpor-subtext">Ref @order.AttachmentReference</span>
+                                        <span class="mpor-subtext">@order.StatusLabel</span>
+                                    </td>
+                                    <td>
+                                        <span class="mpor-doc">@order.MerchandiserFullName</span>
+                                        <span class="mpor-subtext">@order.MerchandiserUsername</span>
+                                    </td>
+                                    <td>
+                                        <span class="mpor-doc">@order.CardCode</span>
+                                        <span class="mpor-subtext">@order.CardName</span>
+                                    </td>
+                                    <td>
+                                        <span class="mpor-doc">@(order.SapDocNum?.ToString() ?? "Pending")</span>
+                                        <span class="mpor-subtext">DocEntry @(order.SapDocEntry?.ToString() ?? "Not synced")</span>
+                                    </td>
+                                    <td>
+                                        <span>@FormatCatDateTime(order.CreatedAtUtc)</span>
+                                        <span class="mpor-subtext">Order @FormatCatDate(order.OrderDateUtc)</span>
+                                    </td>
+                                    <td>
+                                        <span class="mpor-doc">@FormatMoney(order.Currency, order.DocTotal)</span>
+                                        <span class="mpor-subtext">@order.ItemCount item lines</span>
+                                    </td>
+                                    <td>
+                                        <span class="mpor-badge @(order.HasAttachments ? "with-po" : "no-po")">@(order.HasAttachments ? $"{order.AttachmentCount} file(s)" : "No PO")</span>
+                                    </td>
+                                    <td class="mpor-action-cell">
+                                        <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => OpenOrderDetails(order)">
+                                            View
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="mpor-pagination">
+                    @if (TotalPages > 1)
+                    {
+                        <MudPagination Count="@TotalPages"
+                                       Selected="@currentPage"
+                                       SelectedChanged="OnPageChanged"
+                                       ShowFirstButton="true"
+                                       ShowLastButton="true"
+                                       BoundaryCount="1"
+                                       MiddleCount="3"
+                                       Color="Color.Primary"
+                                       Variant="Variant.Outlined" />
+                    }
+                    <div class="mpor-page-meta">Showing @CurrentPageStartItem-@CurrentPageEndItem of @reportResult.Orders.Count orders · Page @currentPage of @TotalPages</div>
+                </div>
+            }
+        </section>
+    }
+</div>
+
+@if (selectedOrder is not null)
+{
+    <div class="mpor-modal-backdrop" @onclick="CloseSelectedOrderAsync"></div>
+    <div class="mpor-detail-drawer">
+        <div class="mpor-drawer-header">
+            <h5><i class="bi bi-receipt-cutoff me-2"></i>Order: @selectedOrder.OrderNumber</h5>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="mpor-close-drawer" OnClick="CloseSelectedOrderAsync" />
+        </div>
+        <div class="mpor-drawer-body">
+            <div class="mpor-detail">
+                <div class="mpor-detail-grid">
+                    <div class="mpor-detail-card"><label>Merchandiser</label><div>@selectedOrder.MerchandiserFullName</div></div>
+                    <div class="mpor-detail-card"><label>Customer</label><div>@selectedOrder.CardCode - @selectedOrder.CardName</div></div>
+                    <div class="mpor-detail-card"><label>SAP Document</label><div>@(selectedOrder.SapDocNum?.ToString() ?? "Pending sync")</div></div>
+                    <div class="mpor-detail-card"><label>Attachment Reference</label><div>@selectedOrder.AttachmentReference</div></div>
+                    <div class="mpor-detail-card"><label>Status</label><div><span class="mpor-status @GetStatusCssClass(selectedOrder.Status)">@selectedOrder.StatusLabel</span></div></div>
+                    <div class="mpor-detail-card"><label>Created</label><div>@FormatCatDateTime(selectedOrder.CreatedAtUtc)</div></div>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(selectedOrder.MerchandiserNotes))
+                {
+                    <div class="mpor-detail-card"><label>Merchandiser Notes</label><div>@selectedOrder.MerchandiserNotes</div></div>
+                }
+
+                <div class="mpor-section">
+                    <h3>Uploaded Purchase Orders</h3>
+                    @if (selectedOrder.Attachments.Count == 0)
+                    {
+                        <div class="mpor-empty"><strong>No uploaded purchase orders.</strong>This order does not currently have any external PO files attached.</div>
+                    }
+                    else
+                    {
+                        <div class="mpor-attachment-list">
+                            @foreach (var attachment in selectedOrder.Attachments)
+                            {
+                                <div class="mpor-attachment">
+                                    <div class="mpor-attachment-top">
+                                        <div>
+                                            <div class="mpor-attachment-name">@attachment.FileName</div>
+                                            <div class="mpor-attachment-meta">@FormatFileSize(attachment.FileSizeBytes) · @FormatCatDateTime(attachment.UploadedAtUtc) · @(string.IsNullOrWhiteSpace(attachment.UploadedByUsername) ? "Unknown uploader" : attachment.UploadedByUsername)</div>
+                                            @if (!string.IsNullOrWhiteSpace(attachment.Description))
+                                            {
+                                                <div class="mpor-attachment-meta">@attachment.Description</div>
+                                            }
+                                        </div>
+                                        <div class="mpor-attachment-actions">
+                                            @if (IsViewableAttachment(attachment))
+                                            {
+                                                <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewAttachmentAsync(attachment)">View</button>
+                                            }
+                                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => DownloadAttachmentAsync(attachment)">Download</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <div class="mpor-section">
+                    <h3>Document Lines</h3>
+                    @if (selectedOrder.Lines.Count == 0)
+                    {
+                        <div class="mpor-empty"><strong>No line details available.</strong>This order returned without any saved line items.</div>
+                    }
+                    else
+                    {
+                        <div class="mpor-line-list">
+                            @foreach (var line in selectedOrder.Lines)
+                            {
+                                <div class="mpor-line">
+                                    <div class="mpor-line-top">
+                                        <div>
+                                            <div class="mpor-line-code">@line.ItemCode</div>
+                                            <div class="mpor-line-meta">@line.ItemDescription</div>
+                                        </div>
+                                        <div class="mpor-doc">@FormatMoney(selectedOrder.Currency, line.LineTotal)</div>
+                                    </div>
+                                    <div class="mpor-line-meta">Qty @line.Quantity.ToString("N2") · Fulfilled @line.QuantityFulfilled.ToString("N2") · Unit @FormatMoney(selectedOrder.Currency, line.UnitPrice)@(string.IsNullOrWhiteSpace(line.WarehouseCode) ? string.Empty : $" · {line.WarehouseCode}")</div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="mpor-drawer-footer">
+            <button type="button" class="btn btn-outline-secondary" @onclick="CloseSelectedOrderAsync">Close</button>
+        </div>
+    </div>
+}
+
+@if (showAttachmentViewer)
+{
+    <div class="mpor-viewer-overlay" @onclick="CloseAttachmentViewerAsync">
+        <div class="mpor-viewer-container" @onclick:stopPropagation>
+            <div class="mpor-viewer-header">
+                <h6 class="text-truncate">@attachmentViewerFileName</h6>
+                <div class="d-flex gap-2 flex-wrap justify-content-end">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                               OnClick="() => DownloadAttachmentAsync(attachmentViewerAttachment!)">
+                        <i class="bi bi-download me-1"></i> Download
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                               OnClick="CloseAttachmentViewerAsync">
+                        <i class="bi bi-x-lg"></i>
+                    </MudButton>
+                </div>
+            </div>
+            <div class="mpor-viewer-body">
+                @if (isLoadingAttachmentViewer)
+                {
+                    <div class="d-flex justify-content-center align-items-center h-100">
+                        <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+                    </div>
+                }
+                else if (attachmentViewerMimeType?.StartsWith("image/") == true)
+                {
+                    <img src="@attachmentViewerDataUri" alt="@attachmentViewerFileName" class="mpor-viewer-image" />
+                }
+                else if (attachmentViewerMimeType == "application/pdf")
+                {
+                    <iframe src="@attachmentViewerDataUri" class="mpor-viewer-pdf" title="@attachmentViewerFileName"></iframe>
+                }
+            </div>
+        </div>
+    </div>
+}

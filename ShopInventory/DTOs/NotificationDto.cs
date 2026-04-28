@@ -19,6 +19,7 @@ public class NotificationDto
     public DateTime CreatedAt { get; set; }
     public DateTime? ReadAt { get; set; }
     public string? CreatedBy { get; set; }
+    public Dictionary<string, string>? Data { get; set; }
 }
 
 /// <summary>
@@ -47,6 +48,7 @@ public class CreateNotificationRequest
     public string? ActionUrl { get; set; }
     public string? TargetUsername { get; set; } // null = broadcast to all
     public string? TargetRole { get; set; } // null = all roles
+    public Dictionary<string, string>? Data { get; set; }
 }
 
 /// <summary>
@@ -160,7 +162,7 @@ public class SyncHealthSummaryDto
 }
 
 /// <summary>
-/// Connection log entry for SAP connection history
+/// Request log entry for SAP request history
 /// </summary>
 public class ConnectionLogDto
 {

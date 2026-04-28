@@ -40,7 +40,7 @@ public partial class CreateMerchandiserAccount : ComponentBase, IDisposable
 
     private IEnumerable<BusinessPartnerDto> filteredCreateCustomers => FilterCustomers(createCustomerSearchTerm);
 
-    private IEnumerable<BusinessPartnerDto> filteredEditCustomers => FilterCustomers(editCustomerSearchTerm);
+    private IEnumerable<BusinessPartnerDto> filteredEditCustomers => FilterCustomers(editCustomerSearchTerm, editingAssignedCustomerCodes);
 
     private IEnumerable<ManagedMerchandiserAccountModel> filteredMerchandisers =>
         merchandisers.Where(merchandiser =>
@@ -207,10 +207,9 @@ public partial class CreateMerchandiserAccount : ComponentBase, IDisposable
                 return;
             }
 
-            merchandiser.AssignedWarehouseCodes = assignedWarehouseCodes;
-            merchandiser.AssignedCustomerCodes = assignedCustomerCodes;
             Snackbar.Add($"Assignments updated for {result.Value}.", Severity.Success);
             CancelEditAssignedCustomers();
+            await LoadViewAsync();
         }
         finally
         {
@@ -218,19 +217,31 @@ public partial class CreateMerchandiserAccount : ComponentBase, IDisposable
         }
     }
 
-    private IEnumerable<BusinessPartnerDto> FilterCustomers(string searchTerm)
-        => string.IsNullOrWhiteSpace(searchTerm)
-            ? customers.OrderBy(customer => customer.CardCode).Take(150)
+    private IEnumerable<BusinessPartnerDto> FilterCustomers(string searchTerm, ISet<string>? prioritizedCustomerCodes = null)
+    {
+        var query = string.IsNullOrWhiteSpace(searchTerm)
+            ? customers.AsEnumerable()
             : customers.Where(customer =>
-                    (customer.CardCode?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                    (customer.CardName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false))
-                .OrderBy(customer => customer.CardCode)
-                .Take(150);
+                (customer.CardCode?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (customer.CardName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+
+        var resultLimit = Math.Max(150, prioritizedCustomerCodes?.Count ?? 0);
+
+        return query
+            .OrderByDescending(customer =>
+                prioritizedCustomerCodes?.Contains(customer.CardCode ?? string.Empty) == true)
+            .ThenBy(customer => customer.CardCode)
+            .Take(resultLimit);
+    }
 
     private string GetCustomerDisplayName(string customerCode)
         => customerLabels.TryGetValue(customerCode, out var label)
             ? label
             : customerCode;
+
+    private IEnumerable<string> GetEditingSelectedCustomerCodes()
+        => editingAssignedCustomerCodes
+            .OrderBy(GetCustomerDisplayName, StringComparer.OrdinalIgnoreCase);
 
     private static string FormatCustomerDisplayName(BusinessPartnerDto customer)
     {

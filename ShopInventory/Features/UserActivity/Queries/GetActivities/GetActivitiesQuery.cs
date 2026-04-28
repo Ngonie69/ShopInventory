@@ -9,6 +9,7 @@ public sealed record GetActivitiesQuery(
     int Page,
     int PageSize,
     Guid? UserId,
+    string? Username,
     string? Action,
     string? EntityType,
     DateTime? StartDate,

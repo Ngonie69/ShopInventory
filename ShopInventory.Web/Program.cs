@@ -240,6 +240,7 @@ try
     // Add System services (Exchange Rates, Backups, Webhooks)
     builder.Services.AddScoped<IExchangeRateService, ExchangeRateService>();
     builder.Services.AddScoped<IBackupService, BackupService>();
+    builder.Services.AddScoped<IMobileVersionPolicySettingsService, MobileVersionPolicySettingsService>();
     builder.Services.AddScoped<ISAPSettingsService, SAPSettingsService>();
     builder.Services.AddScoped<IWebhookService, WebhookService>();
 
@@ -413,12 +414,12 @@ try
             httpContext,
             $"api/document/attachments/{attachmentId}/download",
             $"purchase-order-{attachmentId}",
-            ["Admin", "Cashier", "Merchandiser", "SalesRep"],
+            ["Admin", "Manager", "Cashier", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer"],
             ct))
         .RequireAuthorization(new AuthorizeAttribute
         {
             AuthenticationSchemes = ApiBearerAuthenticationHandler.SchemeName,
-            Roles = "Admin,Cashier,Merchandiser,SalesRep"
+            Roles = "Admin,Manager,Cashier,Merchandiser,SalesRep,MerchandiserPurchaseOrderViewer"
         });
 
     app.Run();

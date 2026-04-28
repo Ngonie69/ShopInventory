@@ -68,7 +68,7 @@ public class NotificationService : INotificationService
 
         _logger.LogInformation("Created notification: {Title} for {Target}", request.Title, request.TargetUsername ?? request.TargetRole ?? "all");
 
-        var dto = MapToDto(notification);
+        var dto = MapToDto(notification, request.Data);
         var broadcastAudienceRoles = NotificationAudienceRules.GetBroadcastAudienceRoles(request.Category);
 
         // Broadcast via SignalR
@@ -103,6 +103,13 @@ public class NotificationService : INotificationService
                 pushData["entityType"] = request.EntityType;
             if (!string.IsNullOrEmpty(request.EntityId))
                 pushData["entityId"] = request.EntityId;
+            if (request.Data != null)
+            {
+                foreach (var entry in request.Data)
+                {
+                    pushData[entry.Key] = entry.Value;
+                }
+            }
 
             if (!string.IsNullOrEmpty(request.TargetUsername))
                 await _pushService.SendToUsernameAsync(request.TargetUsername, request.Title, request.Message, pushData, cancellationToken);
@@ -365,7 +372,7 @@ public class NotificationService : INotificationService
         }, cancellationToken);
     }
 
-    private static NotificationDto MapToDto(Notification n) => new()
+    private static NotificationDto MapToDto(Notification n, Dictionary<string, string>? data = null) => new()
     {
         Id = n.Id,
         Title = n.Title,
@@ -378,6 +385,7 @@ public class NotificationService : INotificationService
         IsRead = n.IsRead,
         CreatedAt = n.CreatedAt,
         ReadAt = n.ReadAt,
-        CreatedBy = n.CreatedBy
+        CreatedBy = n.CreatedBy,
+        Data = data == null ? null : new Dictionary<string, string>(data, StringComparer.OrdinalIgnoreCase)
     };
 }

@@ -218,33 +218,68 @@
                                                     </select>
                                                 </div>
 
-                                                <div class="macc-field">
-                                                    <label for="editCustomerSearch">Search business partners</label>
-                                                    <input id="editCustomerSearch" class="macc-input" @bind="editCustomerSearchTerm"
-                                                           @bind:event="oninput" placeholder="Search by code or name" />
-                                                </div>
+                                                <div class="macc-editor-grid">
+                                                    <section class="macc-editor-column macc-editor-selection">
+                                                        <div class="macc-card-header macc-editor-subheader">
+                                                            <h3>Selected business partners</h3>
+                                                            <span>Remove assignments directly from here</span>
+                                                        </div>
 
-                                                <div class="macc-customer-list macc-editor-list">
-                                                    @if (filteredEditCustomers.Any())
-                                                    {
-                                                        @foreach (var customer in filteredEditCustomers)
+                                                        @if (editingAssignedCustomerCodes.Any())
                                                         {
-                                                            var cardCode = customer.CardCode ?? string.Empty;
-                                                            var isSelected = editingAssignedCustomerCodes.Contains(cardCode);
-                                                            <label class="macc-customer-item">
-                                                                <input type="checkbox" checked="@isSelected"
-                                                                       @onchange="args => ToggleEditCustomer(cardCode, args.Value as bool? == true)" />
-                                                                <span class="macc-customer-text">
-                                                                    <strong>@cardCode</strong>
-                                                                    <span>@(customer.IsActive ? customer.CardName : $"{customer.CardName} (Inactive)")</span>
-                                                                </span>
-                                                            </label>
+                                                            <div class="macc-selected-list">
+                                                                @foreach (var selectedCode in GetEditingSelectedCustomerCodes())
+                                                                {
+                                                                    <div class="macc-selected-item">
+                                                                        <div class="macc-selected-text">
+                                                                            <strong>@selectedCode</strong>
+                                                                            <span>@GetCustomerDisplayName(selectedCode)</span>
+                                                                        </div>
+                                                                        <button type="button" class="macc-selected-remove"
+                                                                                @onclick="() => ToggleEditCustomer(selectedCode, false)">
+                                                                            Remove
+                                                                        </button>
+                                                                    </div>
+                                                                }
+                                                            </div>
                                                         }
-                                                    }
-                                                    else
-                                                    {
-                                                        <div class="macc-empty">No business partners match the current search.</div>
-                                                    }
+                                                        else
+                                                        {
+                                                            <div class="macc-empty macc-selected-empty">No business partners selected yet.</div>
+                                                        }
+                                                    </section>
+
+                                                    <section class="macc-editor-column">
+                                                        <div class="macc-field">
+                                                            <label for="editCustomerSearch">Search business partners</label>
+                                                            <input id="editCustomerSearch" class="macc-input" @bind="editCustomerSearchTerm"
+                                                                   @bind:event="oninput" placeholder="Search by code or name" />
+                                                            <small>Selected business partners stay visible on the left while you search and add more here.</small>
+                                                        </div>
+
+                                                        <div class="macc-customer-list macc-editor-list">
+                                                            @if (filteredEditCustomers.Any())
+                                                            {
+                                                                @foreach (var customer in filteredEditCustomers)
+                                                                {
+                                                                    var cardCode = customer.CardCode ?? string.Empty;
+                                                                    var isSelected = editingAssignedCustomerCodes.Contains(cardCode);
+                                                                    <label class="macc-customer-item">
+                                                                        <input type="checkbox" checked="@isSelected"
+                                                                               @onchange="args => ToggleEditCustomer(cardCode, args.Value as bool? == true)" />
+                                                                        <span class="macc-customer-text">
+                                                                            <strong>@cardCode</strong>
+                                                                            <span>@(customer.IsActive ? customer.CardName : $"{customer.CardName} (Inactive)")</span>
+                                                                        </span>
+                                                                    </label>
+                                                                }
+                                                            }
+                                                            else
+                                                            {
+                                                                <div class="macc-empty">No business partners match the current search.</div>
+                                                            }
+                                                        </div>
+                                                    </section>
                                                 </div>
 
                                                 <div class="macc-actions macc-inline-actions">
@@ -589,6 +624,83 @@
                 max-height: 320px;
             }
 
+            .macc-editor-grid {
+                display: grid;
+                grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+                gap: 1rem;
+                align-items: start;
+            }
+
+            .macc-editor-column {
+                min-width: 0;
+            }
+
+            .macc-editor-selection {
+                padding: 1rem;
+                border-radius: 18px;
+                border: 1px solid #dbe4f0;
+                background: rgba(248, 250, 252, 0.9);
+            }
+
+            .macc-editor-subheader {
+                margin-bottom: .75rem;
+            }
+
+            .macc-editor-subheader h3 {
+                margin: 0;
+                color: #0f172a;
+                font-size: 1rem;
+                font-weight: 700;
+            }
+
+            .macc-selected-list {
+                display: flex;
+                flex-direction: column;
+                gap: .75rem;
+                max-height: 320px;
+                overflow: auto;
+                padding-right: .25rem;
+            }
+
+            .macc-selected-item {
+                display: flex;
+                align-items: flex-start;
+                justify-content: space-between;
+                gap: .75rem;
+                padding: .8rem .85rem;
+                border-radius: 16px;
+                border: 1px solid #dbe4f0;
+                background: #fff;
+            }
+
+            .macc-selected-text {
+                display: flex;
+                flex-direction: column;
+                gap: .2rem;
+                min-width: 0;
+                color: #334155;
+            }
+
+            .macc-selected-text strong,
+            .macc-selected-text span {
+                overflow-wrap: anywhere;
+            }
+
+            .macc-selected-remove {
+                flex-shrink: 0;
+                border: 0;
+                border-radius: 999px;
+                padding: .45rem .8rem;
+                font-size: .78rem;
+                font-weight: 700;
+                color: #b91c1c;
+                background: rgba(248, 113, 113, 0.12);
+            }
+
+            .macc-selected-empty {
+                padding: .85rem .2rem 0;
+            }
+
             .macc-spinner {
                 width: 20px;
                 height: 20px;
@@ -603,81 +715,95 @@
                 font-size: .82rem;
             }
 
-            :global(.dark-theme) .macc-page {
+            .dark-theme .macc-page {
                 background:
                     radial-gradient(circle at top left, rgba(56, 189, 248, 0.14), transparent 28%),
                     linear-gradient(180deg, #0f172a 0%, #111827 100%);
             }
 
-            :global(.dark-theme) .macc-header,
-            :global(.dark-theme) .macc-card,
-            :global(.dark-theme) .macc-state-card {
+            .dark-theme .macc-header,
+            .dark-theme .macc-card,
+            .dark-theme .macc-state-card {
                 background: rgba(15, 23, 42, 0.92);
                 border-color: rgba(148, 163, 184, 0.18);
                 box-shadow: 0 24px 60px rgba(2, 6, 23, 0.35);
             }
 
-            :global(.dark-theme) .macc-account-item,
-            :global(.dark-theme) .macc-customer-item,
-            :global(.dark-theme) .macc-editor-shell,
-            :global(.dark-theme) .macc-empty-state {
+            .dark-theme .macc-account-item,
+            .dark-theme .macc-customer-item,
+            .dark-theme .macc-editor-shell,
+            .dark-theme .macc-empty-state {
                 background: rgba(15, 23, 42, 0.7);
                 border-color: #334155;
             }
 
-            :global(.dark-theme) .macc-header h1,
-            :global(.dark-theme) .macc-card-header h2,
-            :global(.dark-theme) .macc-account-heading h3,
-            :global(.dark-theme) .macc-field label,
-            :global(.dark-theme) .macc-customer-text,
-            :global(.dark-theme) .macc-empty-state h3,
-            :global(.dark-theme) .macc-secondary-button {
+            .dark-theme .macc-editor-selection,
+            .dark-theme .macc-selected-item {
+                background: rgba(15, 23, 42, 0.82);
+                border-color: #334155;
+            }
+
+            .dark-theme .macc-header h1,
+            .dark-theme .macc-card-header h2,
+            .dark-theme .macc-editor-subheader h3,
+            .dark-theme .macc-account-heading h3,
+            .dark-theme .macc-field label,
+            .dark-theme .macc-customer-text,
+            .dark-theme .macc-selected-text,
+            .dark-theme .macc-empty-state h3,
+            .dark-theme .macc-secondary-button {
                 color: #e2e8f0;
             }
 
-            :global(.dark-theme) .macc-header p,
-            :global(.dark-theme) .macc-card-header span,
-            :global(.dark-theme) .macc-field small,
-            :global(.dark-theme) .macc-empty,
-            :global(.dark-theme) .macc-state-card,
-            :global(.dark-theme) .macc-account-heading p,
-            :global(.dark-theme) .macc-empty-state p {
+            .dark-theme .macc-header p,
+            .dark-theme .macc-card-header span,
+            .dark-theme .macc-field small,
+            .dark-theme .macc-empty,
+            .dark-theme .macc-state-card,
+            .dark-theme .macc-account-heading p,
+            .dark-theme .macc-empty-state p {
                 color: #94a3b8;
             }
 
-            :global(.dark-theme) .macc-input {
+            .dark-theme .macc-input {
                 background: #0f172a;
                 border-color: #334155;
                 color: #e2e8f0;
             }
 
-            :global(.dark-theme) .macc-chip-warehouse {
+            .dark-theme .macc-chip-warehouse {
                 background: rgba(14, 165, 233, 0.18);
                 color: #7dd3fc;
             }
 
-            :global(.dark-theme) .macc-chip-count,
-            :global(.dark-theme) .macc-bp-tag,
-            :global(.dark-theme) .macc-bp-tag-muted,
-            :global(.dark-theme) .macc-secondary-button {
+            .dark-theme .macc-chip-count,
+            .dark-theme .macc-bp-tag,
+            .dark-theme .macc-bp-tag-muted,
+            .dark-theme .macc-secondary-button {
                 background: rgba(148, 163, 184, 0.16);
                 color: #cbd5e1;
             }
 
-            :global(.dark-theme) .macc-status.is-active {
+            .dark-theme .macc-status.is-active {
                 background: rgba(16, 185, 129, 0.18);
                 color: #6ee7b7;
             }
 
-            :global(.dark-theme) .macc-status.is-inactive {
+            .dark-theme .macc-status.is-inactive {
                 background: rgba(248, 113, 113, 0.18);
                 color: #fca5a5;
+            }
+
+            .dark-theme .macc-selected-remove {
+                color: #fca5a5;
+                background: rgba(248, 113, 113, 0.18);
             }
 
             @@media (max-width: 900px) {
 
                 .macc-grid,
-                .macc-field-grid {
+                .macc-field-grid,
+                .macc-editor-grid {
                     grid-template-columns: 1fr;
                 }
 

@@ -10,7 +10,19 @@ public sealed class GetRolesHandler
         GetRolesQuery query,
         CancellationToken cancellationToken)
     {
-        IReadOnlyList<string> roles = new List<string> { "Admin", "Cashier", "StockController", "DepotController", "PodOperator" };
+        IReadOnlyList<string> roles = new List<string>
+        {
+            "Admin",
+            "Manager",
+            "Cashier",
+            "StockController",
+            "DepotController",
+            "PodOperator",
+            "Driver",
+            "Merchandiser",
+            "SalesRep",
+            "MerchandiserPurchaseOrderViewer"
+        };
         ErrorOr<IReadOnlyList<string>> result = ErrorOrFactory.From(roles);
         return Task.FromResult(result);
     }

@@ -1419,7 +1419,7 @@ public class SalesOrderService : ISalesOrderService
             SalesOrderStatus.Approved => newStatus is SalesOrderStatus.PartiallyFulfilled or SalesOrderStatus.Fulfilled or SalesOrderStatus.Cancelled or SalesOrderStatus.OnHold,
             SalesOrderStatus.PartiallyFulfilled => newStatus is SalesOrderStatus.Fulfilled or SalesOrderStatus.Cancelled,
             SalesOrderStatus.Fulfilled => false,
-            SalesOrderStatus.Cancelled => false,
+            SalesOrderStatus.Cancelled => newStatus is SalesOrderStatus.Draft,
             SalesOrderStatus.OnHold => newStatus is SalesOrderStatus.Pending or SalesOrderStatus.Approved or SalesOrderStatus.Cancelled,
             _ => false
         };

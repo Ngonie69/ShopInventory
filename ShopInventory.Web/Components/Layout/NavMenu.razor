@@ -503,6 +503,21 @@
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
+            <AuthorizeView Roles="Admin,Manager,MerchandiserPurchaseOrderViewer" Context="merchPoReportCtx">
+                <Authorized>
+                    <AuthorizeView Roles="MerchandiserPurchaseOrderViewer" Context="merchPoReportLabelCtx">
+                        <Authorized>
+                            <div class="nav-section-label">Insights</div>
+                        </Authorized>
+                    </AuthorizeView>
+                    <NavLink class="snav-link" href="/reports/merchandiser-purchase-orders" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.AssignmentTurnedIn" />
+                        </span>
+                        <span class="snav-text">Merch PO Report</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
             <AuthorizeView Roles="Admin,Manager" Context="fiscalReportCtx">
                 <Authorized>
                     <NavLink class="snav-link sub-link" href="/fiscalized-sales-report" Match="NavLinkMatch.Prefix">

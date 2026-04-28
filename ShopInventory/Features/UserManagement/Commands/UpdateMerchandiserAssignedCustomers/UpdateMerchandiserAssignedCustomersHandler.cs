@@ -51,10 +51,20 @@ public sealed class UpdateMerchandiserAssignedCustomersHandler(
 
         await context.SaveChangesAsync(cancellationToken);
 
+        var revokedRefreshTokenCount = await context.RefreshTokens
+            .Where(token => token.UserId == merchandiser.Id && !token.IsRevoked && token.ExpiresAt > DateTime.UtcNow)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(token => token.IsRevoked, true)
+                .SetProperty(token => token.RevokedAt, _ => DateTime.UtcNow)
+                .SetProperty(token => token.RevokedByIp, _ => "system")
+                .SetProperty(token => token.ReasonRevoked, _ => "Merchandiser assignments updated"),
+                cancellationToken);
+
         logger.LogInformation(
-            "Updated merchandiser assignments for {Username} ({UserId})",
+            "Updated merchandiser assignments for {Username} ({UserId}); revoked {RefreshTokenCount} active refresh tokens",
             merchandiser.Username,
-            merchandiser.Id);
+            merchandiser.Id,
+            revokedRefreshTokenCount);
 
         try
         {

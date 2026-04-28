@@ -275,6 +275,45 @@ namespace ShopInventory.Migrations
                     b.ToTable("Backups", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.CacheSyncStateEntity", b =>
+                {
+                    b.Property<string>("CacheKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("ItemCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("LastErrorAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastSyncedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("CacheKey");
+
+                    b.HasIndex("LastErrorAt");
+
+                    b.HasIndex("LastSyncedAt");
+
+                    b.ToTable("CacheSyncStates", (string)null);
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.CreditNoteEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -4222,7 +4261,7 @@ namespace ShopInventory.Migrations
 
                     b.Property<string>("Email")
                         .HasMaxLength(255)
-                        .HasColumnType("citext");
+                        .HasColumnType("character varying(255)");
 
                     b.Property<bool>("EmailVerified")
                         .HasColumnType("boolean");
@@ -4283,7 +4322,7 @@ namespace ShopInventory.Migrations
                     b.Property<string>("Username")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("citext");
+                        .HasColumnType("character varying(50)");
 
                     b.HasKey("Id");
 

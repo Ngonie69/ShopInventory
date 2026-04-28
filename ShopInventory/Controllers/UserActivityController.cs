@@ -6,6 +6,7 @@ using ShopInventory.Authentication;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Features.UserActivity.Queries.GetActivityDashboard;
+using ShopInventory.Features.UserActivity.Queries.GetActivityFilterOptions;
 using ShopInventory.Features.UserActivity.Queries.GetUserActivity;
 using ShopInventory.Features.UserActivity.Queries.GetMyActivity;
 using ShopInventory.Features.UserActivity.Queries.GetActivities;
@@ -53,13 +54,25 @@ public class UserActivityController(IMediator mediator) : ApiControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50,
         [FromQuery] Guid? userId = null,
+        [FromQuery] string? username = null,
         [FromQuery] string? action = null,
         [FromQuery] string? entityType = null,
         [FromQuery] DateTime? startDate = null,
         [FromQuery] DateTime? endDate = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetActivitiesQuery(page, pageSize, userId, action, entityType, startDate, endDate), cancellationToken);
+        var result = await mediator.Send(new GetActivitiesQuery(page, pageSize, userId, username, action, entityType, startDate, endDate), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpGet("filter-options")]
+    [RequirePermission(Permission.ViewAuditLogs)]
+    public async Task<IActionResult> GetFilterOptions(
+        [FromQuery] DateTime? startDate = null,
+        [FromQuery] DateTime? endDate = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(new GetActivityFilterOptionsQuery(startDate, endDate), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Caching;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -21,6 +22,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     private readonly SAPSettings _settings;
     private readonly ILogger<SAPServiceLayerClient> _logger;
     private readonly IMemoryCache _memoryCache;
+    private readonly CacheSyncStateRecorder _cacheSyncStateRecorder;
 
     // Session state is static so all transient instances share a single SAP session
     // instead of each injected instance creating its own login.
@@ -30,10 +32,11 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
     private const string WarehouseCacheKey = "SAP_Warehouses";
     private const string BusinessPartnersCacheKey = "SAP_BusinessPartners";
-    private const string BusinessPartnersByTypeCacheKeyPrefix = "SAP_BusinessPartners_";
+    private const string GLAccountsCacheKey = "SAP_GLAccounts";
     private const string PriceListsCacheKey = "SAP_PriceLists";
     private static readonly SemaphoreSlim _warehouseCacheLock = new(1, 1);
     private static readonly SemaphoreSlim _businessPartnerCacheLock = new(1, 1);
+    private static readonly SemaphoreSlim _glAccountsCacheLock = new(1, 1);
     private static readonly SemaphoreSlim _priceListCacheLock = new(1, 1);
 
     // Regex for validating SAP identifiers (item codes, warehouse codes, card codes, etc.)
@@ -77,12 +80,14 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         HttpClient httpClient,
         IOptions<SAPSettings> settings,
         ILogger<SAPServiceLayerClient> logger,
-        IMemoryCache memoryCache)
+        IMemoryCache memoryCache,
+        CacheSyncStateRecorder cacheSyncStateRecorder)
     {
         _httpClient = httpClient;
         _settings = settings.Value;
         _logger = logger;
         _memoryCache = memoryCache;
+        _cacheSyncStateRecorder = cacheSyncStateRecorder;
     }
 
     private async Task EnsureAuthenticatedAsync(CancellationToken cancellationToken)
@@ -4625,9 +4630,28 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                 return cached;
             }
 
-            var result = await GetWarehousesFromSAPAsync(cancellationToken);
-            _memoryCache.Set(WarehouseCacheKey, result, TimeSpan.FromMinutes(5));
-            return result;
+            try
+            {
+                var result = await GetWarehousesFromSAPAsync(cancellationToken);
+                _memoryCache.Set(WarehouseCacheKey, result, TimeSpan.FromMinutes(5));
+                await _cacheSyncStateRecorder.RecordSuccessAsync(
+                    CacheStatusKeys.Warehouses,
+                    CacheStatusKeys.Warehouses,
+                    result.Count,
+                    DateTime.UtcNow,
+                    CancellationToken.None);
+                return result;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                await _cacheSyncStateRecorder.RecordFailureAsync(
+                    CacheStatusKeys.Warehouses,
+                    CacheStatusKeys.Warehouses,
+                    ex.Message,
+                    DateTime.UtcNow,
+                    CancellationToken.None);
+                throw;
+            }
         }
         finally
         {
@@ -4782,9 +4806,28 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                 return cached;
             }
 
-            var result = await GetBusinessPartnersFromSAPAsync(cancellationToken);
-            _memoryCache.Set(BusinessPartnersCacheKey, result, TimeSpan.FromMinutes(30));
-            return result;
+            try
+            {
+                var result = await GetBusinessPartnersFromSAPAsync(cancellationToken);
+                _memoryCache.Set(BusinessPartnersCacheKey, result, TimeSpan.FromMinutes(30));
+                await _cacheSyncStateRecorder.RecordSuccessAsync(
+                    CacheStatusKeys.BusinessPartners,
+                    CacheStatusKeys.BusinessPartners,
+                    result.Count,
+                    DateTime.UtcNow,
+                    CancellationToken.None);
+                return result;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                await _cacheSyncStateRecorder.RecordFailureAsync(
+                    CacheStatusKeys.BusinessPartners,
+                    CacheStatusKeys.BusinessPartners,
+                    ex.Message,
+                    DateTime.UtcNow,
+                    CancellationToken.None);
+                throw;
+            }
         }
         finally
         {
@@ -4872,100 +4915,10 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
     public async Task<List<BusinessPartnerDto>> GetBusinessPartnersByTypeAsync(string cardType, CancellationToken cancellationToken = default)
     {
-        var cacheKey = $"{BusinessPartnersByTypeCacheKeyPrefix}{cardType}";
-        if (_memoryCache.TryGetValue(cacheKey, out List<BusinessPartnerDto>? cached) && cached != null)
-        {
-            return cached;
-        }
-
-        await _businessPartnerCacheLock.WaitAsync(cancellationToken);
-        try
-        {
-            if (_memoryCache.TryGetValue(cacheKey, out cached) && cached != null)
-            {
-                return cached;
-            }
-
-            var result = await GetBusinessPartnersByTypeFromSAPAsync(cardType, cancellationToken);
-            _memoryCache.Set(cacheKey, result, TimeSpan.FromMinutes(30));
-            return result;
-        }
-        finally
-        {
-            _businessPartnerCacheLock.Release();
-        }
-    }
-
-    private async Task<List<BusinessPartnerDto>> GetBusinessPartnersByTypeFromSAPAsync(string cardType, CancellationToken cancellationToken)
-    {
-        await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
-
-        var allPartners = new List<BusinessPartnerDto>();
-        var skip = 0;
-        const int pageSize = 500;
-        bool hasMore = true;
-
-        while (hasMore)
-        {
-            var url = $"BusinessPartners?{BusinessPartnerSelectFields}&$filter=CardType eq '{cardType}'&$orderby=CardCode&$skip={skip}";
-
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-
-            var response = await _httpClient.SendAsync(request, cancellationToken);
-
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
-            {
-                await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-                request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-                response = await _httpClient.SendAsync(request, cancellationToken);
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-
-                if (IsBusinessPartnerDataError(errorContent))
-                {
-                    _logger.LogWarning("SAP returned BP data error at skip={Skip} for type '{CardType}'. Skipping corrupted page. SAP error: {Error}",
-                        skip, cardType, ExtractSAPErrorMessage(errorContent) ?? errorContent);
-                    skip += pageSize;
-                    continue;
-                }
-
-                _logger.LogError("Failed to get business partners by type: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get business partners: {response.StatusCode} - {errorContent}");
-            }
-
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            var pagePartners = ParseBusinessPartnersFromResponse(content);
-            allPartners.AddRange(pagePartners);
-
-            using var doc = JsonDocument.Parse(content);
-            hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
-                      doc.RootElement.TryGetProperty("@odata.nextLink", out _);
-
-            if (!hasMore && pagePartners.Count == pageSize)
-            {
-                hasMore = true;
-            }
-
-            if (pagePartners.Count == 0)
-            {
-                hasMore = false;
-            }
-
-            skip += pagePartners.Count > 0 ? pagePartners.Count : pageSize;
-        }
-
-        return allPartners;
+        var allPartners = await GetBusinessPartnersAsync(cancellationToken);
+        return allPartners
+            .Where(partner => string.Equals(partner.CardType, cardType, StringComparison.OrdinalIgnoreCase))
+            .ToList();
     }
 
     public async Task<List<BusinessPartnerDto>> SearchBusinessPartnersAsync(string searchTerm, CancellationToken cancellationToken = default)
@@ -6700,6 +6653,58 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
     public async Task<List<GLAccountDto>> GetGLAccountsAsync(CancellationToken cancellationToken = default)
     {
+        if (_memoryCache.TryGetValue(GLAccountsCacheKey, out List<GLAccountDto>? cached) && cached != null)
+        {
+            return cached;
+        }
+
+        await _glAccountsCacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_memoryCache.TryGetValue(GLAccountsCacheKey, out cached) && cached != null)
+            {
+                return cached;
+            }
+
+            try
+            {
+                var result = await GetGLAccountsFromSAPAsync(cancellationToken);
+                _memoryCache.Set(GLAccountsCacheKey, result, TimeSpan.FromMinutes(30));
+                await _cacheSyncStateRecorder.RecordSuccessAsync(
+                    CacheStatusKeys.GLAccounts,
+                    CacheStatusKeys.GLAccounts,
+                    result.Count,
+                    DateTime.UtcNow,
+                    CancellationToken.None);
+                return result;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                await _cacheSyncStateRecorder.RecordFailureAsync(
+                    CacheStatusKeys.GLAccounts,
+                    CacheStatusKeys.GLAccounts,
+                    ex.Message,
+                    DateTime.UtcNow,
+                    CancellationToken.None);
+                throw;
+            }
+        }
+        finally
+        {
+            _glAccountsCacheLock.Release();
+        }
+    }
+
+    public async Task<List<GLAccountDto>> GetGLAccountsByTypeAsync(string accountType, CancellationToken cancellationToken = default)
+    {
+        var allAccounts = await GetGLAccountsAsync(cancellationToken);
+        return allAccounts
+            .Where(account => string.Equals(account.AccountType, accountType, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    private async Task<List<GLAccountDto>> GetGLAccountsFromSAPAsync(CancellationToken cancellationToken)
+    {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
@@ -6710,7 +6715,6 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         while (hasMore)
         {
-            // Filter for active accounts that are postable
             var url = $"ChartOfAccounts?$filter=ActiveAccount eq 'tYES'&$orderby=Code&$skip={skip}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -6744,69 +6748,6 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             _logger.LogInformation("Retrieved {PageCount} G/L accounts at skip={Skip}, total: {Total}",
                 pageAccounts.Count, skip, allAccounts.Count);
-
-            using var doc = JsonDocument.Parse(content);
-            hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
-                      doc.RootElement.TryGetProperty("@odata.nextLink", out _);
-
-            if (!hasMore && pageAccounts.Count == pageSize)
-            {
-                hasMore = true;
-            }
-
-            if (pageAccounts.Count == 0)
-            {
-                hasMore = false;
-            }
-
-            skip += pageAccounts.Count > 0 ? pageAccounts.Count : pageSize;
-        }
-
-        return allAccounts;
-    }
-
-    public async Task<List<GLAccountDto>> GetGLAccountsByTypeAsync(string accountType, CancellationToken cancellationToken = default)
-    {
-        await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
-
-        var allAccounts = new List<GLAccountDto>();
-        var skip = 0;
-        const int pageSize = 500;
-        bool hasMore = true;
-
-        while (hasMore)
-        {
-            var url = $"ChartOfAccounts?$filter=ActiveAccount eq 'tYES' and AccountType eq '{accountType}'&$orderby=Code&$skip={skip}";
-
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-
-            var response = await _httpClient.SendAsync(request, cancellationToken);
-
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
-            {
-                await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-                request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-                response = await _httpClient.SendAsync(request, cancellationToken);
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("Failed to get G/L accounts by type: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get G/L accounts: {response.StatusCode} - {errorContent}");
-            }
-
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            var pageAccounts = ParseGLAccountsFromResponse(content);
-            allAccounts.AddRange(pageAccounts);
 
             using var doc = JsonDocument.Parse(content);
             hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||

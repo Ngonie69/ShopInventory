@@ -328,6 +328,10 @@ public static class Permissions
                 ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders, PostSalesOrdersToSAP,
                 ViewTimesheets, ManageTimesheets
             },
+            "MerchandiserPurchaseOrderViewer" => new List<string>
+            {
+                ViewReports
+            },
             _ => new List<string> { ViewDashboard }
         };
     }

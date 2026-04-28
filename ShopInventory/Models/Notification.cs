@@ -278,7 +278,7 @@ public class EmailQueueItem
 }
 
 /// <summary>
-/// SAP connection health tracking
+/// SAP request history tracking
 /// </summary>
 public class SapConnectionLog
 {
@@ -302,7 +302,7 @@ public class SapConnectionLog
     public string? ErrorMessage { get; set; }
 
     /// <summary>
-    /// Endpoint tested
+    /// SAP endpoint or resource invoked
     /// </summary>
     [MaxLength(200)]
     public string? Endpoint { get; set; }

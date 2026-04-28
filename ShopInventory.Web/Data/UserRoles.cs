@@ -46,6 +46,11 @@ public static class UserRoles
     public const string SalesRep = "SalesRep";
 
     /// <summary>
+    /// Read-only role for reviewing merchandiser purchase-order attachment reporting
+    /// </summary>
+    public const string MerchandiserPurchaseOrderViewer = "MerchandiserPurchaseOrderViewer";
+
+    /// <summary>
     /// Comma-separated role strings for use in [Authorize(Roles = "...")] attributes
     /// </summary>
     public const string InvoicingRoles = "Admin,Cashier";
@@ -59,7 +64,7 @@ public static class UserRoles
     /// <summary>
     /// Get all available roles
     /// </summary>
-    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager, PodOperator, Merchandiser, SalesRep };
+    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager, PodOperator, Merchandiser, SalesRep, MerchandiserPurchaseOrderViewer };
 
     /// <summary>
     /// Check if a role has admin privileges

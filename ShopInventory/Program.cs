@@ -10,8 +10,10 @@ using MediatR;
 using Serilog;
 using ShopInventory.Authentication;
 using ShopInventory.Behaviors;
+using ShopInventory.Common.Caching;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Features.AppVersion;
 using ShopInventory.Middleware;
 using ShopInventory.Services;
 using System.IO.Compression;
@@ -195,6 +197,7 @@ try
     builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection("Security"));
     builder.Services.Configure<RevmaxSettings>(builder.Configuration.GetSection("Revmax"));
     builder.Services.Configure<DailyStockSettings>(builder.Configuration.GetSection("DailyStock"));
+    builder.Services.Configure<MobileVersionPolicyOptions>(builder.Configuration.GetSection(MobileVersionPolicyOptions.SectionName));
 
     // Get JWT settings for authentication configuration
     var jwtSettings = builder.Configuration.GetSection("Jwt").Get<JwtSettings>()
@@ -259,7 +262,7 @@ try
             .RequireRole("Admin")
             .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
         options.AddPolicy("ApiAccess", policy =>
-            policy.RequireRole("Admin", "ApiUser", "User", "Cashier", "StockController", "DepotController", "Manager", "PodOperator", "Driver", "Merchandiser", "SalesRep")
+            policy.RequireRole("Admin", "ApiUser", "User", "Cashier", "StockController", "DepotController", "Manager", "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer")
                   .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
     });
 
@@ -388,6 +391,8 @@ try
     // Register audit service
     builder.Services.AddScoped<IAuditService, AuditService>();
 
+    builder.Services.AddSingleton<IMobileVersionPolicyEvaluator, MobileVersionPolicyEvaluator>();
+
     // Register authentication service
     builder.Services.AddScoped<IAuthService, AuthService>();
     builder.Services.AddSingleton<IPasskeyOperationStore, PasskeyOperationStore>();
@@ -498,6 +503,8 @@ try
     // DelegatingHandler that limits concurrent requests to SAP Service Layer.
     // Prevents Task.WhenAll in validation/reports from flooding SAP with 10+ simultaneous requests.
     builder.Services.AddTransient<SAPConcurrencyHandler>();
+    builder.Services.AddTransient<SAPRequestLoggingHandler>();
+    builder.Services.AddSingleton<CacheSyncStateRecorder>();
 
     // Configure HttpClient for SAP Service Layer
     builder.Services.AddHttpClient<ISAPServiceLayerClient, SAPServiceLayerClient>((serviceProvider, client) =>
@@ -508,6 +515,7 @@ try
         client.Timeout = TimeSpan.FromMinutes(5); // Increased timeout for large data operations
     })
     .AddHttpMessageHandler<SAPConcurrencyHandler>()
+    .AddHttpMessageHandler<SAPRequestLoggingHandler>()
     .ConfigurePrimaryHttpMessageHandler(serviceProvider =>
     {
         var sapSettings = serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value;
@@ -655,6 +663,8 @@ try
 
     // Apply CORS
     app.UseCors("AllowConfiguredOrigins");
+
+    app.UseMiddleware<MobileVersionEnforcementMiddleware>();
 
     // Authentication must run before rate limiting so authenticated users get per-user quotas.
     app.UseAuthentication();

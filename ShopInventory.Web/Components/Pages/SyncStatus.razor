@@ -331,12 +331,12 @@
             </div>
         </div>
 
-        <!-- Connection History -->
+        <!-- Request History -->
         <div class="sync-panel">
             <div class="sync-panel-header">
                 <div class="sync-panel-title">
                     <i class="bi bi-journal-text"></i>
-                    <span>SAP Connection History</span>
+                    <span>SAP Request History</span>
                 </div>
                 <button class="btn-sync btn-sync-sm" @onclick="RefreshLogs">
                     <i class="bi bi-arrow-clockwise"></i>
@@ -364,7 +364,7 @@
                                         <td>@(log.Endpoint ?? "Unknown")</td>
                                         <td>
                                             <span class="sync-badge @(log.IsSuccess ? "bg-success" : "bg-danger")">
-                                                @(log.IsSuccess ? "Connected" : "Failed")
+                                                @(log.IsSuccess ? "Success" : "Failed")
                                             </span>
                                         </td>
                                         <td>@(log.ResponseTimeMs.HasValue ? $"{log.ResponseTimeMs:N0}ms" : "-")</td>
@@ -391,7 +391,7 @@
                 {
                     <div class="sync-empty">
                         <i class="bi bi-info-circle"></i>
-                        <span>No connection checks recorded yet. Use "Test SAP Connection" to start monitoring.</span>
+                        <span>No SAP requests recorded yet. Use sync features or test the connection to generate activity.</span>
                     </div>
                 }
             </div>

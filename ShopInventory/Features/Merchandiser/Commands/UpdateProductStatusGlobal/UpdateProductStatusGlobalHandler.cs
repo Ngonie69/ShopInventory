@@ -3,11 +3,13 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
+using ShopInventory.Features.Merchandiser.Events.ProductCatalogChanged;
 
 namespace ShopInventory.Features.Merchandiser.Commands.UpdateProductStatusGlobal;
 
 public sealed class UpdateProductStatusGlobalHandler(
     ApplicationDbContext context,
+    IPublisher publisher,
     ILogger<UpdateProductStatusGlobalHandler> logger
 ) : IRequestHandler<UpdateProductStatusGlobalCommand, ErrorOr<int>>
 {
@@ -31,6 +33,20 @@ public sealed class UpdateProductStatusGlobalHandler(
         logger.LogInformation("Updated {RowsAffected} product records to {Status} globally for item codes [{Codes}]",
             rowsAffected, command.Request.IsActive ? "active" : "inactive",
             string.Join(", ", command.Request.ItemCodes));
+
+        if (rowsAffected > 0)
+        {
+            await publisher.Publish(
+                new ProductCatalogChangedEvent(
+                    command.Request.ItemCodes
+                        .Where(code => !string.IsNullOrWhiteSpace(code))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList(),
+                    command.Request.IsActive,
+                    command.Username,
+                    now),
+                cancellationToken);
+        }
 
         return rowsAffected;
     }

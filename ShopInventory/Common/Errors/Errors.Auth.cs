@@ -30,6 +30,12 @@ public static partial class Errors
         public static readonly Error PasskeyNotFound =
             Error.NotFound("Auth.PasskeyNotFound", "Passkey not found");
 
+        public static readonly Error AppVersionBlocked =
+            Error.Unauthorized("Auth.AppVersionBlocked", "This app version is no longer supported. Please update to continue.");
+
+        public static readonly Error InvalidAppVersionMetadata =
+            Error.Validation("Auth.InvalidAppVersionMetadata", "Android app requests must include valid X-App-Platform and X-App-Version headers.");
+
         public static Error InvalidRole(string role) =>
             Error.Validation("Auth.InvalidRole", $"Invalid role: {role}");
 

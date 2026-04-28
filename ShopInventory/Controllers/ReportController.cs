@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using ShopInventory.Features.Reports.Queries.GetCreditNoteSummary;
 using ShopInventory.Features.Reports.Queries.GetLowStockAlerts;
+using ShopInventory.Features.Reports.Queries.GetMerchandiserPurchaseOrderReport;
 using ShopInventory.Features.Reports.Queries.GetOrderFulfillment;
 using ShopInventory.Features.Reports.Queries.GetPaymentSummary;
 using ShopInventory.Features.Reports.Queries.GetProfitOverview;
@@ -134,6 +135,28 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(new GetPurchaseOrderSummaryQuery(fromDate, toDate), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpGet("merchandiser-purchase-orders")]
+    [Authorize(Roles = "Admin,Manager,MerchandiserPurchaseOrderViewer")]
+    public async Task<IActionResult> GetMerchandiserPurchaseOrderReport(
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        [FromQuery] Guid? merchandiserUserId,
+        [FromQuery] bool? hasAttachments,
+        [FromQuery] string? search,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetMerchandiserPurchaseOrderReportQuery(
+                fromDate,
+                toDate,
+                merchandiserUserId,
+                hasAttachments,
+                search),
+            cancellationToken);
+
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

@@ -18,7 +18,7 @@ public sealed class GetActivitiesHandler(
         try
         {
             var activities = await userActivityService.GetActivitiesAsync(
-                query.Page, query.PageSize, query.UserId, query.Action,
+                query.Page, query.PageSize, query.UserId, query.Username, query.Action,
                 query.EntityType, query.StartDate, query.EndDate, cancellationToken);
             return activities;
         }

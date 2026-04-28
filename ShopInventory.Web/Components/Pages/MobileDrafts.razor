@@ -886,13 +886,35 @@
                                             }
                                         </Authorized>
                                     </AuthorizeView>
-                                    @if (context.Status == SalesOrderStatus.Draft || context.Status == SalesOrderStatus.Cancelled)
-                                    {
-                                        <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.Delete) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Delete)" Size="Size.Small"
-                                                       Variant="Variant.Outlined" Color="Color.Error" title="Delete"
-                                                       Disabled="@IsOrderActionBusy(context.Id)"
-                                                       OnClick="() => DeleteOrder(context.Id)" />
-                                    }
+                                    <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="statusActionAccess">
+                                        <Authorized>
+                                            @if (CanCancelOrder(context))
+                                            {
+                                                <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.UpdateStatus) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Cancel)" Size="Size.Small"
+                                                               Variant="Variant.Outlined" Color="Color.Error" title="Cancel"
+                                                               Disabled="@IsOrderActionBusy(context.Id)"
+                                                               OnClick="() => CancelOrder(context.Id)" />
+                                            }
+                                            @if (CanRestoreToDraft(context))
+                                            {
+                                                <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.UpdateStatus) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Undo)" Size="Size.Small"
+                                                               Variant="Variant.Outlined" Color="Color.Warning" title="Back to Draft"
+                                                               Disabled="@IsOrderActionBusy(context.Id)"
+                                                               OnClick="() => RestoreOrderToDraft(context.Id)" />
+                                            }
+                                        </Authorized>
+                                    </AuthorizeView>
+                                    <AuthorizeView Roles="Admin" Context="deleteAccess">
+                                        <Authorized>
+                                            @if (CanDeleteOrder(context))
+                                            {
+                                                <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.Delete) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Delete)" Size="Size.Small"
+                                                               Variant="Variant.Outlined" Color="Color.Error" title="Delete"
+                                                               Disabled="@IsOrderActionBusy(context.Id)"
+                                                               OnClick="() => DeleteOrder(context.Id)" />
+                                            }
+                                        </Authorized>
+                                    </AuthorizeView>
                                 }
                             </MudStack>
                         </MudTd>
@@ -1260,6 +1282,7 @@
         Approve,
         PostToSap,
         ConvertToInvoice,
+        UpdateStatus,
         Delete
     }
 
@@ -1787,6 +1810,48 @@
         }
     }
 
+    private Task CancelOrder(int id)
+        => ChangeOrderStatus(id, SalesOrderStatus.Cancelled, "Order cancelled successfully.");
+
+    private Task RestoreOrderToDraft(int id)
+        => ChangeOrderStatus(id, SalesOrderStatus.Draft, "Order moved back to draft.");
+
+    private async Task ChangeOrderStatus(int id, SalesOrderStatus status, string successMessage)
+    {
+        if (!TryBeginOrderAction(id, OrderActionType.UpdateStatus))
+            return;
+
+        StateHasChanged();
+
+        try
+        {
+            var result = await SalesOrderService.UpdateStatusAsync(id, status);
+            if (result != null)
+            {
+                if (selectedOrder?.Id == id)
+                {
+                    selectedOrder = result;
+                }
+
+                Snackbar.Add(successMessage, Severity.Success);
+                await LoadOrders();
+            }
+            else
+            {
+                Snackbar.Add($"Failed to {GetStatusChangeVerb(status)} order. Please try again.", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error updating order status: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            EndOrderAction(id);
+            StateHasChanged();
+        }
+    }
+
     private async Task DeleteOrder(int id)
     {
         if (!TryBeginOrderAction(id, OrderActionType.Delete))
@@ -1829,4 +1894,16 @@
         SalesOrderStatus.OnHold => "on-hold",
         _ => "draft"
     };
+
+    private static bool CanCancelOrder(SalesOrderDto order)
+        => !order.IsSynced && order.Status is SalesOrderStatus.Draft or SalesOrderStatus.Pending or SalesOrderStatus.Approved or SalesOrderStatus.PartiallyFulfilled or SalesOrderStatus.OnHold;
+
+    private static bool CanRestoreToDraft(SalesOrderDto order)
+        => !order.IsSynced && order.Status == SalesOrderStatus.Cancelled;
+
+    private static bool CanDeleteOrder(SalesOrderDto order)
+        => !order.IsSynced && (order.Status == SalesOrderStatus.Draft || order.Status == SalesOrderStatus.Cancelled);
+
+    private static string GetStatusChangeVerb(SalesOrderStatus status)
+        => status == SalesOrderStatus.Draft ? "restore" : "cancel";
 }

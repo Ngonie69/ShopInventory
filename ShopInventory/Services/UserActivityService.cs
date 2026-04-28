@@ -27,6 +27,7 @@ public interface IUserActivityService
         int page = 1,
         int pageSize = 50,
         Guid? userId = null,
+        string? username = null,
         string? action = null,
         string? entityType = null,
         DateTime? startDate = null,
@@ -258,6 +259,7 @@ public class UserActivityService : IUserActivityService
         int page = 1,
         int pageSize = 50,
         Guid? userId = null,
+        string? username = null,
         string? action = null,
         string? entityType = null,
         DateTime? startDate = null,
@@ -268,21 +270,26 @@ public class UserActivityService : IUserActivityService
 
         if (userId.HasValue)
         {
-            var username = await _context.Users
+            var matchedUsername = await _context.Users
                 .AsNoTracking()
                 .Where(u => u.Id == userId.Value)
                 .Select(u => u.Username)
                 .SingleOrDefaultAsync(cancellationToken);
 
             var userIdStr = userId.Value.ToString();
-            query = string.IsNullOrWhiteSpace(username)
+            query = string.IsNullOrWhiteSpace(matchedUsername)
                 ? query.Where(a => a.UserId == userIdStr)
-                : query.Where(a => a.UserId == userIdStr || ((a.UserId == null || a.UserId == string.Empty) && a.Username == username));
+                : query.Where(a => a.UserId == userIdStr || ((a.UserId == null || a.UserId == string.Empty) && a.Username == matchedUsername));
+        }
+
+        if (!string.IsNullOrWhiteSpace(username))
+        {
+            query = query.Where(a => a.Username == username);
         }
 
         if (!string.IsNullOrWhiteSpace(action))
         {
-            query = query.Where(a => a.Action.Contains(action));
+            query = query.Where(a => a.Action == action);
         }
 
         if (!string.IsNullOrWhiteSpace(entityType))
@@ -304,6 +311,7 @@ public class UserActivityService : IUserActivityService
 
         var items = await query
             .OrderByDescending(a => a.Timestamp)
+            .ThenByDescending(a => a.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(a => new UserActivityItem

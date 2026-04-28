@@ -49,6 +49,7 @@ public class ApplicationDbContext : DbContext
   public DbSet<OfflineQueueItem> OfflineQueueItems { get; set; }
   public DbSet<EmailQueueItem> EmailQueueItems { get; set; }
   public DbSet<SapConnectionLog> SapConnectionLogs { get; set; }
+  public DbSet<CacheSyncStateEntity> CacheSyncStates { get; set; }
   public DbSet<UserNotificationSettings> UserNotificationSettings { get; set; }
   public DbSet<PushDeviceRegistration> PushDeviceRegistrations { get; set; }
 
@@ -492,6 +493,25 @@ public class ApplicationDbContext : DbContext
 
       entity.HasIndex(l => l.CheckedAt);
       entity.HasIndex(l => l.IsSuccess);
+    });
+
+    modelBuilder.Entity<CacheSyncStateEntity>(entity =>
+    {
+      entity.ToTable("CacheSyncStates");
+      entity.HasKey(c => c.CacheKey);
+
+      entity.Property(c => c.CacheKey)
+                  .HasMaxLength(100);
+
+      entity.Property(c => c.DisplayName)
+                  .IsRequired()
+                  .HasMaxLength(100);
+
+      entity.Property(c => c.LastError)
+                  .HasMaxLength(1000);
+
+      entity.HasIndex(c => c.LastSyncedAt);
+      entity.HasIndex(c => c.LastErrorAt);
     });
 
     // User Notification Settings configuration

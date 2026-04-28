@@ -1,0 +1,3 @@
+namespace ShopInventory.Features.AppVersion.Commands.UpdateMobileVersionPolicySettings;
+
+public sealed record UpdateMobileVersionPolicySettingsResult(string Message);

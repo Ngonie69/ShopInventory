@@ -196,6 +196,7 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var response = await _httpClient.PutAsJsonAsync($"api/salesorder/{id}", request);
             if (response.IsSuccessStatusCode)
             {
@@ -224,6 +225,7 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var request = new UpdateSalesOrderStatusRequest { Status = status, Comments = comments };
             var response = await _httpClient.PatchAsJsonAsync($"api/salesorder/{id}/status", request);
             if (response.IsSuccessStatusCode)
@@ -281,6 +283,7 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var response = await _httpClient.DeleteAsync($"api/salesorder/{id}");
             return response.IsSuccessStatusCode;
         }

@@ -2729,7 +2729,7 @@ customerPriceListPrices.Count, priceListNum);
             }
 
             var copies = await AppSettingsService.GetValueAsync<int>(SettingKeys.PrintCopies);
-            if (copies < 1) copies = 1;
+            copies = Math.Clamp(copies, 1, 10);
 
             var base64 = Convert.ToBase64String(pdfBytes);
             await JS.InvokeVoidAsync("printPdfFromBase64", base64, copies);
@@ -2763,16 +2763,29 @@ customerPriceListPrices.Count, priceListNum);
             var savedPrintersJson = await AppSettingsService.GetValueAsync<string>(SettingKeys.SavedPrinters);
             if (!string.IsNullOrWhiteSpace(savedPrintersJson))
             {
-                savedPrinters = System.Text.Json.JsonSerializer.Deserialize<List<string>>(savedPrintersJson) ?? new();
+                savedPrinters = (System.Text.Json.JsonSerializer.Deserialize<List<string>>(savedPrintersJson) ?? new())
+                    .Where(printer => !string.IsNullOrWhiteSpace(printer))
+                    .Select(printer => printer.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(printer => printer, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
             }
 
             var defaultPrinter = await AppSettingsService.GetValueAsync<string>(SettingKeys.PrinterName);
-            selectedPrinterName = !string.IsNullOrWhiteSpace(defaultPrinter) && savedPrinters.Contains(defaultPrinter)
+            var knownPrinters = savedPrinters.Concat(installedPrinters);
+            selectedPrinterName = !string.IsNullOrWhiteSpace(defaultPrinter) && knownPrinters.Contains(defaultPrinter, StringComparer.OrdinalIgnoreCase)
             ? defaultPrinter
             : "";
 
+            if (!string.IsNullOrWhiteSpace(selectedPrinterName) && !savedPrinters.Contains(selectedPrinterName, StringComparer.OrdinalIgnoreCase))
+            {
+                savedPrinters.Add(selectedPrinterName);
+                savedPrinters = savedPrinters.OrderBy(printer => printer, StringComparer.OrdinalIgnoreCase).ToList();
+                await SavePrinterList();
+            }
+
             printCopies = await AppSettingsService.GetValueAsync<int>(SettingKeys.PrintCopies);
-            if (printCopies < 1) printCopies = 1;
+            printCopies = Math.Clamp(printCopies, 1, 10);
         }
         catch (Exception ex)
         {
@@ -2788,7 +2801,7 @@ customerPriceListPrices.Count, priceListNum);
     private async Task AddPrinter()
     {
         var name = newPrinterName?.Trim();
-        if (string.IsNullOrWhiteSpace(name) || savedPrinters.Contains(name))
+        if (string.IsNullOrWhiteSpace(name) || savedPrinters.Contains(name, StringComparer.OrdinalIgnoreCase))
             return;
 
         savedPrinters.Add(name);
@@ -2807,8 +2820,8 @@ customerPriceListPrices.Count, priceListNum);
 
     private async Task RemovePrinter(string name)
     {
-        savedPrinters.Remove(name);
-        if (selectedPrinterName == name)
+        savedPrinters.RemoveAll(printer => string.Equals(printer, name, StringComparison.OrdinalIgnoreCase));
+        if (string.Equals(selectedPrinterName, name, StringComparison.OrdinalIgnoreCase))
             selectedPrinterName = "";
         await SavePrinterList();
     }
@@ -2817,6 +2830,12 @@ customerPriceListPrices.Count, priceListNum);
     {
         try
         {
+            savedPrinters = savedPrinters
+                .Where(printer => !string.IsNullOrWhiteSpace(printer))
+                .Select(printer => printer.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(printer => printer, StringComparer.OrdinalIgnoreCase)
+                .ToList();
             var json = System.Text.Json.JsonSerializer.Serialize(savedPrinters);
             await AppSettingsService.SaveSettingAsync(SettingKeys.SavedPrinters, json);
         }
@@ -2834,11 +2853,10 @@ customerPriceListPrices.Count, priceListNum);
         isPrinting = true;
         try
         {
+            printCopies = Math.Clamp(printCopies, 1, 10);
+
             // Save selected printer as default
-            if (!string.IsNullOrWhiteSpace(selectedPrinterName))
-            {
-                await AppSettingsService.SaveSettingAsync(SettingKeys.PrinterName, selectedPrinterName);
-            }
+            await AppSettingsService.SaveSettingAsync(SettingKeys.PrinterName, selectedPrinterName ?? string.Empty);
             await AppSettingsService.SaveSettingAsync(SettingKeys.PrintCopies, printCopies.ToString());
 
             var pdfBytes = await InvoiceService.GetInvoicePdfAsync(lastCreatedInvoice.DocEntry);
