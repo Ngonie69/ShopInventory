@@ -1,5 +1,6 @@
 using ErrorOr;
 using MediatR;
+using ShopInventory.Common.Pods;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
@@ -15,16 +16,6 @@ public sealed class GetPodUploadStatusHandler(
     ILogger<GetPodUploadStatusHandler> logger
 ) : IRequestHandler<GetPodUploadStatusQuery, ErrorOr<PodUploadStatusReportDto>>
 {
-    private static readonly HashSet<string> ExcludedPodCardCodes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "CIS006", "MAC009", "MAC006", "COR007", "COR006", "COR008",
-        "VAN008", "VAN009", "VAN010", "VAN011", "VAN012", "VAN013",
-        "VAN014", "VAN015", "VAN016", "VAN017", "VAN018", "VAN019", "VAN020",
-        "STA040", "STA041", "STA042", "STA043", "STA044", "STA045", "STA046", "STA047", "STA048",
-        "PRO030", "PRO031", "PRO032", "PRO033", "PRO034", "PRO035", "PRO036",
-        "CAS004(FCA)", "DON004", "TEA006", "TEA007"
-    };
-
     public async Task<ErrorOr<PodUploadStatusReportDto>> Handle(
         GetPodUploadStatusQuery request,
         CancellationToken cancellationToken)
@@ -37,7 +28,7 @@ public sealed class GetPodUploadStatusHandler(
 
         try
         {
-            var invoices = await sapClient.GetInvoiceHeadersByDateRangeAsync(request.FromDate, request.ToDate, ExcludedPodCardCodes.ToList(), cancellationToken);
+            var invoices = await sapClient.GetInvoiceHeadersByDateRangeAsync(request.FromDate, request.ToDate, PodExclusions.ExcludedCardCodes.ToList(), cancellationToken);
 
             var docEntries = invoices.Select(i => i.DocEntry).ToList();
             var podLookup = await documentService.GetPodStatusByDocEntriesAsync(docEntries, cancellationToken);
@@ -57,6 +48,14 @@ public sealed class GetPodUploadStatusHandler(
                     HasPod = podInfo != null,
                     PodUploadedAt = podInfo?.UploadedAt,
                     PodUploadedBy = podInfo?.UploadedBy,
+                    PodUploadedByUsers = podInfo?.UploadedByUsers
+                        .Select(uploader => new PodUploadUserSummaryDto
+                        {
+                            Username = uploader.Username,
+                            FileCount = uploader.FileCount,
+                            LatestUploadedAt = uploader.LatestUploadedAt
+                        })
+                        .ToList() ?? new(),
                     PodCount = podInfo?.Count ?? 0
                 };
             }).OrderByDescending(i => i.DocNum).ToList();

@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Pods;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
@@ -115,6 +116,13 @@ public sealed class ValidateBulkPodsHandler(
 
         foreach (var result in resultsByDocNum.Values)
         {
+            if (result.Found && PodExclusions.IsExcludedCardCode(result.CardCode))
+            {
+                result.Found = false;
+                result.ErrorMessage = $"Excluded BP ({result.CardCode})";
+                continue;
+            }
+
             if (result.DocEntry.HasValue && podStatusByDocEntry.TryGetValue(result.DocEntry.Value, out var podStatus))
                 result.ExistingPodCount = podStatus.Count;
         }

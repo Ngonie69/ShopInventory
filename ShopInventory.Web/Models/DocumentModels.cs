@@ -58,7 +58,15 @@ public class PodUploadStatusItem
     public bool HasPod { get; set; }
     public DateTime? PodUploadedAt { get; set; }
     public string? PodUploadedBy { get; set; }
+    public List<PodUploadUserSummary> PodUploadedByUsers { get; set; } = new();
     public int PodCount { get; set; }
+}
+
+public class PodUploadUserSummary
+{
+    public string Username { get; set; } = string.Empty;
+    public int FileCount { get; set; }
+    public DateTime? LatestUploadedAt { get; set; }
 }
 
 public class PodUploadStatusReport

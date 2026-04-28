@@ -1,5 +1,6 @@
 using ErrorOr;
 using MediatR;
+using ShopInventory.Common.Pods;
 using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -14,16 +15,6 @@ public sealed class UploadPodHandler(
     ILogger<UploadPodHandler> logger
 ) : IRequestHandler<UploadPodCommand, ErrorOr<DocumentAttachmentDto>>
 {
-    private static readonly HashSet<string> ExcludedPodCardCodes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "CIS006", "MAC009", "MAC006", "COR007", "COR006", "COR008",
-        "VAN008", "VAN009", "VAN010", "VAN011", "VAN012", "VAN013",
-        "VAN014", "VAN015", "VAN016", "VAN017", "VAN018", "VAN019", "VAN020",
-        "STA040", "STA041", "STA042", "STA043", "STA044", "STA045", "STA046", "STA047", "STA048",
-        "PRO030", "PRO031", "PRO032", "PRO033", "PRO034", "PRO035", "PRO036",
-        "CAS004(FCA)", "DON004", "TEA006", "TEA007"
-    };
-
     public async Task<ErrorOr<DocumentAttachmentDto>> Handle(
         UploadPodCommand command,
         CancellationToken cancellationToken)
@@ -39,7 +30,7 @@ public sealed class UploadPodHandler(
             logger.LogWarning(ex, "Could not fetch invoice info for DocEntry {DocEntry} during POD upload", command.DocEntry);
         }
 
-        if (invoiceInfo != null && ExcludedPodCardCodes.Contains(invoiceInfo.CardCode ?? ""))
+        if (invoiceInfo != null && PodExclusions.IsExcludedCardCode(invoiceInfo.CardCode))
             return Errors.Invoice.PodExcluded(invoiceInfo.CardName ?? "", invoiceInfo.CardCode ?? "");
 
         var request = new UploadAttachmentRequest

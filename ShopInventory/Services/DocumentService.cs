@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Pods;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
@@ -15,6 +16,14 @@ public class PodStatusInfo
     public DateTime UploadedAt { get; set; }
     public string? UploadedBy { get; set; }
     public int Count { get; set; }
+    public List<PodUploadUserSummaryInfo> UploadedByUsers { get; set; } = [];
+}
+
+public class PodUploadUserSummaryInfo
+{
+    public string Username { get; set; } = string.Empty;
+    public int FileCount { get; set; }
+    public DateTime? LatestUploadedAt { get; set; }
 }
 
 /// <summary>
@@ -571,20 +580,9 @@ public class DocumentService : IDocumentService
 
     public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null)
     {
-        // Business partners excluded from POD requirements
-        var excludedBPs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "CIS006", "MAC009", "MAC006", "COR007", "COR006", "COR008",
-            "VAN008", "VAN009", "VAN010", "VAN011", "VAN012", "VAN013",
-            "VAN014", "VAN015", "VAN016", "VAN017", "VAN018", "VAN019", "VAN020",
-            "STA040", "STA041", "STA042", "STA043", "STA044", "STA045", "STA046", "STA047", "STA048",
-            "PRO030", "PRO031", "PRO032", "PRO033", "PRO034", "PRO035", "PRO036",
-            "CAS004(FCA)", "DON004", "TEA006", "TEA007"
-        };
-
         // Get DocEntries for excluded BPs so we can filter them out
         var excludedDocEntries = _context.Invoices
-            .Where(i => i.SAPDocEntry != null && excludedBPs.Contains(i.CardCode))
+            .Where(i => i.SAPDocEntry != null && PodExclusions.IsExcludedCardCode(i.CardCode))
             .Select(i => i.SAPDocEntry!.Value);
 
         var query = _context.Set<DocumentAttachmentEntity>()
@@ -1206,7 +1204,8 @@ public class DocumentService : IDocumentService
         if (docEntries.Count == 0)
             return new Dictionary<int, PodStatusInfo>();
 
-        var podData = await _context.Set<DocumentAttachmentEntity>()
+        var podAttachments = await _context.Set<DocumentAttachmentEntity>()
+            .AsNoTracking()
             .Include(a => a.UploadedByUser)
             .Where(a => a.EntityType == "Invoice" && docEntries.Contains(a.EntityId))
             .Where(a =>
@@ -1214,17 +1213,48 @@ public class DocumentService : IDocumentService
                 EF.Functions.ILike(a.FileName, "%proof of delivery%") ||
                 (a.Description != null && (EF.Functions.ILike(a.Description, "%pod%") || EF.Functions.ILike(a.Description, "%proof of delivery%")))
             )
-            .GroupBy(a => a.EntityId)
-            .Select(g => new
+            .Select(a => new
             {
-                DocEntry = g.Key,
-                LatestUploadedAt = g.Max(a => a.UploadedAt),
-                UploadedBy = g.OrderByDescending(a => a.UploadedAt).First().UploadedByUser != null
-                    ? g.OrderByDescending(a => a.UploadedAt).First().UploadedByUser!.Username
-                    : null,
-                Count = g.Count()
+                DocEntry = a.EntityId,
+                a.UploadedAt,
+                UploadedBy = a.UploadedByUser != null ? a.UploadedByUser.Username : null
             })
             .ToListAsync(cancellationToken);
+
+        var podData = podAttachments
+            .GroupBy(a => a.DocEntry)
+            .Select(group =>
+            {
+                var latestAttachment = group
+                    .OrderByDescending(a => a.UploadedAt)
+                    .First();
+
+                var uploadedByUsers = group
+                    .GroupBy(
+                        a => string.IsNullOrWhiteSpace(a.UploadedBy) ? "Unknown uploader" : a.UploadedBy!.Trim(),
+                        StringComparer.OrdinalIgnoreCase)
+                    .Select(uploaderGroup => new PodUploadUserSummaryInfo
+                    {
+                        Username = uploaderGroup.Key,
+                        FileCount = uploaderGroup.Count(),
+                        LatestUploadedAt = uploaderGroup.Max(a => a.UploadedAt)
+                    })
+                    .OrderByDescending(uploader => uploader.LatestUploadedAt)
+                    .ThenBy(uploader => uploader.Username)
+                    .ToList();
+
+                return new
+                {
+                    DocEntry = group.Key,
+                    LatestUploadedAt = latestAttachment.UploadedAt,
+                    UploadedBy = string.IsNullOrWhiteSpace(latestAttachment.UploadedBy)
+                        ? null
+                        : latestAttachment.UploadedBy.Trim(),
+                    Count = group.Count(),
+                    UploadedByUsers = uploadedByUsers
+                };
+            })
+            .ToList();
 
         return podData.ToDictionary(
             p => p.DocEntry,
@@ -1232,7 +1262,8 @@ public class DocumentService : IDocumentService
             {
                 UploadedAt = p.LatestUploadedAt,
                 UploadedBy = p.UploadedBy,
-                Count = p.Count
+                Count = p.Count,
+                UploadedByUsers = p.UploadedByUsers
             });
     }
 

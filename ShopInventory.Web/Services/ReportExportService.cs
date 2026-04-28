@@ -1753,8 +1753,9 @@ public class ReportExportService : IReportExportService
                 if (item.HasPod && item.PodUploadedAt.HasValue)
                 {
                     var uploadStr = item.PodUploadedAt.Value.ToString("dd MMM yyyy HH:mm");
-                    if (!string.IsNullOrEmpty(item.PodUploadedBy))
-                        uploadStr += $" ({item.PodUploadedBy})";
+                    var uploaderDisplay = FormatPodUploadedByDisplay(item);
+                    if (!string.IsNullOrEmpty(uploaderDisplay) && uploaderDisplay != "-")
+                        uploadStr += $" ({uploaderDisplay})";
                     ws.Cell(row, 7).Value = uploadStr;
                 }
                 else
@@ -1901,6 +1902,102 @@ public class ReportExportService : IReportExportService
         }
 
         // ════════════════════════════════════════════════════════════
+        //  UPLOADS BY USER
+        // ════════════════════════════════════════════════════════════
+        var uploadsByUser = report.Items
+            .Where(i => i.HasPod)
+            .SelectMany(item => GetPodUploadedByUsers(item).Select(uploader => new { Item = item, Uploader = uploader }))
+            .GroupBy(entry => entry.Uploader.Username, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new
+            {
+                UploadedBy = group.Key,
+                UploadedInvoices = group.Select(entry => entry.Item.DocEntry).Distinct().Count(),
+                TotalFiles = group.Sum(entry => entry.Uploader.FileCount),
+                TotalAmount = group.GroupBy(entry => entry.Item.DocEntry).Sum(invoiceGroup => invoiceGroup.First().Item.DocTotal),
+                LatestUpload = group.Max(entry => entry.Uploader.LatestUploadedAt)
+            })
+            .OrderByDescending(group => group.UploadedInvoices)
+            .ThenBy(group => group.UploadedBy)
+            .ToList();
+
+        if (uploadsByUser.Any())
+        {
+            var ws = workbook.Worksheets.Add("Uploads By User");
+            int lastCol = 5;
+
+            ws.Cell(1, 1).Value = "POD UPLOADS BY USER";
+            ws.Cell(1, 1).Style.Font.Bold = true;
+            ws.Cell(1, 1).Style.Font.FontSize = 14;
+            ws.Range(1, 1, 1, 3).Merge();
+            ws.Cell(1, lastCol).Value = now.ToString("dd MMM yyyy");
+            ws.Cell(1, lastCol).Style.Font.FontSize = 9;
+            ws.Cell(1, lastCol).Style.Font.FontColor = XLColor.FromHtml("#808080");
+            ws.Cell(1, lastCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+
+            int hRow = 2;
+            ws.Cell(hRow, 1).Value = "Uploaded By";
+            ws.Cell(hRow, 2).Value = "Invoices Covered";
+            ws.Cell(hRow, 3).Value = "POD Files";
+            ws.Cell(hRow, 4).Value = "Invoice Amount";
+            ws.Cell(hRow, 5).Value = "Latest Upload";
+            StyleStockHeader(ws, hRow, lastCol);
+            int freezeRow = hRow;
+
+            int row = 3;
+            int dataStart = row;
+            foreach (var group in uploadsByUser)
+            {
+                ws.Cell(row, 1).Value = group.UploadedBy;
+                ws.Cell(row, 1).Style.Font.Bold = true;
+                ws.Cell(row, 2).Value = group.UploadedInvoices;
+                ws.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 3).Value = group.TotalFiles;
+                ws.Cell(row, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 4).Value = group.TotalAmount;
+                ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
+                ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+                ws.Cell(row, 5).Value = group.LatestUpload.HasValue
+                    ? group.LatestUpload.Value.ToString("dd MMM yyyy HH:mm")
+                    : "-";
+
+                row++;
+            }
+
+            StyleStockData(ws, dataStart, row - 1, lastCol);
+
+            ws.Cell(row, 1).Value = "SUMMARY";
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 2).Value = uploadsByUser.Sum(group => group.UploadedInvoices);
+            ws.Cell(row, 2).Style.Font.Bold = true;
+            ws.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 3).Value = uploadsByUser.Sum(group => group.TotalFiles);
+            ws.Cell(row, 3).Style.Font.Bold = true;
+            ws.Cell(row, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 4).Value = uploadsByUser.Sum(group => group.TotalAmount);
+            ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 4).Style.Font.Bold = true;
+            ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            ws.Cell(row, 5).Value = uploadsByUser.Count == 1
+                ? uploadsByUser[0].UploadedBy
+                : $"{uploadsByUser.Count:N0} uploaders";
+            ws.Cell(row, 5).Style.Font.Bold = true;
+
+            var summaryRange = ws.Range(row, 1, row, lastCol);
+            summaryRange.Style.Border.TopBorder = XLBorderStyleValues.Thin;
+            summaryRange.Style.Border.TopBorderColor = HeaderGreen;
+            summaryRange.Style.Border.BottomBorder = XLBorderStyleValues.Double;
+            summaryRange.Style.Border.BottomBorderColor = HeaderGreen;
+            summaryRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#f2f2f2");
+
+            FinalizeSheet(ws, lastCol, freezeRow, landscape: true);
+            ws.Column(1).Width = 28;
+            ws.Column(2).Width = 16;
+            ws.Column(3).Width = 12;
+            ws.Column(4).Width = 16;
+            ws.Column(5).Width = 22;
+        }
+
+        // ════════════════════════════════════════════════════════════
         //  UPLOADED PODs
         // ════════════════════════════════════════════════════════════
         var uploaded = report.Items.Where(i => i.HasPod).OrderByDescending(i => i.PodUploadedAt).ToList();
@@ -1943,7 +2040,7 @@ public class ReportExportService : IReportExportService
                 ws.Cell(row, 5).Value = item.PodUploadedAt.HasValue
                     ? item.PodUploadedAt.Value.ToString("dd MMM yyyy HH:mm")
                     : "-";
-                ws.Cell(row, 6).Value = !string.IsNullOrEmpty(item.PodUploadedBy) ? item.PodUploadedBy : "-";
+                ws.Cell(row, 6).Value = FormatPodUploadedByDisplay(item);
                 ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
                 // TOTAL column bold red
@@ -1985,6 +2082,38 @@ public class ReportExportService : IReportExportService
         }
 
         return WorkbookToBytes(workbook);
+    }
+
+    private static IReadOnlyList<PodUploadUserSummary> GetPodUploadedByUsers(PodUploadStatusItem item)
+    {
+        if (item.PodUploadedByUsers.Count > 0)
+            return item.PodUploadedByUsers;
+
+        if (!string.IsNullOrWhiteSpace(item.PodUploadedBy))
+        {
+            return
+            [
+                new PodUploadUserSummary
+                {
+                    Username = item.PodUploadedBy.Trim(),
+                    FileCount = item.PodCount > 0 ? item.PodCount : 1,
+                    LatestUploadedAt = item.PodUploadedAt
+                }
+            ];
+        }
+
+        return [];
+    }
+
+    private static string FormatPodUploadedByDisplay(PodUploadStatusItem item)
+    {
+        var uploaders = GetPodUploadedByUsers(item)
+            .Select(uploader => uploader.Username.Trim())
+            .Where(username => !string.IsNullOrWhiteSpace(username))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return uploaders.Count == 0 ? "-" : string.Join(", ", uploaders);
     }
 
     // ═══════════════════════════════════════════════════════════════

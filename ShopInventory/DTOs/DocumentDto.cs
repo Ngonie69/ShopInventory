@@ -338,7 +338,15 @@ public class PodUploadStatusItemDto
     public bool HasPod { get; set; }
     public DateTime? PodUploadedAt { get; set; }
     public string? PodUploadedBy { get; set; }
+    public List<PodUploadUserSummaryDto> PodUploadedByUsers { get; set; } = new();
     public int PodCount { get; set; }
+}
+
+public class PodUploadUserSummaryDto
+{
+    public string Username { get; set; } = string.Empty;
+    public int FileCount { get; set; }
+    public DateTime? LatestUploadedAt { get; set; }
 }
 
 /// <summary>

@@ -30,18 +30,18 @@
                 <div class="d-flex gap-2 align-items-center">
                     <span class="podr-stat-pill podr-pill-total">
                         <i class="bi bi-receipt me-1"></i>
-                        @report.TotalInvoices invoices
+                        @BaseFilteredCount invoices
                     </span>
                     <span class="podr-stat-pill podr-pill-uploaded">
                         <i class="bi bi-check-circle me-1"></i>
-                        @report.UploadedCount uploaded
+                        @BaseUploadedCount uploaded
                     </span>
                     <span class="podr-stat-pill podr-pill-pending">
                         <i class="bi bi-clock me-1"></i>
-                        @report.PendingCount pending
+                        @BasePendingCount pending
                     </span>
                     <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ExportToExcel"
-                               Disabled="@isExporting" Class="podr-export-btn">
+                               Disabled="@(isExporting || FilteredCount == 0)" Class="podr-export-btn">
                         @if (isExporting)
                         {
                             <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
@@ -62,7 +62,7 @@
     <div class="podr-filter-card">
         <div class="podr-filter-header">
             <i class="bi bi-funnel"></i>
-            <span>Date Range</span>
+            <span>Report Filters</span>
         </div>
         <div class="podr-filter-body">
             <div class="row g-3 align-items-end">
@@ -101,6 +101,43 @@
                     </MudButton>
                 </div>
             </div>
+            <div class="row g-3 align-items-end mt-1">
+                <div class="col-md-4">
+                    <label class="form-label small fw-semibold text-uppercase text-muted">Invoice / Customer</label>
+                    <input type="text" class="form-control" placeholder="Invoice #, customer, or card code"
+                           @bind="searchTerm" @bind:event="oninput" @bind:after="OnAdvancedFiltersChanged" style="border-radius: 8px;" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-semibold text-uppercase text-muted">Currency</label>
+                    <select class="form-select" @bind="currencyFilter" @bind:after="OnAdvancedFiltersChanged" style="border-radius: 8px;">
+                        <option value="all">All currencies</option>
+                        @foreach (var currency in AvailableCurrencies)
+                        {
+                            <option value="@currency">@currency</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-semibold text-uppercase text-muted">Uploaded By</label>
+                    <select class="form-select" @bind="uploadedByFilter" @bind:after="OnAdvancedFiltersChanged" style="border-radius: 8px;">
+                        <option value="all">Any uploader</option>
+                        @foreach (var uploader in AvailableUploaders)
+                        {
+                            <option value="@uploader">@uploader</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-semibold text-uppercase text-muted">Min Amount</label>
+                    <input type="number" class="form-control" min="0" step="0.01" placeholder="0.00"
+                           @bind="minAmount" @bind:after="OnAdvancedFiltersChanged" style="border-radius: 8px;" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-semibold text-uppercase text-muted">Max Amount</label>
+                    <input type="number" class="form-control" min="0" step="0.01" placeholder="0.00"
+                           @bind="maxAmount" @bind:after="OnAdvancedFiltersChanged" style="border-radius: 8px;" />
+                </div>
+            </div>
         </div>
     </div>
 
@@ -120,7 +157,7 @@
                     </div>
                     <div>
                         <div class="podr-stat-label">Total Invoices</div>
-                        <div class="podr-stat-value">@report.TotalInvoices</div>
+                        <div class="podr-stat-value">@BaseFilteredCount</div>
                     </div>
                 </div>
             </div>
@@ -131,11 +168,11 @@
                     </div>
                     <div>
                         <div class="podr-stat-label">POD Uploaded</div>
-                        <div class="podr-stat-value">@report.UploadedCount</div>
+                        <div class="podr-stat-value">@BaseUploadedCount</div>
                     </div>
-                    @if (report.TotalInvoices > 0)
+                    @if (BaseFilteredCount > 0)
                     {
-                        <div class="podr-stat-pct">@((report.UploadedCount * 100.0 / report.TotalInvoices).ToString("N1"))%</div>
+                        <div class="podr-stat-pct">@((BaseUploadedCount * 100.0 / BaseFilteredCount).ToString("N1"))%</div>
                     }
                 </div>
             </div>
@@ -146,24 +183,24 @@
                     </div>
                     <div>
                         <div class="podr-stat-label">Pending Upload</div>
-                        <div class="podr-stat-value">@report.PendingCount</div>
+                        <div class="podr-stat-value">@BasePendingCount</div>
                     </div>
-                    @if (report.TotalInvoices > 0)
+                    @if (BaseFilteredCount > 0)
                     {
-                        <div class="podr-stat-pct">@((report.PendingCount * 100.0 / report.TotalInvoices).ToString("N1"))%</div>
+                        <div class="podr-stat-pct">@((BasePendingCount * 100.0 / BaseFilteredCount).ToString("N1"))%</div>
                     }
                 </div>
             </div>
         </div>
 
         @* Progress Bar *@
-        @if (report.TotalInvoices > 0)
+        @if (BaseFilteredCount > 0)
         {
-            var pct = report.UploadedCount * 100.0 / report.TotalInvoices;
+            var pct = BaseUploadedCount * 100.0 / BaseFilteredCount;
             <div class="podr-progress-card mb-4">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <span class="fw-semibold small">Upload Progress</span>
-                    <span class="small text-muted">@report.UploadedCount / @report.TotalInvoices</span>
+                    <span class="small text-muted">@BaseUploadedCount / @BaseFilteredCount</span>
                 </div>
                 <div class="progress" style="height: 10px; border-radius: 8px;">
                     <div class="progress-bar @(pct >= 100 ? "bg-success" : pct >= 50 ? "bg-primary" : "bg-warning")"
@@ -177,17 +214,17 @@
         @* Filter Tabs *@
         <div class="podr-tab-bar mb-3">
             <button class="podr-tab @(filterMode == "all" ? "podr-tab-active" : "")" @onclick='() => SetFilter("all")'>
-                All (@report.TotalInvoices)
+                All (@BaseFilteredCount)
             </button>
             <button class="podr-tab @(filterMode == "uploaded" ? "podr-tab-active" : "")" @onclick='() => SetFilter("uploaded")'>
-                <i class="bi bi-check-circle me-1"></i>Uploaded (@report.UploadedCount)
+                <i class="bi bi-check-circle me-1"></i>Uploaded (@BaseUploadedCount)
             </button>
             <button class="podr-tab @(filterMode == "pending" ? "podr-tab-active" : "")" @onclick='() => SetFilter("pending")'>
-                <i class="bi bi-clock me-1"></i>Pending (@report.PendingCount)
+                <i class="bi bi-clock me-1"></i>Pending (@BasePendingCount)
             </button>
-            <div class="ms-auto d-flex align-items-center gap-2">
-                <input type="text" class="form-control form-control-sm podr-search" placeholder="Search invoice or customer..."
-                       @bind="searchTerm" @bind:event="oninput" style="max-width: 260px;" />
+            <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
+                <span class="text-muted small">@FilteredCount matching invoices</span>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ResetAdvancedFilters">Clear Filters</button>
             </div>
         </div>
 
@@ -242,7 +279,7 @@
                                         @if (item.HasPod && item.PodUploadedAt.HasValue)
                                         {
                                             <div class="small">@item.PodUploadedAt.Value.ToString("dd MMM yyyy HH:mm")</div>
-                                            <div class="text-muted small">by @item.PodUploadedBy</div>
+                                            <div class="text-muted small">by @FormatPodUploadedByDisplay(item)</div>
                                         }
                                         else
                                         {
@@ -274,7 +311,7 @@
                         {
                             <tr>
                                 <td colspan="8" class="text-center py-4 text-muted">
-                                    <i class="bi bi-inbox me-2"></i>No invoices match the current filter
+                                    <i class="bi bi-inbox me-2"></i>No invoices match the current filters
                                 </td>
                             </tr>
                         }
@@ -284,29 +321,29 @@
             @if (TotalFilteredPages > 1)
             {
                 <div class="podr-pagination">
-                    <span class="text-muted small">Showing @(((currentPage - 1) * pageSize) + 1)&ndash;@Math.Min(currentPage * pageSize, FilteredItems.Count()) of @FilteredItems.Count()</span>
+                    <span class="text-muted small">Showing @PageStartItem&ndash;@PageEndItem of @FilteredCount</span>
                     <div class="d-flex gap-1">
-                        <button class="btn btn-sm btn-outline-secondary" disabled="@(currentPage <= 1)" @onclick="() => GoToPage(1)">
+                        <button class="btn btn-sm btn-outline-secondary" disabled="@(EffectiveCurrentPage <= 1)" @onclick="() => GoToPage(1)">
                             <i class="bi bi-chevron-double-left"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-secondary" disabled="@(currentPage <= 1)" @onclick="() => GoToPage(currentPage - 1)">
+                        <button class="btn btn-sm btn-outline-secondary" disabled="@(EffectiveCurrentPage <= 1)" @onclick="() => GoToPage(EffectiveCurrentPage - 1)">
                             <i class="bi bi-chevron-left"></i>
                         </button>
                         @for (int i = PageStart; i <= PageEnd; i++)
                         {
                             var pg = i;
-                            <button class="btn btn-sm @(pg == currentPage ? "btn-primary" : "btn-outline-secondary")" @onclick="() => GoToPage(pg)">
+                            <button class="btn btn-sm @(pg == EffectiveCurrentPage ? "btn-primary" : "btn-outline-secondary")" @onclick="() => GoToPage(pg)">
                                 @pg
                             </button>
                         }
-                        <button class="btn btn-sm btn-outline-secondary" disabled="@(currentPage >= TotalFilteredPages)" @onclick="() => GoToPage(currentPage + 1)">
+                        <button class="btn btn-sm btn-outline-secondary" disabled="@(EffectiveCurrentPage >= TotalFilteredPages)" @onclick="() => GoToPage(EffectiveCurrentPage + 1)">
                             <i class="bi bi-chevron-right"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-secondary" disabled="@(currentPage >= TotalFilteredPages)" @onclick="() => GoToPage(TotalFilteredPages)">
+                        <button class="btn btn-sm btn-outline-secondary" disabled="@(EffectiveCurrentPage >= TotalFilteredPages)" @onclick="() => GoToPage(TotalFilteredPages)">
                             <i class="bi bi-chevron-double-right"></i>
                         </button>
                     </div>
-                    <span class="text-muted small">Page @currentPage of @TotalFilteredPages</span>
+                    <span class="text-muted small">Page @EffectiveCurrentPage of @TotalFilteredPages</span>
                 </div>
             }
         </div>
@@ -592,20 +629,37 @@
     private DateTime? toDate = DateTime.Today;
     private string filterMode = "all";
     private string? searchTerm;
+    private string currencyFilter = "all";
+    private string uploadedByFilter = "all";
+    private decimal? minAmount;
+    private decimal? maxAmount;
     private int currentPage = 1;
     private const int pageSize = 25;
 
-    private IEnumerable<PodUploadStatusItem> FilteredItems
+    private IEnumerable<string> AvailableCurrencies => report?.Items?
+        .Select(i => i.DocCurrency?.Trim())
+        .Where(currency => !string.IsNullOrWhiteSpace(currency))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(currency => currency)
+        .Cast<string>()
+        ?? Enumerable.Empty<string>();
+
+    private IEnumerable<string> AvailableUploaders => report?.Items?
+        .SelectMany(GetPodUploadedByUsers)
+        .Select(uploader => uploader.Username.Trim())
+        .Where(uploader => !string.IsNullOrWhiteSpace(uploader))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(uploader => uploader)
+        ?? Enumerable.Empty<string>();
+
+    private IEnumerable<PodUploadStatusItem> BaseFilteredItems
     {
         get
         {
-            if (report?.Items == null) return Enumerable.Empty<PodUploadStatusItem>();
-            var items = report.Items.AsEnumerable();
+            if (report?.Items == null)
+                return Enumerable.Empty<PodUploadStatusItem>();
 
-            if (filterMode == "uploaded")
-                items = items.Where(i => i.HasPod);
-            else if (filterMode == "pending")
-                items = items.Where(i => !i.HasPod);
+            var items = report.Items.AsEnumerable();
 
             if (!string.IsNullOrWhiteSpace(searchTerm))
             {
@@ -616,18 +670,68 @@
                     i.DocNum.ToString().Contains(term));
             }
 
+            if (!string.Equals(currencyFilter, "all", StringComparison.OrdinalIgnoreCase))
+            {
+                items = items.Where(i => string.Equals(i.DocCurrency?.Trim(), currencyFilter, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (!string.Equals(uploadedByFilter, "all", StringComparison.OrdinalIgnoreCase))
+            {
+                items = items.Where(i => GetPodUploadedByUsers(i)
+                    .Any(uploader => string.Equals(uploader.Username.Trim(), uploadedByFilter, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            if (minAmount.HasValue)
+            {
+                items = items.Where(i => i.DocTotal >= EffectiveMinAmount);
+            }
+
+            if (maxAmount.HasValue)
+            {
+                items = items.Where(i => i.DocTotal <= EffectiveMaxAmount);
+            }
+
             return items;
         }
     }
 
+    private IEnumerable<PodUploadStatusItem> FilteredItems
+    {
+        get
+        {
+            var items = BaseFilteredItems;
+
+            if (filterMode == "uploaded")
+                items = items.Where(i => i.HasPod);
+            else if (filterMode == "pending")
+                items = items.Where(i => !i.HasPod);
+
+            return items;
+        }
+    }
+
+    private int BaseFilteredCount => BaseFilteredItems.Count();
+    private int BaseUploadedCount => BaseFilteredItems.Count(i => i.HasPod);
+    private int BasePendingCount => BaseFilteredItems.Count(i => !i.HasPod);
+    private int FilteredCount => FilteredItems.Count();
+    private int EffectiveCurrentPage => Math.Clamp(currentPage, 1, TotalFilteredPages);
+    private decimal EffectiveMinAmount => minAmount.HasValue && maxAmount.HasValue && minAmount.Value > maxAmount.Value
+        ? maxAmount.Value
+        : minAmount ?? 0m;
+    private decimal EffectiveMaxAmount => minAmount.HasValue && maxAmount.HasValue && minAmount.Value > maxAmount.Value
+        ? minAmount.Value
+        : maxAmount ?? decimal.MaxValue;
+
     private IEnumerable<PodUploadStatusItem> PagedItems =>
-        FilteredItems.Skip((currentPage - 1) * pageSize).Take(pageSize);
+        FilteredItems.Skip((EffectiveCurrentPage - 1) * pageSize).Take(pageSize);
 
-    private int TotalFilteredPages => FilteredItems.Any()
-        ? (int)Math.Ceiling((double)FilteredItems.Count() / pageSize) : 1;
+    private int TotalFilteredPages => FilteredCount > 0
+        ? (int)Math.Ceiling((double)FilteredCount / pageSize) : 1;
 
-    private int PageStart => Math.Max(1, currentPage - 2);
+    private int PageStart => Math.Max(1, EffectiveCurrentPage - 2);
     private int PageEnd => Math.Min(TotalFilteredPages, PageStart + 4);
+    private int PageStartItem => FilteredCount == 0 ? 0 : ((EffectiveCurrentPage - 1) * pageSize) + 1;
+    private int PageEndItem => Math.Min(EffectiveCurrentPage * pageSize, FilteredCount);
 
     private async Task LoadReport()
     {
@@ -641,12 +745,12 @@
         errorMessage = null;
         report = null;
         currentPage = 1;
-        filterMode = "all";
-        searchTerm = null;
 
         try
         {
             report = await PodService.GetPodUploadStatusAsync(fromDate.Value, toDate.Value);
+            NormalizeDynamicFilters();
+            currentPage = EffectiveCurrentPage;
             if (report == null)
                 errorMessage = "Failed to load report. Please try again.";
         }
@@ -686,6 +790,72 @@
         }
     }
 
+    private void OnAdvancedFiltersChanged()
+    {
+        currentPage = 1;
+    }
+
+    private void ResetAdvancedFilters()
+    {
+        filterMode = "all";
+        searchTerm = null;
+        currencyFilter = "all";
+        uploadedByFilter = "all";
+        minAmount = null;
+        maxAmount = null;
+        currentPage = 1;
+    }
+
+    private void NormalizeDynamicFilters()
+    {
+        if (!string.Equals(currencyFilter, "all", StringComparison.OrdinalIgnoreCase)
+            && !AvailableCurrencies.Contains(currencyFilter, StringComparer.OrdinalIgnoreCase))
+        {
+            currencyFilter = "all";
+        }
+
+        if (!string.Equals(uploadedByFilter, "all", StringComparison.OrdinalIgnoreCase)
+            && !AvailableUploaders.Contains(uploadedByFilter, StringComparer.OrdinalIgnoreCase))
+        {
+            uploadedByFilter = "all";
+        }
+    }
+
+    private static IReadOnlyList<PodUploadUserSummary> GetPodUploadedByUsers(PodUploadStatusItem item)
+    {
+        if (item.PodUploadedByUsers.Count > 0)
+            return item.PodUploadedByUsers;
+
+        if (!string.IsNullOrWhiteSpace(item.PodUploadedBy))
+        {
+            return
+            [
+                new PodUploadUserSummary
+                {
+                    Username = item.PodUploadedBy.Trim(),
+                    FileCount = item.PodCount > 0 ? item.PodCount : 1,
+                    LatestUploadedAt = item.PodUploadedAt
+                }
+            ];
+        }
+
+        return [];
+    }
+
+    private static string FormatPodUploadedByDisplay(PodUploadStatusItem item)
+    {
+        var uploaders = GetPodUploadedByUsers(item)
+            .Select(uploader => uploader.Username.Trim())
+            .Where(username => !string.IsNullOrWhiteSpace(username))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (uploaders.Count == 0)
+            return string.IsNullOrWhiteSpace(item.PodUploadedBy) ? "Unknown uploader" : item.PodUploadedBy;
+
+        return string.Join(", ", uploaders);
+    }
+
     private string FormatDate(string? dateStr)
     {
         if (string.IsNullOrEmpty(dateStr)) return "-";
@@ -696,12 +866,22 @@
 
     private async Task ExportToExcel()
     {
-        if (report == null) return;
+        if (report == null || FilteredCount == 0) return;
         isExporting = true;
         StateHasChanged();
         try
         {
-            var bytes = ExportService.ExportPodUploadStatusToExcel(report);
+            var exportReport = new PodUploadStatusReport
+            {
+                FromDate = report.FromDate,
+                ToDate = report.ToDate,
+                TotalInvoices = FilteredCount,
+                UploadedCount = FilteredItems.Count(i => i.HasPod),
+                PendingCount = FilteredItems.Count(i => !i.HasPod),
+                Items = FilteredItems.ToList()
+            };
+
+            var bytes = ExportService.ExportPodUploadStatusToExcel(exportReport);
             var base64 = Convert.ToBase64String(bytes);
             await JS.InvokeVoidAsync("downloadFile", $"POD_Upload_Report_{DateTime.Now:yyyyMMdd_HHmm}.xlsx", base64);
         }
