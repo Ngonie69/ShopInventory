@@ -41,6 +41,11 @@ public static class UserRoles
     public const string Merchandiser = "Merchandiser";
 
     /// <summary>
+    /// Laboratory role with access to batch-status management
+    /// </summary>
+    public const string Lab = "Lab";
+
+    /// <summary>
     /// Sales Rep with access to mobile draft sales orders
     /// </summary>
     public const string SalesRep = "SalesRep";
@@ -64,7 +69,7 @@ public static class UserRoles
     /// <summary>
     /// Get all available roles
     /// </summary>
-    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager, PodOperator, Merchandiser, SalesRep, MerchandiserPurchaseOrderViewer };
+    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager, PodOperator, Merchandiser, SalesRep, MerchandiserPurchaseOrderViewer, Lab };
 
     /// <summary>
     /// Check if a role has admin privileges

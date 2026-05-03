@@ -491,6 +491,18 @@
                 </Authorized>
             </AuthorizeView>
 
+            <AuthorizeView Roles="Admin,Lab" Context="labCtx">
+                <Authorized>
+                    <div class="nav-section-label">Lab</div>
+                    <NavLink class="snav-link" href="/lab/batch-status" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Science" />
+                        </span>
+                        <span class="snav-text">Batch Status</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
+
             @* ── Insights ── *@
             <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="insightsCtx">
                 <Authorized>

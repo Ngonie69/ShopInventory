@@ -314,6 +314,10 @@ public static class Permissions
             {
                 ViewDashboard, ViewInvoices
             },
+            "Lab" => new List<string>
+            {
+                ViewDashboard, ViewProducts, ViewStock, ViewInventory
+            },
             "Merchandiser" => new List<string>
             {
                 ViewDashboard, ViewProducts, ViewCustomers,

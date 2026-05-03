@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common;
 using ShopInventory.Common.Caching;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
@@ -1940,6 +1941,197 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             _logger.LogWarning(ex, "Failed to parse SQL result for batch numbers");
         }
         return batches;
+    }
+
+    public async Task<List<BatchSearchResult>> SearchBatchesByBatchNumberAsync(
+        string searchTerm,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var trimmedSearchTerm = searchTerm.Trim();
+        if (string.IsNullOrWhiteSpace(trimmedSearchTerm))
+        {
+            return [];
+        }
+
+        var queryCode = $"BATCH_SEARCH_{Random.Shared.Next(100000, 999999)}";
+        var safeSearchTerm = SanitizeSqlValue(trimmedSearchTerm.ToUpperInvariant());
+        var sqlText = $@"SELECT T0.""AbsEntry"" as ""BatchEntryId"", T0.""ItemCode"", T2.""ItemName"", T0.""DistNumber"" as ""BatchNum"", T1.""Quantity"", T1.""WhsCode"" as ""WarehouseCode"", T0.""Status"", T0.""ExpDate"", T0.""MnfDate"", T0.""InDate"", T0.""Notes""
+FROM OBTN T0 INNER JOIN OBTQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
+INNER JOIN OITM T2 ON T0.""ItemCode"" = T2.""ItemCode""
+WHERE T1.""Quantity"" > 0 AND UPPER(T0.""DistNumber"") LIKE '%{safeSearchTerm}%'
+ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
+
+        try
+        {
+            await CreateSqlQueryAsync(queryCode, $"Batch search for {trimmedSearchTerm}", sqlText, cancellationToken);
+            return await ExecuteBatchSearchQueryAsync(queryCode, cancellationToken);
+        }
+        finally
+        {
+            await TryDeleteQueryAsync(queryCode, cancellationToken);
+        }
+    }
+
+    public async Task UpdateBatchStatusAsync(int batchEntryId, string status, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var patchPayload = JsonSerializer.Serialize(new
+        {
+            Status = BatchStatusValues.ToSapValue(status)
+        });
+
+        var httpRequest = CreateSapJsonRequest(HttpMethod.Patch, $"BatchNumberDetails({batchEntryId})", patchPayload);
+        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            httpRequest = CreateSapJsonRequest(HttpMethod.Patch, $"BatchNumberDetails({batchEntryId})", patchPayload);
+            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            var sapError = ExtractSAPErrorMessage(errorContent) ?? errorContent;
+            _logger.LogError(
+                "Failed to update batch {BatchEntryId} status to {Status}: {StatusCode} - {Error}",
+                batchEntryId,
+                status,
+                response.StatusCode,
+                sapError);
+            throw new Exception($"Failed to update batch status: {(int)response.StatusCode} - {sapError}");
+        }
+
+        _logger.LogInformation(
+            "Updated batch {BatchEntryId} status to {Status}",
+            batchEntryId,
+            status);
+    }
+
+    private async Task<List<BatchSearchResult>> ExecuteBatchSearchQueryAsync(
+        string queryCode,
+        CancellationToken cancellationToken)
+    {
+        var results = new List<BatchSearchResult>();
+        var skip = 0;
+        const int pageSize = 500;
+        const int maxResults = 100;
+        var hasMore = true;
+
+        while (hasMore && results.Count < maxResults)
+        {
+            var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
+
+            var currentSession = _sessionId;
+            var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
+
+            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
+                response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                break;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError(
+                    "Failed to search batches with query {QueryCode}: {StatusCode} - {Error}",
+                    queryCode,
+                    response.StatusCode,
+                    content);
+                throw new Exception($"Failed to search batches: {response.StatusCode} - {content}");
+            }
+
+            var pageResults = ParseBatchSearchResultsFromSqlResult(content);
+            results.AddRange(pageResults);
+
+            using var doc = JsonDocument.Parse(content);
+            hasMore = (doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                       doc.RootElement.TryGetProperty("@odata.nextLink", out _)) &&
+                      pageResults.Count > 0;
+
+            if (hasMore)
+            {
+                skip += pageSize;
+            }
+        }
+
+        return results
+            .GroupBy(result => new { result.BatchEntryId, result.WarehouseCode })
+            .Select(group => group.First())
+            .Take(maxResults)
+            .ToList();
+    }
+
+    private List<BatchSearchResult> ParseBatchSearchResultsFromSqlResult(string jsonContent)
+    {
+        var results = new List<BatchSearchResult>();
+
+        try
+        {
+            using var doc = JsonDocument.Parse(jsonContent);
+            if (!doc.RootElement.TryGetProperty("value", out var valueArray))
+            {
+                return results;
+            }
+
+            foreach (var item in valueArray.EnumerateArray())
+            {
+                var result = new BatchSearchResult
+                {
+                    BatchEntryId = item.TryGetProperty("BatchEntryId", out var batchEntryId) ? batchEntryId.GetInt32() : 0,
+                    ItemCode = item.TryGetProperty("ItemCode", out var itemCode) ? itemCode.GetString() ?? string.Empty : string.Empty,
+                    ItemName = item.TryGetProperty("ItemName", out var itemName) ? itemName.GetString() : null,
+                    BatchNumber = item.TryGetProperty("BatchNum", out var batchNum) ? batchNum.GetString() ?? string.Empty : string.Empty,
+                    WarehouseCode = item.TryGetProperty("WarehouseCode", out var warehouseCode)
+                        ? warehouseCode.GetString() ?? string.Empty
+                        : item.TryGetProperty("WhsCode", out var legacyWarehouseCode)
+                            ? legacyWarehouseCode.GetString() ?? string.Empty
+                            : string.Empty,
+                    Quantity = item.TryGetProperty("Quantity", out var quantity) ? quantity.GetDecimal() : 0,
+                    Status = item.TryGetProperty("Status", out var status)
+                        ? BatchStatusValues.ToLabel(status.ToString())
+                        : BatchStatusValues.ToLabel(null),
+                    ExpiryDate = item.TryGetProperty("ExpDate", out var expiryDate) ? expiryDate.GetString() : null,
+                    ManufacturingDate = item.TryGetProperty("MnfDate", out var manufacturingDate) ? manufacturingDate.GetString() : null,
+                    AdmissionDate = item.TryGetProperty("InDate", out var admissionDate) ? admissionDate.GetString() : null,
+                    Notes = item.TryGetProperty("Notes", out var notes) ? notes.GetString() : null
+                };
+
+                if (result.BatchEntryId > 0 && !string.IsNullOrWhiteSpace(result.BatchNumber))
+                {
+                    results.Add(result);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse SQL result for batch search");
+        }
+
+        return results;
     }
 
     public async Task<List<BatchNumber>> GetAllBatchNumbersInWarehouseAsync(

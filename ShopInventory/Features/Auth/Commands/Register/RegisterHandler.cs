@@ -16,7 +16,7 @@ public sealed class RegisterHandler(
     private static readonly string[] ValidRoles =
     [
         "Admin", "Manager", "Cashier", "StockController", "DepotController",
-        "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer"
+        "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab"
     ];
 
     public async Task<ErrorOr<UserInfo>> Handle(

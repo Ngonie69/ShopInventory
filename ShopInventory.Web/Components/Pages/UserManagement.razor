@@ -76,7 +76,7 @@
                 <option value="locked">Locked</option>
             </select>
             @if (!string.IsNullOrEmpty(searchTerm) || !string.IsNullOrEmpty(roleFilter) ||
-                                                                                                                                                                                !string.IsNullOrEmpty(statusFilter))
+                                                                                                                                                                                            !string.IsNullOrEmpty(statusFilter))
             {
                 <button class="um-btn um-btn-ghost" @onclick="ResetFilters">
                     <i class="bi bi-x-lg"></i> Clear
@@ -197,7 +197,7 @@
             {
                 <div class="um-pagination">
                     <span class="um-page-info">Showing @((currentPage - 1) * pageSize + 1)–@Math.Min(currentPage * pageSize,
-                                                                                                                                                                                                                                                                                                                                                            users.Count + (currentPage - 1) * pageSize) of page @currentPage</span>
+                                                                                                                                                                                                                                                                                                                                                                                    users.Count + (currentPage - 1) * pageSize) of page @currentPage</span>
                         <div class="um-page-buttons">
                             <button class="um-page-btn" disabled="@(currentPage <= 1)" @onclick="() => GoToPage(currentPage - 1)">
                                 <i class="bi bi-chevron-left"></i>
@@ -546,8 +546,8 @@
                                             </div>
                                         }
 
-                                        <!-- Allowed Payment Methods (hidden for Admin, SalesRep, Merchandiser, PodOperator, Driver, MerchandiserPurchaseOrderViewer) -->
-                                        @if (userModel.Role != "Admin" && userModel.Role != "SalesRep" && userModel.Role != "Merchandiser" && userModel.Role != "PodOperator" && userModel.Role != "Driver" && userModel.Role != "MerchandiserPurchaseOrderViewer")
+                                        <!-- Allowed Payment Methods (hidden for Admin, SalesRep, Merchandiser, PodOperator, Driver, MerchandiserPurchaseOrderViewer, Lab) -->
+                                        @if (userModel.Role != "Admin" && userModel.Role != "SalesRep" && userModel.Role != "Merchandiser" && userModel.Role != "PodOperator" && userModel.Role != "Driver" && userModel.Role != "MerchandiserPurchaseOrderViewer" && userModel.Role != "Lab")
                                         {
                                             <div class="um-form-field um-form-full">
                                                 <label>Allowed Payment Methods</label>
@@ -3027,7 +3027,7 @@
 
     private List<string> availableRoles = new() { "Admin", "Cashier", "StockController", "DepotController", "PodOperator",
 "Driver",
-"Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer" };
+"Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab" };
     private List<string> availableSections = new() { "Cheeseman", "Factory", "Graniteside", "Machipisa", "Bulawayo" };
     private List<WarehouseDto> availableWarehouses = new();
     private bool isLoadingWarehouses = false;

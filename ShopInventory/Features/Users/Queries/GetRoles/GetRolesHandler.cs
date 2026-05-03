@@ -21,7 +21,8 @@ public sealed class GetRolesHandler
             "Driver",
             "Merchandiser",
             "SalesRep",
-            "MerchandiserPurchaseOrderViewer"
+            "MerchandiserPurchaseOrderViewer",
+            "Lab"
         };
         ErrorOr<IReadOnlyList<string>> result = ErrorOrFactory.From(roles);
         return Task.FromResult(result);

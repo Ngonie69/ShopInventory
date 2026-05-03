@@ -84,6 +84,8 @@ public interface ISAPServiceLayerClient
     Task<List<BatchNumber>> GetBatchNumbersForItemInWarehouseAsync(string itemCode, string warehouseCode, CancellationToken cancellationToken = default);
     Task<List<BatchNumber>> GetBatchNumbersForItemsInWarehouseAsync(IEnumerable<string> itemCodes, string warehouseCode, CancellationToken cancellationToken = default);
     Task<List<BatchNumber>> GetAllBatchNumbersInWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
+    Task<List<BatchSearchResult>> SearchBatchesByBatchNumberAsync(string searchTerm, CancellationToken cancellationToken = default);
+    Task UpdateBatchStatusAsync(int batchEntryId, string status, CancellationToken cancellationToken = default);
     Task<List<SerialNumber>> GetSerialNumbersForItemInWarehouseAsync(string itemCode, string warehouseCode, CancellationToken cancellationToken = default);
 
     // Price Operations (Legacy - deprecated)

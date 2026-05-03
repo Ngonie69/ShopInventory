@@ -34,7 +34,8 @@ public sealed class UpdateUserHandler(
         "Driver",
         "Merchandiser",
         "SalesRep",
-        "MerchandiserPurchaseOrderViewer"
+        "MerchandiserPurchaseOrderViewer",
+        "Lab"
     ];
 
     public async Task<ErrorOr<Success>> Handle(

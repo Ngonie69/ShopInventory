@@ -16,7 +16,7 @@ public sealed class UpdateUserHandler(
     ILogger<UpdateUserHandler> logger
 ) : IRequestHandler<UpdateUserCommand, ErrorOr<UserDto>>
 {
-    private static readonly string[] ValidRoles = { "Admin", "Manager", "Cashier", "StockController", "DepotController", "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer" };
+    private static readonly string[] ValidRoles = { "Admin", "Manager", "Cashier", "StockController", "DepotController", "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab" };
 
     public async Task<ErrorOr<UserDto>> Handle(
         UpdateUserCommand command,

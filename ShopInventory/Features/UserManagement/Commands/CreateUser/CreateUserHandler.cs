@@ -69,7 +69,7 @@ public sealed class CreateUserHandler(
         var validRoles = new[]
         {
             "Admin", "Manager", "User", "ReadOnly", "Cashier", "StockController", "DepotController",
-            "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer"
+            "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab"
         };
 
         if (!validRoles.Contains(request.Role, StringComparer.Ordinal))
