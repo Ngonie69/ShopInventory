@@ -4,11 +4,15 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using ShopInventory.Models;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.Timesheets.Commands.CheckIn;
 
 public sealed class CheckInHandler(
     ApplicationDbContext db,
+    IAuditService auditService,
     ILogger<CheckInHandler> logger
 ) : IRequestHandler<CheckInCommand, ErrorOr<CheckInResult>>
 {
@@ -42,12 +46,35 @@ public sealed class CheckInHandler(
             logger.LogInformation("User {Username} checked in at {CustomerCode} ({CustomerName})",
                 command.Username, command.CustomerCode, command.CustomerName);
 
+            try
+            {
+                await auditService.LogAsync(
+                    AuditActions.CheckIn,
+                    "Timesheet",
+                    entry.Id.ToString(),
+                    $"Checked in at {entry.CustomerCode} ({entry.CustomerName})",
+                    true);
+            }
+            catch
+            {
+            }
+
             return new CheckInResult(entry.Id, entry.CheckInTime, entry.CustomerCode, entry.CustomerName, entry.CheckInLatitude, entry.CheckInLongitude);
+        }
+        catch (DbUpdateException ex) when (IsActiveCheckInConstraintViolation(ex))
+        {
+            logger.LogInformation("Concurrent check-in prevented for user {Username}", command.Username);
+            return Errors.Timesheet.AlreadyCheckedIn;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error checking in user {Username} at {CustomerCode}", command.Username, command.CustomerCode);
             return Errors.Timesheet.CheckInFailed(ex.Message);
         }
+    }
+
+    private static bool IsActiveCheckInConstraintViolation(DbUpdateException exception)
+    {
+        return exception.InnerException is PostgresException { ConstraintName: "IX_TimesheetEntries_UserId_ActiveCheckIn" };
     }
 }

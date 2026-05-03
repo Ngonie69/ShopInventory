@@ -5,7 +5,7 @@ agent: "agent"
 
 # Enforce Separate JWT Secrets — Staff vs Customer Portal
 
-Audit and harden the JWT configuration to ensure staff and customer portal tokens use **completely independent signing secrets** with no fallback paths between them.
+Audit and harden the JWT configuration to ensure staff and customer portal tokens use **completely independent signing secrets** with no fallback paths between them. Prioritize the work in this order: remove the secret fallback, add startup validation, confirm issuer and audience isolation, then update documentation and health-check or logging support.
 
 ## Current State
 
@@ -17,7 +17,7 @@ Audit and harden the JWT configuration to ensure staff and customer portal token
 
 1. **Remove the fallback** in `CustomerAuthService.GetRequiredCustomerPortalJwtSecret()`:
    - Read only `CustomerPortal:JwtSecret` — do NOT fall back to `Jwt:SecretKey`
-   - Throw `InvalidOperationException` with a clear message if the secret is missing, starts with `${`, or is shorter than 32 characters
+   - Throw `InvalidOperationException` with this exact message if the secret is missing, starts with `${`, or is shorter than 32 characters: `CustomerPortal:JwtSecret is invalid: missing, placeholder, or shorter than 32 characters.`
    - This ensures deployments fail fast rather than silently sharing keys
 
 2. **Add startup validation** in both projects' `Program.cs`:

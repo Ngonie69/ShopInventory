@@ -1,3 +1,5 @@
+using Asp.Versioning;
+using Asp.Versioning.ApiExplorer;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
@@ -78,6 +80,20 @@ try
                 System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString;
         });
     builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddApiVersioning(options =>
+    {
+        options.DefaultApiVersion = new ApiVersion(1, 0);
+        options.AssumeDefaultVersionWhenUnspecified = true;
+        options.ReportApiVersions = true;
+        options.ApiVersionReader = ApiVersionReader.Combine(
+            new HeaderApiVersionReader("X-API-Version"),
+            new QueryStringApiVersionReader("api-version"));
+    }).AddApiExplorer(options =>
+    {
+        options.GroupNameFormat = "'v'VVV";
+        options.SubstituteApiVersionInUrl = false;
+    });
+    builder.Services.AddTransient<IConfigureOptions<Swashbuckle.AspNetCore.SwaggerGen.SwaggerGenOptions>, ConfigureSwaggerOptions>();
 
     // Add response compression for bandwidth savings on JSON payloads
     builder.Services.AddResponseCompression(options =>
@@ -113,82 +129,8 @@ try
         options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
     });
 
-    // Configure Swagger with JWT authentication support
-    builder.Services.AddSwaggerGen(c =>
-    {
-        c.SwaggerDoc("v1", new OpenApiInfo
-        {
-            Title = "Shop Inventory API",
-            Version = "v1",
-            Description = "A comprehensive inventory management API with SAP Business One integration for retail operations in Zimbabwe.",
-            Contact = new OpenApiContact
-            {
-                Name = "Shop Inventory Support",
-                Email = "support@shopinventory.co.zw"
-            },
-            License = new OpenApiLicense
-            {
-                Name = "Proprietary License"
-            }
-        });
-
-        // Include XML comments for API documentation
-        var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
-        var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-        if (File.Exists(xmlPath))
-        {
-            c.IncludeXmlComments(xmlPath);
-        }
-
-        // Add JWT authentication to Swagger
-        c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-        {
-            Name = "Authorization",
-            Type = SecuritySchemeType.Http,
-            Scheme = "bearer",
-            BearerFormat = "JWT",
-            In = ParameterLocation.Header,
-            Description = "Enter your JWT token"
-        });
-
-        // Add API Key authentication to Swagger
-        c.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
-        {
-            Name = "X-API-Key",
-            Type = SecuritySchemeType.ApiKey,
-            In = ParameterLocation.Header,
-            Description = "Enter your API Key"
-        });
-
-        c.AddSecurityRequirement(new OpenApiSecurityRequirement
-        {
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        },
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "ApiKey"
-                }
-            },
-            Array.Empty<string>()
-        }
-        });
-
-        // Enable annotations
-        c.EnableAnnotations();
-    });
+    // Configure Swagger with version-aware API metadata.
+    builder.Services.AddSwaggerGen();
 
     // Configure settings
     builder.Services.Configure<SAPSettings>(builder.Configuration.GetSection("SAP"));
@@ -635,9 +577,19 @@ try
     app.UseFileUploadValidation(); // Validate file uploads
     app.UseSecurityHeaders();    // Add security headers to responses
 
+    var apiVersionDescriptionProvider = app.Services.GetRequiredService<IApiVersionDescriptionProvider>();
+
     // Configure the HTTP request pipeline.
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(options =>
+    {
+        foreach (var description in apiVersionDescriptionProvider.ApiVersionDescriptions)
+        {
+            options.SwaggerEndpoint(
+                $"/swagger/{description.GroupName}/swagger.json",
+                $"Shop Inventory API {description.GroupName.ToUpperInvariant()}");
+        }
+    });
 
     if (app.Environment.IsDevelopment())
     {

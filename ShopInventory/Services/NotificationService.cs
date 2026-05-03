@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Extensions;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Notifications;
@@ -91,6 +92,23 @@ public class NotificationService : INotificationService
         // Send mobile push notification
         try
         {
+            Guid? targetUserId = request.TargetUserId;
+            if (!targetUserId.HasValue && !string.IsNullOrWhiteSpace(request.TargetUsername))
+            {
+                targetUserId = await _context.Users
+                    .AsNoTracking()
+                    .WhereUsernameMatches(request.TargetUsername)
+                    .Select(user => (Guid?)user.Id)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (!targetUserId.HasValue)
+                {
+                    _logger.LogWarning(
+                        "Could not resolve user id for targeted push notification to username {Username}",
+                        request.TargetUsername);
+                }
+            }
+
             var pushData = new Dictionary<string, string>
             {
                 ["notificationId"] = notification.Id.ToString(),
@@ -111,19 +129,38 @@ public class NotificationService : INotificationService
                 }
             }
 
-            if (!string.IsNullOrEmpty(request.TargetUsername))
-                await _pushService.SendToUsernameAsync(request.TargetUsername, request.Title, request.Message, pushData, cancellationToken);
+            int sentCount;
+            if (targetUserId.HasValue)
+                sentCount = await _pushService.SendToUserAsync(targetUserId.Value, request.Title, request.Message, pushData, cancellationToken);
+            else if (!string.IsNullOrEmpty(request.TargetUsername))
+                sentCount = await _pushService.SendToUsernameAsync(request.TargetUsername, request.Title, request.Message, pushData, cancellationToken);
             else if (!string.IsNullOrEmpty(request.TargetRole))
-                await _pushService.SendToRoleAsync(request.TargetRole, request.Title, request.Message, pushData, cancellationToken);
+                sentCount = await _pushService.SendToRoleAsync(request.TargetRole, request.Title, request.Message, pushData, cancellationToken);
             else if (broadcastAudienceRoles.Length > 0)
             {
+                sentCount = 0;
                 foreach (var targetRole in broadcastAudienceRoles)
                 {
-                    await _pushService.SendToRoleAsync(targetRole, request.Title, request.Message, pushData, cancellationToken);
+                    sentCount += await _pushService.SendToRoleAsync(targetRole, request.Title, request.Message, pushData, cancellationToken);
                 }
             }
             else
-                await _pushService.SendToAllAsync(request.Title, request.Message, pushData, cancellationToken);
+                sentCount = await _pushService.SendToAllAsync(request.Title, request.Message, pushData, cancellationToken);
+
+            if (sentCount == 0)
+            {
+                _logger.LogWarning(
+                    "Push notification {NotificationId} reached no active devices for target {Target}",
+                    notification.Id,
+                    request.TargetUsername ?? request.TargetRole ?? targetUserId?.ToString() ?? "all");
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Push notification {NotificationId} sent to {SentCount} device(s)",
+                    notification.Id,
+                    sentCount);
+            }
         }
         catch (Exception ex)
         {

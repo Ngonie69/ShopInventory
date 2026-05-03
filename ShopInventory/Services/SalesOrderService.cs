@@ -827,7 +827,7 @@ public class SalesOrderService : ISalesOrderService
             throw new InvalidOperationException($"Sales order with ID {id} not found");
 
         if (order.Status != SalesOrderStatus.Draft)
-            throw new InvalidOperationException("Only draft orders can be edited");
+            throw new InvalidOperationException("Only41/8 draft orders can be edited");
 
         // Optimistic concurrency: set the original RowVersion so EF detects conflicts
         if (!string.IsNullOrEmpty(request.RowVersion))
@@ -899,7 +899,10 @@ public class SalesOrderService : ISalesOrderService
     public async Task<SalesOrderDto> UpdateStatusAsync(int id, SalesOrderStatus status, Guid userId, string? comments = null, CancellationToken cancellationToken = default)
     {
         var order = await _context.SalesOrders
+            .AsTracking()
             .Include(o => o.Lines)
+            .Include(o => o.CreatedByUser)
+            .Include(o => o.ApprovedByUser)
             .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
 
         if (order == null)

@@ -331,6 +331,19 @@ public class AppSettingsService : IAppSettingsService
                 DataType = "string",
                 Description = "Default payment method for incoming payments (cash, transfer, check, credit)",
                 DisplayOrder = 3
+            },
+
+            // Driver access settings
+            new()
+            {
+                Category = SettingCategories.DriverAccess,
+                Key = SettingKeys.DriverVisibleBusinessPartners,
+                Value = "[]",
+                DataType = "string",
+                Description = "JSON array of business partner codes visible to all drivers",
+                DisplayOrder = 1,
+                IsVisible = false,
+                IsEditable = true
             }
         };
 

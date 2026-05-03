@@ -16,6 +16,8 @@ Implement audit logging in the **ShopInventory API project** for admin and destr
 
 ## Requirements
 
+Apply the requirements in this order: first add the audit service, action constants, and DI registration; then wire controller coverage; then enforce the audit-call pattern and failure handling.
+
 1. **Create `IAuditService` + `AuditService`** in `ShopInventory/Services/` following the Web project's interface pattern:
    - `LogAsync(action, username, userRole, entityType?, entityId?, details?, ipAddress?, isSuccess, errorMessage?)`
    - Simple overload that resolves the current user from `IHttpContextAccessor`
@@ -51,7 +53,7 @@ Implement audit logging in the **ShopInventory API project** for admin and destr
        isSuccess: true);
    ```
 
-7. Wrap audit calls in try/catch — audit failures must **never** break the main operation. Log audit failures via Serilog as warnings.
+7. Wrap audit calls in try/catch — if audit logging fails, log the failure as a warning and ensure the main operation completes without interruption.
 
 ## Constraints
 

@@ -31,6 +31,8 @@ public sealed class GetAssignedCustomersHandler(
         var activeCheckInCustomerCode = await db.TimesheetEntries
             .AsNoTracking()
             .Where(t => t.UserId == request.UserId && t.CheckOutTime == null)
+            .OrderByDescending(t => t.CheckInTime)
+            .ThenByDescending(t => t.Id)
             .Select(t => t.CustomerCode)
             .FirstOrDefaultAsync(cancellationToken);
 

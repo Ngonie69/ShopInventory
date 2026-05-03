@@ -13,6 +13,7 @@ using ShopInventory.Features.UserManagement.Queries.GetAvailablePermissions;
 using ShopInventory.Features.UserManagement.Queries.GetCurrentUser;
 using ShopInventory.Features.UserManagement.Queries.GetCurrentUserPermissions;
 using ShopInventory.Features.UserManagement.Commands.CreateUser;
+using ShopInventory.Features.UserManagement.Commands.UpdateGlobalDriverAssignedCustomers;
 using ShopInventory.Features.UserManagement.Commands.UpdateUser;
 using ShopInventory.Features.UserManagement.Commands.UpdateMerchandiserAssignedCustomers;
 using ShopInventory.Features.UserManagement.Commands.DeleteUser;
@@ -75,6 +76,18 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
     {
         var result = await mediator.Send(new UpdateMerchandiserAssignedCustomersCommand(id, request), cancellationToken);
         return result.Match(_ => Ok(new { message = "Merchandiser assignments updated successfully" }), errors => Problem(errors));
+    }
+
+    [HttpPut("drivers/assigned-customers")]
+    [RequirePermission(Permission.EditUsers)]
+    public async Task<IActionResult> UpdateGlobalDriverAssignedCustomers(
+        [FromBody] UpdateGlobalDriverAssignedCustomersRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new UpdateGlobalDriverAssignedCustomersCommand(request), cancellationToken);
+        return result.Match(
+            value => Ok(new { message = "Driver business partners updated successfully", updatedDriverCount = value }),
+            errors => Problem(errors));
     }
 
     [HttpPut("{id:guid}")]

@@ -1,4 +1,5 @@
 using Blazored.LocalStorage;
+using ShopInventory.Web.Data;
 using ShopInventory.Web.Models;
 using System.Net;
 using System.Net.Http.Headers;
@@ -24,6 +25,7 @@ public interface IUserManagementService
     Task CreateMerchandiserAccountAsync(CreateMerchandiserAccountFormModel model, CancellationToken cancellationToken = default);
     Task<List<ManagedMerchandiserAccountModel>> GetManagedMerchandiserAccountsAsync(CancellationToken cancellationToken = default);
     Task UpdateMerchandiserAssignedCustomersAsync(Guid userId, IReadOnlyCollection<string> assignedWarehouseCodes, IReadOnlyCollection<string> assignedCustomerCodes, CancellationToken cancellationToken = default);
+    Task<int> UpdateAllDriverAssignedCustomersAsync(IReadOnlyCollection<string> assignedCustomerCodes, CancellationToken cancellationToken = default);
     Task UpdateUserAsync(Guid id, string email, string role);
     Task UpdateUserAsync(Guid id, UserFormModel model);
     Task DeleteUserAsync(Guid id);
@@ -47,15 +49,18 @@ public class UserManagementService : IUserManagementService
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILocalStorageService _localStorage;
+    private readonly IAppSettingsService _appSettingsService;
     private readonly ILogger<UserManagementService> _logger;
 
     public UserManagementService(
         IHttpClientFactory httpClientFactory,
         ILocalStorageService localStorage,
+        IAppSettingsService appSettingsService,
         ILogger<UserManagementService> logger)
     {
         _httpClientFactory = httpClientFactory;
         _localStorage = localStorage;
+        _appSettingsService = appSettingsService;
         _logger = logger;
     }
 
@@ -198,6 +203,8 @@ public class UserManagementService : IUserManagementService
 
     public async Task CreateUserAsync(UserFormModel model)
     {
+        var assignedCustomerCodes = await GetDriverAssignedCustomerCodesForRequestAsync(model.Role, model.AssignedCustomerCodes);
+
         var client = await CreateAuthenticatedClientAsync();
         var response = await client.PostAsJsonAsync("api/usermanagement", new
         {
@@ -212,7 +219,7 @@ public class UserManagementService : IUserManagementService
             DefaultGLAccount = model.DefaultGLAccount,
             AllowedPaymentBusinessPartners = model.AllowedPaymentBusinessPartners,
             AssignedSection = model.AssignedSection,
-            AssignedCustomerCodes = model.AssignedCustomerCodes
+            AssignedCustomerCodes = assignedCustomerCodes
         });
 
         if (!response.IsSuccessStatusCode)
@@ -283,11 +290,36 @@ public class UserManagementService : IUserManagementService
         await ThrowApiExceptionAsync(response, "Failed to update assigned customers.");
     }
 
+    public async Task<int> UpdateAllDriverAssignedCustomersAsync(
+        IReadOnlyCollection<string> assignedCustomerCodes,
+        CancellationToken cancellationToken = default)
+    {
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.PutAsJsonAsync(
+            "api/usermanagement/drivers/assigned-customers",
+            new
+            {
+                AssignedCustomerCodes = assignedCustomerCodes
+            },
+            cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            await ThrowApiExceptionAsync(response, "Failed to update driver business partners.");
+        }
+
+        var payload = await response.Content.ReadFromJsonAsync<DriverAssignedCustomerUpdateResponse>(cancellationToken: cancellationToken);
+        return payload?.UpdatedDriverCount ?? 0;
+    }
+
     public async Task UpdateUserAsync(Guid id, UserFormModel model)
     {
+        var assignedCustomerCodes = await GetDriverAssignedCustomerCodesForRequestAsync(model.Role, model.AssignedCustomerCodes);
+
         var client = await CreateAuthenticatedClientAsync();
         var response = await client.PutAsJsonAsync($"api/usermanagement/{id}", new
         {
+            Username = model.Username,
             Email = model.Email,
             FirstName = model.FirstName,
             LastName = model.LastName,
@@ -298,12 +330,41 @@ public class UserManagementService : IUserManagementService
             DefaultGLAccount = model.DefaultGLAccount,
             AllowedPaymentBusinessPartners = model.AllowedPaymentBusinessPartners,
             AssignedSection = model.AssignedSection,
-            AssignedCustomerCodes = model.AssignedCustomerCodes
+            AssignedCustomerCodes = assignedCustomerCodes
         });
 
         if (!response.IsSuccessStatusCode)
         {
             await ThrowApiExceptionAsync(response, "Failed to update user.");
+        }
+    }
+
+    private async Task<List<string>> GetDriverAssignedCustomerCodesForRequestAsync(string role, List<string> assignedCustomerCodes)
+    {
+        if (!string.Equals(role, "Driver", StringComparison.OrdinalIgnoreCase))
+        {
+            return assignedCustomerCodes;
+        }
+
+        var settingValue = await _appSettingsService.GetValueAsync(SettingKeys.DriverVisibleBusinessPartners);
+        if (string.IsNullOrWhiteSpace(settingValue))
+        {
+            return new List<string>();
+        }
+
+        try
+        {
+            return (JsonSerializer.Deserialize<List<string>>(settingValue) ?? new List<string>())
+                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .Select(code => code.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(code => code)
+                .ToList();
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "DriverVisibleBusinessPartners setting contained invalid JSON");
+            return new List<string>();
         }
     }
 
@@ -506,6 +567,11 @@ public class UserManagementService : IUserManagementService
                 message.Contains("unauthenticated", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("authentication failed", StringComparison.OrdinalIgnoreCase));
     }
+}
+
+public sealed class DriverAssignedCustomerUpdateResponse
+{
+    public int UpdatedDriverCount { get; set; }
 }
 
 public class AvailablePermissionsResponse

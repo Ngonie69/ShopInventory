@@ -223,6 +223,7 @@ try
     builder.Services.AddScoped<INotificationClientService, NotificationClientService>();
     builder.Services.AddScoped<INotificationHubService, NotificationHubService>();
     builder.Services.AddScoped<ISyncStatusClientService, SyncStatusClientService>();
+    builder.Services.AddScoped<IExceptionCenterService, ExceptionCenterService>();
 
     // Add Sales Order, Purchase Order, Credit Note, and Quotation services
     builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();

@@ -46,6 +46,7 @@ public class CreateNotificationRequest
     public string? EntityType { get; set; }
     public string? EntityId { get; set; }
     public string? ActionUrl { get; set; }
+    public Guid? TargetUserId { get; set; } // optional explicit user target for push fanout
     public string? TargetUsername { get; set; } // null = broadcast to all
     public string? TargetRole { get; set; } // null = all roles
     public Dictionary<string, string>? Data { get; set; }

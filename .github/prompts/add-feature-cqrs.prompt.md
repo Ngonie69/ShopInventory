@@ -17,7 +17,7 @@ Implement the requested feature in ShopInventory using the repository's vertical
    - Existing slices in `Features/{Domain}/`
    - Existing errors in `Common/Errors/Errors.{Domain}.cs`
    - Existing DTOs, entities, and integration services already used by that domain
-3. If the touched feature still uses the old `Services/` pattern, migrate the touched behavior into a vertical slice as part of the change. Do not add new business logic to legacy service classes.
+3. If the touched feature still uses the old `Services/` pattern, move only the behavior you are modifying into a vertical slice as part of this change. Do not use the change to rewrite other methods in the same service, migrate neighboring services, or clean up unrelated service abstractions unless the user explicitly asks for that broader refactor, and do not add new business logic to legacy service classes.
 
 ## Current Repo Baseline
 
@@ -31,21 +31,10 @@ Implement the requested feature in ShopInventory using the repository's vertical
 
 ## Non-Negotiable Rules
 
-- Use vertical slices under `Features/{Domain}/Commands`, `Queries`, and optionally `Events`.
-- Use one file per type.
-- Use `sealed record` for commands and queries.
-- Use `sealed class` with primary constructors for handlers and validators.
-- Return `ErrorOr<T>` from handlers. Do not throw for business rule failures.
-- Keep controllers thin. Controllers inherit `ApiControllerBase`, inject `IMediator`, call `mediator.Send()`, and map with `result.Match(...)`.
-- Do not add `[ApiController]` to feature controllers. `ApiControllerBase` already provides it.
-- Put domain errors in `Common/Errors/Errors.{Domain}.cs`.
-- Queries must use `AsNoTracking()` and project directly with `Select(...)`.
-- Pass `CancellationToken` through the full call chain.
-- Use structured logging with `ILogger<T>`.
-- Use `DateTime.UtcNow` for timestamps. Convert to CAT for display or human-facing logs through `AuditService.ToCAT()`.
-- Do not return EF entities from handlers. Return DTOs or dedicated result records.
-- Do not create new standalone `Services/` classes for new business logic.
-- For SAP work, go through `ISAPServiceLayerClient` or an existing integration abstraction. Never call SAP directly from controllers.
+1. Architecture and types: Use vertical slices under `Features/{Domain}/Commands`, `Queries`, and optionally `Events`. Use one file per type. Use `sealed record` for commands and queries, and `sealed class` with primary constructors for handlers and validators.
+2. Handlers and results: Return `ErrorOr<T>` from handlers. Do not throw for business rule failures. Put domain errors in `Common/Errors/Errors.{Domain}.cs`. Pass `CancellationToken` through the full call chain. Use structured logging with `ILogger<T>`. Use `DateTime.UtcNow` for timestamps and `AuditService.ToCAT()` only for display or other human-facing output.
+3. Controllers and persistence: Keep controllers thin. Controllers inherit `ApiControllerBase`, inject `IMediator`, call `mediator.Send()`, and map with `result.Match(...)`. Do not add `[ApiController]` to feature controllers because `ApiControllerBase` already provides it. Queries must use `AsNoTracking()` and project directly with `Select(...)`. Do not return EF entities from handlers; return DTOs or dedicated result records instead.
+4. Concurrency and boundaries: When a write can race with another update, honor the repo's existing concurrency tokens or row-version pattern where available and return a domain error on conflicts instead of overwriting silently. Do not create new standalone `Services/` classes for new business logic. For SAP work, go through `ISAPServiceLayerClient` or an existing integration abstraction. Never call SAP directly from controllers.
 
 ## Slice Layout
 

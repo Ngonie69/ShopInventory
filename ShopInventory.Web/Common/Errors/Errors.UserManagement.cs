@@ -14,5 +14,14 @@ public static partial class Errors
 
         public static Error UpdateMerchandiserAssignedCustomersFailed(string message) =>
             Error.Failure("UserManagement.UpdateMerchandiserAssignedCustomersFailed", message);
+
+        public static Error GetDriverBusinessPartnerAccessFailed(string message) =>
+            Error.Failure("UserManagement.GetDriverBusinessPartnerAccessFailed", message);
+
+        public static Error RefreshDriverBusinessPartnerAccessFailed(string message) =>
+            Error.Failure("UserManagement.RefreshDriverBusinessPartnerAccessFailed", message);
+
+        public static Error UpdateDriverBusinessPartnerAccessFailed(string message) =>
+            Error.Failure("UserManagement.UpdateDriverBusinessPartnerAccessFailed", message);
     }
 }

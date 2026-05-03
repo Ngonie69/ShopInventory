@@ -1,11 +1,11 @@
 ---
-description: "Add a new ShopInventory.Web feature using CQRS, MediatR, vertical slices, and Blazor Server .NET 10 practices"
+description: "Add a ShopInventory.Web feature using CQRS, MediatR, vertical slices, and existing Blazor Server .NET 10 patterns"
 agent: "agent"
 ---
 
 # Add New Web Feature with CQRS + MediatR + Vertical Slice
 
-Implement the requested feature in `ShopInventory.Web/` using the repository's vertical-slice architecture. New business logic belongs in MediatR handlers, not in `.razor` pages and not in legacy `Services/` classes.
+Implement the requested feature in `ShopInventory.Web/` using the repository's vertical-slice architecture. Keep the main priorities simple: put new business logic in MediatR handlers, keep `.razor` pages focused on UI concerns, and avoid adding new business logic to legacy `Services/` classes.
 
 ## Start Here
 
@@ -14,10 +14,10 @@ Implement the requested feature in `ShopInventory.Web/` using the repository's v
    - The current service class under `Services/`
    - Any models under `Models/`
    - Any local persistence under `Data/WebAppDbContext.cs`
-2. Decide whether the feature is:
-   - Web-only UI or client-state behavior
-   - An API-backed workflow
-   - A combined API + Web change
+2. Classify the feature using this order:
+  - If the request changes only rendering, page state, dialogs, or local Web behavior, treat it as Web-only.
+  - If the Web page needs new server behavior from the API, treat it as API-backed.
+  - If the request clearly changes both the API contract and the Web experience, treat it as a combined API + Web change.
 3. If the touched behavior currently lives in a page or a legacy Web service, move the orchestration and business rules into a feature slice as part of the change.
 4. If the feature spans both projects, implement the API slice first, then the Web slice that consumes it.
 
@@ -61,22 +61,15 @@ If the Web project does not yet have them, add:
 - `ValidationBehavior.cs`
 - `LoggingBehavior.cs`
 
-Mirror the API implementations unless the user explicitly asks for a different behavior.
+Mirror the API implementations unless the user explicitly asks in the current request for different Web-specific behavior.
 
 ## Non-Negotiable Rules
 
-- Use vertical slices under `ShopInventory.Web/Features/{Domain}/`.
-- Use one file per type.
-- Use `sealed record` for commands and queries.
-- Use `sealed class` with primary constructors for handlers and validators.
-- Return `ErrorOr<T>` from handlers.
-- Keep `.razor` pages thin. Pages should manage rendering, UI state, dialogs, navigation, and user feedback only.
-- Do not put business rules, orchestration, mapping, or integration decisions in pages.
-- Do not add new business logic to legacy `Services/` classes.
-- Use `DateTime.UtcNow` for timestamps. Convert to CAT only for display or human-facing text through `AuditService.ToCAT()`.
-- Pass `CancellationToken` throughout the slice when the call chain supports it.
-- Use structured logging via `ILogger<T>`.
-- If a handler reads from `WebAppDbContext`, queries must use `AsNoTracking()` and direct projection.
+- Architecture and types: Use vertical slices under `ShopInventory.Web/Features/{Domain}/`. Use one file per type. Use `sealed record` for commands and queries, and `sealed class` with primary constructors for handlers and validators.
+- Page boundaries: Keep `.razor` pages thin. Pages should manage rendering, UI state, dialogs, navigation, and user feedback only. Do not put business rules, orchestration, mapping, or integration decisions in pages.
+- Handler behavior: Return `ErrorOr<T>` from handlers. Pass `CancellationToken` throughout the slice when the call chain supports it. Use structured logging via `ILogger<T>`.
+- Data and time: If a handler reads from `WebAppDbContext`, queries must use `AsNoTracking()` and direct projection. Use `DateTime.UtcNow` for timestamps and convert to CAT only for display or other human-facing text through `AuditService.ToCAT()`.
+- Legacy boundaries: Do not add new business logic to legacy `Services/` classes.
 
 ## Web Slice Layout
 

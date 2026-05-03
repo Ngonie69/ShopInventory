@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
+using ShopInventory.DTOs;
 using ShopInventory.Mappings;
 using ShopInventory.Services;
 using Microsoft.Extensions.Options;
@@ -12,9 +13,9 @@ public sealed class GetPaymentsByCustomerHandler(
     ISAPServiceLayerClient sapClient,
     IOptions<SAPSettings> settings,
     ILogger<GetPaymentsByCustomerHandler> logger
-) : IRequestHandler<GetPaymentsByCustomerQuery, ErrorOr<object>>
+) : IRequestHandler<GetPaymentsByCustomerQuery, ErrorOr<IncomingPaymentDateResponseDto>>
 {
-    public async Task<ErrorOr<object>> Handle(
+    public async Task<ErrorOr<IncomingPaymentDateResponseDto>> Handle(
         GetPaymentsByCustomerQuery request,
         CancellationToken cancellationToken)
     {
@@ -24,15 +25,25 @@ public sealed class GetPaymentsByCustomerHandler(
         if (string.IsNullOrWhiteSpace(request.CardCode))
             return Errors.IncomingPayment.CustomerCodeRequired;
 
+        if (request.FromDate.HasValue && request.ToDate.HasValue && request.FromDate > request.ToDate)
+            return Errors.IncomingPayment.InvalidDateRange;
+
         try
         {
-            var payments = await sapClient.GetIncomingPaymentsByCustomerAsync(request.CardCode, cancellationToken);
+            var payments = request.FromDate.HasValue && request.ToDate.HasValue
+                ? await sapClient.GetIncomingPaymentsByCustomerAsync(
+                    request.CardCode,
+                    request.FromDate.Value,
+                    request.ToDate.Value,
+                    cancellationToken)
+                : await sapClient.GetIncomingPaymentsByCustomerAsync(request.CardCode, cancellationToken);
 
             logger.LogInformation("Retrieved {Count} incoming payments for customer {CardCode}", payments.Count, request.CardCode);
 
-            return new
+            return new IncomingPaymentDateResponseDto
             {
-                CardCode = request.CardCode,
+                FromDate = request.FromDate?.ToString("yyyy-MM-dd"),
+                ToDate = request.ToDate?.ToString("yyyy-MM-dd"),
                 Count = payments.Count,
                 Payments = payments.ToDto()
             };

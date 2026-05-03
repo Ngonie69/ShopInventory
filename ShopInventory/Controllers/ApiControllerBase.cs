@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using ErrorOr;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -5,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.ModelBinding;
 namespace ShopInventory.Controllers;
 
 [ApiController]
+[ApiVersion("1.0")]
 public class ApiControllerBase : ControllerBase
 {
     protected IActionResult Problem(List<Error> errors)

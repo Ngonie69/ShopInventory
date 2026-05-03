@@ -56,12 +56,12 @@ public sealed class CreateUserHandler(
             }
         }
 
-        if (await context.Users.WhereUsernameMatches(request.Username).AnyAsync(cancellationToken))
+        if (await context.Users.WhereUsernameOrEmailMatches(request.Username).AnyAsync(cancellationToken))
         {
             return Errors.UserManagement.CreationFailed("Username already exists");
         }
 
-        if (!string.IsNullOrWhiteSpace(request.Email) && await context.Users.WhereEmailMatches(request.Email).AnyAsync(cancellationToken))
+        if (!string.IsNullOrWhiteSpace(request.Email) && await context.Users.WhereUsernameOrEmailMatches(request.Email).AnyAsync(cancellationToken))
         {
             return Errors.UserManagement.CreationFailed("Email already exists");
         }
@@ -131,7 +131,7 @@ public sealed class CreateUserHandler(
             user.SetWarehouseCodes(request.AssignedWarehouseCodes);
         }
 
-        if (request.Role == "Merchandiser")
+        if (request.Role == "Merchandiser" || request.Role == "Driver")
         {
             user.SetCustomerCodes(request.AssignedCustomerCodes);
         }

@@ -1,14 +1,16 @@
 @page "/pod-dashboard"
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @attribute [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
 @inject IPodService PodService
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthenticationStateProvider
 @rendermode InteractiveServer
 
-<PageTitle>My POD Dashboard - Shop Inventory</PageTitle>
+<PageTitle>@DashboardTitle - Shop Inventory</PageTitle>
 
 <div class="container-fluid fade-in staff-dashboard staff-shell">
     @* Hero Header *@
@@ -19,16 +21,16 @@
                     <span class="podd-hero-icon">
                         <i class="bi bi-speedometer2"></i>
                     </span>
-                    My POD Dashboard
+                    @DashboardTitle
                 </h2>
                 <p class="podd-hero-subtitle">
                     @if (dashboard != null)
                     {
-                        <text>Welcome back, <strong>@dashboard.Username</strong> — here's your upload activity</text>
+                        <text>@DashboardSubtitle</text>
                     }
                     else
                     {
-                        <text>Personal proof of delivery upload stats</text>
+                        <text>@EmptyDashboardSubtitle</text>
                     }
                 </p>
             </div>
@@ -190,7 +192,7 @@
         @* Recent Uploads *@
         <div class="podd-table-card">
             <div class="podd-table-header">
-                <h6 class="mb-0"><i class="bi bi-clock-history me-2"></i>Recent Uploads</h6>
+                <h6 class="mb-0"><i class="bi bi-clock-history me-2"></i>@RecentUploadsTitle</h6>
                 <button class="btn btn-sm btn-outline-primary" @onclick="GoToPods">
                     View All <i class="bi bi-arrow-right ms-1"></i>
                 </button>
@@ -534,7 +536,19 @@
 @code {
     private PodDashboardModel? dashboard;
     private bool isLoading = true;
+    private bool isPodOperator;
     private string? errorMessage;
+
+    private string DashboardTitle => isPodOperator ? "Section POD Dashboard" : "My POD Dashboard";
+    private string DashboardSubtitle => dashboard == null
+        ? EmptyDashboardSubtitle
+        : isPodOperator
+            ? $"Welcome back, {dashboard.Username} — here's your section's POD activity"
+            : $"Welcome back, {dashboard.Username} — here's your upload activity";
+    private string EmptyDashboardSubtitle => isPodOperator
+        ? "Section proof of delivery upload stats"
+        : "Personal proof of delivery upload stats";
+    private string RecentUploadsTitle => isPodOperator ? "Recent Section Uploads" : "Recent Uploads";
 
     private double DailyAverage => dashboard?.DailyUploads.Any() == true
         ? dashboard.DailyUploads.Average(d => d.Count)
@@ -542,6 +556,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        isPodOperator = authState.User.IsInRole("PodOperator");
         await LoadDashboard();
     }
 

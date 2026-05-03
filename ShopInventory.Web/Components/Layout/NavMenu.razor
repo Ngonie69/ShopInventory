@@ -636,6 +636,12 @@
             <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="systemCtx">
                 <Authorized>
                     <div class="nav-section-label">System</div>
+                    <NavLink class="snav-link" href="/exception-center" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.WarningAmber" />
+                        </span>
+                        <span class="snav-text">Exception Center</span>
+                    </NavLink>
                     <NavLink class="snav-link" href="/sync-status" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.Sync" />
@@ -701,6 +707,12 @@
                             <MudIcon Icon="@Icons.Material.Filled.ManageAccounts" />
                         </span>
                         <span class="snav-text">User Management</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/driver-business-partners" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.LocalShipping" />
+                        </span>
+                        <span class="snav-text">Driver Shops</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/merchandiser-products" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">

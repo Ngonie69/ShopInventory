@@ -767,96 +767,19 @@ public class MasterDataCacheService : IMasterDataCacheService
 
         try
         {
-            _logger.LogInformation("Syncing business partners from API to database...");
+            return await ExecuteBusinessPartnerSyncAsync();
+        }
+        finally
+        {
+            loadLock.Release();
+        }
+    }
 
-            // Ensure auth header is set before API call
-            await EnsureAuthenticationAsync();
-
-            var response = await _httpClient.GetFromJsonAsync<BusinessPartnerListResponse>("api/businesspartner");
-            var apiPartners = response?.BusinessPartners ?? new List<BusinessPartnerDto>();
-
-            if (apiPartners.Count == 0)
-            {
-                _logger.LogWarning("No business partners received from API");
-                return 0;
-            }
-
-            await using var db = await _dbContextFactory.CreateDbContextAsync();
-
-            var syncTime = DateTime.UtcNow;
-            var updatedCount = 0;
-            var insertedCount = 0;
-
-            var existingCardCodes = await db.CachedBusinessPartners
-                .Select(p => p.CardCode)
-                .ToHashSetAsync();
-
-            // Track processed codes to avoid duplicate Add for same key
-            var processedCodes = new HashSet<string>();
-
-            foreach (var partner in apiPartners)
-            {
-                if (string.IsNullOrEmpty(partner.CardCode)) continue;
-                if (!processedCodes.Add(partner.CardCode)) continue; // skip duplicates from API
-
-                if (existingCardCodes.Contains(partner.CardCode))
-                {
-                    await db.CachedBusinessPartners
-                        .Where(cp => cp.CardCode == partner.CardCode)
-                        .ExecuteUpdateAsync(setters => setters
-                            .SetProperty(cp => cp.CardName, partner.CardName)
-                            .SetProperty(cp => cp.CardType, partner.CardType)
-                            .SetProperty(cp => cp.GroupCode, partner.GroupCode)
-                            .SetProperty(cp => cp.Phone1, partner.Phone1)
-                            .SetProperty(cp => cp.Phone2, partner.Phone2)
-                            .SetProperty(cp => cp.Email, partner.Email)
-                            .SetProperty(cp => cp.Address, partner.Address)
-                            .SetProperty(cp => cp.City, partner.City)
-                            .SetProperty(cp => cp.Country, partner.Country)
-                            .SetProperty(cp => cp.Currency, partner.Currency)
-                            .SetProperty(cp => cp.Balance, partner.Balance)
-                            .SetProperty(cp => cp.IsActive, partner.IsActive)
-                            .SetProperty(cp => cp.PriceListNum, partner.PriceListNum)
-                            .SetProperty(cp => cp.LastSyncedAt, syncTime));
-                    updatedCount++;
-                }
-                else
-                {
-                    db.CachedBusinessPartners.Add(new CachedBusinessPartner
-                    {
-                        CardCode = partner.CardCode,
-                        CardName = partner.CardName,
-                        CardType = partner.CardType,
-                        GroupCode = partner.GroupCode,
-                        Phone1 = partner.Phone1,
-                        Phone2 = partner.Phone2,
-                        Email = partner.Email,
-                        Address = partner.Address,
-                        City = partner.City,
-                        Country = partner.Country,
-                        Currency = partner.Currency,
-                        Balance = partner.Balance,
-                        IsActive = partner.IsActive,
-                        PriceListNum = partner.PriceListNum,
-                        LastSyncedAt = syncTime
-                    });
-                    insertedCount++;
-                }
-            }
-
-            await db.SaveChangesAsync();
-            await UpdateSyncInfoAsync(db, BusinessPartnersCacheKey, apiPartners.Count, true, null);
-            _lastRefreshTimes[BusinessPartnersCacheKey] = DateTime.UtcNow;
-            _cachedBusinessPartners = null;
-            _cachedAllBusinessPartners = null;
-            _bpLoadedAt = DateTime.MinValue;
-            _allBpLoadedAt = DateTime.MinValue;
-
-            _logger.LogInformation(
-                "Business partners sync completed: {Inserted} inserted, {Updated} updated",
-                insertedCount, updatedCount);
-
-            return apiPartners.Count;
+    private async Task<int> ExecuteBusinessPartnerSyncAsync()
+    {
+        try
+        {
+            return await SyncBusinessPartnersFromApiCoreAsync();
         }
         catch (Exception ex)
         {
@@ -864,10 +787,143 @@ public class MasterDataCacheService : IMasterDataCacheService
             await UpdateSyncInfoAsync(null, BusinessPartnersCacheKey, 0, false, ex.Message);
             throw;
         }
-        finally
+    }
+
+    private async Task<int> SyncBusinessPartnersFromApiCoreAsync()
+    {
+        _logger.LogInformation("Syncing business partners from API to database...");
+
+        // Ensure auth header is set before API call
+        await EnsureAuthenticationAsync();
+
+        var response = await _httpClient.GetFromJsonAsync<BusinessPartnerListResponse>("api/businesspartner");
+        var apiPartners = response?.BusinessPartners ?? new List<BusinessPartnerDto>();
+
+        if (apiPartners.Count == 0)
         {
-            loadLock.Release();
+            _logger.LogWarning("No business partners received from API");
+            return 0;
         }
+
+        await using var db = await _dbContextFactory.CreateDbContextAsync();
+
+        var syncTime = DateTime.UtcNow;
+        var updatedCount = 0;
+        var insertedCount = 0;
+
+        var existingCardCodes = await db.CachedBusinessPartners
+            .Select(p => p.CardCode)
+            .ToHashSetAsync();
+
+        // Track processed codes to avoid duplicate Add for same key
+        var processedCodes = new HashSet<string>();
+
+        foreach (var partner in apiPartners)
+        {
+            if (string.IsNullOrEmpty(partner.CardCode)) continue;
+            if (!processedCodes.Add(partner.CardCode)) continue; // skip duplicates from API
+
+            if (existingCardCodes.Contains(partner.CardCode))
+            {
+                await db.CachedBusinessPartners
+                    .Where(cp => cp.CardCode == partner.CardCode)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(cp => cp.CardName, partner.CardName)
+                        .SetProperty(cp => cp.CardType, partner.CardType)
+                        .SetProperty(cp => cp.GroupCode, partner.GroupCode)
+                        .SetProperty(cp => cp.Phone1, partner.Phone1)
+                        .SetProperty(cp => cp.Phone2, partner.Phone2)
+                        .SetProperty(cp => cp.Email, partner.Email)
+                        .SetProperty(cp => cp.Address, partner.Address)
+                        .SetProperty(cp => cp.City, partner.City)
+                        .SetProperty(cp => cp.Country, partner.Country)
+                        .SetProperty(cp => cp.Currency, partner.Currency)
+                        .SetProperty(cp => cp.Balance, partner.Balance)
+                        .SetProperty(cp => cp.IsActive, partner.IsActive)
+                        .SetProperty(cp => cp.PriceListNum, partner.PriceListNum)
+                        .SetProperty(cp => cp.LastSyncedAt, syncTime));
+                updatedCount++;
+            }
+            else
+            {
+                db.CachedBusinessPartners.Add(new CachedBusinessPartner
+                {
+                    CardCode = partner.CardCode,
+                    CardName = partner.CardName,
+                    CardType = partner.CardType,
+                    GroupCode = partner.GroupCode,
+                    Phone1 = partner.Phone1,
+                    Phone2 = partner.Phone2,
+                    Email = partner.Email,
+                    Address = partner.Address,
+                    City = partner.City,
+                    Country = partner.Country,
+                    Currency = partner.Currency,
+                    Balance = partner.Balance,
+                    IsActive = partner.IsActive,
+                    PriceListNum = partner.PriceListNum,
+                    LastSyncedAt = syncTime
+                });
+                insertedCount++;
+            }
+        }
+
+        await db.SaveChangesAsync();
+        await UpdateSyncInfoAsync(db, BusinessPartnersCacheKey, apiPartners.Count, true, null);
+        _lastRefreshTimes[BusinessPartnersCacheKey] = DateTime.UtcNow;
+        _cachedBusinessPartners = null;
+        _cachedAllBusinessPartners = null;
+        _bpLoadedAt = DateTime.MinValue;
+        _allBpLoadedAt = DateTime.MinValue;
+
+        _logger.LogInformation(
+            "Business partners sync completed: {Inserted} inserted, {Updated} updated",
+            insertedCount, updatedCount);
+
+        return apiPartners.Count;
+    }
+
+    private async Task<List<BusinessPartnerDto>> RefreshBusinessPartnersSynchronouslyAsync(bool includeInactive)
+    {
+        await ExecuteBusinessPartnerSyncAsync();
+
+        await using var refreshedDb = await _dbContextFactory.CreateDbContextAsync();
+        var refreshedPartners = await LoadBusinessPartnersFromDatabaseAsync(refreshedDb, includeInactive);
+        CacheBusinessPartners(refreshedPartners, includeInactive);
+
+        _logger.LogInformation("Business partners refreshed synchronously with {Count} records", refreshedPartners.Count);
+
+        return refreshedPartners;
+    }
+
+    private void StartBackgroundBusinessPartnerRefresh(bool includeInactive)
+    {
+        if (!_backgroundSyncSemaphore.Wait(0))
+        {
+            _logger.LogDebug("Business partner background sync already in progress");
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await SyncBusinessPartnersFromApiAsync();
+
+                await using var bgDb = await _dbContextFactory.CreateDbContextAsync();
+                var updatedPartners = await LoadBusinessPartnersFromDatabaseAsync(bgDb, includeInactive);
+                CacheBusinessPartners(updatedPartners, includeInactive);
+                _logger.LogInformation("Background sync completed, updated {Count} business partners in cache", updatedPartners.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Background sync of business partners failed");
+            }
+            finally
+            {
+                _backgroundSyncSemaphore.Release();
+            }
+        });
     }
 
     public async Task<Dictionary<string, decimal>> GetPricesByPriceListAsync(int priceListNum, bool forceRefresh = false)
@@ -950,54 +1006,16 @@ public class MasterDataCacheService : IMasterDataCacheService
                 if (partners.Count > 0 && !forceRefresh)
                 {
                     // We have data - sync in background without blocking
-                    _ = Task.Run(async () =>
-                    {
-                        await _backgroundSyncSemaphore.WaitAsync();
-                        try
-                        {
-                            await SyncBusinessPartnersFromApiAsync();
-                            // Reload from database after sync
-                            await using var bgDb = await _dbContextFactory.CreateDbContextAsync();
-                            var updatedPartners = await LoadBusinessPartnersFromDatabaseAsync(bgDb, includeInactive);
-                            CacheBusinessPartners(updatedPartners, includeInactive);
-                            _logger.LogInformation("Background sync completed, updated {Count} business partners in cache", updatedPartners.Count);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Background sync of business partners failed");
-                        }
-                        finally
-                        {
-                            _backgroundSyncSemaphore.Release();
-                        }
-                    });
+                    StartBackgroundBusinessPartnerRefresh(includeInactive);
                 }
                 else
                 {
-                    // No data in database - trigger background sync (non-blocking)
-                    // This prevents page from hanging on slow API calls
-                    _logger.LogInformation("No business partners in database, triggering background sync...");
-                    _ = Task.Run(async () =>
-                    {
-                        await _backgroundSyncSemaphore.WaitAsync();
-                        try
-                        {
-                            await SyncBusinessPartnersFromApiAsync();
-                            // Reload from database after sync
-                            await using var bgDb = await _dbContextFactory.CreateDbContextAsync();
-                            var updatedPartners = await LoadBusinessPartnersFromDatabaseAsync(bgDb, includeInactive);
-                            CacheBusinessPartners(updatedPartners, includeInactive);
-                            _logger.LogInformation("Initial sync completed, loaded {Count} business partners", updatedPartners.Count);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Initial background sync of business partners failed");
-                        }
-                        finally
-                        {
-                            _backgroundSyncSemaphore.Release();
-                        }
-                    });
+                    var syncReason = forceRefresh
+                        ? "Business partner refresh requested, synchronizing before returning data..."
+                        : "No business partners in database, synchronizing before returning data...";
+
+                    _logger.LogInformation(syncReason);
+                    partners = await RefreshBusinessPartnersSynchronouslyAsync(includeInactive);
                 }
             }
 

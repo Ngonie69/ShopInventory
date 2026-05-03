@@ -494,139 +494,91 @@
                 </div>
             </div>
             <div class="pod-table-wrap">
-                @if (isLoading)
+                @if (!string.IsNullOrWhiteSpace(podLoadError))
                 {
-                    <div class="pod-loading-state">
-                        <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Medium" />
-                        <p class="pod-loading-text">Loading PODs...</p>
-                    </div>
+                    <MudAlert Severity="Severity.Error" Dense="true" Class="m-3">
+                        @podLoadError
+                    </MudAlert>
                 }
-                else if (podResponse?.Items?.Any() == true)
-                {
-                    <div class="table-responsive">
-                        <table class="pod-table">
-                            <thead>
-                                <tr>
-                                    <th>Invoice #</th>
-                                    <th>Customer</th>
-                                    <th>File</th>
-                                    <th>Description</th>
-                                    <th>Size</th>
-                                    <th>Uploaded</th>
-                                    <th>By</th>
-                                    <th class="text-end">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @{ var grouped = podResponse.Items.GroupBy(p => p.InvoiceDocEntry).ToList(); }
-                                @foreach (var group in grouped)
-                                {
-                                    var first = group.First();
-                                    var pods = group.ToList();
-                                    @foreach (var (pod, idx) in pods.Select((p, i) => (p, i)))
-                                    {
-                                        <tr class="pod-row">
-                                            @if (idx == 0)
-                                            {
-                                                <td rowspan="@pods.Count" class="align-middle">
-                                                    <span class="pod-invoice-badge">@(first.InvoiceDocNum > 0 ? first.InvoiceDocNum.ToString() : "-")</span>
-                                                </td>
-                                                <td rowspan="@pods.Count" class="align-middle">
-                                                    <div class="pod-customer-name">@(first.CardName ?? "-")</div>
-                                                    <div class="pod-customer-code">@(first.CardCode ?? "-")</div>
-                                                </td>
-                                            }
-                                            <td>
-                                                <div class="pod-file-name">@pod.FileName</div>
-                                                <div class="pod-file-type">@pod.MimeType</div>
-                                            </td>
-                                            <td class="pod-description">@(pod.Description ?? "-")</td>
-                                            <td class="pod-size">@pod.FileSizeFormatted</td>
-                                            <td>
-                                                <div class="pod-date">@pod.UploadedAt.ToString("MMM dd, yyyy")</div>
-                                                <div class="pod-time">@pod.UploadedAt.ToString("HH:mm")</div>
-                                            </td>
-                                            <td class="pod-user">@(pod.UploadedByUserName ?? "-")</td>
-                                            <td class="text-end">
-                                                <div class="pod-actions">
-                                                    @if (IsViewable(pod.MimeType))
-                                                    {
-                                                        <button class="pod-action-btn pod-action-view" @onclick="() => ViewPod(pod)" title="View">
-                                                            <i class="bi bi-eye"></i>
-                                                        </button>
-                                                    }
-                                                    <button class="pod-action-btn pod-action-download" @onclick="() => DownloadPod(pod)" title="Download">
-                                                        <i class="bi bi-download"></i>
-                                                    </button>
-                                                    <button class="pod-action-btn pod-action-delete" @onclick="() => ConfirmDeletePod(pod)" title="Delete">
-                                                        <i class="bi bi-trash"></i>
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    }
-                                }
-                            </tbody>
-                        </table>
-                    </div>
 
-                    @* Pagination *@
-                    @if (totalPages > 1)
-                    {
-                        <div class="pod-pagination">
-                            <span class="pod-pagination-info">
-                                Showing @((currentPage - 1) * pageSize + 1)–@Math.Min(currentPage * pageSize, podResponse.TotalCount)
-                                of @podResponse.TotalCount
-                            </span>
-                            <div class="pod-pagination-btns">
-                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(currentPage <= 1)"
-                                           OnClick="() => LoadPage(1)" title="First page">
-                                    <i class="bi bi-chevron-double-left"></i>
-                                </MudButton>
-                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(currentPage <= 1)"
-                                           OnClick="() => LoadPage(currentPage - 1)">
-                                    <i class="bi bi-chevron-left"></i>
-                                </MudButton>
-                                @foreach (var p in GetPageNumbers())
+                <MudTable T="PodAttachmentItemDto"
+                          @key="podsTableKey"
+                          @ref="_podsTable"
+                          ServerData="LoadPodsTableData"
+                          Dense="true"
+                          Hover="true"
+                          Loading="@isLoading"
+                          RowsPerPage="@DefaultPodPageSize"
+                          Elevation="0"
+                          Class="pod-mud-table">
+                    <HeaderContent>
+                        <MudTh>Invoice #</MudTh>
+                        <MudTh>Customer</MudTh>
+                        <MudTh>File</MudTh>
+                        <MudTh>Description</MudTh>
+                        <MudTh>Size</MudTh>
+                        <MudTh>Uploaded</MudTh>
+                        <MudTh>By</MudTh>
+                        <MudTh Class="text-end">Actions</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Invoice #">
+                            <span class="pod-invoice-badge">@(context.InvoiceDocNum > 0 ? context.InvoiceDocNum.ToString() : "-")</span>
+                        </MudTd>
+                        <MudTd DataLabel="Customer">
+                            <div class="pod-customer-name">@(context.CardName ?? "-")</div>
+                            <div class="pod-customer-code">@(context.CardCode ?? "-")</div>
+                        </MudTd>
+                        <MudTd DataLabel="File">
+                            <div class="pod-file-name">@context.FileName</div>
+                            <div class="pod-file-type">@context.MimeType</div>
+                        </MudTd>
+                        <MudTd DataLabel="Description" Class="pod-description">@(context.Description ?? "-")</MudTd>
+                        <MudTd DataLabel="Size" Class="pod-size">@context.FileSizeFormatted</MudTd>
+                        <MudTd DataLabel="Uploaded">
+                            <div class="pod-date">@context.UploadedAt.ToString("MMM dd, yyyy")</div>
+                            <div class="pod-time">@context.UploadedAt.ToString("HH:mm")</div>
+                        </MudTd>
+                        <MudTd DataLabel="By" Class="pod-user">@(context.UploadedByUserName ?? "-")</MudTd>
+                        <MudTd DataLabel="Actions" Class="text-end">
+                            <div class="pod-actions">
+                                @if (IsViewable(context.MimeType))
                                 {
-                                    @if (p == -1)
-                                    {
-                                        <span class="pod-page-ellipsis">…</span>
-                                    }
-                                    else
-                                    {
-                                        <MudButton Variant="@(p == currentPage ? Variant.Filled : Variant.Outlined)"
-                                                   Color="@(p == currentPage ? Color.Primary : Color.Default)"
-                                                   Size="Size.Small" OnClick="() => LoadPage(p)" Class="pod-page-btn">
-                                            @p
-                                        </MudButton>
-                                    }
+                                    <button class="pod-action-btn pod-action-view" @onclick="() => ViewPod(context)" title="View">
+                                        <i class="bi bi-eye"></i>
+                                    </button>
                                 }
-                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(!podResponse.HasMore)"
-                                           OnClick="() => LoadPage(currentPage + 1)">
-                                    <i class="bi bi-chevron-right"></i>
-                                </MudButton>
-                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(!podResponse.HasMore)"
-                                           OnClick="() => LoadPage(totalPages)" title="Last page">
-                                    <i class="bi bi-chevron-double-right"></i>
-                                </MudButton>
+                                <button class="pod-action-btn pod-action-download" @onclick="() => DownloadPod(context)" title="Download">
+                                    <i class="bi bi-download"></i>
+                                </button>
+                                <button class="pod-action-btn pod-action-delete" @onclick="() => ConfirmDeletePod(context)" title="Delete">
+                                    <i class="bi bi-trash"></i>
+                                </button>
                             </div>
-                            <span class="pod-pagination-info">
-                                Page @currentPage of @totalPages
-                            </span>
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent>
+                        @if (string.IsNullOrWhiteSpace(podLoadError))
+                        {
+                            <div class="pod-empty-state">
+                                <div class="pod-empty-icon">
+                                    <i class="bi bi-clipboard-x"></i>
+                                </div>
+                                <p class="pod-empty-title">No POD records found</p>
+                                <p class="pod-empty-sub">Upload a POD using the form above.</p>
+                            </div>
+                        }
+                    </NoRecordsContent>
+                    <LoadingContent>
+                        <div class="pod-loading-state">
+                            <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Medium" />
+                            <p class="pod-loading-text">Loading PODs...</p>
                         </div>
-                    }
-                }
-                else
-                {
-                    <div class="pod-empty-state">
-                        <div class="pod-empty-icon">
-                            <i class="bi bi-clipboard-x"></i>
-                        </div>
-                        <p class="pod-empty-title">No POD records found</p>
-                        <p class="pod-empty-sub">Upload a POD using the form above.</p>
-                    </div>
-                }
+                    </LoadingContent>
+                    <PagerContent>
+                        <MudTablePager PageSizeOptions="new int[] { 20, 50, 100 }" />
+                    </PagerContent>
+                </MudTable>
             </div>
         </div>
     </div>
@@ -1061,6 +1013,44 @@
         background: #f0fdfa;
     }
 
+    .pod-mud-table {
+        background: transparent;
+    }
+
+    .pod-mud-table .mud-table-container {
+        overflow-x: auto;
+    }
+
+    .pod-mud-table .mud-table-head .mud-table-cell {
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #64748b;
+        padding: 0.85rem 1rem;
+        border-bottom: 2px solid #f1f5f9;
+        background: #fafbfc;
+        white-space: nowrap;
+    }
+
+    .pod-mud-table .mud-table-body .mud-table-cell {
+        padding: 0.85rem 1rem;
+        border-bottom: 1px solid #f1f5f9;
+        font-size: 0.875rem;
+        color: #334155;
+        vertical-align: middle;
+        background: #fff;
+    }
+
+    .pod-mud-table .mud-table-body .mud-table-row:hover .mud-table-cell {
+        background: #f0fdfa;
+    }
+
+    .pod-mud-table .mud-table-pagination {
+        border-top: 1px solid #f1f5f9;
+        padding: 0.35rem 0.75rem;
+    }
+
     .pod-invoice-badge {
         display: inline-flex;
         align-items: center;
@@ -1272,10 +1262,12 @@
 </style>
 
 @code {
+    private MudTable<PodAttachmentItemDto>? _podsTable;
     private PodAttachmentListResponse? podResponse;
+    private string? podLoadError;
     private bool isLoading = true;
-    private int currentPage = 1;
-    private const int pageSize = 20;
+    private int podsTableKey;
+    private const int DefaultPodPageSize = 20;
     private string? filterCardCode;
     private string? filterSearch;
     private DateTime? filterFromDate;
@@ -1284,10 +1276,6 @@
     private string? activeFilterSearch;
     private DateTime? activeFilterFromDate;
     private DateTime? activeFilterToDate;
-
-    private int totalPages => podResponse != null && podResponse.TotalCount > 0
-        ? (int)Math.Ceiling((double)podResponse.TotalCount / pageSize)
-        : 1;
 
     private bool HasActiveFilters =>
         !string.IsNullOrEmpty(activeFilterCardCode) ||
@@ -1377,7 +1365,6 @@
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         currentUsername = authState.User.Identity?.Name;
-        await LoadPods();
 
         if (InitialDocNum.HasValue && InitialDocNum.Value > 0)
         {
@@ -1386,34 +1373,55 @@
         }
     }
 
-    private async Task LoadPods()
+    private async Task<TableData<PodAttachmentItemDto>> LoadPodsTableData(TableState state, CancellationToken cancellationToken)
     {
+        var fallbackResponse = podResponse;
         isLoading = true;
+        podLoadError = null;
 
         try
         {
-            podResponse = await PodService.GetAllPodsAsync(currentPage, pageSize, activeFilterCardCode, activeFilterFromDate, activeFilterToDate, activeFilterSearch);
+            var requestedPage = state.Page + 1;
+            var requestedPageSize = state.PageSize > 0 ? state.PageSize : DefaultPodPageSize;
+            var response = await PodService.GetAllPodsAsync(requestedPage, requestedPageSize, activeFilterCardCode, activeFilterFromDate, activeFilterToDate, activeFilterSearch, cancellationToken);
+            if (response != null)
+            {
+                podResponse = response;
+                return new TableData<PodAttachmentItemDto>
+                {
+                    TotalItems = response.TotalCount,
+                    Items = response.Items
+                };
+            }
+            else
+            {
+                podLoadError = "Failed to load POD records. Please refresh and try again.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading PODs");
+            podLoadError = "Failed to load POD records. Please refresh and try again.";
         }
         finally
         {
             isLoading = false;
         }
-    }
 
-    private async Task LoadPage(int page)
-    {
-        currentPage = page;
-        await LoadPods();
+        return new TableData<PodAttachmentItemDto>
+        {
+            TotalItems = fallbackResponse?.TotalCount ?? 0,
+            Items = fallbackResponse?.Items ?? new List<PodAttachmentItemDto>()
+        };
     }
 
     private async Task RefreshData()
     {
-        currentPage = 1;
-        await LoadPods();
+        await ReloadPodsTableAsync(resetToFirstPage: true);
     }
 
     private async Task ApplyFilter()
@@ -1422,8 +1430,7 @@
         activeFilterSearch = string.IsNullOrWhiteSpace(filterSearch) ? null : filterSearch.Trim();
         activeFilterFromDate = filterFromDate;
         activeFilterToDate = filterToDate;
-        currentPage = 1;
-        await LoadPods();
+        await ReloadPodsTableAsync(resetToFirstPage: true);
     }
 
     private async Task ClearFilter()
@@ -1436,8 +1443,7 @@
         activeFilterSearch = null;
         activeFilterFromDate = null;
         activeFilterToDate = null;
-        currentPage = 1;
-        await LoadPods();
+        await ReloadPodsTableAsync(resetToFirstPage: true);
     }
 
     private async Task OnFilterKeyDown(KeyboardEventArgs e)
@@ -1446,26 +1452,21 @@
             await ApplyFilter();
     }
 
-    private List<int> GetPageNumbers()
+    private async Task ReloadPodsTableAsync(bool resetToFirstPage = false)
     {
-        var pages = new List<int>();
-        if (totalPages <= 7)
+        podLoadError = null;
+
+        if (resetToFirstPage)
         {
-            for (int i = 1; i <= totalPages; i++)
-                pages.Add(i);
+            podsTableKey++;
+            await InvokeAsync(StateHasChanged);
+            return;
         }
-        else
+
+        if (_podsTable != null)
         {
-            pages.Add(1);
-            if (currentPage > 3)
-                pages.Add(-1); // ellipsis
-            for (int i = Math.Max(2, currentPage - 1); i <= Math.Min(totalPages - 1, currentPage + 1); i++)
-                pages.Add(i);
-            if (currentPage < totalPages - 2)
-                pages.Add(-1); // ellipsis
-            pages.Add(totalPages);
+            await _podsTable.ReloadServerData();
         }
-        return pages;
     }
 
     private async Task LookupInvoice()
@@ -1554,8 +1555,7 @@
                 uploadDescription = null;
                 lookupInvoice = null;
                 lookupError = null;
-                currentPage = 1;
-                await LoadPods();
+                await ReloadPodsTableAsync(resetToFirstPage: true);
             }
             else
             {
@@ -1564,7 +1564,7 @@
                     ? $"{successCount} of {total} uploaded. Failed: {string.Join(", ", failedFiles)}"
                     : $"Upload failed for: {string.Join(", ", failedFiles)}";
                 if (successCount > 0)
-                    await LoadPods();
+                    await ReloadPodsTableAsync(resetToFirstPage: true);
             }
         }
         catch (Exception ex)
@@ -1669,7 +1669,7 @@
             {
                 showDeleteConfirm = false;
                 deletePod = null;
-                await LoadPods();
+                await ReloadPodsTableAsync();
             }
             else
             {
@@ -2073,8 +2073,7 @@
                 bulkMappings.Clear();
                 bulkFiles.Clear();
                 bulkInputFileKey++;
-                currentPage = 1;
-                await LoadPods();
+                await ReloadPodsTableAsync(resetToFirstPage: true);
             }
             else
             {
@@ -2085,7 +2084,7 @@
                     // Remove successfully uploaded items, keep only errors
                     bulkMappings.RemoveAll(m => m.Status == BulkFileStatus.Uploaded);
                     await AuditService.LogAsync(AuditActions.BulkUploadPod, "POD", null, $"{successCount} of {successCount + failCount} files uploaded", true);
-                    await LoadPods();
+                    await ReloadPodsTableAsync(resetToFirstPage: true);
                 }
             }
         }

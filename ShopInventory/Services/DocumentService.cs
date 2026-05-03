@@ -52,7 +52,8 @@ public interface IDocumentService
     Task<bool> DeleteAttachmentAsync(int id, CancellationToken cancellationToken = default);
 
     // POD (Proof of Delivery)
-    Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null);
+    Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null, string? assignedSection = null);
+    Task<List<int>> GetScopedPodInvoiceDocEntriesAsync(IEnumerable<int> candidateDocEntries, string assignedSection, CancellationToken cancellationToken = default);
     Task EnsureInvoiceCachedAsync(int sapDocEntry, int sapDocNum, string cardCode, string? cardName, CancellationToken cancellationToken = default);
     Task<Dictionary<int, PodStatusInfo>> GetPodStatusByDocEntriesAsync(List<int> docEntries, CancellationToken cancellationToken = default);
 
@@ -78,17 +79,20 @@ public class DocumentService : IDocumentService
 {
     private readonly ApplicationDbContext _context;
     private readonly IEmailService _emailService;
+    private readonly ISAPServiceLayerClient _sapServiceLayerClient;
     private readonly ILogger<DocumentService> _logger;
     private readonly string _uploadPath;
 
     public DocumentService(
         ApplicationDbContext context,
         IEmailService emailService,
+        ISAPServiceLayerClient sapServiceLayerClient,
         ILogger<DocumentService> logger,
         IConfiguration configuration)
     {
         _context = context;
         _emailService = emailService;
+        _sapServiceLayerClient = sapServiceLayerClient;
         _logger = logger;
         _uploadPath = configuration["FileStorage:UploadPath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "uploads");
 
@@ -578,11 +582,13 @@ public class DocumentService : IDocumentService
         return true;
     }
 
-    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null)
+    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null, string? assignedSection = null)
     {
+        var excludedCardCodes = PodExclusions.ExcludedCardCodes.ToArray();
+
         // Get DocEntries for excluded BPs so we can filter them out
         var excludedDocEntries = _context.Invoices
-            .Where(i => i.SAPDocEntry != null && PodExclusions.IsExcludedCardCode(i.CardCode))
+            .Where(i => i.SAPDocEntry != null && i.CardCode != null && excludedCardCodes.Contains(i.CardCode.ToUpper()))
             .Select(i => i.SAPDocEntry!.Value);
 
         var query = _context.Set<DocumentAttachmentEntity>()
@@ -641,6 +647,29 @@ public class DocumentService : IDocumentService
                 .Select(i => i.SAPDocEntry!.Value);
 
             query = query.Where(a => matchingDocEntries.Contains(a.EntityId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(assignedSection))
+        {
+            var candidateDocEntries = await query
+                .Select(a => a.EntityId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            var scopedDocEntries = await GetScopedPodInvoiceDocEntriesAsync(candidateDocEntries, assignedSection, cancellationToken);
+            if (scopedDocEntries.Count == 0)
+            {
+                return new PodAttachmentListResponseDto
+                {
+                    Items = [],
+                    TotalCount = 0,
+                    Page = page,
+                    PageSize = pageSize,
+                    HasMore = false
+                };
+            }
+
+            query = query.Where(a => scopedDocEntries.Contains(a.EntityId));
         }
 
         var totalCount = await query.CountAsync(cancellationToken);
@@ -719,6 +748,37 @@ public class DocumentService : IDocumentService
             PageSize = pageSize,
             HasMore = (page * pageSize) < totalCount
         };
+    }
+
+    public async Task<List<int>> GetScopedPodInvoiceDocEntriesAsync(
+        IEnumerable<int> candidateDocEntries,
+        string assignedSection,
+        CancellationToken cancellationToken = default)
+    {
+        var distinctDocEntries = candidateDocEntries
+            .Where(docEntry => docEntry > 0)
+            .Distinct()
+            .ToList();
+
+        if (distinctDocEntries.Count == 0 || string.IsNullOrWhiteSpace(assignedSection))
+        {
+            return [];
+        }
+
+        var invoices = await _sapServiceLayerClient.GetInvoiceHeadersByDocEntriesAsync(distinctDocEntries, cancellationToken);
+        if (invoices.Count == 0)
+        {
+            return [];
+        }
+
+        var warehouseLocations = PodLocationScope.BuildWarehouseLocationLookup(
+            await _sapServiceLayerClient.GetWarehousesAsync(cancellationToken));
+
+        return invoices
+            .Where(invoice => PodLocationScope.InvoiceMatchesAssignedSection(invoice, assignedSection.Trim(), warehouseLocations))
+            .Select(invoice => invoice.DocEntry)
+            .Distinct()
+            .ToList();
     }
 
     public async Task EnsureInvoiceCachedAsync(int sapDocEntry, int sapDocNum, string cardCode, string? cardName, CancellationToken cancellationToken = default)

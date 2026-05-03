@@ -3,6 +3,7 @@ using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
+using System.Text.Json;
 
 namespace ShopInventory.Services;
 
@@ -357,6 +358,13 @@ public class CreditNoteService : ICreditNoteService
                     _logger.LogWarning(
                         "Credit note {DocNum} fiscalization failed: {Message}. Credit note was created in SAP.",
                         sapCreditNote.DocNum, fiscalizationResult.Message);
+
+                    await CaptureCreditNoteFiscalizationIncidentAsync(
+                        creditNote.CreditNoteNumber,
+                        sapCreditNote.DocNum,
+                        request.CardCode,
+                        fiscalizationResult.Message ?? "REVMax fiscalization failed for the credit note.",
+                        cancellationToken);
                 }
             }
             else
@@ -364,6 +372,13 @@ public class CreditNoteService : ICreditNoteService
                 _logger.LogWarning(
                     "Cannot fiscalize credit note {DocNum}: No original invoice reference",
                     sapCreditNote.DocNum);
+
+                await CaptureCreditNoteFiscalizationIncidentAsync(
+                    creditNote.CreditNoteNumber,
+                    sapCreditNote.DocNum,
+                    request.CardCode,
+                    "REVMax fiscalization skipped because the original invoice reference was missing.",
+                    cancellationToken);
             }
         }
         catch (Exception fiscalEx)
@@ -371,6 +386,13 @@ public class CreditNoteService : ICreditNoteService
             _logger.LogError(fiscalEx,
                 "Error during fiscalization of credit note {DocNum}. Credit note was created in SAP.",
                 sapCreditNote.DocNum);
+
+            await CaptureCreditNoteFiscalizationIncidentAsync(
+                creditNote.CreditNoteNumber,
+                sapCreditNote.DocNum,
+                request.CardCode,
+                fiscalEx.Message,
+                cancellationToken);
         }
 
         // Save to local database only after successful SAP posting
@@ -731,5 +753,48 @@ public class CreditNoteService : ICreditNoteService
             "bost_Close" => CreditNoteStatus.Applied,
             _ => CreditNoteStatus.Draft
         };
+    }
+
+    private async Task CaptureCreditNoteFiscalizationIncidentAsync(
+        string reference,
+        int? sapDocNum,
+        string cardCode,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            var incident = new ExceptionCenterIncidentEntity
+            {
+                Source = "credit-note-fiscalization",
+                Category = "REVMax",
+                Title = "Credit note fiscalization issue",
+                Reference = string.IsNullOrWhiteSpace(reference)
+                    ? $"SAP Credit Note {sapDocNum}"
+                    : reference,
+                Status = "RequiresReview",
+                SourceSystem = "CreditNote",
+                Provider = "REVMax",
+                LastError = message.Length > 2000 ? message[..2000] : message,
+                RetryCount = 0,
+                MaxRetries = 0,
+                CanRetry = false,
+                CreatedAtUtc = now,
+                OccurredAtUtc = now,
+                DetailsJson = JsonSerializer.Serialize(new
+                {
+                    SapDocNum = sapDocNum,
+                    CardCode = cardCode
+                })
+            };
+
+            _context.ExceptionCenterIncidents.Add(incident);
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to capture credit note fiscalization incident for {Reference}", reference);
+        }
     }
 }

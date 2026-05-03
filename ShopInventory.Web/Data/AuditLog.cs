@@ -178,6 +178,10 @@ public static class AuditActions
     // Dashboard actions
     public const string ViewDashboard = "ViewDashboard";
     public const string ViewReports = "ViewReports";
+    public const string ViewExceptionCenter = "ViewExceptionCenter";
+    public const string RetryExceptionCenterItem = "RetryExceptionCenterItem";
+    public const string AcknowledgeExceptionCenterItem = "AcknowledgeExceptionCenterItem";
+    public const string AssignExceptionCenterItem = "AssignExceptionCenterItem";
 
     // Document actions
     public const string DownloadInvoicePdf = "DownloadInvoicePdf";

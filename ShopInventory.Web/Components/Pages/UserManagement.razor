@@ -76,7 +76,7 @@
                 <option value="locked">Locked</option>
             </select>
             @if (!string.IsNullOrEmpty(searchTerm) || !string.IsNullOrEmpty(roleFilter) ||
-                                                                                                                                                                    !string.IsNullOrEmpty(statusFilter))
+                                                                                                                                                                                !string.IsNullOrEmpty(statusFilter))
             {
                 <button class="um-btn um-btn-ghost" @onclick="ResetFilters">
                     <i class="bi bi-x-lg"></i> Clear
@@ -197,7 +197,7 @@
             {
                 <div class="um-pagination">
                     <span class="um-page-info">Showing @((currentPage - 1) * pageSize + 1)–@Math.Min(currentPage * pageSize,
-                                                                                                                                                                                                                                                                                                                                    users.Count + (currentPage - 1) * pageSize) of page @currentPage</span>
+                                                                                                                                                                                                                                                                                                                                                            users.Count + (currentPage - 1) * pageSize) of page @currentPage</span>
                         <div class="um-page-buttons">
                             <button class="um-page-btn" disabled="@(currentPage <= 1)" @onclick="() => GoToPage(currentPage - 1)">
                                 <i class="bi bi-chevron-left"></i>
@@ -289,7 +289,7 @@
                                 }
                                 else if (role == "PodOperator")
                                 {
-                                    <text>Access to Proof of Delivery (POD) only</text>
+                                    <text>Access to Proof of Delivery (POD) flows scoped to an assigned section</text>
                                 }
                             </p>
                         </div>
@@ -367,8 +367,7 @@
                         <div class="um-form-grid">
                             <div class="um-form-field">
                                 <label>Username <span class="required">*</span></label>
-                                <InputText class="um-input" @bind-Value="userModel.Username" disabled="@(editingUser != null)"
-                                           placeholder="e.g. john.doe" />
+                                <InputText class="um-input" @bind-Value="userModel.Username" placeholder="e.g. john.doe" />
                                 <ValidationMessage For="@(() => userModel.Username)" />
                             </div>
                             <div class="um-form-field">
@@ -457,7 +456,7 @@
                                         (@userModel.AssignedWarehouseCodes.Count selected)</small>
                                     </div>
                                 }
-                                @if (userModel.Role == "Driver")
+                                @if (userModel.Role == "Driver" || userModel.Role == "PodOperator")
                                 {
                                     <div class="um-form-field">
                                         <label>Assigned Section <span class="required">*</span></label>
@@ -3496,21 +3495,45 @@ new();
     private async Task SaveUser()
     {
         isSaving = true;
+        var isEditing = editingUser != null;
+        var originalUsername = editingUser?.Username;
+        var originalEmail = editingUser?.Email;
         try
         {
-            if (editingUser == null)
+            if (!isEditing)
             {
                 await UserService.CreateUserAsync(userModel);
                 Snackbar.Add("User created successfully", Severity.Success);
             }
             else
             {
-                await UserService.UpdateUserAsync(editingUser.Id, userModel);
+                var userToEdit = editingUser;
+                if (userToEdit is null)
+                {
+                    Snackbar.Add("No user selected for editing.", Severity.Error);
+                    return;
+                }
+
+                await UserService.UpdateUserAsync(userToEdit.Id, userModel);
                 Snackbar.Add("User updated successfully", Severity.Success);
+
+                var usernameChanged = !string.Equals(originalUsername, userModel.Username, StringComparison.OrdinalIgnoreCase);
+                var emailChanged = !string.Equals(originalEmail, userModel.Email, StringComparison.OrdinalIgnoreCase);
+                if ((usernameChanged || emailChanged) && AuthStateProvider is CustomAuthStateProvider customAuthStateProvider)
+                {
+                    var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                    var currentUsername = authState.User.Identity?.Name;
+                    if (!string.IsNullOrWhiteSpace(currentUsername) &&
+                        string.Equals(currentUsername, originalUsername, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await customAuthStateProvider.UpdateUserProfileAsync(userModel.Username, userModel.Email);
+                    }
+                }
             }
+
+            await AuditService.LogAsync(isEditing ? "UpdateUser" : "CreateUser", "User", userModel.Username);
             CloseModal();
             await LoadUsers();
-            await AuditService.LogAsync(editingUser == null ? "CreateUser" : "UpdateUser", "User", userModel.Username);
         }
         catch (Exception ex)
         {
@@ -3703,12 +3726,14 @@ new();
         isSaving = true;
         try
         {
-            await UserService.DeleteUserAsync(deleteTargetUser.Id);
-            Snackbar.Add($"User {deleteTargetUser.Username} deleted permanently", Severity.Success);
+            var targetUser = deleteTargetUser;
+
+            await UserService.DeleteUserAsync(targetUser.Id);
+            Snackbar.Add($"User {targetUser.Username} deleted permanently", Severity.Success);
             CloseDeleteConfirmModal();
             await LoadUsers();
             await LoadSecurityStats();
-            await AuditService.LogAsync("DeleteUser", "User", deleteTargetUser.Username);
+            await AuditService.LogAsync("DeleteUser", "User", targetUser.Username);
         }
         catch (Exception ex)
         {
@@ -3892,9 +3917,9 @@ new();
                 yield return new ValidationResult("At least one warehouse is required for this role", new[] {
 nameof(AssignedWarehouseCodes) });
             }
-            if (Role == "Driver" && string.IsNullOrWhiteSpace(AssignedSection))
+            if ((Role == "Driver" || Role == "PodOperator") && string.IsNullOrWhiteSpace(AssignedSection))
             {
-                yield return new ValidationResult("An assigned section is required for Driver role", new[] {
+                yield return new ValidationResult("An assigned section is required for Driver and PodOperator roles", new[] {
 nameof(AssignedSection) });
             }
             if (Role == "Merchandiser" && AssignedCustomerCodes.Count == 0)

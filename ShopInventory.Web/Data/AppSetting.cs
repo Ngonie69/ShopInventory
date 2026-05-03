@@ -98,6 +98,9 @@ public static class SettingKeys
     public const string IncomingPaymentGLAccount = "IncomingPaymentGLAccount";
     public const string AllowedPaymentBusinessPartners = "AllowedPaymentBusinessPartners";
     public const string DefaultPaymentMethod = "DefaultPaymentMethod";
+
+    // Driver settings
+    public const string DriverVisibleBusinessPartners = "DriverVisibleBusinessPartners";
 }
 
 /// <summary>
@@ -113,4 +116,5 @@ public static class SettingCategories
     public const string Notifications = "Notifications";
     public const string Printing = "Printing";
     public const string Payments = "Payments";
+    public const string DriverAccess = "Driver Access";
 }

@@ -4,6 +4,7 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
+using ShopInventory.Models.Entities;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -170,18 +171,30 @@ public class PaymentGatewayService : IPaymentGatewayService
             {
                 _logger.LogWarning("Callback received for unknown transaction. Provider: {Provider}, ExternalId: {ExternalId}, Reference: {Reference}",
                     normalizedProvider, payload.ExternalTransactionId, payload.Reference);
+                await CaptureRejectedCallbackIncidentAsync(
+                    normalizedProvider,
+                    payload,
+                    "Callback received for an unknown payment transaction.");
                 return false;
             }
 
             if (!VerifyCallbackSignature(normalizedProvider, payload))
             {
                 _logger.LogWarning("Invalid callback signature for transaction {Id}", transaction.Id);
+                await CaptureRejectedCallbackIncidentAsync(
+                    normalizedProvider,
+                    payload,
+                    $"Invalid callback signature for payment transaction {transaction.Id}.");
                 return false;
             }
 
             if (!CallbackMatchesTransaction(transaction, payload))
             {
                 _logger.LogWarning("Callback payload did not match transaction {Id}", transaction.Id);
+                await CaptureRejectedCallbackIncidentAsync(
+                    normalizedProvider,
+                    payload,
+                    $"Callback payload did not match payment transaction {transaction.Id}.");
                 return false;
             }
 
@@ -597,6 +610,51 @@ public class PaymentGatewayService : IPaymentGatewayService
         };
     }
 
+    private async Task CaptureRejectedCallbackIncidentAsync(string provider, PaymentCallbackPayload payload, string reason)
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            var incident = new ExceptionCenterIncidentEntity
+            {
+                Source = "payment-callback-rejection",
+                Category = "Payment Callback",
+                Title = $"{provider} callback rejected",
+                Reference = payload.Reference
+                    ?? payload.ExternalTransactionId
+                    ?? payload.TransactionId
+                    ?? $"{provider}-{now:yyyyMMddHHmmssfff}",
+                Status = "RequiresReview",
+                Provider = provider,
+                LastError = TruncateError(reason),
+                RetryCount = 0,
+                MaxRetries = 0,
+                CanRetry = false,
+                CreatedAtUtc = now,
+                OccurredAtUtc = now,
+                DetailsJson = JsonSerializer.Serialize(new
+                {
+                    payload.TransactionId,
+                    payload.ExternalTransactionId,
+                    payload.Reference,
+                    payload.Status,
+                    payload.StatusMessage,
+                    payload.Amount,
+                    payload.Currency,
+                    payload.Signature,
+                    payload.RawData
+                })
+            };
+
+            _context.ExceptionCenterIncidents.Add(incident);
+            await _context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist rejected payment callback incident for provider {Provider}", provider);
+        }
+    }
+
     private bool VerifyCallbackSignature(string provider, PaymentCallbackPayload payload)
     {
         if (string.IsNullOrWhiteSpace(payload.Signature))
@@ -638,6 +696,9 @@ public class PaymentGatewayService : IPaymentGatewayService
             _ => string.Empty
         };
     }
+
+    private static string TruncateError(string message)
+        => message.Length > 2000 ? message[..2000] : message;
 
     private bool IsProviderEnabled(string provider)
     {

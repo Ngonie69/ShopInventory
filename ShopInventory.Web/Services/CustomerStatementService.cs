@@ -60,14 +60,23 @@ public class CustomerStatementService : ICustomerStatementService
     {
         try
         {
-            // Get customer info
-            var customer = await _businessPartnerService.GetBusinessPartnerByCodeAsync(cardCode);
+            var customerTask = _businessPartnerService.GetBusinessPartnerByCodeAsync(cardCode);
+            var invoiceCardCodesTask = _linkedAccountService.GetAllCardCodesAsync(cardCode);
+
+            await Task.WhenAll(customerTask, invoiceCardCodesTask);
+
+            var customer = customerTask.Result;
             if (customer == null)
             {
                 throw new InvalidOperationException("Customer not found");
             }
 
-            var accountStructure = await _linkedAccountService.GetAccountStructureAsync(cardCode);
+            var invoiceCardCodes = invoiceCardCodesTask.Result
+                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var accountStructure = invoiceCardCodes.Count > 1 ? "Multi" : "Single";
 
             var response = new CustomerStatementResponse
             {
@@ -87,31 +96,34 @@ public class CustomerStatementService : ICustomerStatementService
                 Lines = new List<StatementLine>()
             };
 
-            // Populate payment terms on customer info
-            if (customer.PayTermGrpCode.HasValue)
+            var paymentTermsTask = customer.PayTermGrpCode.HasValue
+                ? _businessPartnerService.GetPaymentTermsAsync(customer.PayTermGrpCode.Value)
+                : Task.FromResult<PaymentTermsDto?>(null);
+
+            var agingTask = GetAgingSummaryAsync(cardCode);
+
+            var invoiceTasksByCardCode = invoiceCardCodes.ToDictionary(
+                invoiceCardCode => invoiceCardCode,
+                invoiceCardCode => GetInvoicesForPeriodAsync(invoiceCardCode, request.FromDate, request.ToDate, request.IncludeClosedInvoices),
+                StringComparer.OrdinalIgnoreCase);
+
+            var paymentsTask = GetPaymentHistoryForCardCodesAsync(invoiceCardCodes, request.FromDate, request.ToDate);
+
+            await Task.WhenAll(
+                invoiceTasksByCardCode.Values.Cast<Task>()
+                    .Append(paymentsTask)
+                    .Append(paymentTermsTask)
+                    .Append(agingTask));
+
+            var paymentTerms = paymentTermsTask.Result;
+            if (paymentTerms != null)
             {
-                var paymentTerms = await _businessPartnerService.GetPaymentTermsAsync(customer.PayTermGrpCode.Value);
-                if (paymentTerms != null)
-                {
-                    response.Customer.PaymentTermsName = paymentTerms.PaymentTermsGroupName;
-                    response.Customer.PaymentTermsDays = (paymentTerms.NumberOfAdditionalMonths * 30) + paymentTerms.NumberOfAdditionalDays;
-                }
+                response.Customer.PaymentTermsName = paymentTerms.PaymentTermsGroupName;
+                response.Customer.PaymentTermsDays = (paymentTerms.NumberOfAdditionalMonths * 30) + paymentTerms.NumberOfAdditionalDays;
             }
 
-            // For multi-account: get invoices/payments from all accounts (main + sub)
-            // Sub account invoices have balances that roll up to the parent main account
-            var invoiceCardCodes = await _linkedAccountService.GetAllCardCodesAsync(cardCode);
-            var allInvoices = new List<CustomerInvoiceSummary>();
-            var allPayments = new List<CustomerPaymentSummary>();
-
-            foreach (var invoiceCardCode in invoiceCardCodes)
-            {
-                var invoices = await GetInvoicesForPeriodAsync(invoiceCardCode, request.FromDate, request.ToDate, request.IncludeClosedInvoices);
-                allInvoices.AddRange(invoices);
-
-                var payments = await GetPaymentsForPeriodAsync(invoiceCardCode, request.FromDate, request.ToDate);
-                allPayments.AddRange(payments);
-            }
+            var allInvoices = invoiceTasksByCardCode.Values.SelectMany(task => task.Result).ToList();
+            var allPayments = paymentsTask.Result;
 
             // Combine and sort transactions
             var allTransactions = new List<(DateTime Date, string Type, StatementLine Line)>();
@@ -173,7 +185,7 @@ public class CustomerStatementService : ICustomerStatementService
             response.ClosingBalance = runningBalance;
 
             // Get aging summary (aggregated across all main accounts)
-            response.Aging = await GetAgingSummaryAsync(cardCode);
+            response.Aging = agingTask.Result;
 
             return response;
         }
@@ -704,8 +716,18 @@ public class CustomerStatementService : ICustomerStatementService
 
         var paymentTasks = distinctCardCodes.Select(async acctCardCode =>
         {
-            var response = await _httpClient.GetFromJsonAsync<IncomingPaymentDateResponse>(
-                $"api/incomingpayment/customer/{acctCardCode}");
+            var url = $"api/incomingpayment/customer/{Uri.EscapeDataString(acctCardCode)}";
+            var queryParams = new List<string>();
+
+            if (fromDate.HasValue)
+                queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+            if (toDate.HasValue)
+                queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+
+            if (queryParams.Count > 0)
+                url += "?" + string.Join("&", queryParams);
+
+            var response = await _httpClient.GetFromJsonAsync<IncomingPaymentDateResponse>(url);
             var payments = response?.Payments ?? new List<IncomingPaymentDto>();
 
             return payments
@@ -782,7 +804,7 @@ public class CustomerStatementService : ICustomerStatementService
     {
         try
         {
-            var invoiceResponse = await _invoiceService.GetInvoicesByCustomerAsync(cardCode);
+            var invoiceResponse = await _invoiceService.GetInvoicesByCustomerAsync(cardCode, fromDate, toDate);
             var invoices = invoiceResponse?.Invoices ?? new List<InvoiceDto>();
 
             return invoices
@@ -818,7 +840,7 @@ public class CustomerStatementService : ICustomerStatementService
     private async Task<List<CustomerPaymentSummary>> GetPaymentsForPeriodAsync(
         string cardCode, DateTime fromDate, DateTime toDate)
     {
-        return await GetPaymentHistoryAsync(cardCode, fromDate, toDate);
+        return await GetPaymentHistoryForCardCodesAsync(new[] { cardCode }, fromDate, toDate);
     }
 
     private static DateTime ParseDate(string? dateStr)

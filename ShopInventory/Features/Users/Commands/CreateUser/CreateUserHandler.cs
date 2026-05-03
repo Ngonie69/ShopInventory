@@ -30,12 +30,12 @@ public sealed class CreateUserHandler(
             return Errors.User.CreationFailed("Username and password are required");
         }
 
-        if (await context.Users.WhereUsernameMatches(request.Username).AnyAsync(cancellationToken))
+        if (await context.Users.WhereUsernameOrEmailMatches(request.Username).AnyAsync(cancellationToken))
         {
             return Errors.User.DuplicateUsername;
         }
 
-        if (!string.IsNullOrEmpty(request.Email) && await context.Users.WhereEmailMatches(request.Email).AnyAsync(cancellationToken))
+        if (!string.IsNullOrEmpty(request.Email) && await context.Users.WhereUsernameOrEmailMatches(request.Email).AnyAsync(cancellationToken))
         {
             return Errors.User.CreationFailed("Email already exists");
         }
@@ -55,9 +55,9 @@ public sealed class CreateUserHandler(
             return Errors.User.CreationFailed("At least one assigned customer code is required for Merchandiser role");
         }
 
-        if (request.Role == "Driver" && string.IsNullOrWhiteSpace(request.AssignedSection))
+        if ((request.Role == "Driver" || request.Role == "PodOperator") && string.IsNullOrWhiteSpace(request.AssignedSection))
         {
-            return Errors.User.CreationFailed("An assigned section is required for Driver role");
+            return Errors.User.CreationFailed("An assigned section is required for Driver and PodOperator roles");
         }
 
         var user = new User
@@ -79,7 +79,7 @@ public sealed class CreateUserHandler(
         if (request.Role == "Merchandiser")
             user.SetCustomerCodes(request.AssignedCustomerCodes);
 
-        if (request.Role == "Driver")
+        if (request.Role == "Driver" || request.Role == "PodOperator")
             user.AssignedSection = request.AssignedSection;
 
         context.Users.Add(user);

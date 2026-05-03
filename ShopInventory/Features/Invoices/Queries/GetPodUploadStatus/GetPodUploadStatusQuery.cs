@@ -4,4 +4,4 @@ using ShopInventory.DTOs;
 
 namespace ShopInventory.Features.Invoices.Queries.GetPodUploadStatus;
 
-public sealed record GetPodUploadStatusQuery(DateTime FromDate, DateTime ToDate) : IRequest<ErrorOr<PodUploadStatusReportDto>>;
+public sealed record GetPodUploadStatusQuery(DateTime FromDate, DateTime ToDate, Guid UserId) : IRequest<ErrorOr<PodUploadStatusReportDto>>;

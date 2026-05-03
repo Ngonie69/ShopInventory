@@ -4,6 +4,7 @@
 @inject IAuditService AuditService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IAppSettingsProvider AppSettings
+@inject Microsoft.JSInterop.IJSRuntime JS
 @attribute [Authorize(Roles = "Admin")]
 @rendermode InteractiveServer
 @implements IDisposable
@@ -1713,12 +1714,7 @@
 
     private IEnumerable<AuditLog> filteredLogs => string.IsNullOrWhiteSpace(_searchString)
         ? logs
-        : logs.Where(x =>
-            (x.Username?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
-            (x.UserRole?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
-            (x.Action?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
-            (x.EntityType?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
-            (x.Details?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true));
+        : logs.Where(MatchesQuickSearch);
 
     private string GetRoleBadgeClass(string? role) => role switch
     {
@@ -1979,10 +1975,104 @@
         await LoadLogs();
     }
 
-    private Task ExportLogs()
+    private async Task ExportLogs()
     {
-        // TODO: Implement CSV export
-        return Task.CompletedTask;
+        errorMessage = null;
+
+        try
+        {
+            var exportCount = totalCount ?? await AuditService.GetLogCountAsync(fromDate, toDate, selectedUser, selectedAction);
+            var exportLogs = await AuditService.GetLogsAsync(
+                fromDate,
+                toDate,
+                selectedUser,
+                selectedAction,
+                page: 1,
+                pageSize: Math.Max(exportCount, 1));
+
+            var rows = string.IsNullOrWhiteSpace(_searchString)
+                ? exportLogs
+                : exportLogs.Where(MatchesQuickSearch).ToList();
+
+            var csvContent = BuildCsv(rows);
+            var csvBytes = System.Text.Encoding.UTF8.GetPreamble()
+                .Concat(System.Text.Encoding.UTF8.GetBytes(csvContent))
+                .ToArray();
+            var fileName = $"AuditTrail_{IAuditService.ToCAT(DateTime.UtcNow):yyyyMMdd_HHmmss}.csv";
+
+            await JS.InvokeVoidAsync(
+                "downloadFile",
+                fileName,
+                "text/csv;charset=utf-8",
+                Convert.ToBase64String(csvBytes));
+
+            await AuditService.LogAsync(
+                AuditActions.ExportAuditTrail,
+                "AuditLog",
+                null,
+                $"Exported {rows.Count:N0} audit log entries to CSV.",
+                true);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to export audit logs: {ex.Message}";
+
+            await AuditService.LogAsync(
+                AuditActions.ExportAuditTrail,
+                "AuditLog",
+                null,
+                "Failed to export audit log entries to CSV.",
+                false,
+                ex.Message);
+        }
+    }
+
+    private bool MatchesQuickSearch(AuditLog log) =>
+        (log.Username?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
+        (log.UserRole?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
+        (log.Action?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
+        (log.EntityType?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
+        (log.Details?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true);
+
+    private static string BuildCsv(IEnumerable<AuditLog> auditLogs)
+    {
+        var csv = new System.Text.StringBuilder();
+        csv.AppendLine("Timestamp CAT,Username,User Role,Action,Entity Type,Entity Id,Details,Page Url,Status,Error Message,IP Address,User Agent");
+
+        foreach (var log in auditLogs)
+        {
+            csv.AppendJoin(',',
+                EscapeCsv(IAuditService.ToCAT(log.Timestamp).ToString("yyyy-MM-dd HH:mm:ss")),
+                EscapeCsv(log.Username),
+                EscapeCsv(log.UserRole),
+                EscapeCsv(log.Action),
+                EscapeCsv(log.EntityType),
+                EscapeCsv(log.EntityId),
+                EscapeCsv(log.Details),
+                EscapeCsv(log.PageUrl),
+                EscapeCsv(log.IsSuccess ? "Success" : "Failed"),
+                EscapeCsv(log.ErrorMessage),
+                EscapeCsv(log.IpAddress),
+                EscapeCsv(log.UserAgent));
+            csv.AppendLine();
+        }
+
+        return csv.ToString();
+    }
+
+    private static string EscapeCsv(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return string.Empty;
+        }
+
+        var normalized = value.Replace("\r\n", "\n").Replace('\r', '\n');
+        var escaped = normalized.Replace("\"", "\"\"");
+
+        return escaped.IndexOfAny(new[] { ',', '\"', '\n' }) >= 0
+            ? $"\"{escaped}\""
+            : escaped;
     }
 
     private async Task LogViewAudit()

@@ -216,10 +216,14 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         [FromQuery] string? search = null,
         CancellationToken cancellationToken = default)
     {
-        Guid? uploadedByUserId = User.IsInRole("Driver") ? GetUserId() : null;
+        var userId = GetUserId();
+        if (userId == null)
+            return Unauthorized();
+
+        Guid? uploadedByUserId = User.IsInRole("Driver") ? userId : null;
 
         var result = await mediator.Send(
-            new GetAllPodsQuery(page, pageSize, cardCode, fromDate, toDate, search, uploadedByUserId),
+            new GetAllPodsQuery(page, pageSize, cardCode, fromDate, toDate, search, uploadedByUserId, userId.Value),
             cancellationToken);
 
         return result.Match(Ok, Problem);
@@ -234,8 +238,12 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         [FromQuery] DateTime toDate,
         CancellationToken cancellationToken = default)
     {
+        var userId = GetUserId();
+        if (userId == null)
+            return Unauthorized();
+
         var result = await mediator.Send(
-            new GetPodUploadStatusQuery(fromDate, toDate), cancellationToken);
+            new GetPodUploadStatusQuery(fromDate, toDate, userId.Value), cancellationToken);
 
         return result.Match(Ok, Problem);
     }

@@ -73,10 +73,8 @@
             window.downloadFile = function (fileName, contentTypeOrBase64, base64Content) {
                 let base64Data, contentType;
 
-                // Check if called with 2 parameters (fileName, base64) or 3 parameters (fileName, contentType, base64)
                 if (arguments.length === 2 || base64Content === undefined) {
                     base64Data = contentTypeOrBase64;
-                    // Auto-detect content type based on file extension
                     if (fileName.endsWith('.xlsx')) {
                         contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
                     } else if (fileName.endsWith('.pdf')) {
@@ -91,13 +89,21 @@
                     base64Data = base64Content;
                 }
 
-                const linkSource = `data:${contentType};base64,${base64Data}`;
+                const binaryString = atob(base64Data);
+                const byteArray = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    byteArray[i] = binaryString.charCodeAt(i);
+                }
+
+                const blob = new Blob([byteArray], { type: contentType });
+                const url = window.URL.createObjectURL(blob);
                 const downloadLink = document.createElement('a');
-                downloadLink.href = linkSource;
+                downloadLink.href = url;
                 downloadLink.download = fileName;
                 document.body.appendChild(downloadLink);
                 downloadLink.click();
                 document.body.removeChild(downloadLink);
+                window.URL.revokeObjectURL(url);
             };
 
             // Print HTML content using a hidden iframe (avoids popup blocker issues in Blazor Server)
@@ -127,7 +133,7 @@
     </script>
     <script src="js/app.js?v=6"></script>
     <script src="js/passkeys.js?v=1"></script>
-    <script src="js/signature-pad.js"></script>
+    <script src="js/signature-pad.js?v=2"></script>
 
     <!-- Loading screen shown while Blazor connects -->
     <div id="blazor-loading"

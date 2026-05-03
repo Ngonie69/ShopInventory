@@ -128,9 +128,9 @@ public class AuthService : IAuthService
             return null;
         }
 
-        // Find user in database (case-insensitive username)
+        // Find user in database (case-insensitive username or email)
         var user = await _dbContext.Users
-            .WhereUsernameMatches(request.Username)
+            .WhereUsernameOrEmailMatches(request.Username)
             .FirstOrDefaultAsync();
 
         if (user == null)
@@ -298,15 +298,15 @@ public class AuthService : IAuthService
 
     public async Task<User?> RegisterUserAsync(string username, string email, string password, string role)
     {
-        // Check if username already exists
-        if (await _dbContext.Users.WhereUsernameMatches(username).AnyAsync())
+        // Reject usernames that collide with any existing login credential.
+        if (await _dbContext.Users.WhereUsernameOrEmailMatches(username).AnyAsync())
         {
             _logger.LogWarning("Registration attempt with existing username: {Username}", username);
             return null;
         }
 
-        // Check if email already exists
-        if (!string.IsNullOrEmpty(email) && await _dbContext.Users.WhereEmailMatches(email).AnyAsync())
+        // Reject emails that collide with any existing login credential.
+        if (!string.IsNullOrEmpty(email) && await _dbContext.Users.WhereUsernameOrEmailMatches(email).AnyAsync())
         {
             _logger.LogWarning("Registration attempt with existing email: {Email}", email);
             return null;

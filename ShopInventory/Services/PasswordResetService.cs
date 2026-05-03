@@ -363,7 +363,7 @@ public class PasswordResetService : IPasswordResetService
         {
             var usernameTaken = await _context.Users
                 .Where(u => u.Id != userId)
-                .WhereUsernameMatches(requestedUsername!)
+                .WhereUsernameOrEmailMatches(requestedUsername!)
                 .AnyAsync();
             if (usernameTaken)
             {
@@ -375,7 +375,7 @@ public class PasswordResetService : IPasswordResetService
         {
             var emailTaken = await _context.Users
                 .Where(u => u.Id != userId)
-                .WhereEmailMatches(requestedEmail)
+                .WhereUsernameOrEmailMatches(requestedEmail)
                 .AnyAsync();
             if (emailTaken)
             {

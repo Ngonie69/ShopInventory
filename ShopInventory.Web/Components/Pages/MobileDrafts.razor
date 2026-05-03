@@ -271,7 +271,11 @@
     .status-badge.partial { background: #e0e7ff; color: #3730a3; }
     .status-badge.fulfilled { background: #dbeafe; color: #1e40af; }
     .status-badge.invoiced { background: #d1fae5; color: #065f46; }
-    .status-badge.cancelled { background: #fee2e2; color: #991b1b; }
+    .status-badge.cancelled {
+        background-color: #dc2626 !important;
+        color: #fff !important;
+        border: 1px solid #dc2626;
+    }
     .status-badge.on-hold { background: #374151; color: #fff; }
 
     /* ── Cell Styles ─────────────────────────────────── */
@@ -976,7 +980,7 @@
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">Status</div>
-                    <div class="detail-value"><span class="status-badge @GetStatusCssClass(selectedOrder.Status)">@selectedOrder.StatusName</span></div>
+                    <div class="detail-value"><span class="status-badge @GetStatusCssClass(GetSelectedOrderStatus())">@GetSelectedOrderStatusName()</span></div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">Currency</div>
@@ -1157,7 +1161,7 @@
             }
         </div>
         <div class="drawer-footer">
-            @if ((selectedOrder.Status == SalesOrderStatus.Draft || selectedOrder.Status == SalesOrderStatus.Pending) && !selectedOrder.IsSynced)
+            @if (CanEditSelectedOrder())
             {
                 <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem;"
                            Disabled="@IsOrderActionBusy(selectedOrder.Id)"
@@ -1183,7 +1187,7 @@
                     </Authorized>
                 </AuthorizeView>
             }
-            @if (selectedOrder.Status == SalesOrderStatus.Approved && !selectedOrder.IsSynced)
+            @if (CanPostSelectedOrderToSap())
             {
                 <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="sidebarPostAccess">
                     <Authorized>
@@ -1263,6 +1267,7 @@
     private string? purchaseOrderViewerMimeType;
     private DocumentAttachmentDto? purchaseOrderViewerAttachment;
     private readonly Dictionary<int, OrderActionType> orderActionStates = new();
+    private int ordersLoadVersion;
 
     // Filters
     private string? customerFilter;
@@ -1297,20 +1302,30 @@
         _table?.NavigateTo(i - 1);
     }
 
+    private SalesOrderStatus? GetSelectedStatusFilter()
+    {
+        if (!string.IsNullOrEmpty(statusFilter) && int.TryParse(statusFilter, out var statusInt))
+        {
+            return (SalesOrderStatus)statusInt;
+        }
+
+        return null;
+    }
+
     private async Task LoadOrders()
     {
+        var loadVersion = System.Threading.Interlocked.Increment(ref ordersLoadVersion);
         isLoading = true;
         errorMessage = null;
 
         try
         {
-            SalesOrderStatus? status = null;
-            if (!string.IsNullOrEmpty(statusFilter) && int.TryParse(statusFilter, out var statusInt))
-            {
-                status = (SalesOrderStatus)statusInt;
-            }
+            var status = GetSelectedStatusFilter();
 
             var response = await SalesOrderService.GetSalesOrdersAsync(currentPage, pageSize, status, customerFilter, fromDate, toDate, SalesOrderSource.Mobile);
+            if (loadVersion != ordersLoadVersion)
+                return;
+
             if (response != null)
             {
                 orders = response.Orders;
@@ -1318,6 +1333,9 @@
                 totalPages = response.TotalPages;
 
                 await PopulateMissingOrderPricesAsync(orders);
+                if (loadVersion != ordersLoadVersion)
+                    return;
+
                 await RefreshSelectedOrderAsync();
             }
             else
@@ -1327,11 +1345,17 @@
         }
         catch (Exception ex)
         {
+            if (loadVersion != ordersLoadVersion)
+                return;
+
             errorMessage = $"Error: {ex.Message}";
         }
         finally
         {
-            isLoading = false;
+            if (loadVersion == ordersLoadVersion)
+            {
+                isLoading = false;
+            }
         }
     }
 
@@ -1682,6 +1706,29 @@
     private bool IsOrderActionBusy(int id, OrderActionType action)
         => orderActionStates.TryGetValue(id, out var currentAction) && currentAction == action;
 
+    private SalesOrderDto? GetSelectedOrderListState()
+    {
+        if (selectedOrder == null)
+            return null;
+
+        return orders?.FirstOrDefault(order => order.Id == selectedOrder.Id);
+    }
+
+    private SalesOrderStatus GetSelectedOrderStatus()
+        => GetSelectedOrderListState()?.Status ?? selectedOrder?.Status ?? SalesOrderStatus.Draft;
+
+    private string GetSelectedOrderStatusName()
+        => GetSelectedOrderStatus().ToString();
+
+    private bool IsSelectedOrderSynced()
+        => GetSelectedOrderListState()?.IsSynced ?? selectedOrder?.IsSynced == true;
+
+    private bool CanEditSelectedOrder()
+        => selectedOrder != null && !IsSelectedOrderSynced() && GetSelectedOrderStatus() is SalesOrderStatus.Draft or SalesOrderStatus.Pending;
+
+    private bool CanPostSelectedOrderToSap()
+        => selectedOrder != null && !IsSelectedOrderSynced() && GetSelectedOrderStatus() == SalesOrderStatus.Approved;
+
     private static string FormatOrderLineCount(SalesOrderDto order)
     {
         var lineCount = order.Lines?.Count ?? 0;
@@ -1833,8 +1880,8 @@
                     selectedOrder = result;
                 }
 
+                ApplyOrderUpdateToList(result);
                 Snackbar.Add(successMessage, Severity.Success);
-                await LoadOrders();
             }
             else
             {
@@ -1864,8 +1911,8 @@
             var success = await SalesOrderService.DeleteSalesOrderAsync(id);
             if (success)
             {
+                await RemoveOrderFromListAsync(id);
                 Snackbar.Add("Order deleted successfully.", Severity.Success);
-                await LoadOrders();
             }
             else
             {
@@ -1906,4 +1953,43 @@
 
     private static string GetStatusChangeVerb(SalesOrderStatus status)
         => status == SalesOrderStatus.Draft ? "restore" : "cancel";
+
+    private void ApplyOrderUpdateToList(SalesOrderDto updatedOrder)
+    {
+        if (orders == null)
+            return;
+
+        var index = orders.FindIndex(order => order.Id == updatedOrder.Id);
+        if (index < 0)
+            return;
+
+        var activeStatusFilter = GetSelectedStatusFilter();
+        if (activeStatusFilter.HasValue && updatedOrder.Status != activeStatusFilter.Value)
+        {
+            orders.RemoveAt(index);
+            totalCount = Math.Max(0, totalCount - 1);
+            totalPages = totalCount == 0 ? 1 : (int)Math.Ceiling(totalCount / (double)pageSize);
+            return;
+        }
+
+        orders[index] = updatedOrder;
+    }
+
+    private async Task RemoveOrderFromListAsync(int id)
+    {
+        if (selectedOrder?.Id == id)
+        {
+            await ClearSelectedOrder();
+        }
+
+        if (orders == null)
+            return;
+
+        var removedCount = orders.RemoveAll(order => order.Id == id);
+        if (removedCount == 0)
+            return;
+
+        totalCount = Math.Max(0, totalCount - removedCount);
+        totalPages = totalCount == 0 ? 1 : (int)Math.Ceiling(totalCount / (double)pageSize);
+    }
 }

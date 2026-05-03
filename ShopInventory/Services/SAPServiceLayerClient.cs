@@ -909,6 +909,62 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             .ToList();
     }
 
+    public async Task<List<Invoice>> GetInvoiceHeadersByDocEntriesAsync(
+        IEnumerable<int> docEntries,
+        CancellationToken cancellationToken = default)
+    {
+        var distinctDocEntries = docEntries
+            .Where(docEntry => docEntry > 0)
+            .Distinct()
+            .ToList();
+
+        if (distinctDocEntries.Count == 0)
+            return [];
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var allInvoices = new List<Invoice>();
+
+        foreach (var chunk in distinctDocEntries.Chunk(50))
+        {
+            var currentSession = _sessionId;
+            var filter = string.Join(" or ", chunk.Select(docEntry => $"DocEntry eq {docEntry}"));
+            var url = $"Invoices?$filter={filter}&$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency&$expand=DocumentLines($select=WarehouseCode)&$top={chunk.Length}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to bulk get invoice headers by DocEntry: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to bulk get invoice headers: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var result = JsonSerializer.Deserialize<SAPResponse<Invoice>>(content);
+            if (result?.Value is { Count: > 0 })
+                allInvoices.AddRange(result.Value);
+        }
+
+        return allInvoices
+            .GroupBy(invoice => invoice.DocEntry)
+            .Select(group => group.First())
+            .ToList();
+    }
+
     public async Task<List<Invoice>> GetInvoicesByCustomerAsync(
         string cardCode,
         CancellationToken cancellationToken = default)
@@ -1129,12 +1185,13 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             filter += $" and {exclusions}";
         }
 
-        // Only select header fields - no DocumentLines
+        // Include line warehouse codes so location-scoped POD reporting can map invoices to user sections.
         var select = "$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency";
+        var expand = "$expand=DocumentLines($select=WarehouseCode)";
 
         while (hasMore)
         {
-            var url = $"Invoices?$filter={filter}&{select}&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+            var url = $"Invoices?$filter={filter}&{select}&{expand}&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -3609,6 +3666,63 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         var result = JsonSerializer.Deserialize<SAPResponse<IncomingPayment>>(content);
 
         return result?.Value ?? new List<IncomingPayment>();
+    }
+
+    public async Task<List<IncomingPayment>> GetIncomingPaymentsByCustomerAsync(
+        string cardCode,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var safeCardCode = SanitizeODataValue(cardCode);
+        var fromDateStr = fromDate.ToString("yyyy-MM-dd");
+        var toDateStr = toDate.ToString("yyyy-MM-dd");
+        var allPayments = new List<IncomingPayment>();
+        int skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
+
+        while (hasMore)
+        {
+            var url = $"IncomingPayments?$filter=CardCode eq '{safeCardCode}' and DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}' and Cancelled eq 'tNO'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get incoming payments for customer {CardCode} between {FromDate} and {ToDate}: {StatusCode} - {Error}",
+                    cardCode, fromDateStr, toDateStr, response.StatusCode, errorContent);
+                throw new Exception($"Failed to get incoming payments: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var result = JsonSerializer.Deserialize<SAPResponse<IncomingPayment>>(content);
+            var pagePayments = result?.Value ?? new List<IncomingPayment>();
+
+            allPayments.AddRange(pagePayments);
+            skip += pagePayments.Count;
+            hasMore = pagePayments.Count == pageSize;
+        }
+
+        return allPayments;
     }
 
     public async Task<List<IncomingPayment>> GetIncomingPaymentsByDateRangeAsync(

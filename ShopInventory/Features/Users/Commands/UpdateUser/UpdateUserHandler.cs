@@ -35,7 +35,7 @@ public sealed class UpdateUserHandler(
         {
             if (await context.Users
                 .Where(u => u.Id != command.Id)
-                .WhereEmailMatches(request.Email)
+                .WhereUsernameOrEmailMatches(request.Email)
                 .AnyAsync(cancellationToken))
             {
                 return Errors.User.UpdateFailed("Email already exists");
@@ -72,7 +72,7 @@ public sealed class UpdateUserHandler(
                 user.SetCustomerCodes(null);
         }
 
-        if (user.Role == "Driver")
+        if (user.Role == "Driver" || user.Role == "PodOperator")
             user.AssignedSection = request.AssignedSection;
         else
             user.AssignedSection = null;
@@ -87,9 +87,9 @@ public sealed class UpdateUserHandler(
             return Errors.User.UpdateFailed("At least one assigned customer code is required for Merchandiser role");
         }
 
-        if (user.Role == "Driver" && string.IsNullOrWhiteSpace(user.AssignedSection))
+        if ((user.Role == "Driver" || user.Role == "PodOperator") && string.IsNullOrWhiteSpace(user.AssignedSection))
         {
-            return Errors.User.UpdateFailed("An assigned section is required for Driver role");
+            return Errors.User.UpdateFailed("An assigned section is required for Driver and PodOperator roles");
         }
 
         user.UpdatedAt = DateTime.UtcNow;

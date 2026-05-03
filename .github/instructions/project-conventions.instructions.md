@@ -6,11 +6,15 @@ applyTo: "**"
 
 ## Timezone
 
-All timestamps are stored as **UTC** in the database. When displaying dates/times to users or in logs meant for human consumption, convert to **CAT (Central Africa Time, UTC+2)** using `AuditService.ToCAT()`. Never hardcode offsets — always use the `ToCAT()` helper. When creating new `DateTime` values, use `DateTime.UtcNow`, never `DateTime.Now`.
+All timestamps are stored as **UTC** in the database. Convert timestamps to **CAT (Central Africa Time, UTC+2)** with `AuditService.ToCAT()` only for user-facing output and for logs that are explicitly created for operator or audit review. Keep machine-oriented, system, and internal diagnostic logs in UTC. Never hardcode offsets — always use the `ToCAT()` helper. When creating new `DateTime` values, use `DateTime.UtcNow`, never `DateTime.Now`.
 
 ## Vertical Slice Architecture (CQRS + MediatR)
 
-All features in **both projects** (API and Web) **must** follow the vertical slice architecture using CQRS with MediatR. Business logic lives in feature handlers, not controllers or standalone services.
+All features in **both projects** (API and Web) **must** follow the vertical slice architecture using CQRS with MediatR. Apply it with this checklist:
+
+1. Put business logic in feature handlers, not controllers or standalone services.
+2. Place writes under `Commands`, reads under `Queries`, and optional side effects under `Events`.
+3. Follow the file, handler, validation, and controller rules below for the touched slice.
 
 When modifying an existing feature that still uses the old `Services/` pattern, **migrate it to a vertical slice** as part of the change. Do not add new logic to legacy service classes.
 
@@ -32,17 +36,25 @@ ShopInventory/Features/{Domain}/
 
 ### Rules
 
+#### Structure and types
+
 - **One file per class.** No multiple types in a single file.
 - **Commands** are for writes (create, update, delete). **Queries** are for reads.
-- Return `ErrorOr<T>` from all handlers — never throw exceptions for business rule violations.
 - Use `sealed record` for commands and queries (immutable, value equality).
 - Use `sealed class` with **primary constructors** for handlers and validators.
-- Controllers are **thin dispatchers** — inject only `IMediator`, call `mediator.Send()`, and map results via `result.Match()`. No business logic in controllers.
-- Controllers inherit from `ApiControllerBase` which provides `Problem(List<Error>)` for error-to-HTTP mapping.
-- Domain-specific errors go in `ShopInventory/Common/Errors/Errors.{Domain}.cs`.
+
+#### Handlers and data flow
+
+- Return `ErrorOr<T>` from all handlers — never throw exceptions for business rule violations.
 - Validation pipeline (`ValidationBehavior`) runs `FluentValidation` validators automatically — do not call validators manually.
 - Queries **must** use `AsNoTracking()` and project directly to DTOs via `Select()`.
 - Always pass `CancellationToken` through the entire call chain.
+
+#### Controllers and errors
+
+- Controllers are **thin dispatchers** — inject only `IMediator`, call `mediator.Send()`, and map results via `result.Match()`. No business logic in controllers.
+- Controllers inherit from `ApiControllerBase` which provides `Problem(List<Error>)` for error-to-HTTP mapping.
+- Domain-specific errors go in `ShopInventory/Common/Errors/Errors.{Domain}.cs`.
 
 ### Do NOT
 

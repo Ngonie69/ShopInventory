@@ -116,14 +116,16 @@ public class IncomingPaymentController(IMediator mediator) : ApiControllerBase
     /// Gets incoming payments for a specific customer
     /// </summary>
     [HttpGet("customer/{cardCode}")]
-    [ProducesResponseType(typeof(List<IncomingPaymentDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(IncomingPaymentDateResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetIncomingPaymentsByCustomer(
         string cardCode,
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetPaymentsByCustomerQuery(cardCode), cancellationToken);
+        var result = await mediator.Send(new GetPaymentsByCustomerQuery(cardCode, fromDate, toDate), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

@@ -1,0 +1,212 @@
+@page "/exception-center"
+@attribute [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
+@rendermode InteractiveServer
+
+<PageTitle>Exception Center</PageTitle>
+
+<div class="exc-page">
+    <div class="exc-hero">
+        <div>
+            <div class="exc-kicker">Operator queue</div>
+            <h1>Exception Center</h1>
+            <p>One queue for SAP posting failures, REVMax issues, mobile sync retries, and failed payment callbacks.</p>
+        </div>
+        <div class="exc-actions">
+            <button class="btn btn-outline-secondary" @onclick="ReloadAsync" disabled="@isLoading">Refresh</button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="exc-alert exc-alert-error">@errorMessage</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+        <div class="exc-alert exc-alert-success">@successMessage</div>
+    }
+
+    <div class="exc-stats">
+        <div class="exc-stat exc-stat-ink"><span>Open</span><strong>@(dashboard?.OpenCount ?? 0)</strong></div>
+        <div class="exc-stat exc-stat-red"><span>Requires Review</span><strong>@(dashboard?.RequiresReviewCount ??
+                            0)</strong></div>
+            <div class="exc-stat exc-stat-amber"><span>Retry Scheduled</span><strong>@(dashboard?.RetryScheduledCount ??
+                                0)</strong></div>
+                <div class="exc-stat exc-stat-sand"><span>SAP</span><strong>@(dashboard?.SapIssueCount ?? 0)</strong></div>
+                <div class="exc-stat exc-stat-slate"><span>REVMax</span><strong>@(dashboard?.RevmaxIssueCount ?? 0)</strong>
+                </div>
+                <div class="exc-stat exc-stat-mint"><span>Sync</span><strong>@(dashboard?.SyncIssueCount ?? 0)</strong></div>
+                <div class="exc-stat exc-stat-blue"><span>Payments</span><strong>@(dashboard?.PaymentIssueCount ?? 0)</strong>
+                </div>
+            </div>
+
+            <div class="exc-filters">
+                <div class="exc-filter-field exc-filter-search">
+                    <label>Search</label>
+                    <input type="text" @bind="searchText" @bind:event="oninput"
+                           placeholder="Reference, title, assignee, error" />
+                </div>
+                <div class="exc-filter-field">
+                    <label>Source</label>
+                    <select @bind="selectedSource">
+                        @foreach (var option in SourceOptions)
+                        {
+                            <option value="@option">@option</option>
+                        }
+                    </select>
+                </div>
+                <div class="exc-filter-field">
+                    <label>Category</label>
+                    <select @bind="selectedCategory">
+                        @foreach (var option in CategoryOptions)
+                        {
+                            <option value="@option">@option</option>
+                        }
+                    </select>
+                </div>
+                <div class="exc-filter-field">
+                    <label>Status</label>
+                    <select @bind="selectedStatus">
+                        @foreach (var option in StatusOptions)
+                        {
+                            <option value="@option">@option</option>
+                        }
+                    </select>
+                </div>
+                <div class="exc-filter-field">
+                    <label>Assignment</label>
+                    <select @bind="selectedAssignment">
+                        <option value="All">All</option>
+                        <option value="Unassigned">Unassigned</option>
+                        <option value="Assigned">Assigned</option>
+                        <option value="Mine">Assigned to me</option>
+                    </select>
+                </div>
+                <div class="exc-filter-field">
+                    <label>Acknowledged</label>
+                    <select @bind="selectedAcknowledgement">
+                        <option value="All">All</option>
+                        <option value="Acknowledged">Acknowledged</option>
+                        <option value="Unacknowledged">Unacknowledged</option>
+                    </select>
+                </div>
+                <div class="exc-filter-actions">
+                    <button class="btn btn-outline-secondary" @onclick="ResetFilters">Reset</button>
+                </div>
+            </div>
+
+            <section class="exc-panel">
+                <div class="exc-panel-header">
+                    <div>
+                        <h2>Work Queue</h2>
+                        <span>Showing @FilteredItems.Count of @Items.Count items</span>
+                    </div>
+                </div>
+
+                @if (isLoading)
+                {
+                    <div class="exc-empty">Loading exception center...</div>
+                }
+                else if (FilteredItems.Count == 0)
+                {
+                    <div class="exc-empty">No integration exceptions matched the current filters.</div>
+                }
+                else
+                {
+                    <div class="exc-table-wrap">
+                        <table class="exc-table">
+                            <thead>
+                                <tr>
+                                    <th>Exception</th>
+                                    <th>Category</th>
+                                    <th>Status</th>
+                                    <th>Attempts</th>
+                                    <th>Next Retry</th>
+                                    <th>Occurred</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in FilteredItems)
+                                {
+                                    <tr>
+                                        <td>
+                                            <div class="exc-title">@item.Title</div>
+                                            <div class="exc-ref">@item.Reference</div>
+                                            @if (!string.IsNullOrWhiteSpace(item.SourceSystem) ||
+                                                                        !string.IsNullOrWhiteSpace(item.Provider))
+                                            {
+                                                <div class="exc-meta">@(item.SourceSystem ?? item.Provider)</div>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(item.AssignedToUsername))
+                                            {
+                                                <div class="exc-meta exc-meta-owner">Assigned to @item.AssignedToUsername@if
+                                                    (item.AssignedAtUtc.HasValue)
+                                                                                            {
+                                                        <span> · @FormatDateTime(item.AssignedAtUtc)</span>
+                                                    }
+                                                </div>
+                                            }
+                                            @if (item.IsAcknowledged)
+                                            {
+                                                <div class="exc-meta exc-meta-ack">Acknowledged@if
+                                                    (!string.IsNullOrWhiteSpace(item.AcknowledgedByUsername))
+                                                    {
+                                                    <span> by @item.AcknowledgedByUsername</span>
+                                                    }
+                                                    @if (item.AcknowledgedAtUtc.HasValue)
+                                                    {
+                                                        <span> · @FormatDateTime(item.AcknowledgedAtUtc)</span>
+                                                    }
+                                                </div>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(item.LastError))
+                                            {
+                                                <div class="exc-error" title="@item.LastError">@Shorten(item.LastError, 160)</div>
+                                            }
+                                        </td>
+                                        <td><span class="exc-badge exc-badge-category">@item.Category</span></td>
+                                        <td><span class="exc-badge @GetStatusBadgeClass(item.Status)">@item.Status</span></td>
+                                        <td>@item.RetryCount/@item.MaxRetries</td>
+                                        <td>@FormatDateTime(item.NextRetryAtUtc)</td>
+                                        <td>@FormatDateTime(item.OccurredAtUtc ?? item.CreatedAtUtc)</td>
+                                        <td>
+                                            <div class="exc-action-group">
+                                                @if (!item.IsAcknowledged)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-secondary"
+                                                            disabled="@acknowledgingKeys.Contains(GetItemKey(item))"
+                                                            @onclick="() => AcknowledgeItemAsync(item)">
+                                                        @(acknowledgingKeys.Contains(GetItemKey(item)) ? "Saving..." : "Acknowledge")
+                                                    </button>
+                                                }
+                                                @if (CanAssignToCurrentUser(item))
+                                                {
+                                                    <button class="btn btn-sm btn-outline-dark"
+                                                            disabled="@assigningKeys.Contains(GetItemKey(item))"
+                                                            @onclick="() => AssignItemAsync(item)">
+                                                        @(assigningKeys.Contains(GetItemKey(item)) ? "Assigning..." :
+                                            string.IsNullOrWhiteSpace(item.AssignedToUsername) ? "Assign to me" : "Take over")
+                                                    </button>
+                                                }
+                                                @if (item.CanRetry)
+                                                {
+                                                    <button class="btn btn-sm btn-dark" disabled="@retryingKeys.Contains(GetItemKey(item))"
+                                                            @onclick="() => RetryItemAsync(item)">
+                                                        @(retryingKeys.Contains(GetItemKey(item)) ? "Retrying..." : "Retry")
+                                                    </button>
+                                                }
+                                                @if (!item.CanRetry && item.IsAcknowledged && !CanAssignToCurrentUser(item))
+                                                {
+                                                    <span class="exc-readonly">Tracked</span>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </section>
+        </div>

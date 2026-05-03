@@ -10,6 +10,14 @@ public static class UserCredentialQueryExtensions
         return query.Where(user => user.Username.ToUpper() == normalizedUsername);
     }
 
+    public static IQueryable<User> WhereUsernameOrEmailMatches(this IQueryable<User> query, string credential)
+    {
+        var normalizedCredential = NormalizeCredential(credential);
+        return query.Where(user =>
+            user.Username.ToUpper() == normalizedCredential ||
+            (user.Email != null && user.Email.ToUpper() == normalizedCredential));
+    }
+
     public static IQueryable<User> WhereEmailMatches(this IQueryable<User> query, string? email)
     {
         var normalizedEmail = NormalizeCredential(email);

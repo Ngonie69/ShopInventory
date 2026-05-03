@@ -1,9 +1,12 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Pods;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Services;
 using Microsoft.Extensions.Options;
 
@@ -12,6 +15,7 @@ namespace ShopInventory.Features.Invoices.Queries.GetPodUploadStatus;
 public sealed class GetPodUploadStatusHandler(
     ISAPServiceLayerClient sapClient,
     IDocumentService documentService,
+    ApplicationDbContext context,
     IOptions<SAPSettings> settings,
     ILogger<GetPodUploadStatusHandler> logger
 ) : IRequestHandler<GetPodUploadStatusQuery, ErrorOr<PodUploadStatusReportDto>>
@@ -28,7 +32,25 @@ public sealed class GetPodUploadStatusHandler(
 
         try
         {
+            var currentUser = await context.Users
+                .AsNoTracking()
+                .Where(u => u.Id == request.UserId)
+                .Select(u => new { u.Role, u.AssignedSection, u.Username })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (currentUser is null)
+                return Errors.Auth.UserNotFound;
+
             var invoices = await sapClient.GetInvoiceHeadersByDateRangeAsync(request.FromDate, request.ToDate, PodExclusions.ExcludedCardCodes.ToList(), cancellationToken);
+
+            if (string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
+            {
+                invoices = await FilterInvoicesForPodOperatorAsync(
+                    invoices,
+                    currentUser.AssignedSection,
+                    currentUser.Username,
+                    cancellationToken);
+            }
 
             var docEntries = invoices.Select(i => i.DocEntry).ToList();
             var podLookup = await documentService.GetPodStatusByDocEntriesAsync(docEntries, cancellationToken);
@@ -83,5 +105,31 @@ public sealed class GetPodUploadStatusHandler(
             logger.LogError(ex, "Error generating POD upload status report");
             return Errors.Invoice.CreationFailed(ex.Message);
         }
+    }
+
+    private async Task<List<Invoice>> FilterInvoicesForPodOperatorAsync(
+        List<Invoice> invoices,
+        string? assignedSection,
+        string username,
+        CancellationToken cancellationToken)
+    {
+        if (invoices.Count == 0)
+        {
+            return invoices;
+        }
+
+        if (string.IsNullOrWhiteSpace(assignedSection))
+        {
+            logger.LogWarning("PodOperator {Username} has no assigned section; returning no POD report items", username);
+            return [];
+        }
+
+        var normalizedSection = assignedSection.Trim();
+        var warehouseLocations = PodLocationScope.BuildWarehouseLocationLookup(
+            await sapClient.GetWarehousesAsync(cancellationToken));
+
+        return invoices
+            .Where(invoice => PodLocationScope.InvoiceMatchesAssignedSection(invoice, normalizedSection, warehouseLocations))
+            .ToList();
     }
 }

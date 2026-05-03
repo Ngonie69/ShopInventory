@@ -61,6 +61,10 @@ public class ApplicationDbContext : DbContext
   public DbSet<PaymentTransaction> PaymentTransactions { get; set; }
   public DbSet<PaymentGatewayConfig> PaymentGatewayConfigs { get; set; }
 
+  // Exception Center tables
+  public DbSet<ExceptionCenterIncidentEntity> ExceptionCenterIncidents { get; set; }
+  public DbSet<ExceptionCenterItemStateEntity> ExceptionCenterItemStates { get; set; }
+
   // Audit tables
   public DbSet<AuditLog> AuditLogs { get; set; }
 
@@ -616,6 +620,62 @@ public class ApplicationDbContext : DbContext
                   .HasMaxLength(50);
     });
 
+    modelBuilder.Entity<ExceptionCenterIncidentEntity>(entity =>
+    {
+      entity.ToTable("ExceptionCenterIncidents");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.Source);
+      entity.HasIndex(e => e.Status);
+      entity.HasIndex(e => e.Provider);
+      entity.HasIndex(e => e.CreatedAtUtc);
+
+      entity.Property(e => e.Source)
+                  .IsRequired()
+                  .HasMaxLength(100);
+
+      entity.Property(e => e.Category)
+                  .IsRequired()
+                  .HasMaxLength(100);
+
+      entity.Property(e => e.Title)
+                  .IsRequired()
+                  .HasMaxLength(200);
+
+      entity.Property(e => e.Reference)
+                  .IsRequired()
+                  .HasMaxLength(200);
+
+      entity.Property(e => e.Status)
+                  .IsRequired()
+                  .HasMaxLength(50);
+
+      entity.Property(e => e.SourceSystem)
+                  .HasMaxLength(50);
+
+      entity.Property(e => e.Provider)
+                  .HasMaxLength(50);
+
+      entity.Property(e => e.LastError)
+                  .HasMaxLength(2000);
+    });
+
+    modelBuilder.Entity<ExceptionCenterItemStateEntity>(entity =>
+    {
+      entity.ToTable("ExceptionCenterItemStates");
+      entity.HasKey(e => e.Id);
+
+      entity.Property(e => e.Source)
+                  .IsRequired()
+                  .HasMaxLength(100);
+
+      entity.Property(e => e.AcknowledgedByUsername)
+                  .HasMaxLength(50);
+
+      entity.Property(e => e.AssignedToUsername)
+                  .HasMaxLength(50);
+    });
+
     // Audit Log configuration
     modelBuilder.Entity<AuditLog>(entity =>
     {
@@ -993,6 +1053,10 @@ public class ApplicationDbContext : DbContext
       entity.HasIndex(e => e.CustomerCode);
       entity.HasIndex(e => e.CheckInTime);
       entity.HasIndex(e => new { e.UserId, e.CheckOutTime });
+      entity.HasIndex(e => e.UserId)
+        .HasDatabaseName("IX_TimesheetEntries_UserId_ActiveCheckIn")
+        .HasFilter("\"CheckOutTime\" IS NULL")
+        .IsUnique();
 
       entity.Property(e => e.Username).IsRequired().HasMaxLength(50);
       entity.Property(e => e.CustomerCode).IsRequired().HasMaxLength(50);

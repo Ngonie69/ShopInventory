@@ -4,11 +4,13 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.Invoices.Queries.GetPodDashboard;
 
 public sealed class GetPodDashboardHandler(
     ApplicationDbContext context,
+    IDocumentService documentService,
     ILogger<GetPodDashboardHandler> logger
 ) : IRequestHandler<GetPodDashboardQuery, ErrorOr<PodDashboardDto>>
 {
@@ -30,13 +32,29 @@ public sealed class GetPodDashboardHandler(
 
         var baseQuery = context.Set<DocumentAttachmentEntity>()
             .AsNoTracking()
-            .Where(a => a.EntityType == "Invoice" && a.UploadedByUserId == request.UserId)
+            .Where(a => a.EntityType == "Invoice")
             .Where(a =>
                 EF.Functions.ILike(a.FileName, "%pod%") ||
                 EF.Functions.ILike(a.FileName, "%proof of delivery%") ||
                 (a.Description != null && (
                     EF.Functions.ILike(a.Description, "%pod%") ||
                     EF.Functions.ILike(a.Description, "%proof of delivery%"))));
+
+        if (string.Equals(user?.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
+        {
+            var scopedDocEntries = await documentService.GetScopedPodInvoiceDocEntriesAsync(
+                await baseQuery.Select(a => a.EntityId).Distinct().ToListAsync(cancellationToken),
+                user?.AssignedSection ?? string.Empty,
+                cancellationToken);
+
+            baseQuery = scopedDocEntries.Count == 0
+                ? baseQuery.Where(_ => false)
+                : baseQuery.Where(a => scopedDocEntries.Contains(a.EntityId));
+        }
+        else
+        {
+            baseQuery = baseQuery.Where(a => a.UploadedByUserId == request.UserId);
+        }
 
         var stats = await baseQuery
             .GroupBy(a => 1)

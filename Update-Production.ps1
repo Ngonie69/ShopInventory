@@ -13,6 +13,7 @@ param(
     [ValidateSet("Both", "API", "Web")]
     [string]$DeployTarget = "Both",
     [switch]$SkipBackup,
+    [switch]$IncludeRuntimeDataInBackup,
     [switch]$RestartOnly,
     [switch]$FirstTimeSetup,
     [PSCredential]$Credential
@@ -47,6 +48,7 @@ if (-not $isAdmin) {
     if ($WebAppPoolName -ne "ShopInventoryWeb") { $argList += " -WebAppPoolName `"$WebAppPoolName`"" }
     if ($DeployTarget -ne "Both") { $argList += " -DeployTarget `"$DeployTarget`"" }
     if ($SkipBackup) { $argList += " -SkipBackup" }
+    if ($IncludeRuntimeDataInBackup) { $argList += " -IncludeRuntimeDataInBackup" }
     if ($RestartOnly) { $argList += " -RestartOnly" }
     if ($FirstTimeSetup) { $argList += " -FirstTimeSetup" }
     
@@ -610,30 +612,84 @@ if (-not $SkipBackup) {
     
     try {
         Invoke-Command -ComputerName $ProductionServer -Credential $Credential -ScriptBlock {
-            param($ApiPath, $WebPath, $DeployTarget)
+            param($ApiPath, $WebPath, $DeployTarget, $IncludeRuntimeDataInBackup)
+
+            function Invoke-AppBackup {
+                param(
+                    [string]$SourcePath,
+                    [string]$BackupPath,
+                    [string]$AppName,
+                    [bool]$IncludeRuntimeData
+                )
+
+                if (-not (Test-Path $SourcePath)) {
+                    return
+                }
+
+                $robocopyArgs = @(
+                    $SourcePath,
+                    $BackupPath,
+                    '/MIR',
+                    '/MT:8',
+                    '/R:1',
+                    '/W:1',
+                    '/XJ',
+                    '/NP',
+                    '/NJH',
+                    '/NJS',
+                    '/NFL',
+                    '/NDL'
+                )
+
+                $excludedDirectories = @()
+                if (-not $IncludeRuntimeData) {
+                    foreach ($folderName in @('logs', 'uploads')) {
+                        $folderPath = Join-Path $SourcePath $folderName
+                        if (Test-Path $folderPath) {
+                            $excludedDirectories += $folderPath
+                        }
+                    }
+                }
+
+                if ($excludedDirectories.Count -gt 0) {
+                    Write-Host "    Excluding runtime folders: $($excludedDirectories.ForEach({ Split-Path $_ -Leaf }) -join ', ')" -ForegroundColor DarkGray
+                    $robocopyArgs += '/XD'
+                    $robocopyArgs += $excludedDirectories
+                }
+
+                $appOfflinePath = Join-Path $SourcePath 'app_offline.htm'
+                if (Test-Path $appOfflinePath) {
+                    $robocopyArgs += '/XF'
+                    $robocopyArgs += $appOfflinePath
+                }
+
+                Write-Host "  Backing up $AppName..." -ForegroundColor Gray
+                $null = & robocopy @robocopyArgs
+                $robocopyExitCode = $LASTEXITCODE
+
+                if ($robocopyExitCode -ge 8) {
+                    throw "Robocopy backup failed for $AppName with exit code $robocopyExitCode."
+                }
+
+                Write-Host "  $AppName backup created" -ForegroundColor Green
+            }
             
             $BackupBase = "C:\inetpub\ShopInventory-backup-latest"
             
             if ($DeployTarget -eq "Both" -or $DeployTarget -eq "API") {
                 if (Test-Path $ApiPath) {
                     $ApiBackup = "$BackupBase-API"
-                    if (Test-Path $ApiBackup) { Remove-Item -Path $ApiBackup -Recurse -Force -ErrorAction SilentlyContinue }
-                    Write-Host "  Backing up API..." -ForegroundColor Gray
-                    $null = robocopy $ApiPath $ApiBackup /MIR /MT:8 /NFL /NDL /NJH /NJS /R:1 /W:1
-                    Write-Host "  API backup created" -ForegroundColor Green
+                    Invoke-AppBackup -SourcePath $ApiPath -BackupPath $ApiBackup -AppName 'API' -IncludeRuntimeData:$IncludeRuntimeDataInBackup
                 }
             }
             
             if ($DeployTarget -eq "Both" -or $DeployTarget -eq "Web") {
                 if (Test-Path $WebPath) {
                     $WebBackup = "$BackupBase-Web"
-                    if (Test-Path $WebBackup) { Remove-Item -Path $WebBackup -Recurse -Force -ErrorAction SilentlyContinue }
-                    Write-Host "  Backing up Web..." -ForegroundColor Gray
-                    $null = robocopy $WebPath $WebBackup /MIR /MT:8 /NFL /NDL /NJH /NJS /R:1 /W:1
-                    Write-Host "  Web backup created" -ForegroundColor Green
+                    Invoke-AppBackup -SourcePath $WebPath -BackupPath $WebBackup -AppName 'Web' -IncludeRuntimeData:$IncludeRuntimeDataInBackup
                 }
             }
-        } -ArgumentList $ApiRemotePath, $WebRemotePath, $DeployTarget -ErrorAction Stop
+        } -ArgumentList $ApiRemotePath, $WebRemotePath, $DeployTarget, $IncludeRuntimeDataInBackup.IsPresent -ErrorAction Stop
     }
     catch {
         Write-Host "WARNING: Backup failed: $($_.Exception.Message)" -ForegroundColor Yellow
@@ -876,6 +932,7 @@ Write-Host "  - Restart only: .\Update-Production.ps1 -RestartOnly" -ForegroundC
 Write-Host "  - Deploy API only: .\Update-Production.ps1 -DeployTarget API" -ForegroundColor White
 Write-Host "  - Deploy Web only: .\Update-Production.ps1 -DeployTarget Web" -ForegroundColor White
 Write-Host "  - Skip backup: .\Update-Production.ps1 -SkipBackup" -ForegroundColor White
+Write-Host "  - Include uploads/logs in backup: .\Update-Production.ps1 -IncludeRuntimeDataInBackup" -ForegroundColor White
 Write-Host ""
 Write-Host "Logs location:" -ForegroundColor Yellow
 Write-Host "  - API: \\$ProductionServer\C`$\inetpub\ShopInventory-API\logs" -ForegroundColor White

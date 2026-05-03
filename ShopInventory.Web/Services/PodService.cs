@@ -6,8 +6,8 @@ namespace ShopInventory.Web.Services;
 
 public interface IPodService
 {
-    Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? search = null);
-    Task<PodAttachmentListResponse?> GetAllPodsForAccountsAsync(int page, int pageSize, List<string> cardCodes, DateTime? fromDate = null, DateTime? toDate = null);
+    Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, CancellationToken cancellationToken = default);
+    Task<PodAttachmentListResponse?> GetAllPodsForAccountsAsync(int page, int pageSize, List<string> cardCodes, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
     Task<DocumentAttachmentListResponse?> GetInvoicePodsAsync(int docEntry);
     Task<BulkPodValidationResponse?> ValidateBulkPodsAsync(IEnumerable<int> docNums, CancellationToken cancellationToken = default);
     Task<(bool Success, string Message, DocumentAttachmentDto? Attachment)> UploadPodAsync(int docEntry, Stream fileStream, string fileName, string contentType, string? description = null, string? uploadedByUsername = null);
@@ -28,7 +28,7 @@ public class PodService : IPodService
         _logger = logger;
     }
 
-    public async Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? search = null)
+    public async Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -42,7 +42,11 @@ public class PodService : IPodService
             if (!string.IsNullOrEmpty(search))
                 url += $"&search={Uri.EscapeDataString(search)}";
 
-            return await _httpClient.GetFromJsonAsync<PodAttachmentListResponse>(url);
+            return await _httpClient.GetFromJsonAsync<PodAttachmentListResponse>(url, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -51,11 +55,11 @@ public class PodService : IPodService
         }
     }
 
-    public async Task<PodAttachmentListResponse?> GetAllPodsForAccountsAsync(int page, int pageSize, List<string> cardCodes, DateTime? fromDate = null, DateTime? toDate = null)
+    public async Task<PodAttachmentListResponse?> GetAllPodsForAccountsAsync(int page, int pageSize, List<string> cardCodes, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
     {
         if (cardCodes.Count == 0) return null;
         var joined = string.Join(",", cardCodes);
-        return await GetAllPodsAsync(page, pageSize, joined, fromDate, toDate);
+        return await GetAllPodsAsync(page, pageSize, joined, fromDate, toDate, cancellationToken: cancellationToken);
     }
 
     public async Task<DocumentAttachmentListResponse?> GetInvoicePodsAsync(int docEntry)

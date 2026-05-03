@@ -12,6 +12,20 @@
 | **Payment Gateways** | PayNow, Innbucks, Ecocash |
 | **API Format** | JSON |
 
+## API Versioning
+
+- Current default API version: `1.0`
+- Base URL remains: `/api`
+- If no API version is supplied, the server uses version `1.0`
+- Clients can request a specific API version with the `X-API-Version` header or the `api-version` query string
+- Breaking contract changes must be introduced in a new API version; existing version `1.0` endpoints remain supported for current clients
+
+Examples:
+
+- `GET /api/Health`
+- `GET /api/Health?api-version=1.0`
+- `X-API-Version: 1.0`
+
 ---
 
 ## Table of Contents

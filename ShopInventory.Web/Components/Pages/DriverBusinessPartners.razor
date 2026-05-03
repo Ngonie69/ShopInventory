@@ -1,0 +1,356 @@
+@page "/driver-business-partners"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+
+<PageTitle>Driver Shops - Shop Inventory</PageTitle>
+
+<div class="dbp-page">
+    <div class="dbp-shell">
+        <div class="dbp-header">
+            <div>
+                <h1>Driver Shop Access</h1>
+                <p>Set one business-partner allowlist that applies to every driver account. This is a blanket scope, not
+                    a per-driver assignment.</p>
+                    <p class="dbp-helper dbp-helper-compact">The list loads from the local cache. Use Refresh from SAP when
+                        new BPs are created in SAP and need to appear here.</p>
+                    </div>
+
+                    <div class="dbp-header-actions">
+                        <button type="button" class="dbp-refresh" disabled="@(isLoading || isSaving || isRefreshing)"
+                                @onclick="RefreshCustomersAsync">
+                            @(isRefreshing ? "Refreshing..." : "Refresh from SAP")
+                        </button>
+                    </div>
+                </div>
+
+                @if (isLoading)
+                {
+                    <div class="dbp-state-card">
+                        <div class="dbp-spinner"></div>
+                        <span>Loading driver business partner access...</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="dbp-grid">
+                        <section class="dbp-card">
+                            <div class="dbp-card-header">
+                                <h2>Allowlist</h2>
+                                <span>@selectedCustomerCodes.Count selected</span>
+                            </div>
+
+                            <p class="dbp-helper">Saving updates the stored blanket list and reapplies it to all existing driver
+                                accounts.</p>
+
+                                <div class="dbp-field">
+                                    <label for="driver-bp-search">Search business partners</label>
+                                    <input id="driver-bp-search" class="dbp-input" @bind="customerSearchTerm" @bind:event="oninput"
+                                           placeholder="Search by code or name" />
+                                </div>
+
+                                <div class="dbp-customer-list">
+                                    @if (FilteredCustomers.Any())
+                                    {
+                                        @foreach (var customer in FilteredCustomers)
+                                        {
+                                            var cardCode = customer.CardCode ?? string.Empty;
+                                            var isSelected = selectedCustomerCodes.Contains(cardCode);
+                                            <label class="dbp-customer-item">
+                                                <input type="checkbox" checked="@isSelected"
+                                                       @onchange="args => ToggleCustomer(cardCode, args.Value as bool? == true)" />
+                                                <span class="dbp-customer-text">
+                                                    <strong>@cardCode</strong>
+                                                    <span>@GetBusinessPartnerDisplayName(customer)</span>
+                                                </span>
+                                            </label>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <div class="dbp-empty">No business partners match the current search.</div>
+                                    }
+                                </div>
+                            </section>
+
+                            <section class="dbp-card">
+                                <div class="dbp-card-header">
+                                    <h2>Selected Shops</h2>
+                                    <span>@selectedCustomerCodes.Count linked</span>
+                                </div>
+
+                                <p class="dbp-helper">Drivers will only be given this shared BP scope after they refresh their session.
+                                </p>
+
+                                @if (selectedCustomerCodes.Any())
+                                {
+                                    <div class="dbp-selected-list">
+                                        @foreach (var cardCode in GetSelectedCustomerCodes())
+                                        {
+                                            <div class="dbp-selected-item">
+                                                <div class="dbp-selected-text">
+                                                    <strong>@cardCode</strong>
+                                                    <span>@GetCustomerDisplayName(cardCode)</span>
+                                                </div>
+                                                <button type="button" class="dbp-remove"
+                                                        @onclick="() => ToggleCustomer(cardCode, false)">Remove</button>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="dbp-empty dbp-empty-selected">No shops selected yet.</div>
+                                }
+
+                                <div class="dbp-actions">
+                                    <button type="button" class="dbp-submit" disabled="@(isSaving || isRefreshing)"
+                                            @onclick="SaveAsync">
+                                        @(isSaving ? "Saving..." : "Save Driver Shop Access")
+                                    </button>
+                                </div>
+                            </section>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <style>
+                .dbp-page {
+                    min-height: 100vh;
+                    padding: 1.5rem;
+                    background:
+                        radial-gradient(circle at top left, rgba(34, 197, 94, 0.10), transparent 26%),
+                        linear-gradient(180deg, #f8fafc 0%, #eef6ff 100%);
+                }
+
+                .dbp-shell {
+                    max-width: 1260px;
+                    margin: 0 auto;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 1.25rem;
+                }
+
+                .dbp-header,
+                .dbp-card,
+                .dbp-state-card {
+                    background: rgba(255, 255, 255, 0.94);
+                    border: 1px solid rgba(148, 163, 184, 0.22);
+                    border-radius: 24px;
+                    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.10);
+                }
+
+                .dbp-header {
+                    padding: 1.5rem 1.75rem;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: flex-start;
+                    gap: 1rem;
+                }
+
+                .dbp-header-actions {
+                    display: flex;
+                    align-items: center;
+                    gap: .75rem;
+                }
+
+                .dbp-header h1 {
+                    margin: 0;
+                    font-size: 2rem;
+                    font-weight: 700;
+                    color: #0f172a;
+                }
+
+                .dbp-header p,
+                .dbp-helper {
+                    margin: .5rem 0 0;
+                    color: #475569;
+                }
+
+                .dbp-helper-compact {
+                    max-width: 54rem;
+                }
+
+                .dbp-grid {
+                    display: grid;
+                    grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr);
+                    gap: 1.25rem;
+                }
+
+                .dbp-card {
+                    padding: 1.5rem;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 1rem;
+                }
+
+                .dbp-card-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    gap: 1rem;
+                }
+
+                .dbp-card-header h2 {
+                    margin: 0;
+                    font-size: 1.15rem;
+                    color: #0f172a;
+                }
+
+                .dbp-card-header span {
+                    color: #0f766e;
+                    font-weight: 600;
+                }
+
+                .dbp-field {
+                    display: flex;
+                    flex-direction: column;
+                    gap: .45rem;
+                }
+
+                .dbp-field label {
+                    font-size: .92rem;
+                    font-weight: 600;
+                    color: #1e293b;
+                }
+
+                .dbp-input {
+                    width: 100%;
+                    border-radius: 14px;
+                    border: 1px solid #cbd5e1;
+                    padding: .85rem 1rem;
+                    background: #fff;
+                    color: #0f172a;
+                }
+
+                .dbp-input:focus {
+                    outline: none;
+                    border-color: #16a34a;
+                    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
+                }
+
+                .dbp-customer-list,
+                .dbp-selected-list {
+                    display: flex;
+                    flex-direction: column;
+                    gap: .6rem;
+                    max-height: 32rem;
+                    overflow: auto;
+                    padding-right: .25rem;
+                }
+
+                .dbp-customer-item,
+                .dbp-selected-item {
+                    display: flex;
+                    align-items: center;
+                    gap: .85rem;
+                    padding: .85rem 1rem;
+                    border-radius: 16px;
+                    border: 1px solid rgba(148, 163, 184, 0.25);
+                    background: #fff;
+                }
+
+                .dbp-customer-item input {
+                    margin-top: .1rem;
+                    accent-color: #16a34a;
+                }
+
+                .dbp-customer-text,
+                .dbp-selected-text {
+                    display: flex;
+                    flex-direction: column;
+                    gap: .15rem;
+                    min-width: 0;
+                }
+
+                .dbp-customer-text strong,
+                .dbp-selected-text strong {
+                    color: #0f172a;
+                }
+
+                .dbp-customer-text span,
+                .dbp-selected-text span,
+                .dbp-empty {
+                    color: #475569;
+                }
+
+                .dbp-remove,
+                .dbp-submit,
+                .dbp-refresh {
+                    border: none;
+                    border-radius: 999px;
+                    font-weight: 600;
+                    cursor: pointer;
+                }
+
+                .dbp-refresh {
+                    padding: .85rem 1.15rem;
+                    background: rgba(15, 23, 42, 0.06);
+                    color: #0f172a;
+                    white-space: nowrap;
+                }
+
+                .dbp-remove {
+                    margin-left: auto;
+                    padding: .55rem .9rem;
+                    background: rgba(239, 68, 68, 0.10);
+                    color: #b91c1c;
+                }
+
+                .dbp-actions {
+                    margin-top: auto;
+                    display: flex;
+                    justify-content: flex-end;
+                }
+
+                .dbp-submit {
+                    padding: .85rem 1.3rem;
+                    background: linear-gradient(135deg, #16a34a, #15803d);
+                    color: #fff;
+                }
+
+                .dbp-submit:disabled,
+                .dbp-refresh:disabled {
+                    opacity: .7;
+                    cursor: not-allowed;
+                }
+
+                .dbp-state-card {
+                    display: flex;
+                    align-items: center;
+                    gap: 1rem;
+                    padding: 1.25rem 1.5rem;
+                    color: #334155;
+                }
+
+                .dbp-spinner {
+                    width: 1rem;
+                    height: 1rem;
+                    border-radius: 50%;
+                    border: 3px solid rgba(22, 163, 74, 0.18);
+                    border-top-color: #16a34a;
+                    animation: dbp-spin .85s linear infinite;
+                }
+
+                @@keyframes dbp-spin {
+                    to {
+                        transform: rotate(360deg);
+                    }
+                }
+
+                @@media (max-width: 980px) {
+                    .dbp-header {
+                        flex-direction: column;
+                        align-items: stretch;
+                    }
+
+                    .dbp-header-actions {
+                        justify-content: flex-start;
+                    }
+
+                    .dbp-grid {
+                        grid-template-columns: 1fr;
+                    }
+                }
+            </style>

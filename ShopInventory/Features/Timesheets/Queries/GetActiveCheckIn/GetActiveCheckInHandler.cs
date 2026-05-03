@@ -16,6 +16,8 @@ public sealed class GetActiveCheckInHandler(
         var entry = await db.TimesheetEntries
             .AsNoTracking()
             .Where(t => t.UserId == request.UserId && t.CheckOutTime == null)
+            .OrderByDescending(t => t.CheckInTime)
+            .ThenByDescending(t => t.Id)
             .Select(t => new ActiveCheckInResult(
                 t.Id,
                 t.CustomerCode,
