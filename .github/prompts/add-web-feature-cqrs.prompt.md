@@ -1,11 +1,11 @@
 ---
-description: "Add a ShopInventory.Web feature using CQRS, MediatR, vertical slices, and existing Blazor Server .NET 10 patterns"
+description: "Add a ShopInventory.Web feature using the repo's CQRS vertical-slice patterns"
 agent: "agent"
 ---
 
 # Add New Web Feature with CQRS + MediatR + Vertical Slice
 
-Implement the requested feature in `ShopInventory.Web/` using the repository's vertical-slice architecture. Keep the main priorities simple: put new business logic in MediatR handlers, keep `.razor` pages focused on UI concerns, and avoid adding new business logic to legacy `Services/` classes.
+Implement the requested feature in `ShopInventory.Web/` using the repository's vertical-slice architecture. Use this priority order when constraints compete: move new business logic into MediatR handlers first, keep `.razor` pages focused on UI concerns second, avoid adding new business logic to legacy `Services/` classes third, and preserve existing routes and user workflows unless the request requires a change.
 
 ## Start Here
 
@@ -61,15 +61,15 @@ If the Web project does not yet have them, add:
 - `ValidationBehavior.cs`
 - `LoggingBehavior.cs`
 
-Mirror the API implementations unless the user explicitly asks in the current request for different Web-specific behavior.
+Mirror the API implementations unless the user explicitly asks for different Web-specific logging, validation, or UI-facing behavior in the Web project.
 
 ## Non-Negotiable Rules
 
-- Architecture and types: Use vertical slices under `ShopInventory.Web/Features/{Domain}/`. Use one file per type. Use `sealed record` for commands and queries, and `sealed class` with primary constructors for handlers and validators.
-- Page boundaries: Keep `.razor` pages thin. Pages should manage rendering, UI state, dialogs, navigation, and user feedback only. Do not put business rules, orchestration, mapping, or integration decisions in pages.
-- Handler behavior: Return `ErrorOr<T>` from handlers. Pass `CancellationToken` throughout the slice when the call chain supports it. Use structured logging via `ILogger<T>`.
-- Data and time: If a handler reads from `WebAppDbContext`, queries must use `AsNoTracking()` and direct projection. Use `DateTime.UtcNow` for timestamps and convert to CAT only for display or other human-facing text through `AuditService.ToCAT()`.
-- Legacy boundaries: Do not add new business logic to legacy `Services/` classes.
+- Critical architecture: Use vertical slices under `ShopInventory.Web/Features/{Domain}/`. Use one file per type. Use `sealed record` for commands and queries, and `sealed class` with primary constructors for handlers and validators.
+- Critical page boundary: Keep `.razor` pages thin. Pages should manage rendering, UI state, dialogs, navigation, and user feedback only. Do not put business rules, orchestration, mapping, or integration decisions in pages.
+- Critical handler behavior: Return `ErrorOr<T>` from handlers. Pass `CancellationToken` throughout the slice when the call chain supports it. Use structured logging via `ILogger<T>`.
+- Default data and time rules: If a handler reads from `WebAppDbContext`, queries must use `AsNoTracking()` and direct projection. Use `DateTime.UtcNow` for timestamps and convert to CAT only for display or other human-facing text through `AuditService.ToCAT()`.
+- Migration rule: Do not add new business logic to legacy `Services/` classes.
 
 ## Web Slice Layout
 
@@ -226,7 +226,9 @@ When adding or updating a page, preserve the current ShopInventory.Web design sy
 - MudBlazor for interactive controls such as buttons, dialogs, date pickers, and icons
 - Page-scoped CSS prefixes such as `inv-`, `prod-`, `stk-`, `so-`, `po-`, `pay-`, `sec-`, `cust-`, `ua-`, `um-`, `notif-`
 - Dark mode via the `.dark-theme` class on `<html>` and CSS variables in `wwwroot/app.css`
-- Avoid hardcoded theme-dependent colors when CSS variables already exist
+- Dark mode is required for every new or updated page, component, dialog, and page-scoped style touched by the change
+- Put dark-mode enforcement in `wwwroot/app.css` using `.dark-theme .{page-prefix}-*` overrides when page-local styles or hardcoded colors need theme-specific treatment
+- Avoid hardcoded theme-dependent colors when CSS variables already exist, and do not ship light-only styling for a touched UI surface
 
 Keep UI behavior consistent on desktop and mobile.
 
@@ -261,8 +263,9 @@ Do not solve a cross-project feature by adding more orchestration to a Web servi
 - Local queries use `AsNoTracking()` and projection.
 - UTC timestamp handling is correct.
 - UI follows the repo's Bootstrap, MudBlazor, prefix, and dark-mode conventions.
+- Any touched UI renders correctly in both light mode and dark mode, with required `.dark-theme` overrides added to `wwwroot/app.css` when needed.
 - The affected project builds successfully.
-- Manual verification is reported because there is no test project yet.
+- Manual verification is reported because there is no test project yet, including whether light mode and dark mode were both checked.
 
 ## Working Style
 

@@ -13,6 +13,9 @@
                 <h1>Batch Status Control</h1>
                 <p>Search by batch number, review the live stock rows that still have quantity on hand, and change the
                     SAP batch status from one dedicated page.</p>
+                <div class="lbs-utility-links">
+                    <a class="lbs-history-link" href="/lab/batch-status/history">View status history</a>
+                </div>
                 </div>
 
                 <div class="lbs-search-card">
@@ -176,6 +179,29 @@
             .lbs-secondary,
             .lbs-empty-card p {
                 color: #475569;
+            }
+
+            .lbs-utility-links {
+                margin-top: 1rem;
+            }
+
+            .lbs-history-link {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 44px;
+                padding: 0 .95rem;
+                border-radius: 14px;
+                background: rgba(15, 23, 42, 0.06);
+                color: #0f172a;
+                font-weight: 700;
+                text-decoration: none;
+                transition: background .16s ease, transform .16s ease;
+            }
+
+            .lbs-history-link:hover {
+                background: rgba(15, 23, 42, 0.1);
+                transform: translateY(-1px);
             }
 
             .lbs-search-card {

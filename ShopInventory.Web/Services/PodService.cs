@@ -1,3 +1,4 @@
+using Blazored.LocalStorage;
 using ShopInventory.Web.Models;
 using System.Net.Http.Json;
 using System.Net.Http.Headers;
@@ -21,17 +22,44 @@ public class PodService : IPodService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<PodService> _logger;
+    private readonly ILocalStorageService _localStorage;
 
-    public PodService(HttpClient httpClient, ILogger<PodService> logger)
+    public PodService(HttpClient httpClient, ILogger<PodService> logger, ILocalStorageService localStorage)
     {
         _httpClient = httpClient;
         _logger = logger;
+        _localStorage = localStorage;
+    }
+
+    private async Task EnsureAuthenticationAsync()
+    {
+        try
+        {
+            var token = await _localStorage.GetItemAsync<string>("authToken");
+            var currentToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
+
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                _httpClient.DefaultRequestHeaders.Authorization = null;
+                return;
+            }
+
+            if (!string.Equals(currentToken, token, StringComparison.Ordinal))
+            {
+                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            }
+        }
+        catch
+        {
+            // localStorage is unavailable during prerendering
+        }
     }
 
     public async Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, CancellationToken cancellationToken = default)
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var url = $"api/invoice/pods?page={page}&pageSize={pageSize}";
             if (!string.IsNullOrEmpty(cardCode))
                 url += $"&cardCode={Uri.EscapeDataString(cardCode)}";
@@ -66,6 +94,7 @@ public class PodService : IPodService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var response = await _httpClient.GetFromJsonAsync<DocumentAttachmentListResponse>(
                 $"api/invoice/{docEntry}/attachments");
 
@@ -90,6 +119,7 @@ public class PodService : IPodService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var request = new BulkPodValidationRequest
             {
                 DocNums = docNums.Where(docNum => docNum > 0).Distinct().ToList()
@@ -119,6 +149,7 @@ public class PodService : IPodService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             // Buffer the Blazor BrowserFileStream into a MemoryStream.
             // BrowserFileStream is non-seekable (reads via SignalR) and causes
             // MultipartFormDataContent to fail computing content-length.
@@ -164,6 +195,7 @@ public class PodService : IPodService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var response = await _httpClient.GetAsync(
                 $"api/invoice/{docEntry}/attachments/{attachmentId}/download");
 
@@ -185,6 +217,7 @@ public class PodService : IPodService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var response = await _httpClient.DeleteAsync($"api/document/attachments/{attachmentId}");
             return response.IsSuccessStatusCode;
         }
@@ -199,6 +232,7 @@ public class PodService : IPodService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             var from = fromDate.ToString("yyyy-MM-dd");
             var to = toDate.ToString("yyyy-MM-dd");
             return await _httpClient.GetFromJsonAsync<PodUploadStatusReport>(
@@ -215,6 +249,7 @@ public class PodService : IPodService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             return await _httpClient.GetFromJsonAsync<PodDashboardModel>("api/invoice/pod-dashboard");
         }
         catch (Exception ex)

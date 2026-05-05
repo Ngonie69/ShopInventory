@@ -30,26 +30,24 @@ public sealed class GetActivityFilterOptionsHandler(
                 auditLogs = auditLogs.Where(log => log.Timestamp <= query.EndDate.Value);
             }
 
-            var usersTask = auditLogs
+            var users = await auditLogs
                 .Where(log => log.Username != null && log.Username != string.Empty)
                 .Select(log => log.Username)
                 .Distinct()
                 .OrderBy(username => username)
                 .ToListAsync(cancellationToken);
 
-            var actionsTask = auditLogs
+            var actions = await auditLogs
                 .Where(log => log.Action != null && log.Action != string.Empty)
                 .Select(log => log.Action)
                 .Distinct()
                 .OrderBy(action => action)
                 .ToListAsync(cancellationToken);
 
-            await Task.WhenAll(usersTask, actionsTask);
-
             return new UserActivityFilterOptionsDto
             {
-                Users = usersTask.Result,
-                Actions = actionsTask.Result
+                Users = users,
+                Actions = actions
             };
         }
         catch (Exception ex)

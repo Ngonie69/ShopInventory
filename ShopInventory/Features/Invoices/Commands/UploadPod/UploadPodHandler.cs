@@ -12,6 +12,7 @@ public sealed class UploadPodHandler(
     ISAPServiceLayerClient sapClient,
     IDocumentService documentService,
     IAuthService authService,
+    IAuditService auditService,
     ILogger<UploadPodHandler> logger
 ) : IRequestHandler<UploadPodCommand, ErrorOr<DocumentAttachmentDto>>
 {
@@ -74,6 +75,19 @@ public sealed class UploadPodHandler(
             request, command.FileStream, fileName, command.ContentType, userId, cancellationToken);
 
         logger.LogInformation("POD uploaded for invoice {DocEntry} by user {UserId}", command.DocEntry, userId);
+
+        try
+        {
+            await auditService.LogAsync(
+                AuditActions.UploadPod,
+                "Invoice",
+                attachment.Id.ToString(),
+                $"POD '{attachment.FileName}' uploaded for invoice {command.DocEntry}",
+                true);
+        }
+        catch
+        {
+        }
 
         // Best-effort: sync POD to SAP
         try

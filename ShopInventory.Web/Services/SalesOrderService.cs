@@ -1,6 +1,8 @@
 using ShopInventory.Web.Models;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Blazored.LocalStorage;
 
 namespace ShopInventory.Web.Services;
@@ -254,10 +256,127 @@ public class SalesOrderService : ISalesOrderService
         var body = await response.Content.ReadAsStringAsync();
         _logger.LogWarning("Failed to approve sales order {Id}: {StatusCode} - {Body}", id, response.StatusCode, body);
 
-        var message = response.StatusCode == System.Net.HttpStatusCode.Forbidden
-            ? "You do not have permission to approve sales orders."
-            : $"Approval failed ({(int)response.StatusCode}): {(body.Length > 200 ? body[..200] : body)}";
-        throw new HttpRequestException(message);
+        var message = ExtractApprovalErrorMessage(body, response.StatusCode);
+        throw new HttpRequestException(message, null, response.StatusCode);
+    }
+
+    private static string ExtractApprovalErrorMessage(string responseBody, HttpStatusCode statusCode)
+    {
+        string? extractedMessage = null;
+
+        if (!string.IsNullOrWhiteSpace(responseBody))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(responseBody);
+                var root = document.RootElement;
+
+                if (root.TryGetProperty("errors", out var errorsElement) && errorsElement.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var property in errorsElement.EnumerateObject())
+                    {
+                        if (property.Value.ValueKind != JsonValueKind.Array)
+                        {
+                            continue;
+                        }
+
+                        foreach (var error in property.Value.EnumerateArray())
+                        {
+                            var message = error.GetString();
+                            if (!string.IsNullOrWhiteSpace(message))
+                            {
+                                extractedMessage = message;
+                                break;
+                            }
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(extractedMessage))
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(extractedMessage) && root.TryGetProperty("title", out var titleElement))
+                {
+                    var title = titleElement.GetString();
+                    if (!string.IsNullOrWhiteSpace(title))
+                    {
+                        extractedMessage = title;
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(extractedMessage) && root.TryGetProperty("message", out var messageElement))
+                {
+                    var message = messageElement.GetString();
+                    if (!string.IsNullOrWhiteSpace(message))
+                    {
+                        extractedMessage = message;
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        if (statusCode == HttpStatusCode.Unauthorized)
+        {
+            return "Your session has expired. Please sign in again and try approving the order.";
+        }
+
+        if (statusCode == HttpStatusCode.Forbidden)
+        {
+            return "You do not have permission to approve sales orders.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(extractedMessage))
+        {
+            return NormalizeApprovalErrorMessage(extractedMessage);
+        }
+
+        return "We couldn't approve this sales order right now. Please try again.";
+    }
+
+    private static string NormalizeApprovalErrorMessage(string message)
+    {
+        const string salesOrderPrefix = "Failed to approve sales order:";
+
+        var normalizedMessage = message.Trim();
+        if (!normalizedMessage.StartsWith(salesOrderPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return normalizedMessage;
+        }
+
+        var reason = normalizedMessage[salesOrderPrefix.Length..].Trim();
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return "We couldn't approve this sales order right now. Please try again.";
+        }
+
+        var separatorIndex = reason.IndexOf(" - ", StringComparison.Ordinal);
+        if (separatorIndex > 0)
+        {
+            var orderNumber = reason[..separatorIndex].Trim();
+            var detail = reason[(separatorIndex + 3)..].Trim();
+            if (int.TryParse(orderNumber, out _) && !string.IsNullOrWhiteSpace(detail))
+            {
+                return $"Order {orderNumber} could not be approved because {ToSentenceFragment(detail)}.";
+            }
+        }
+
+        return $"This sales order could not be approved because {ToSentenceFragment(reason)}.";
+    }
+
+    private static string ToSentenceFragment(string value)
+    {
+        var trimmedValue = value.Trim().TrimEnd('.');
+        if (string.IsNullOrWhiteSpace(trimmedValue))
+        {
+            return "the request could not be completed";
+        }
+
+        return char.ToLowerInvariant(trimmedValue[0]) + trimmedValue[1..];
     }
 
     public async Task<InvoiceDto?> ConvertToInvoiceAsync(int id)

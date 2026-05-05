@@ -26,6 +26,7 @@ public sealed class AcknowledgeExceptionCenterItemHandler(
         }
 
         var state = await context.ExceptionCenterItemStates
+            .AsTracking()
             .FirstOrDefaultAsync(s => s.Source == source && s.ItemId == command.ItemId, cancellationToken);
 
         if (state == null)

@@ -1,0 +1,473 @@
+@page "/lab/batch-status/history"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Lab")]
+@rendermode InteractiveServer
+
+<PageTitle>Batch Status History - Shop Inventory</PageTitle>
+
+<div class="lbh-page">
+    <div class="lbh-shell">
+        <section class="lbh-hero">
+            <div>
+                <span class="lbh-kicker">Lab Operations</span>
+                <h1>Batch Status History</h1>
+                <p>Review batch status changes captured by the system, including who initiated them, which SAP row was
+                    affected, and whether the update succeeded.</p>
+                    <div class="lbh-utility-links">
+                        <a class="lbh-back-link" href="/lab/batch-status">Back to batch control</a>
+                    </div>
+                </div>
+
+                <div class="lbh-filter-card">
+                    <label for="lab-batch-history-search">Search History</label>
+                    <div class="lbh-filter-row">
+                        <input id="lab-batch-history-search" class="lbh-input" @bind="searchTerm" @bind:event="oninput"
+                               @onkeydown="HandleSearchKeyDown" placeholder="Batch number, item code, warehouse, or user" />
+                        <button type="button" class="lbh-search-btn" disabled="@isLoading" @onclick="SearchAsync">
+                            @(isLoading ? "Loading..." : "Search")
+                        </button>
+                    </div>
+                    <p class="lbh-helper">Leave the search blank to load the most recent changes. Search matches the
+                        recorded audit details.</p>
+                    </div>
+                </section>
+
+                @if (isLoading && historyItems.Count == 0)
+                {
+                    <section class="lbh-state-card">
+                        <div class="lbh-spinner"></div>
+                        <span>Loading batch history...</span>
+                    </section>
+                }
+                else if (hasLoaded && historyItems.Count == 0)
+                {
+                    <section class="lbh-state-card lbh-empty-card">
+                        <h2>No History Found</h2>
+                        <p>
+                            @if (string.IsNullOrWhiteSpace(lastSearchTerm))
+                            {
+                                <span>No batch status updates have been recorded yet.</span>
+                            }
+                            else
+                            {
+                                <span>No recorded batch status changes matched <strong>@lastSearchTerm</strong>.</span>
+                            }
+                        </p>
+                    </section>
+                }
+                else if (historyItems.Count > 0)
+                {
+                    <section class="lbh-results-card">
+                        <div class="lbh-results-header">
+                            <div>
+                                <h2>Recorded Changes</h2>
+                                <p>
+                                    @historyItems.Count change(s) loaded
+                                    @if (!string.IsNullOrWhiteSpace(lastSearchTerm))
+                                    {
+                                        <span> for <strong>@lastSearchTerm</strong></span>
+                                    }
+                                </p>
+                            </div>
+
+                            <button type="button" class="lbh-refresh-btn" disabled="@isLoading" @onclick="RefreshAsync">
+                                @(isLoading ? "Refreshing..." : "Refresh")
+                            </button>
+                        </div>
+
+                        <div class="lbh-table-wrap">
+                            <table class="lbh-table">
+                                <thead>
+                                    <tr>
+                                        <th>Changed</th>
+                                        <th>Batch</th>
+                                        <th>Item</th>
+                                        <th>Warehouse</th>
+                                        <th>Status Change</th>
+                                        <th>Outcome</th>
+                                        <th>Actor</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in historyItems)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <div class="lbh-primary">@FormatTimestamp(item.Timestamp)</div>
+                                                <div class="lbh-secondary">Audit #@item.AuditLogId</div>
+                                            </td>
+                                            <td>
+                                                <div class="lbh-primary">@item.BatchNumber</div>
+                                                <div class="lbh-secondary">Entry @item.BatchEntryId</div>
+                                            </td>
+                                            <td>
+                                                <div class="lbh-primary">@item.ItemCode</div>
+                                            </td>
+                                            <td>
+                                                <div class="lbh-primary">@(string.IsNullOrWhiteSpace(item.WarehouseCode) ? "Unknown" :
+                                                                                        item.WarehouseCode)</div>
+                                                </td>
+                                                <td>
+                                                    <div class="lbh-status-flow">
+                                                        <span
+                                                        class="@GetStatusChipClass(item.FromStatus)">@GetStatusLabel(item.FromStatus)</span>
+                                                        <span class="lbh-status-arrow">to</span>
+                                                        <span
+                                                        class="@GetStatusChipClass(item.ToStatus)">@GetStatusLabel(item.ToStatus)</span>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <span class="@GetOutcomeClass(item.IsSuccess)">@(item.IsSuccess ? "Applied" :
+                                                                                        "Failed")</span>
+                                                        @if (!string.IsNullOrWhiteSpace(item.ErrorMessage))
+                                                        {
+                                                            <div class="lbh-secondary">@item.ErrorMessage</div>
+                                                        }
+                                                    </td>
+                                                    <td>
+                                                        <div class="lbh-primary">@item.Username</div>
+                                                        <div class="lbh-secondary">@item.UserRole</div>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                @if (hasMore)
+                                {
+                                    <div class="lbh-load-more">
+                                        <button type="button" class="lbh-load-more-btn" disabled="@isLoading" @onclick="LoadMoreAsync">
+                                            @(isLoading ? "Loading..." : "Load More")
+                                        </button>
+                                    </div>
+                                }
+                            </section>
+                        }
+                    </div>
+                </div>
+
+                <style>
+                    .lbh-page {
+                        min-height: 100vh;
+                        padding: 1.5rem;
+                        background:
+                            radial-gradient(circle at top right, rgba(14, 165, 233, 0.12), transparent 30%),
+                            linear-gradient(180deg, #f8fafc 0%, #f0fdf4 100%);
+                    }
+
+                    .lbh-shell {
+                        max-width: 1280px;
+                        margin: 0 auto;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 1.25rem;
+                    }
+
+                    .lbh-hero,
+                    .lbh-state-card,
+                    .lbh-results-card {
+                        background: rgba(255, 255, 255, 0.94);
+                        border: 1px solid rgba(148, 163, 184, 0.2);
+                        border-radius: 24px;
+                        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
+                    }
+
+                    .lbh-hero {
+                        padding: 1.6rem 1.75rem;
+                        display: grid;
+                        grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+                        gap: 1.25rem;
+                        align-items: start;
+                    }
+
+                    .lbh-kicker {
+                        display: inline-flex;
+                        align-items: center;
+                        gap: .35rem;
+                        padding: .38rem .72rem;
+                        border-radius: 999px;
+                        background: rgba(8, 145, 178, 0.12);
+                        color: #0f766e;
+                        font-size: .82rem;
+                        font-weight: 700;
+                        letter-spacing: .04em;
+                        text-transform: uppercase;
+                    }
+
+                    .lbh-hero h1,
+                    .lbh-results-header h2,
+                    .lbh-empty-card h2 {
+                        margin: .8rem 0 .4rem;
+                        color: #0f172a;
+                    }
+
+                    .lbh-hero p,
+                    .lbh-results-header p,
+                    .lbh-helper,
+                    .lbh-secondary,
+                    .lbh-empty-card p {
+                        color: #475569;
+                    }
+
+                    .lbh-utility-links {
+                        margin-top: 1rem;
+                    }
+
+                    .lbh-back-link {
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        min-height: 44px;
+                        padding: 0 .95rem;
+                        border-radius: 14px;
+                        background: rgba(15, 23, 42, 0.06);
+                        color: #0f172a;
+                        font-weight: 700;
+                        text-decoration: none;
+                        transition: background .16s ease, transform .16s ease;
+                    }
+
+                    .lbh-back-link:hover {
+                        background: rgba(15, 23, 42, 0.1);
+                        transform: translateY(-1px);
+                    }
+
+                    .lbh-filter-card {
+                        padding: 1rem;
+                        border-radius: 20px;
+                        background: linear-gradient(180deg, rgba(241, 245, 249, 0.85) 0%, rgba(255, 255, 255, 0.98) 100%);
+                        border: 1px solid rgba(148, 163, 184, 0.18);
+                    }
+
+                    .lbh-filter-card label {
+                        display: block;
+                        margin-bottom: .45rem;
+                        font-weight: 600;
+                        color: #1e293b;
+                    }
+
+                    .lbh-filter-row {
+                        display: flex;
+                        gap: .75rem;
+                    }
+
+                    .lbh-input {
+                        width: 100%;
+                        border-radius: 14px;
+                        border: 1px solid rgba(148, 163, 184, 0.35);
+                        background: #fff;
+                        color: #0f172a;
+                        padding: .78rem .95rem;
+                    }
+
+                    .lbh-input:focus {
+                        outline: none;
+                        border-color: rgba(8, 145, 178, 0.55);
+                        box-shadow: 0 0 0 4px rgba(8, 145, 178, 0.12);
+                    }
+
+                    .lbh-search-btn,
+                    .lbh-refresh-btn,
+                    .lbh-load-more-btn {
+                        border: none;
+                        border-radius: 14px;
+                        font-weight: 700;
+                        transition: transform .16s ease, opacity .16s ease;
+                    }
+
+                    .lbh-search-btn,
+                    .lbh-refresh-btn {
+                        min-width: 118px;
+                        background: linear-gradient(135deg, #0891b2 0%, #0f766e 100%);
+                        color: #fff;
+                        padding: 0 1rem;
+                    }
+
+                    .lbh-load-more-btn {
+                        min-width: 160px;
+                        background: #0f172a;
+                        color: #fff;
+                        padding: .75rem 1.15rem;
+                    }
+
+                    .lbh-search-btn:disabled,
+                    .lbh-refresh-btn:disabled,
+                    .lbh-load-more-btn:disabled {
+                        opacity: .6;
+                        cursor: not-allowed;
+                        transform: none;
+                    }
+
+                    .lbh-search-btn:not(:disabled):hover,
+                    .lbh-refresh-btn:not(:disabled):hover,
+                    .lbh-load-more-btn:not(:disabled):hover {
+                        transform: translateY(-1px);
+                    }
+
+                    .lbh-state-card,
+                    .lbh-empty-card {
+                        padding: 1.5rem 1.75rem;
+                        display: flex;
+                        align-items: center;
+                        gap: .85rem;
+                    }
+
+                    .lbh-empty-card {
+                        flex-direction: column;
+                        align-items: flex-start;
+                    }
+
+                    .lbh-spinner {
+                        width: 1.2rem;
+                        height: 1.2rem;
+                        border-radius: 50%;
+                        border: 3px solid rgba(15, 23, 42, 0.12);
+                        border-top-color: #0f766e;
+                        animation: lbh-spin .8s linear infinite;
+                    }
+
+                    .lbh-results-card {
+                        padding: 1.4rem 1.5rem;
+                    }
+
+                    .lbh-results-header {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: flex-start;
+                        gap: 1rem;
+                        margin-bottom: 1rem;
+                    }
+
+                    .lbh-table-wrap {
+                        overflow-x: auto;
+                    }
+
+                    .lbh-table {
+                        width: 100%;
+                        border-collapse: separate;
+                        border-spacing: 0;
+                        min-width: 1120px;
+                    }
+
+                    .lbh-table th,
+                    .lbh-table td {
+                        padding: 1rem;
+                        border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+                        text-align: left;
+                        vertical-align: top;
+                    }
+
+                    .lbh-table th {
+                        font-size: .8rem;
+                        font-weight: 800;
+                        letter-spacing: .04em;
+                        text-transform: uppercase;
+                        color: #64748b;
+                    }
+
+                    .lbh-primary {
+                        font-weight: 700;
+                        color: #0f172a;
+                    }
+
+                    .lbh-secondary {
+                        margin-top: .18rem;
+                        font-size: .9rem;
+                        word-break: break-word;
+                    }
+
+                    .lbh-status-flow {
+                        display: flex;
+                        align-items: center;
+                        gap: .5rem;
+                        flex-wrap: wrap;
+                    }
+
+                    .lbh-status-arrow {
+                        font-size: .82rem;
+                        font-weight: 700;
+                        color: #64748b;
+                        text-transform: uppercase;
+                        letter-spacing: .04em;
+                    }
+
+                    .lbh-chip,
+                    .lbh-outcome {
+                        display: inline-flex;
+                        align-items: center;
+                        padding: .42rem .7rem;
+                        border-radius: 999px;
+                        font-size: .82rem;
+                        font-weight: 700;
+                    }
+
+                    .lbh-chip-released {
+                        background: rgba(34, 197, 94, 0.14);
+                        color: #166534;
+                    }
+
+                    .lbh-chip-locked {
+                        background: rgba(249, 115, 22, 0.14);
+                        color: #9a3412;
+                    }
+
+                    .lbh-chip-notaccessible {
+                        background: rgba(220, 38, 38, 0.14);
+                        color: #991b1b;
+                    }
+
+                    .lbh-chip-unknown {
+                        background: rgba(100, 116, 139, 0.14);
+                        color: #475569;
+                    }
+
+                    .lbh-outcome-success {
+                        background: rgba(34, 197, 94, 0.16);
+                        color: #166534;
+                    }
+
+                    .lbh-outcome-failed {
+                        background: rgba(220, 38, 38, 0.16);
+                        color: #991b1b;
+                    }
+
+                    .lbh-load-more {
+                        margin-top: 1rem;
+                        display: flex;
+                        justify-content: center;
+                    }
+
+                    @@keyframes lbh-spin {
+                        to {
+                            transform: rotate(360deg);
+                        }
+                    }
+
+                    @@media (max-width: 980px) {
+                        .lbh-hero {
+                            grid-template-columns: 1fr;
+                        }
+
+                        .lbh-results-header {
+                            flex-direction: column;
+                        }
+                    }
+
+                    @@media (max-width: 640px) {
+                        .lbh-page {
+                            padding: 1rem;
+                        }
+
+                        .lbh-filter-row {
+                            flex-direction: column;
+                        }
+
+                        .lbh-search-btn,
+                        .lbh-refresh-btn,
+                        .lbh-load-more-btn {
+                            width: 100%;
+                            min-height: 48px;
+                        }
+                    }
+                </style>

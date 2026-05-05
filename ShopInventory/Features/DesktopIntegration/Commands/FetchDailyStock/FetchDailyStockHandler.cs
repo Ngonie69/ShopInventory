@@ -88,6 +88,7 @@ public sealed class FetchDailyStockHandler(
     {
         // Check if snapshot already exists for this date/warehouse
         var existing = await context.DailyStockSnapshots
+            .AsTracking()
             .FirstOrDefaultAsync(s => s.SnapshotDate == snapshotDate && s.WarehouseCode == warehouseCode,
                 cancellationToken);
 

@@ -260,6 +260,7 @@ public class InventoryTransferQueueService : IInventoryTransferQueueService
         CancellationToken cancellationToken = default)
     {
         var entry = await _context.InventoryTransferQueue
+            .AsTracking()
             .FirstOrDefaultAsync(q => q.ExternalReference == externalReference, cancellationToken);
 
         if (entry == null || entry.Status != InventoryTransferQueueStatus.Pending)
@@ -282,6 +283,7 @@ public class InventoryTransferQueueService : IInventoryTransferQueueService
         CancellationToken cancellationToken = default)
     {
         var entry = await _context.InventoryTransferQueue
+            .AsTracking()
             .FirstOrDefaultAsync(q => q.ExternalReference == externalReference, cancellationToken);
 
         if (entry == null)

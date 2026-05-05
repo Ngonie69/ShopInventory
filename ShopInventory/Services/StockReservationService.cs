@@ -518,8 +518,17 @@ public class StockReservationService : IStockReservationService
         {
             _logger.LogError(ex, "Failed to confirm reservation {ReservationId}", reservation.ReservationId);
 
-            reservation.Status = ReservationStatus.Failed;
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            if (!SapFailureClassifier.IsTransient(ex, cancellationToken))
+            {
+                reservation.Status = ReservationStatus.Failed;
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "Transient SAP failure while confirming reservation {ReservationId}; leaving reservation pending for queue fallback or retry.",
+                    reservation.ReservationId);
+            }
 
             return new ConfirmReservationResponseDto
             {

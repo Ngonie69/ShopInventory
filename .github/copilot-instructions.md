@@ -94,7 +94,7 @@ Browser → Blazor Web (5107) → API (5106) → SAP B1 Service Layer (10.10.10.
 
 - UI: **Bootstrap** for layout + grid, **MudBlazor** for interactive components (buttons, date pickers, dialogs, icons).
 - CSS: page-scoped styles use prefixes (`inv-`, `prod-`, `stk-`, `so-`, `po-`, `pay-`, etc.) to avoid collisions.
-- Dark mode: toggle `.dark-theme` class on `<html>` element; use CSS variables from `app.css`, not hardcoded colors.
+- Dark mode: every touched page, component, dialog, and page-scoped style must preserve dark-mode parity. Toggle `.dark-theme` on `<html>`, use CSS variables from `app.css`, and add `.dark-theme .{page-prefix}-*` overrides in `wwwroot/app.css` when page-local styles or hardcoded colors need theme-specific treatment. Do not ship light-only UI for a touched surface.
 - Auth state: `CustomAuthStateProvider` reads JWT from localStorage via `Blazored.LocalStorage`.
 - Inject services via `@inject IXxxService XxxService` at page top.
 - NavMenu links wrapped in `<AuthorizeView Roles="...">` for role gating.

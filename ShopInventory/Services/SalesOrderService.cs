@@ -17,6 +17,7 @@ public class SalesOrderService : ISalesOrderService
 {
     private const int MaxCommentsLength = 1000;
     private const int MaxCreateOrderAttempts = 5;
+    private static readonly TimeSpan ApprovalPricingTimeout = TimeSpan.FromSeconds(30);
 
     private readonly ApplicationDbContext _context;
     private readonly ISAPServiceLayerClient _sapClient;
@@ -749,9 +750,12 @@ public class SalesOrderService : ISalesOrderService
 
             var source = order.Source == SalesOrderSource.Mobile ? "Mobile" : "Web";
             await _notificationService.CreateSalesOrderNotificationAsync(
+                order.Id,
                 order.OrderNumber,
+                order.CardCode,
                 order.CardName ?? order.CardCode,
                 order.DocTotal,
+                order.Status.ToString(),
                 source,
                 username,
                 cancellationToken);
@@ -944,8 +948,12 @@ public class SalesOrderService : ISalesOrderService
         if (order == null)
             return false;
 
-        if (order.Status != SalesOrderStatus.Draft && order.Status != SalesOrderStatus.Cancelled)
-            throw new InvalidOperationException("Only draft or cancelled orders can be deleted");
+        if (order.Status != SalesOrderStatus.Draft
+            && order.Status != SalesOrderStatus.Cancelled
+            && order.Status != SalesOrderStatus.Rejected)
+        {
+            throw new InvalidOperationException("Only draft, cancelled, or rejected orders can be deleted");
+        }
 
         _context.SalesOrders.Remove(order);
         await _context.SaveChangesAsync(cancellationToken);
@@ -1310,10 +1318,34 @@ public class SalesOrderService : ISalesOrderService
             }
         }
 
-        if (validationErrors.Count == 0)
-            return;
+        if (validationErrors.Count > 0)
+            throw new InvalidOperationException($"Sales order validation failed: {string.Join("; ", validationErrors)}");
 
-        throw new InvalidOperationException($"Sales order validation failed: {string.Join("; ", validationErrors)}");
+        request.CardName = await ResolveCardNameAsync(request.CardCode, request.CardName, cancellationToken);
+    }
+
+    private async Task<string?> ResolveCardNameAsync(string? cardCode, string? currentCardName, CancellationToken cancellationToken)
+    {
+        if (!NeedsResolvedCardName(cardCode, currentCardName))
+            return currentCardName;
+
+        var normalizedCardCode = cardCode?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedCardCode))
+            return currentCardName;
+
+        var businessPartner = await _businessPartnerService.GetBusinessPartnerByCodeAsync(normalizedCardCode, cancellationToken);
+        return string.IsNullOrWhiteSpace(businessPartner?.CardName)
+            ? currentCardName
+            : businessPartner.CardName.Trim();
+    }
+
+    private static bool NeedsResolvedCardName(string? cardCode, string? cardName)
+    {
+        if (string.IsNullOrWhiteSpace(cardCode))
+            return false;
+
+        return string.IsNullOrWhiteSpace(cardName) ||
+            string.Equals(cardCode.Trim(), cardName.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task EnsureOrderHasValidQuantitiesAsync(SalesOrderEntity order, string operation, CancellationToken cancellationToken)
@@ -1417,13 +1449,14 @@ public class SalesOrderService : ISalesOrderService
 
         return currentStatus switch
         {
-            SalesOrderStatus.Draft => newStatus is SalesOrderStatus.Pending or SalesOrderStatus.Approved or SalesOrderStatus.Cancelled or SalesOrderStatus.OnHold,
-            SalesOrderStatus.Pending => newStatus is SalesOrderStatus.Draft or SalesOrderStatus.Approved or SalesOrderStatus.Cancelled or SalesOrderStatus.OnHold,
+            SalesOrderStatus.Draft => newStatus is SalesOrderStatus.Pending or SalesOrderStatus.Approved or SalesOrderStatus.Cancelled or SalesOrderStatus.OnHold or SalesOrderStatus.Rejected,
+            SalesOrderStatus.Pending => newStatus is SalesOrderStatus.Draft or SalesOrderStatus.Approved or SalesOrderStatus.Cancelled or SalesOrderStatus.OnHold or SalesOrderStatus.Rejected,
             SalesOrderStatus.Approved => newStatus is SalesOrderStatus.PartiallyFulfilled or SalesOrderStatus.Fulfilled or SalesOrderStatus.Cancelled or SalesOrderStatus.OnHold,
             SalesOrderStatus.PartiallyFulfilled => newStatus is SalesOrderStatus.Fulfilled or SalesOrderStatus.Cancelled,
             SalesOrderStatus.Fulfilled => false,
             SalesOrderStatus.Cancelled => newStatus is SalesOrderStatus.Draft,
-            SalesOrderStatus.OnHold => newStatus is SalesOrderStatus.Pending or SalesOrderStatus.Approved or SalesOrderStatus.Cancelled,
+            SalesOrderStatus.OnHold => newStatus is SalesOrderStatus.Pending or SalesOrderStatus.Approved or SalesOrderStatus.Cancelled or SalesOrderStatus.Rejected,
+            SalesOrderStatus.Rejected => newStatus is SalesOrderStatus.Draft or SalesOrderStatus.Pending or SalesOrderStatus.Cancelled,
             _ => false
         };
     }
@@ -1496,6 +1529,9 @@ public class SalesOrderService : ISalesOrderService
         if (order.Lines == null || order.Lines.Count == 0)
             return;
 
+        using var pricingCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        pricingCts.CancelAfter(ApprovalPricingTimeout);
+
         try
         {
             var itemCodes = order.Lines
@@ -1513,12 +1549,12 @@ public class SalesOrderService : ISalesOrderService
                 itemCodes.Count,
                 order.CardCode);
 
-            var priceListPrices = await _sapClient.GetItemPricesForCustomerAsync(order.CardCode, itemCodes, cancellationToken);
+            var priceListPrices = await _sapClient.GetItemPricesForCustomerAsync(order.CardCode, itemCodes, pricingCts.Token);
             var priceMap = priceListPrices
                 .Where(p => p.ItemCode != null)
                 .ToDictionary(p => p.ItemCode!, p => p.Price, StringComparer.OrdinalIgnoreCase);
 
-            var specialPrices = await _sapClient.GetSpecialPricesForBPAsync(order.CardCode, itemCodes, cancellationToken);
+            var specialPrices = await _sapClient.GetSpecialPricesForBPAsync(order.CardCode, itemCodes, pricingCts.Token);
 
             if (specialPrices.Count > 0)
             {
@@ -1575,6 +1611,15 @@ public class SalesOrderService : ISalesOrderService
             _logger.LogInformation(
                 "Prices populated for order {OrderId}: SubTotal={SubTotal}, Tax={TaxAmount}, Total={DocTotal}",
                 order.Id, order.SubTotal, order.TaxAmount, order.DocTotal);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested && pricingCts.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ex,
+                "Timed out populating SAP prices for order {OrderId} (BP: {CardCode}) after {TimeoutSeconds} seconds. Approval will continue with existing prices.",
+                order.Id,
+                order.CardCode,
+                ApprovalPricingTimeout.TotalSeconds);
         }
         catch (Exception ex)
         {

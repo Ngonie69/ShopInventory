@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 
@@ -7,7 +8,7 @@ namespace ShopInventory.Data;
 /// <summary>
 /// Application database context for Entity Framework Core with PostgreSQL
 /// </summary>
-public class ApplicationDbContext : DbContext
+public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 {
   public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
       : base(options)
@@ -50,6 +51,7 @@ public class ApplicationDbContext : DbContext
   public DbSet<EmailQueueItem> EmailQueueItems { get; set; }
   public DbSet<SapConnectionLog> SapConnectionLogs { get; set; }
   public DbSet<CacheSyncStateEntity> CacheSyncStates { get; set; }
+  public DbSet<BackgroundWorkerClusterStateEntity> BackgroundWorkerClusterStates { get; set; }
   public DbSet<UserNotificationSettings> UserNotificationSettings { get; set; }
   public DbSet<PushDeviceRegistration> PushDeviceRegistrations { get; set; }
 
@@ -92,6 +94,7 @@ public class ApplicationDbContext : DbContext
   public DbSet<UserPermissionEntity> UserPermissions { get; set; }
   public DbSet<RoleEntity> Roles { get; set; }
   public DbSet<RolePermissionEntity> RolePermissions { get; set; }
+  public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
 
   // Document Management tables
   public DbSet<DocumentTemplateEntity> DocumentTemplates { get; set; }
@@ -110,6 +113,9 @@ public class ApplicationDbContext : DbContext
 
   // Inventory Transfer Queue for batch posting
   public DbSet<InventoryTransferQueueEntity> InventoryTransferQueue { get; set; }
+
+  // Incoming Payment Queue for durable SAP posting
+  public DbSet<IncomingPaymentQueueEntity> IncomingPaymentQueue { get; set; }
 
   // Mobile order post-processing queue for durable price enrichment and notifications
   public DbSet<MobileOrderPostProcessingQueueEntity> MobileOrderPostProcessingQueue { get; set; }
@@ -131,6 +137,11 @@ public class ApplicationDbContext : DbContext
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
     base.OnModelCreating(modelBuilder);
+
+    modelBuilder.Entity<DataProtectionKey>(entity =>
+    {
+      entity.ToTable("DataProtectionKeys");
+    });
 
     // User configuration
     modelBuilder.Entity<User>(entity =>
@@ -516,6 +527,34 @@ public class ApplicationDbContext : DbContext
 
       entity.HasIndex(c => c.LastSyncedAt);
       entity.HasIndex(c => c.LastErrorAt);
+    });
+
+    modelBuilder.Entity<BackgroundWorkerClusterStateEntity>(entity =>
+    {
+      entity.ToTable("BackgroundWorkerClusterStates");
+      entity.HasKey(state => new { state.WorkerName, state.InstanceId });
+
+      entity.Property(state => state.WorkerName)
+                  .IsRequired()
+                  .HasMaxLength(100);
+
+      entity.Property(state => state.InstanceId)
+                  .IsRequired()
+                  .HasMaxLength(100);
+
+      entity.Property(state => state.MachineName)
+                  .IsRequired()
+                  .HasMaxLength(100);
+
+      entity.Property(state => state.Mode)
+                  .IsRequired()
+                  .HasMaxLength(32);
+
+      entity.Property(state => state.LastError)
+                  .HasMaxLength(2000);
+
+      entity.HasIndex(state => state.LastHeartbeatUtc);
+      entity.HasIndex(state => new { state.WorkerName, state.Mode, state.LastHeartbeatUtc });
     });
 
     // User Notification Settings configuration

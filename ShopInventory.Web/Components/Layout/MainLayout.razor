@@ -406,16 +406,25 @@
     {
         try
         {
+            var countTask = NotificationClient.GetUnreadCountAsync();
+            var listTask = NotificationClient.GetNotificationsAsync(1, 5, false);
+            await Task.WhenAll(countTask, listTask);
+
+            var response = listTask.Result;
+            var visibleNotification = response?.Notifications.FirstOrDefault(n => n.Id == notification.Id && !n.IsRead);
+            if (response == null || visibleNotification == null)
+            {
+                return;
+            }
+
             await InvokeAsync(() =>
             {
-                _unreadCount++;
-                _recentNotifications.Insert(0, notification);
-                if (_recentNotifications.Count > 5)
-                    _recentNotifications.RemoveAt(5);
+                _unreadCount = countTask.Result;
+                _recentNotifications = response.Notifications.Take(5).ToList();
 
                 Snackbar.Add(
-                    $"{notification.Title}: {TruncateMessage(notification.Message, 80)}",
-                    MapSeverity(notification.Type),
+                    $"{visibleNotification.Title}: {TruncateMessage(visibleNotification.Message, 80)}",
+                    MapSeverity(visibleNotification.Type),
                     config =>
                     {
                         config.VisibleStateDuration = 5000;

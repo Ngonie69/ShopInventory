@@ -3,6 +3,7 @@
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @attribute [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
+@inject AuthenticationStateProvider AuthStateProvider
 @inject IPodService PodService
 @inject IReportExportService ExportService
 @inject IAppSettingsProvider AppSettings
@@ -738,6 +739,13 @@
         if (!fromDate.HasValue || !toDate.HasValue)
         {
             errorMessage = "Please select both From and To dates.";
+            return;
+        }
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (authState.User.Identity?.IsAuthenticated != true)
+        {
+            errorMessage = "Your session has expired. Please sign in again and reload the report.";
             return;
         }
 

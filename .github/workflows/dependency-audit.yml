@@ -1,0 +1,82 @@
+name: Dependency Audit
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  schedule:
+    - cron: "45 2 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit NuGet packages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore solution
+        run: dotnet restore ShopInventory.sln
+
+      - name: Check vulnerable packages
+        shell: pwsh
+        run: |
+          $reportPath = Join-Path $env:RUNNER_TEMP "nuget-vulnerabilities.json"
+          dotnet list ShopInventory.sln package --vulnerable --include-transitive --format json --output-version 1 | Set-Content -LiteralPath $reportPath
+
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          $vulnerabilities = @()
+
+          foreach ($project in @($report.projects)) {
+            foreach ($framework in @($project.frameworks)) {
+              foreach ($package in @($framework.topLevelPackages)) {
+                foreach ($vulnerability in @($package.vulnerabilities)) {
+                  $vulnerabilities += [PSCustomObject]@{
+                    Project = $project.path
+                    Framework = $framework.framework
+                    Package = $package.id
+                    Version = $package.resolvedVersion
+                    Severity = $vulnerability.severity
+                    Advisory = $vulnerability.advisoryurl
+                    Type = "TopLevel"
+                  }
+                }
+              }
+
+              foreach ($package in @($framework.transitivePackages)) {
+                foreach ($vulnerability in @($package.vulnerabilities)) {
+                  $vulnerabilities += [PSCustomObject]@{
+                    Project = $project.path
+                    Framework = $framework.framework
+                    Package = $package.id
+                    Version = $package.resolvedVersion
+                    Severity = $vulnerability.severity
+                    Advisory = $vulnerability.advisoryurl
+                    Type = "Transitive"
+                  }
+                }
+              }
+            }
+          }
+
+          if ($vulnerabilities.Count -gt 0) {
+            Write-Host "Detected vulnerable packages:"
+            $vulnerabilities | Sort-Object Severity, Package | Format-Table -AutoSize | Out-String | Write-Host
+            throw "Dependency audit failed because vulnerable NuGet packages were found."
+          }
+
+          Write-Host "No vulnerable NuGet packages were detected."

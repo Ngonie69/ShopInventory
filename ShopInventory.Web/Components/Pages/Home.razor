@@ -385,6 +385,12 @@ else
             return;
         }
 
+        if (user.IsInRole("Lab") && !user.IsInRole("Admin"))
+        {
+            Navigation.NavigateTo("/lab/batch-status", replace: true);
+            return;
+        }
+
         if (user.IsInRole("MerchandiserPurchaseOrderViewer"))
         {
             Navigation.NavigateTo("/reports/merchandiser-purchase-orders", replace: true);

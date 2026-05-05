@@ -15,6 +15,9 @@ public static partial class Errors
         public static Error NotFoundByDocNum(int docNum) =>
             Error.NotFound("IncomingPayment.NotFound", $"Incoming payment with DocNum {docNum} not found.");
 
+        public static Error QueueNotFound(string reference) =>
+            Error.NotFound("IncomingPayment.QueueNotFound", $"Incoming payment queue entry '{reference}' not found.");
+
         public static Error ValidationFailed(string message) =>
             Error.Validation("IncomingPayment.ValidationFailed", message);
 

@@ -922,42 +922,14 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         if (distinctDocEntries.Count == 0)
             return [];
 
-        await EnsureAuthenticatedAsync(cancellationToken);
         var allInvoices = new List<Invoice>();
 
-        foreach (var chunk in distinctDocEntries.Chunk(50))
+        foreach (var chunk in distinctDocEntries.Chunk(10))
         {
-            var currentSession = _sessionId;
-            var filter = string.Join(" or ", chunk.Select(docEntry => $"DocEntry eq {docEntry}"));
-            var url = $"Invoices?$filter={filter}&$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency&$expand=DocumentLines($select=WarehouseCode)&$top={chunk.Length}";
+            var chunkTasks = chunk.Select(docEntry => GetInvoiceByDocEntryAsync(docEntry, cancellationToken));
+            var chunkInvoices = await Task.WhenAll(chunkTasks);
 
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-            var response = await _httpClient.SendAsync(request, cancellationToken);
-
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
-            {
-                await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-                request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                response = await _httpClient.SendAsync(request, cancellationToken);
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("Failed to bulk get invoice headers by DocEntry: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to bulk get invoice headers: {response.StatusCode} - {errorContent}");
-            }
-
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            var result = JsonSerializer.Deserialize<SAPResponse<Invoice>>(content);
-            if (result?.Value is { Count: > 0 })
-                allInvoices.AddRange(result.Value);
+            allInvoices.AddRange(chunkInvoices.Where(invoice => invoice is not null)!);
         }
 
         return allInvoices
@@ -1186,13 +1158,13 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             filter += $" and {exclusions}";
         }
 
-        // Include line warehouse codes so location-scoped POD reporting can map invoices to user sections.
+        // Keep this query header-only. Line-level warehouse codes are fetched separately
+        // for PodOperator section scoping through single-invoice reads.
         var select = "$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency";
-        var expand = "$expand=DocumentLines($select=WarehouseCode)";
 
         while (hasMore)
         {
-            var url = $"Invoices?$filter={filter}&{select}&{expand}&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+            var url = $"Invoices?$filter={filter}&{select}&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -3110,40 +3082,128 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
 
     /// <summary>
     /// Gets prices for specific items using a customer's assigned price list (from OCRD.ListNum).
-    /// Combines BP lookup + price fetch into a single SAP SQL query for efficiency.
+    /// Resolves the BP price list first, then queries only the requested items from that list.
     /// </summary>
     public async Task<List<ItemPriceByListDto>> GetItemPricesForCustomerAsync(string cardCode, IEnumerable<string> itemCodes, CancellationToken cancellationToken = default)
     {
-        await EnsureAuthenticatedAsync(cancellationToken);
+        var codes = itemCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-        var codes = itemCodes.ToList();
         if (codes.Count == 0) return [];
 
-        var safeCardCode = SanitizeSqlValue(cardCode);
-        var safeItemCodes = string.Join(", ", codes.Select(c => $"'{SanitizeSqlValue(c)}'"));
+        var businessPartner = await GetBusinessPartnerByCodeAsync(cardCode, cancellationToken);
+        var priceListNum = businessPartner?.PriceListNum ?? 1;
 
-        var suffix = Random.Shared.Next(100000, 999999);
-        var queryCode = $"SH_CustPrc_{suffix}";
-        var customerPriceListPredicate = SapSqlPriceListExpressions.BuildFallbackPredicate(@"T0.""PriceList""", @"T2.""ListNum""");
+        var prices = await GetItemPricesForPriceListAsync(priceListNum, codes, cancellationToken);
 
-        var sqlText = $@"SELECT T0.""ItemCode"", T1.""ItemName"", T1.""FrgnName"", T0.""PriceList"", T0.""Price"", T0.""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" LEFT JOIN OCRD T2 ON T2.""CardCode"" = '{safeCardCode}' WHERE {customerPriceListPredicate} AND T0.""ItemCode"" IN ({safeItemCodes}) AND T0.""Price"" > 0";
-
-        List<ItemPriceByListDto> prices;
-        try
-        {
-            await CreateSqlQueryAsync(queryCode, $"Customer prices for {cardCode}", sqlText, cancellationToken);
-            // Small result set (only order items), no pagination needed
-            prices = await ExecutePriceListQueryAsync(queryCode, 0, cancellationToken);
-        }
-        finally
-        {
-            await TryDeleteQueryAsync(queryCode, cancellationToken);
-        }
-
-        _logger.LogInformation("Retrieved {Count} customer prices for {CardCode} ({ItemCount} items requested)",
-            prices.Count, cardCode, codes.Count);
+        _logger.LogInformation(
+            "Retrieved {Count} customer prices for {CardCode} from price list {PriceListNum} ({ItemCount} items requested)",
+            prices.Count,
+            cardCode,
+            priceListNum,
+            codes.Count);
 
         return prices;
+    }
+
+    private async Task<List<ItemPriceByListDto>> GetItemPricesForPriceListAsync(
+        int priceListNum,
+        IReadOnlyCollection<string> itemCodes,
+        CancellationToken cancellationToken)
+    {
+        return await GetItemPricesForPriceListViaItemsApiAsync(priceListNum, itemCodes, cancellationToken);
+    }
+
+    private async Task<List<ItemPriceByListDto>> GetItemPricesForPriceListViaItemsApiAsync(
+        int priceListNum,
+        IReadOnlyCollection<string> itemCodes,
+        CancellationToken cancellationToken)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var safeItemCodes = itemCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(SanitizeODataValue)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (safeItemCodes.Count == 0)
+        {
+            return [];
+        }
+
+        var priceListName = $"Price List {priceListNum}";
+        var prices = new Dictionary<string, ItemPriceByListDto>(StringComparer.OrdinalIgnoreCase);
+        const int pageSize = 100;
+
+        foreach (var batch in safeItemCodes.Chunk(40))
+        {
+            var skip = 0;
+
+            while (true)
+            {
+                var itemFilter = string.Join(" or ", batch.Select(code => $"ItemCode eq '{code}'"));
+                var url = $"Items?$select=ItemCode,ItemName,ForeignName,ItemPrices&$filter=ItemType eq 'itItems' and ({itemFilter})&$top={pageSize}&$skip={skip}";
+                var currentSession = _sessionId;
+
+                var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+
+                var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                    httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+                    httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                    httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                    httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+                    response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                    _logger.LogWarning(
+                        "Targeted Items API lookup failed for price list {PriceListNum}: {StatusCode} - {Error}",
+                        priceListNum,
+                        response.StatusCode,
+                        errorContent);
+                    break;
+                }
+
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                var (pageItems, nextLink) = ParseItemPricesFromItemsApi(content, priceListNum, priceListName);
+
+                foreach (var price in pageItems)
+                {
+                    if (!string.IsNullOrWhiteSpace(price.ItemCode))
+                    {
+                        prices[price.ItemCode] = price;
+                    }
+                }
+
+                if (string.IsNullOrEmpty(nextLink))
+                {
+                    break;
+                }
+
+                skip += pageSize;
+            }
+        }
+
+        _logger.LogInformation(
+            "Targeted Items API lookup retrieved {Count} prices for price list {PriceListNum}",
+            prices.Count,
+            priceListNum);
+
+        return prices.Values.ToList();
     }
 
     /// <summary>

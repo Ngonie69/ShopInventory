@@ -81,6 +81,7 @@ public sealed class RetryExceptionCenterItemHandler(
         async Task<ErrorOr<Success>> RetryMobileAsync(int itemId, CancellationToken token)
         {
             var entry = await context.MobileOrderPostProcessingQueue
+                .AsTracking()
                 .FirstOrDefaultAsync(q => q.Id == itemId, token);
 
             if (entry == null)

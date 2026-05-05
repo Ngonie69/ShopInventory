@@ -79,9 +79,11 @@ public partial class LabBatchStatus : ComponentBase
         {
             var result = await Mediator.Send(new UpdateBatchStatusCommand(
                 item.BatchEntryId,
+                item.Status ?? string.Empty,
                 item.PendingStatus,
                 item.BatchNumber,
-                item.ItemCode));
+                item.ItemCode,
+                item.WarehouseCode));
 
             if (result.IsError)
             {

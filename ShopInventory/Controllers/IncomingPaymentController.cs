@@ -10,7 +10,9 @@ using ShopInventory.Features.IncomingPayments.Queries.GetPaymentByDocEntry;
 using ShopInventory.Features.IncomingPayments.Queries.GetPaymentByDocNum;
 using ShopInventory.Features.IncomingPayments.Queries.GetPaymentsByCustomer;
 using ShopInventory.Features.IncomingPayments.Queries.GetPaymentsByDateRange;
+using ShopInventory.Features.IncomingPayments.Queries.GetQueueStatus;
 using ShopInventory.Features.IncomingPayments.Queries.GetTodaysPayments;
+using System.Security.Claims;
 
 namespace ShopInventory.Controllers;
 
@@ -18,21 +20,51 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccess")]
 public class IncomingPaymentController(IMediator mediator) : ApiControllerBase
 {
+    private string? GetUserId() =>
+        User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("client_id")?.Value;
+
     /// <summary>
     /// Creates a new incoming payment in SAP Business One
     /// </summary>
     [HttpPost]
     [ProducesResponseType(typeof(IncomingPaymentCreatedResponseDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(IncomingPaymentCreatedResponseDto), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> CreateIncomingPayment(
         [FromBody] CreateIncomingPaymentRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new CreateIncomingPaymentCommand(request), cancellationToken);
+        var result = await mediator.Send(new CreateIncomingPaymentCommand(request, GetUserId()), cancellationToken);
         return result.Match(
-            value => CreatedAtAction(nameof(GetIncomingPaymentByDocEntry), new { docEntry = value.Payment!.DocEntry }, value),
+            value =>
+            {
+                if (value.WasQueued)
+                {
+                    value.StatusUrl = !string.IsNullOrWhiteSpace(value.QueueExternalReference)
+                        ? Url.Action(nameof(GetIncomingPaymentQueueStatus), "IncomingPayment", new { externalReference = value.QueueExternalReference }, Request.Scheme)
+                        : null;
+
+                    return Accepted(value);
+                }
+
+                return CreatedAtAction(nameof(GetIncomingPaymentByDocEntry), new { docEntry = value.Payment!.DocEntry }, value);
+            },
             errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Gets queue status for a deferred incoming payment
+    /// </summary>
+    [HttpGet("queue/{externalReference}")]
+    [ProducesResponseType(typeof(IncomingPaymentQueueStatusDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetIncomingPaymentQueueStatus(
+        string externalReference,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(new GetQueueStatusQuery(externalReference), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>

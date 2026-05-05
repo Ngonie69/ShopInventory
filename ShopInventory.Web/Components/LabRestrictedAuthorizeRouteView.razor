@@ -1,0 +1,73 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Routing
+@using ShopInventory.Web.Data
+@inject NavigationManager Navigation
+
+@if (_allowRoute)
+{
+    <AuthorizeRouteView RouteData="RouteData" DefaultLayout="typeof(Layout.MainLayout)">
+        <NotAuthorized>
+            <RedirectToLogin />
+        </NotAuthorized>
+        <Authorizing>
+        </Authorizing>
+    </AuthorizeRouteView>
+}
+else
+{
+    <div class="d-flex justify-content-center align-items-center" style="height: 100vh;">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Redirecting...</span>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public RouteData RouteData { get; set; } = default!;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    private bool _allowRoute = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _allowRoute = true;
+
+        if (AuthenticationStateTask is null)
+        {
+            return;
+        }
+
+        var authState = await AuthenticationStateTask;
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated != true)
+        {
+            return;
+        }
+
+        var isLabOnlyUser = user.IsInRole(UserRoles.Lab) && !user.IsInRole(UserRoles.Admin);
+        if (!isLabOnlyUser)
+        {
+            return;
+        }
+
+        _allowRoute = RouteData.PageType == typeof(Pages.LabBatchStatus) ||
+                  RouteData.PageType == typeof(Pages.LabBatchStatusHistory) ||
+                  RouteData.PageType == typeof(Pages.Security);
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (_allowRoute)
+        {
+            return;
+        }
+
+        var relativePath = Navigation.ToBaseRelativePath(Navigation.Uri).Trim('/');
+        if (!relativePath.Equals("lab/batch-status", StringComparison.OrdinalIgnoreCase))
+        {
+            Navigation.NavigateTo("/lab/batch-status", replace: true);
+        }
+    }
+}

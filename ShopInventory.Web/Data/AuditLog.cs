@@ -121,6 +121,7 @@ public static class AuditActions
     // Sales Order actions
     public const string ViewSalesOrders = "ViewSalesOrders";
     public const string CreateSalesOrder = "CreateSalesOrder";
+    public const string UpdateSalesOrder = "UpdateSalesOrder";
     public const string ApproveSalesOrder = "ApproveSalesOrder";
     public const string PostSalesOrderToSAP = "PostSalesOrderToSAP";
     public const string ConvertOrderToInvoice = "ConvertOrderToInvoice";

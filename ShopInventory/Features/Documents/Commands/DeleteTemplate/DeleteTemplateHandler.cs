@@ -1,12 +1,14 @@
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
+using ShopInventory.Models;
 using ShopInventory.Services;
 
 namespace ShopInventory.Features.Documents.Commands.DeleteTemplate;
 
 public sealed class DeleteTemplateHandler(
     IDocumentService documentService,
+    IAuditService auditService,
     ILogger<DeleteTemplateHandler> logger
 ) : IRequestHandler<DeleteTemplateCommand, ErrorOr<bool>>
 {
@@ -21,6 +23,20 @@ public sealed class DeleteTemplateHandler(
             {
                 return Errors.Document.TemplateNotFound(command.Id);
             }
+
+            try
+            {
+                await auditService.LogAsync(
+                    AuditActions.DeleteDocumentTemplate,
+                    "DocumentTemplate",
+                    command.Id.ToString(),
+                    $"Document template {command.Id} deleted",
+                    true);
+            }
+            catch
+            {
+            }
+
             return true;
         }
         catch (Exception ex)

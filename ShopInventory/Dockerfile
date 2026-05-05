@@ -44,7 +44,7 @@ USER appuser
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5106/swagger/index.html || exit 1
+    CMD curl -f http://localhost:5106/health/ready || exit 1
 
 # Entry point
 ENTRYPOINT ["dotnet", "ShopInventory.dll"]

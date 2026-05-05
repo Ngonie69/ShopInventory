@@ -20,7 +20,10 @@
 # cd ShopInventory
 
 # Database
+# Local single-node example:
 dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=ShopInventory;Username=postgres;Password=YOUR_PG_PASSWORD"
+# HA example for native PostgreSQL primary/standby:
+# dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=db-primary.internal,db-standby.internal;Port=5432;Database=ShopInventory;Username=shopinventory;Password=YOUR_PG_PASSWORD;Target Session Attributes=read-write;Load Balance Hosts=false;Host Recheck Seconds=5;Timeout=15;Command Timeout=30;Keepalive=30;Maximum Pool Size=100;Minimum Pool Size=10"
 
 # SAP B1 Service Layer
 dotnet user-secrets set "SAP:Username" "YOUR_SAP_USERNAME"
@@ -53,7 +56,10 @@ dotnet user-secrets set "Security:ApiKeys:1:Key" "YOUR_TEST_API_KEY"
 # cd ShopInventory.Web
 
 # Database
+# Local single-node example:
 dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=ShopInventoryWeb;Username=postgres;Password=YOUR_PG_PASSWORD"
+# HA example for native PostgreSQL primary/standby:
+# dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=db-primary.internal,db-standby.internal;Port=5432;Database=ShopInventoryWeb;Username=shopinventory;Password=YOUR_PG_PASSWORD;Target Session Attributes=read-write;Load Balance Hosts=false;Host Recheck Seconds=5;Timeout=15;Command Timeout=30;Keepalive=30;Maximum Pool Size=100;Minimum Pool Size=10"
 
 # API Key (must match Security:ApiKeys:0:Key in API project)
 dotnet user-secrets set "ApiSettings:ApiKey" "YOUR_MAIN_API_KEY"

@@ -1,12 +1,14 @@
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
+using ShopInventory.Models;
 using ShopInventory.Services;
 
 namespace ShopInventory.Features.Documents.Commands.SetDefaultTemplate;
 
 public sealed class SetDefaultTemplateHandler(
     IDocumentService documentService,
+    IAuditService auditService,
     ILogger<SetDefaultTemplateHandler> logger
 ) : IRequestHandler<SetDefaultTemplateCommand, ErrorOr<bool>>
 {
@@ -21,6 +23,20 @@ public sealed class SetDefaultTemplateHandler(
             {
                 return Errors.Document.TemplateNotFound(command.Id);
             }
+
+            try
+            {
+                await auditService.LogAsync(
+                    AuditActions.SetDefaultDocumentTemplate,
+                    "DocumentTemplate",
+                    command.Id.ToString(),
+                    $"Document template {command.Id} set as default",
+                    true);
+            }
+            catch
+            {
+            }
+
             return true;
         }
         catch (Exception ex)

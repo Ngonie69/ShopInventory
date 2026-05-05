@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
+using ShopInventory.Features.UserManagement;
 using ShopInventory.Models;
 using ShopInventory.Services;
 
@@ -10,6 +11,8 @@ namespace ShopInventory.Features.UserManagement.Commands.UpdateGlobalDriverAssig
 public sealed class UpdateGlobalDriverAssignedCustomersHandler(
     ApplicationDbContext context,
     IAuditService auditService,
+    IBusinessPartnerService businessPartnerService,
+    INotificationService notificationService,
     ILogger<UpdateGlobalDriverAssignedCustomersHandler> logger
 ) : IRequestHandler<UpdateGlobalDriverAssignedCustomersCommand, ErrorOr<int>>
 {
@@ -21,20 +24,41 @@ public sealed class UpdateGlobalDriverAssignedCustomersHandler(
             .Where(code => !string.IsNullOrWhiteSpace(code))
             .Select(code => code.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(code => code)
+            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var driverIds = await context.Users
+        var drivers = await context.Users
             .AsNoTracking()
             .Where(user => user.Role == "Driver")
-            .Select(user => user.Id)
+            .OrderBy(user => user.Username)
             .ToListAsync(cancellationToken);
+
+        var driverIds = drivers
+            .Select(user => user.Id)
+            .ToList();
 
         if (driverIds.Count == 0)
         {
             logger.LogInformation("No driver accounts found while updating global driver business partners");
             return 0;
         }
+
+        var currentAssignedCustomerCodes = drivers[0].GetCustomerCodes()
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var addedCustomerCodes = assignedCustomerCodes
+            .Except(currentAssignedCustomerCodes, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var removedCustomerCodes = currentAssignedCustomerCodes
+            .Except(assignedCustomerCodes, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         var serializedCodes = assignedCustomerCodes.Count == 0
             ? null
@@ -61,13 +85,50 @@ public sealed class UpdateGlobalDriverAssignedCustomersHandler(
             updatedDriverCount,
             revokedRefreshTokenCount);
 
+        var customerNamesByCode = addedCustomerCodes.Count > 0 || removedCustomerCodes.Count > 0
+            ? await CustomerAssignmentNotificationCustomerResolver.ResolveNamesAsync(
+                businessPartnerService,
+                addedCustomerCodes.Concat(removedCustomerCodes),
+                cancellationToken)
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (addedCustomerCodes.Count > 0)
+        {
+            var addedNotification = CustomerAssignmentNotificationFactory.CreateForRole(
+                "Driver",
+                "Driver",
+                addedCustomerCodes,
+                customerNamesByCode,
+                isRemoval: false);
+
+            if (addedNotification is not null)
+            {
+                await notificationService.CreateNotificationAsync(addedNotification, cancellationToken);
+            }
+        }
+
+        if (removedCustomerCodes.Count > 0)
+        {
+            var removedNotification = CustomerAssignmentNotificationFactory.CreateForRole(
+                "Driver",
+                "Driver",
+                removedCustomerCodes,
+                customerNamesByCode,
+                isRemoval: true);
+
+            if (removedNotification is not null)
+            {
+                await notificationService.CreateNotificationAsync(removedNotification, cancellationToken);
+            }
+        }
+
         try
         {
             await auditService.LogAsync(
                 AuditActions.UpdateUser,
                 "User",
                 "DriverRole",
-                $"Updated global driver business partner scope for {updatedDriverCount} drivers",
+                $"Updated global driver business partner scope for {updatedDriverCount} drivers; added={addedCustomerCodes.Count}, removed={removedCustomerCodes.Count}",
                 true);
         }
         catch

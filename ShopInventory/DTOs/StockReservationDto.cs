@@ -360,6 +360,12 @@ public class ConfirmReservationResponseDto
     public int? SAPDocNum { get; set; }
     public InvoiceDto? Invoice { get; set; }
     public FiscalizationResult? Fiscalization { get; set; }
+    public bool WasQueued { get; set; }
+    public int? QueueId { get; set; }
+    public string? QueueStatus { get; set; }
+    public string? QueueExternalReference { get; set; }
+    public int? EstimatedProcessingSeconds { get; set; }
+    public string? StatusUrl { get; set; }
     public List<string> Errors { get; set; } = new();
 }
 

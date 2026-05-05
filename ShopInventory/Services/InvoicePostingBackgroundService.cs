@@ -11,9 +11,13 @@ namespace ShopInventory.Services;
 /// </summary>
 public class InvoicePostingBackgroundService : BackgroundService
 {
+    private const string WorkerName = "invoice-posting";
     private readonly IServiceProvider _serviceProvider;
+    private readonly BackgroundWorkerLeaderElector _leaderElector;
+    private readonly BackgroundWorkerHealthRegistry _healthRegistry;
     private readonly ILogger<InvoicePostingBackgroundService> _logger;
     private readonly TimeSpan _processingInterval = TimeSpan.FromSeconds(10);
+    private readonly TimeSpan _leadershipRetryInterval = TimeSpan.FromSeconds(5);
     private readonly int _batchSize = 5;
     private readonly SemaphoreSlim _processingSemaphore = new(1, 1);
     private int _consecutiveErrors = 0;
@@ -21,10 +25,15 @@ public class InvoicePostingBackgroundService : BackgroundService
 
     public InvoicePostingBackgroundService(
         IServiceProvider serviceProvider,
+        BackgroundWorkerLeaderElector leaderElector,
+        BackgroundWorkerHealthRegistry healthRegistry,
         ILogger<InvoicePostingBackgroundService> logger)
     {
         _serviceProvider = serviceProvider;
+        _leaderElector = leaderElector;
+        _healthRegistry = healthRegistry;
         _logger = logger;
+        _healthRegistry.RegisterWorker(WorkerName, critical: true, healthyWindow: TimeSpan.FromMinutes(2));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -32,41 +41,62 @@ public class InvoicePostingBackgroundService : BackgroundService
         _logger.LogInformation("Invoice Posting Background Service started - Processing every {Interval}s, Batch size: {BatchSize}",
             _processingInterval.TotalSeconds, _batchSize);
 
-        // Initial delay to let the application fully start
-        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
-
         while (!stoppingToken.IsCancellationRequested)
         {
+            await using var leadershipHandle = await _leaderElector.TryAcquireAsync(WorkerName, stoppingToken);
+            if (leadershipHandle is null)
+            {
+                _healthRegistry.MarkStandby(WorkerName);
+                await Task.Delay(_leadershipRetryInterval, stoppingToken);
+                continue;
+            }
+
+            _healthRegistry.MarkLeader(WorkerName);
+            _logger.LogInformation("Invoice posting leadership acquired on this instance");
+
             try
             {
-                await ProcessQueueAsync(stoppingToken);
-                _consecutiveErrors = 0; // Reset on success
-            }
-            catch (OperationCanceledException)
-            {
-                // Normal shutdown
-                break;
-            }
-            catch (Exception ex)
-            {
-                _consecutiveErrors++;
-                _logger.LogError(ex, "Error in invoice posting background service (consecutive errors: {Count})",
-                    _consecutiveErrors);
+                // Initial delay to let the application fully start after leadership is acquired.
+                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
 
-                // If too many consecutive errors, back off more aggressively
-                if (_consecutiveErrors >= MaxConsecutiveErrors)
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    _logger.LogWarning("Too many consecutive errors, backing off for 60 seconds");
-                    await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
-                    _consecutiveErrors = 0;
+                    try
+                    {
+                        await ProcessQueueAsync(stoppingToken);
+                        _consecutiveErrors = 0;
+                        _healthRegistry.MarkSuccessfulRun(WorkerName);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        _consecutiveErrors++;
+                        _healthRegistry.MarkFailure(WorkerName, ex);
+                        _logger.LogError(ex, "Error in invoice posting background service (consecutive errors: {Count})",
+                            _consecutiveErrors);
+
+                        if (_consecutiveErrors >= MaxConsecutiveErrors)
+                        {
+                            _logger.LogWarning("Too many consecutive errors, backing off for 60 seconds");
+                            await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
+                            _consecutiveErrors = 0;
+                        }
+                    }
+
+                    var jitter = Random.Shared.Next(-3000, 3000);
+                    await Task.Delay(_processingInterval + TimeSpan.FromMilliseconds(jitter), stoppingToken);
                 }
             }
-
-            // Add jitter (±3s) so background services don't all hit SAP simultaneously
-            var jitter = Random.Shared.Next(-3000, 3000);
-            await Task.Delay(_processingInterval + TimeSpan.FromMilliseconds(jitter), stoppingToken);
+            finally
+            {
+                _healthRegistry.MarkStandby(WorkerName);
+            }
         }
 
+        _healthRegistry.MarkStopped(WorkerName);
         _logger.LogInformation("Invoice Posting Background Service stopped");
     }
 

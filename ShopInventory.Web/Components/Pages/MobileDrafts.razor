@@ -754,12 +754,16 @@
                 <input type="text" @bind="customerFilter" placeholder="Customer code" />
             </div>
             <div class="filter-field">
+                <label>Order / SAP Doc #</label>
+                <input type="text" @bind="orderSearchFilter" placeholder="Order number or SAP doc #" />
+            </div>
+            <div class="filter-field">
                 <label>Status</label>
                 <select @bind="statusFilter">
                     <option value="">All Statuses</option>
-                    @foreach (SalesOrderStatus status in Enum.GetValues(typeof(SalesOrderStatus)))
+                    @foreach (var statusOption in GetStatusFilterOptions())
                     {
-                        <option value="@(((int)status).ToString())">@status</option>
+                        <option value="@(((int)statusOption.Value).ToString())">@statusOption.Label</option>
                     }
                 </select>
             </div>
@@ -1267,10 +1271,31 @@
     private string? purchaseOrderViewerMimeType;
     private DocumentAttachmentDto? purchaseOrderViewerAttachment;
     private readonly Dictionary<int, OrderActionType> orderActionStates = new();
+    private readonly HashSet<SalesOrderStatus> availableStatusFilters = new()
+    {
+        SalesOrderStatus.Draft,
+        SalesOrderStatus.Pending,
+        SalesOrderStatus.Approved
+    };
     private int ordersLoadVersion;
+
+    private sealed record StatusFilterOption(SalesOrderStatus Value, string Label);
+
+    private static readonly StatusFilterOption[] AllStatusFilterOptions =
+    [
+        new(SalesOrderStatus.Draft, "Draft"),
+        new(SalesOrderStatus.Pending, "Pending"),
+        new(SalesOrderStatus.Approved, "Approved"),
+        new(SalesOrderStatus.PartiallyFulfilled, "Partially Fulfilled"),
+        new(SalesOrderStatus.Fulfilled, "Fulfilled"),
+        new(SalesOrderStatus.Cancelled, "Cancelled"),
+        new(SalesOrderStatus.OnHold, "On Hold"),
+        new(SalesOrderStatus.Rejected, "Rejected")
+    ];
 
     // Filters
     private string? customerFilter;
+    private string? orderSearchFilter;
     private string? statusFilter;
     private DateTime? fromDate;
     private DateTime? toDate;
@@ -1312,6 +1337,28 @@
         return null;
     }
 
+    private IEnumerable<StatusFilterOption> GetStatusFilterOptions()
+    {
+        var selectedStatus = GetSelectedStatusFilter();
+        if (selectedStatus.HasValue)
+        {
+            availableStatusFilters.Add(selectedStatus.Value);
+        }
+
+        return AllStatusFilterOptions.Where(option => availableStatusFilters.Contains(option.Value));
+    }
+
+    private void TrackAvailableStatusFilters(IEnumerable<SalesOrderDto>? loadedOrders)
+    {
+        if (loadedOrders == null)
+            return;
+
+        foreach (var status in loadedOrders.Select(order => order.Status).Distinct())
+        {
+            availableStatusFilters.Add(status);
+        }
+    }
+
     private async Task LoadOrders()
     {
         var loadVersion = System.Threading.Interlocked.Increment(ref ordersLoadVersion);
@@ -1322,7 +1369,7 @@
         {
             var status = GetSelectedStatusFilter();
 
-            var response = await SalesOrderService.GetSalesOrdersAsync(currentPage, pageSize, status, customerFilter, fromDate, toDate, SalesOrderSource.Mobile);
+            var response = await SalesOrderService.GetSalesOrdersAsync(currentPage, pageSize, status, customerFilter, fromDate, toDate, SalesOrderSource.Mobile, orderSearchFilter);
             if (loadVersion != ordersLoadVersion)
                 return;
 
@@ -1331,6 +1378,7 @@
                 orders = response.Orders;
                 totalCount = response.TotalCount;
                 totalPages = response.TotalPages;
+                TrackAvailableStatusFilters(orders);
 
                 await PopulateMissingOrderPricesAsync(orders);
                 if (loadVersion != ordersLoadVersion)
@@ -1364,6 +1412,7 @@
     private async Task ClearFilter()
     {
         customerFilter = null;
+        orderSearchFilter = null;
         statusFilter = null;
         fromDate = null;
         toDate = null;
@@ -1958,6 +2007,8 @@
     {
         if (orders == null)
             return;
+
+        availableStatusFilters.Add(updatedOrder.Status);
 
         var index = orders.FindIndex(order => order.Id == updatedOrder.Id);
         if (index < 0)

@@ -16,7 +16,7 @@ public sealed class DeleteNotificationHandler(
     {
         try
         {
-            await notificationService.DeleteNotificationAsync(command.Id, cancellationToken);
+            await notificationService.DeleteNotificationAsync(command.Id, command.Username, command.Roles, cancellationToken);
             return Result.Deleted;
         }
         catch (Exception ex)

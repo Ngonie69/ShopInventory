@@ -18,6 +18,9 @@ public static partial class Errors
         public static Error AttachmentNotFound(int id) =>
             Error.NotFound("Document.AttachmentNotFound", $"Attachment with ID {id} not found");
 
+        public static Error AccessDenied(string message) =>
+            Error.Unauthorized("Document.AccessDenied", message);
+
         public static Error SignatureNotFound(int id) =>
             Error.NotFound("Document.SignatureNotFound", $"Signature with ID {id} not found");
 

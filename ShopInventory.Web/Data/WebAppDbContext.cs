@@ -1,8 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 
 namespace ShopInventory.Web.Data;
 
-public class WebAppDbContext : DbContext
+public class WebAppDbContext : DbContext, IDataProtectionKeyContext
 {
     public WebAppDbContext(DbContextOptions<WebAppDbContext> options) : base(options)
     {
@@ -20,6 +21,7 @@ public class WebAppDbContext : DbContext
     public DbSet<CacheSyncInfo> CacheSyncInfo { get; set; }
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<AppSetting> AppSettings { get; set; }
+    public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
 
     // Customer Portal entities
     public DbSet<CustomerPortalUser> CustomerPortalUsers { get; set; }
@@ -31,6 +33,11 @@ public class WebAppDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<DataProtectionKey>(entity =>
+        {
+            entity.ToTable("DataProtectionKeys");
+        });
 
         // CachedProduct configuration
         modelBuilder.Entity<CachedProduct>(entity =>

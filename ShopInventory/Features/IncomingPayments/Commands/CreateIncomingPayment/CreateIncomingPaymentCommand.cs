@@ -6,5 +6,6 @@ using ShopInventory.Services;
 namespace ShopInventory.Features.IncomingPayments.Commands.CreateIncomingPayment;
 
 public sealed record CreateIncomingPaymentCommand(
-    CreateIncomingPaymentRequest Request
+    CreateIncomingPaymentRequest Request,
+    string? CreatedBy = null
 ) : IRequest<ErrorOr<IncomingPaymentCreatedResponseDto>>;

@@ -24,6 +24,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
 {
     [HttpPost]
     [ProducesResponseType(typeof(InventoryTransferCreatedResponseDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(InventoryTransferCreatedResponseDto), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> CreateInventoryTransfer(
         [FromBody] CreateInventoryTransferRequest request,
@@ -31,7 +32,18 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     {
         var result = await mediator.Send(new CreateInventoryTransferCommand(request), cancellationToken);
         return result.Match(
-            value => CreatedAtAction(nameof(GetInventoryTransferByDocEntry), new { docEntry = value.Transfer!.DocEntry }, value),
+            value =>
+            {
+                if (value.WasQueued)
+                {
+                    value.StatusUrl = !string.IsNullOrWhiteSpace(value.QueueExternalReference)
+                        ? Url.Action("GetTransferQueueStatus", "DesktopIntegration", new { externalReference = value.QueueExternalReference }, Request.Scheme)
+                        : null;
+                    return Accepted(value);
+                }
+
+                return CreatedAtAction(nameof(GetInventoryTransferByDocEntry), new { docEntry = value.Transfer!.DocEntry }, value);
+            },
             errors => Problem(errors));
     }
 

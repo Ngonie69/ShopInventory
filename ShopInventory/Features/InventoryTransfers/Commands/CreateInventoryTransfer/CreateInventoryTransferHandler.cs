@@ -16,8 +16,10 @@ namespace ShopInventory.Features.InventoryTransfers.Commands.CreateInventoryTran
 public sealed class CreateInventoryTransferHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
+    IInventoryTransferQueueService transferQueueService,
     IStockValidationService stockValidation,
     IAuditService auditService,
+    SapCircuitBreakerState sapCircuitBreakerState,
     IOptions<SAPSettings> settings,
     ILogger<CreateInventoryTransferHandler> logger
 ) : IRequestHandler<CreateInventoryTransferCommand, ErrorOr<InventoryTransferCreatedResponseDto>>
@@ -38,6 +40,11 @@ public sealed class CreateInventoryTransferHandler(
             logger.LogWarning("Transfer quantity validation failed: {Errors}", string.Join(", ", quantityErrors));
             return Errors.InventoryTransfer.ValidationFailed(
             $"Quantity validation failed: {string.Join("; ", quantityErrors)}");
+        }
+
+        if (sapCircuitBreakerState.IsOpen && CanQueueFallback(request))
+        {
+            return await QueueTransferFallbackAsync(request, cancellationToken);
         }
 
         try
@@ -83,6 +90,11 @@ public sealed class CreateInventoryTransferHandler(
                 Transfer = transfer.ToDto()
             };
         }
+        catch (Exception ex) when (SapFailureClassifier.IsTransient(ex, cancellationToken) && CanQueueFallback(request))
+        {
+            logger.LogWarning(ex, "SAP is unavailable while creating inventory transfer. Falling back to queue.");
+            return await QueueTransferFallbackAsync(request, cancellationToken);
+        }
         catch (ArgumentException ex)
         {
             logger.LogWarning(ex, "Validation error creating inventory transfer");
@@ -112,6 +124,67 @@ public sealed class CreateInventoryTransferHandler(
             logger.LogError(ex, "Error creating inventory transfer");
             return Errors.InventoryTransfer.CreationFailed(ex.Message);
         }
+    }
+
+    private static bool CanQueueFallback(CreateInventoryTransferRequest request)
+    {
+        return request.Lines?.All(line => line.SerialNumbers == null || line.SerialNumbers.Count == 0) == true;
+    }
+
+    private async Task<ErrorOr<InventoryTransferCreatedResponseDto>> QueueTransferFallbackAsync(
+        CreateInventoryTransferRequest request,
+        CancellationToken cancellationToken)
+    {
+        var queueableRequest = new CreateDesktopTransferRequest
+        {
+            ExternalReference = $"API-TRF-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString()[..8]}",
+            SourceSystem = "API",
+            FromWarehouse = request.FromWarehouse ?? string.Empty,
+            ToWarehouse = request.ToWarehouse ?? string.Empty,
+            DocDate = request.DocDate,
+            DueDate = request.DueDate,
+            Comments = request.Comments,
+            IsTransferRequest = false,
+            Lines = request.Lines?.Select((line, index) => new CreateDesktopTransferLineRequest
+            {
+                LineNum = index,
+                ItemCode = line.ItemCode ?? string.Empty,
+                Quantity = line.Quantity,
+                UoMCode = line.UoMCode,
+                FromWarehouseCode = line.FromWarehouseCode,
+                WarehouseCode = line.ToWarehouseCode,
+                AutoAllocateBatches = line.BatchNumbers == null || line.BatchNumbers.Count == 0,
+                BatchNumbers = line.BatchNumbers?.Select(batch => new TransferBatchRequest
+                {
+                    BatchNumber = batch.BatchNumber,
+                    Quantity = batch.Quantity
+                }).ToList()
+            }).ToList() ?? new List<CreateDesktopTransferLineRequest>()
+        };
+
+        var queueResult = await transferQueueService.EnqueueTransferAsync(
+            queueableRequest,
+            null,
+            null,
+            cancellationToken);
+
+        if (!queueResult.Success)
+        {
+            return Errors.InventoryTransfer.CreationFailed(
+                queueResult.ErrorMessage ?? "SAP is unavailable and transfer queue fallback failed");
+        }
+
+        return new InventoryTransferCreatedResponseDto
+        {
+            Message = "SAP is currently unavailable. The inventory transfer has been queued for deferred processing.",
+            WasQueued = true,
+            QueueId = queueResult.QueueId,
+            QueueStatus = queueResult.Status,
+            QueueExternalReference = queueResult.ExternalReference,
+            EstimatedProcessingSeconds = queueResult.EstimatedProcessingTime.HasValue
+                ? (int)Math.Ceiling(queueResult.EstimatedProcessingTime.Value.TotalSeconds)
+                : null
+        };
     }
 
     private async Task<List<string>> ValidateTransferQuantitiesAsync(CreateInventoryTransferRequest request, CancellationToken cancellationToken)

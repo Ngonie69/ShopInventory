@@ -1,6 +1,8 @@
 using Asp.Versioning;
 using Asp.Versioning.ApiExplorer;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +18,8 @@ using ShopInventory.Common.Caching;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.AppVersion;
+using ShopInventory.Features.SalesOrders.Commands.BackfillSalesOrderCardNames;
+using ShopInventory.Health;
 using ShopInventory.Middleware;
 using ShopInventory.Services;
 using System.IO.Compression;
@@ -112,6 +116,17 @@ try
     // Add memory cache for expensive queries and SAP call results
     builder.Services.AddMemoryCache();
 
+    var postgresConnectionPolicy = builder.Configuration
+        .GetSection(PostgresConnectionPolicyOptions.SectionName)
+        .Get<PostgresConnectionPolicyOptions>()
+        ?? new PostgresConnectionPolicyOptions();
+
+    var defaultConnectionString = PostgresConnectionStringValidator.Validate(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        builder.Environment,
+        postgresConnectionPolicy,
+        "DefaultConnection");
+
     // Add output caching for read-heavy GET endpoints
     builder.Services.AddOutputCache(options =>
     {
@@ -124,15 +139,35 @@ try
     // Configure PostgreSQL Database
     builder.Services.AddDbContext<ApplicationDbContext>(options =>
     {
-        options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
+        options.UseNpgsql(defaultConnectionString);
         // Default to NoTracking for read-heavy workloads — opt-in to tracking only when writes are needed
         options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
     });
+    builder.Services.AddDataProtection()
+        .PersistKeysToDbContext<ApplicationDbContext>()
+        .SetApplicationName("ShopInventory.Api");
+    builder.Services.AddSingleton<StartupReadinessSignal>();
+    builder.Services.AddSingleton<RuntimeInstanceIdentity>();
+    builder.Services.AddSingleton<SapCircuitBreakerState>();
+    builder.Services.AddSingleton<BackgroundWorkerHealthRegistry>();
+    builder.Services.AddSingleton<BackgroundWorkerLeaderElector>();
+    builder.Services.AddHealthChecks()
+        .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("Process is running."), tags: ["live"])
+        .AddCheck<StartupReadinessHealthCheck>("startup", tags: ["ready"])
+        .AddCheck<ApplicationDbHealthCheck>("database", tags: ["ready", "dependencies"])
+        .AddCheck<DatabaseConnectionLatencyHealthCheck>("db-latency", tags: ["ready", "dependencies"])
+        .AddCheck<ApplicationSchemaHealthCheck>("schema", tags: ["ready", "dependencies"])
+        .AddCheck<OperationalSyncHealthCheck>("operations", tags: ["ready", "dependencies"])
+        .AddCheck<BackgroundWorkersHealthCheck>("workers", tags: ["ready", "dependencies"])
+        .AddCheck<QueuePressureHealthCheck>("queues", tags: ["dependencies"])
+        .AddCheck<ThreadPoolPressureHealthCheck>("thread-pool", tags: ["ready", "dependencies"])
+        .AddCheck<SapDependencyHealthCheck>("sap", tags: ["dependencies"]);
 
     // Configure Swagger with version-aware API metadata.
     builder.Services.AddSwaggerGen();
 
     // Configure settings
+    builder.Services.Configure<PostgresConnectionPolicyOptions>(builder.Configuration.GetSection(PostgresConnectionPolicyOptions.SectionName));
     builder.Services.Configure<SAPSettings>(builder.Configuration.GetSection("SAP"));
     builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
     builder.Services.Configure<RateLimitSettings>(builder.Configuration.GetSection("RateLimit"));
@@ -347,8 +382,8 @@ try
     builder.Services.AddScoped<IBatchInventoryValidationService, BatchInventoryValidationService>();
 
     // Register inventory lock service - Prevents race conditions during concurrent invoice posting
-    // For production with multiple instances, replace InMemoryInventoryLockService with Redis-based implementation
-    builder.Services.AddSingleton<IInventoryLockService, InMemoryInventoryLockService>();
+    // PostgreSQL advisory locks keep inventory locking safe across multiple API instances.
+    builder.Services.AddSingleton<IInventoryLockService, PostgresInventoryLockService>();
 
     // Register 2FA pending store - holds short-lived challenge tokens during the login 2FA step
     builder.Services.AddSingleton<ITwoFactorPendingStore, TwoFactorPendingStore>();
@@ -406,6 +441,7 @@ try
 
     // Register document management service
     builder.Services.AddScoped<IDocumentService, DocumentService>();
+    builder.Services.AddScoped<ShopInventory.Features.Documents.DocumentAttachmentAccessService>();
 
     // Register stock reservation service for desktop app integration
     // This service manages stock reservations to prevent negative quantities
@@ -418,8 +454,14 @@ try
     // Register inventory transfer queue service for batch posting to SAP
     builder.Services.AddScoped<IInventoryTransferQueueService, InventoryTransferQueueService>();
 
+    // Register incoming payment queue service for durable SAP posting
+    builder.Services.AddScoped<IIncomingPaymentQueueService, IncomingPaymentQueueService>();
+
     // Register background service for cleaning up expired reservations
     builder.Services.AddHostedService<ReservationCleanupService>();
+
+    // Persist cluster-visible worker heartbeat state for readiness checks.
+    builder.Services.AddHostedService<BackgroundWorkerClusterStateSyncService>();
 
     // Register background service for mobile sales order enrichment
     builder.Services.AddHostedService<MobileOrderPostProcessingBackgroundService>();
@@ -429,6 +471,9 @@ try
 
     // Register background service for processing queued inventory transfers
     builder.Services.AddHostedService<InventoryTransferPostingBackgroundService>();
+
+    // Register background service for processing queued incoming payments
+    builder.Services.AddHostedService<IncomingPaymentPostingBackgroundService>();
 
     // Register FetchDailyStockHandler for direct resolution by background service
     builder.Services.AddScoped<ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock.FetchDailyStockHandler>();
@@ -444,6 +489,7 @@ try
 
     // DelegatingHandler that limits concurrent requests to SAP Service Layer.
     // Prevents Task.WhenAll in validation/reports from flooding SAP with 10+ simultaneous requests.
+    builder.Services.AddTransient<SAPCircuitBreakerHandler>();
     builder.Services.AddTransient<SAPConcurrencyHandler>();
     builder.Services.AddTransient<SAPRequestLoggingHandler>();
     builder.Services.AddSingleton<CacheSyncStateRecorder>();
@@ -456,6 +502,7 @@ try
         client.DefaultRequestHeaders.Add("Accept", "application/json");
         client.Timeout = TimeSpan.FromMinutes(5); // Increased timeout for large data operations
     })
+    .AddHttpMessageHandler<SAPCircuitBreakerHandler>()
     .AddHttpMessageHandler<SAPConcurrencyHandler>()
     .AddHttpMessageHandler<SAPRequestLoggingHandler>()
     .ConfigurePrimaryHttpMessageHandler(serviceProvider =>
@@ -521,6 +568,7 @@ try
     builder.Services.AddScoped<IFiscalizationService, FiscalizationService>();
 
     var app = builder.Build();
+    var startupReadiness = app.Services.GetRequiredService<StartupReadinessSignal>();
 
     // Initialize database and seed data
     using (var scope = app.Services.CreateScope())
@@ -532,6 +580,15 @@ try
             var logger = services.GetRequiredService<ILogger<Program>>();
             await DbInitializer.InitializeAsync(context, logger, app.Environment);
 
+            var mediator = services.GetRequiredService<IMediator>();
+            var backfillResult = await mediator.Send(new BackfillSalesOrderCardNamesCommand(), CancellationToken.None);
+            if (backfillResult.IsError)
+            {
+                logger.LogWarning(
+                    "Sales order card-name backfill failed during startup: {Errors}",
+                    string.Join("; ", backfillResult.Errors.Select(error => error.Description)));
+            }
+
             // Wire up the reserved quantity provider to the batch validation service
             // This is done after construction to avoid circular dependency
             var batchValidation = services.GetRequiredService<IBatchInventoryValidationService>();
@@ -540,9 +597,12 @@ try
             {
                 batchService.SetReservedQuantityProvider(reservedQtyProvider);
             }
+
+            startupReadiness.MarkReady();
         }
         catch (Exception ex)
         {
+            startupReadiness.MarkFailed(ex);
             var logger = services.GetRequiredService<ILogger<Program>>();
             logger.LogError(ex, "An error occurred while initializing the database");
             throw;
@@ -598,9 +658,35 @@ try
     }
     else
     {
-        // In production, return a simple health check at root
-        app.MapGet("/", () => Results.Ok(new { status = "healthy", service = "ShopInventory API" })).AllowAnonymous();
+        // In production, return a lightweight readiness-aware summary at root.
+        app.MapGet("/", async (Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckService healthCheckService, CancellationToken cancellationToken) => Results.Ok(new
+        {
+            status = (await healthCheckService.CheckHealthAsync(registration => registration.Tags.Contains("ready"), cancellationToken)).Status.ToString(),
+            service = "ShopInventory API",
+            timestamp = DateTime.UtcNow,
+            endpoints = new
+            {
+                live = "/health/live",
+                ready = "/health/ready",
+                dependencies = "/health/dependencies"
+            }
+        })).AllowAnonymous();
     }
+
+    app.MapHealthChecks("/health/live", new HealthCheckOptions
+    {
+        Predicate = registration => registration.Tags.Contains("live")
+    }).AllowAnonymous();
+
+    app.MapHealthChecks("/health/ready", new HealthCheckOptions
+    {
+        Predicate = registration => registration.Tags.Contains("ready")
+    }).AllowAnonymous();
+
+    app.MapHealthChecks("/health/dependencies", new HealthCheckOptions
+    {
+        Predicate = registration => registration.Tags.Contains("dependencies")
+    }).AllowAnonymous();
 
     // Enable HSTS in production
     if (!app.Environment.IsDevelopment() && securitySettings.EnableHsts)

@@ -56,6 +56,15 @@ public static class AuditActions
     public const string DeletePurchaseOrder = "DeletePurchaseOrder";
     public const string UploadPurchaseOrderDocument = "UploadPurchaseOrderDocument";
 
+    // Document management actions
+    public const string CreateDocumentTemplate = "CreateDocumentTemplate";
+    public const string UpdateDocumentTemplate = "UpdateDocumentTemplate";
+    public const string DeleteDocumentTemplate = "DeleteDocumentTemplate";
+    public const string SetDefaultDocumentTemplate = "SetDefaultDocumentTemplate";
+    public const string UploadDocumentAttachment = "UploadDocumentAttachment";
+    public const string DeleteDocumentAttachment = "DeleteDocumentAttachment";
+    public const string UploadPod = "UploadPod";
+
     // Inventory Transfer actions
     public const string CreateTransfer = "CreateTransfer";
     public const string CreateTransferRequest = "CreateTransferRequest";

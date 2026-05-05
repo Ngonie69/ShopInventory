@@ -22,12 +22,15 @@ public static partial class Errors
             Error.Conflict("SalesOrder.ConcurrencyConflict", "This order was modified by another user. Please reload and try again.");
 
         public static Error ApprovalFailed(string message) =>
-            Error.Failure("SalesOrder.ApprovalFailed", $"Failed to approve sales order: {message}");
+            Error.Failure("SalesOrder.ApprovalFailed", message);
 
         public static Error SapError(string message) =>
             Error.Failure("SalesOrder.SapError", $"Failed to post to SAP: {message}");
 
         public static Error CreationFailed(string message) =>
             Error.Failure("SalesOrder.CreationFailed", message);
+
+        public static Error BackfillFailed(string message) =>
+            Error.Failure("SalesOrder.BackfillFailed", message);
     }
 }

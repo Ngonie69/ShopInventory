@@ -98,4 +98,10 @@ public class IncomingPaymentCreatedResponseDto
 {
     public string Message { get; set; } = "Incoming payment created successfully";
     public IncomingPaymentDto? Payment { get; set; }
+    public bool WasQueued { get; set; }
+    public int QueueId { get; set; }
+    public string? QueueStatus { get; set; }
+    public string? QueueExternalReference { get; set; }
+    public int? EstimatedProcessingSeconds { get; set; }
+    public string? StatusUrl { get; set; }
 }

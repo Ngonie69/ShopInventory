@@ -69,6 +69,12 @@ public class InventoryTransferCreatedResponseDto
 {
     public string Message { get; set; } = "Inventory transfer created successfully";
     public InventoryTransferDto? Transfer { get; set; }
+    public bool WasQueued { get; set; }
+    public int? QueueId { get; set; }
+    public string? QueueStatus { get; set; }
+    public string? QueueExternalReference { get; set; }
+    public int? EstimatedProcessingSeconds { get; set; }
+    public string? StatusUrl { get; set; }
 }
 
 #region Transfer Request DTOs

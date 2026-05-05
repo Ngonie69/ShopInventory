@@ -125,11 +125,25 @@ public sealed class GetPodUploadStatusHandler(
         }
 
         var normalizedSection = assignedSection.Trim();
+        var detailedInvoices = await sapClient.GetInvoiceHeadersByDocEntriesAsync(
+            invoices.Select(invoice => invoice.DocEntry),
+            cancellationToken);
+
+        if (detailedInvoices.Count == 0)
+        {
+            return [];
+        }
+
         var warehouseLocations = PodLocationScope.BuildWarehouseLocationLookup(
             await sapClient.GetWarehousesAsync(cancellationToken));
 
-        return invoices
+        var scopedDocEntries = detailedInvoices
             .Where(invoice => PodLocationScope.InvoiceMatchesAssignedSection(invoice, normalizedSection, warehouseLocations))
+            .Select(invoice => invoice.DocEntry)
+            .ToHashSet();
+
+        return invoices
+            .Where(invoice => scopedDocEntries.Contains(invoice.DocEntry))
             .ToList();
     }
 }

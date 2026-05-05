@@ -2,12 +2,16 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Documents;
+using ShopInventory.Models;
 using ShopInventory.Services;
 
 namespace ShopInventory.Features.Documents.Commands.UploadAttachment;
 
 public sealed class UploadAttachmentHandler(
+    DocumentAttachmentAccessService attachmentAccessService,
     IDocumentService documentService,
+    IAuditService auditService,
     ILogger<UploadAttachmentHandler> logger
 ) : IRequestHandler<UploadAttachmentCommand, ErrorOr<DocumentAttachmentDto>>
 {
@@ -22,6 +26,17 @@ public sealed class UploadAttachmentHandler(
 
         try
         {
+            var accessResult = await attachmentAccessService.AuthorizeEntityAccessAsync(
+                command.EntityType,
+                command.EntityId,
+                true,
+                cancellationToken);
+
+            if (accessResult.IsError)
+            {
+                return accessResult.Errors;
+            }
+
             var request = new UploadAttachmentRequest
             {
                 EntityType = command.EntityType,
@@ -33,6 +48,19 @@ public sealed class UploadAttachmentHandler(
             using var stream = new MemoryStream(command.FileBytes);
             var attachment = await documentService.UploadAttachmentAsync(
                 request, stream, command.FileName, command.ContentType, command.UserId, cancellationToken);
+
+            try
+            {
+                await auditService.LogAsync(
+                    AuditActions.UploadDocumentAttachment,
+                    attachment.EntityType,
+                    attachment.Id.ToString(),
+                    $"Attachment '{attachment.FileName}' uploaded for {attachment.EntityType}/{attachment.EntityId}",
+                    true);
+            }
+            catch
+            {
+            }
 
             return attachment;
         }

@@ -96,7 +96,14 @@ public class NotificationController(IMediator mediator) : ApiControllerBase
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> DeleteNotification(int id, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new DeleteNotificationCommand(id), cancellationToken);
+        var username = User.FindFirst(ClaimTypes.Name)?.Value;
+        var roles = User.FindAll(ClaimTypes.Role)
+            .Select(claim => claim.Value)
+            .Where(role => !string.IsNullOrWhiteSpace(role))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var result = await mediator.Send(new DeleteNotificationCommand(id, username, roles), cancellationToken);
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 }

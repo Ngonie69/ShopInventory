@@ -205,7 +205,16 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     {
         var result = await mediator.Send(new CreateInvoiceDirectCommand(request, GetUserId()), cancellationToken);
         return result.Match(
-            value => CreatedAtAction(nameof(GetReservation), new { reservationId = (string?)null }, value),
+            value =>
+            {
+                if (value.WasQueued)
+                {
+                    value.StatusUrl = Url.Action(nameof(GetQueueStatusByReservation), new { reservationId = value.ReservationId });
+                    return Accepted(value);
+                }
+
+                return CreatedAtAction(nameof(GetReservation), new { reservationId = value.ReservationId }, value);
+            },
             errors => Problem(errors));
     }
 
@@ -404,7 +413,18 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     {
         var result = await mediator.Send(new CreateTransferCommand(request), cancellationToken);
         return result.Match(
-            value => CreatedAtAction(nameof(GetTransfer), new { docEntry = value.Transfer?.DocEntry }, value),
+            value =>
+            {
+                if (value.WasQueued)
+                {
+                    value.StatusUrl = !string.IsNullOrWhiteSpace(value.QueueExternalReference)
+                        ? Url.Action(nameof(GetTransferQueueStatus), new { externalReference = value.QueueExternalReference })
+                        : null;
+                    return Accepted(value);
+                }
+
+                return CreatedAtAction(nameof(GetTransfer), new { docEntry = value.Transfer?.DocEntry }, value);
+            },
             errors => Problem(errors));
     }
 

@@ -51,6 +51,9 @@ public sealed class DeleteSalesOrderHandler(
                         {
                             ["orderId"] = order.Id.ToString(),
                             ["orderNumber"] = order.OrderNumber,
+                            ["cardCode"] = order.CardCode,
+                            ["customerCode"] = order.CardCode,
+                            ["customerName"] = customerName,
                             ["action"] = "Deleted",
                             ["status"] = "Deleted"
                         }

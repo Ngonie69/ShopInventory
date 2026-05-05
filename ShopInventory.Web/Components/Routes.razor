@@ -3,14 +3,7 @@
 
 <Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
     <Found Context="routeData">
-        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
-            <NotAuthorized>
-                <RedirectToLogin />
-            </NotAuthorized>
-            <Authorizing>
-                @* This is shown while checking auth state - keep it minimal as Blazor handles it quickly *@
-            </Authorizing>
-        </AuthorizeRouteView>
+        <LabRestrictedAuthorizeRouteView RouteData="routeData" />
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
 </Router>

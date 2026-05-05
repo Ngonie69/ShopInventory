@@ -271,6 +271,7 @@ public class InvoiceQueueService : IInvoiceQueueService
         CancellationToken cancellationToken = default)
     {
         var entry = await _context.InvoiceQueue
+            .AsTracking()
             .FirstOrDefaultAsync(q => q.ExternalReference == externalReference &&
                                       q.Status == InvoiceQueueStatus.Pending,
                 cancellationToken);
@@ -296,6 +297,7 @@ public class InvoiceQueueService : IInvoiceQueueService
         CancellationToken cancellationToken = default)
     {
         var entry = await _context.InvoiceQueue
+            .AsTracking()
             .FirstOrDefaultAsync(q => q.ExternalReference == externalReference &&
                                       (q.Status == InvoiceQueueStatus.Failed ||
                                        q.Status == InvoiceQueueStatus.RequiresReview),

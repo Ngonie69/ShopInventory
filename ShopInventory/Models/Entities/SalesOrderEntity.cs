@@ -14,7 +14,8 @@ public enum SalesOrderStatus
     PartiallyFulfilled = 3,
     Fulfilled = 4,
     Cancelled = 5,
-    OnHold = 6
+    OnHold = 6,
+    Rejected = 7
 }
 
 /// <summary>

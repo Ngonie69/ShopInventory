@@ -13,7 +13,9 @@ namespace ShopInventory.Features.IncomingPayments.Commands.CreateIncomingPayment
 
 public sealed class CreateIncomingPaymentHandler(
     ISAPServiceLayerClient sapClient,
+    IIncomingPaymentQueueService incomingPaymentQueueService,
     IAuditService auditService,
+    SapCircuitBreakerState sapCircuitBreakerState,
     IOptions<SAPSettings> settings,
     ILogger<CreateIncomingPaymentHandler> logger
 ) : IRequestHandler<CreateIncomingPaymentCommand, ErrorOr<IncomingPaymentCreatedResponseDto>>
@@ -34,6 +36,11 @@ public sealed class CreateIncomingPaymentHandler(
             logger.LogWarning("Payment amount validation failed: {Errors}", string.Join(", ", amountErrors));
             return Errors.IncomingPayment.ValidationFailed(
                 $"Amount validation failed - negative amounts are not allowed: {string.Join("; ", amountErrors)}");
+        }
+
+        if (sapCircuitBreakerState.IsOpen)
+        {
+            return await QueuePaymentFallbackAsync(request, command.CreatedBy, cancellationToken);
         }
 
         try
@@ -60,21 +67,45 @@ public sealed class CreateIncomingPaymentHandler(
         {
             return Errors.IncomingPayment.CreationFailed("Request was canceled by the client");
         }
-        catch (OperationCanceledException ex)
+        catch (Exception ex) when (SapFailureClassifier.IsTransient(ex, cancellationToken))
         {
-            logger.LogError(ex, "Timeout or connection abort while creating incoming payment in SAP Service Layer");
-            return Errors.IncomingPayment.SapTimeout;
-        }
-        catch (HttpRequestException ex)
-        {
-            logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return Errors.IncomingPayment.SapConnectionError(ex.Message);
+            logger.LogWarning(ex, "SAP is unavailable while creating incoming payment. Falling back to queue.");
+            return await QueuePaymentFallbackAsync(request, command.CreatedBy, cancellationToken);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error creating incoming payment");
             return Errors.IncomingPayment.CreationFailed(ex.Message);
         }
+    }
+
+    private async Task<ErrorOr<IncomingPaymentCreatedResponseDto>> QueuePaymentFallbackAsync(
+        CreateIncomingPaymentRequest request,
+        string? createdBy,
+        CancellationToken cancellationToken)
+    {
+        var queueResult = await incomingPaymentQueueService.EnqueuePaymentAsync(
+            request,
+            createdBy,
+            cancellationToken);
+
+        if (!queueResult.Success)
+        {
+            return Errors.IncomingPayment.CreationFailed(
+                queueResult.ErrorMessage ?? "SAP is unavailable and incoming payment queue fallback failed");
+        }
+
+        return new IncomingPaymentCreatedResponseDto
+        {
+            Message = "SAP is currently unavailable. The incoming payment has been queued for deferred processing.",
+            WasQueued = true,
+            QueueId = queueResult.QueueId,
+            QueueStatus = queueResult.Status,
+            QueueExternalReference = queueResult.ExternalReference,
+            EstimatedProcessingSeconds = queueResult.EstimatedProcessingTime.HasValue
+                ? (int)Math.Ceiling(queueResult.EstimatedProcessingTime.Value.TotalSeconds)
+                : null
+        };
     }
 
     private static List<string> ValidatePaymentAmounts(CreateIncomingPaymentRequest request)

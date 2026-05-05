@@ -64,6 +64,14 @@ ShopInventory/Features/{Domain}/
 - Return raw entities from handlers — always return DTOs or result records.
 - Use `[ApiController]` on feature controllers — inherit `ApiControllerBase` instead.
 
+## Web UI Theming
+
+For changes in `ShopInventory.Web/`, dark mode is required for every touched page, component, dialog, and page-scoped style.
+
+- Use the existing `.dark-theme` class on `<html>` and the CSS variables defined in `ShopInventory.Web/wwwroot/app.css`.
+- When page-local styles or hardcoded colors need theme-specific treatment, add `.dark-theme .{page-prefix}-*` overrides in `ShopInventory.Web/wwwroot/app.css`.
+- Do not ship light-only styling for any touched Web UI surface.
+
 ## Deployment
 
 **Always use `.\Update-Production.ps1`** to deploy to the production server (10.10.10.9). Never manually copy files, `dotnet publish` to production paths, or use `xcopy`/`robocopy` directly.

@@ -9,6 +9,8 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.CreateInvoiceDirect
 
 public sealed class CreateInvoiceDirectHandler(
     IStockReservationService reservationService,
+    IInvoiceQueueService queueService,
+    SapCircuitBreakerState sapCircuitBreakerState,
     ILogger<CreateInvoiceDirectHandler> logger
 ) : IRequestHandler<CreateInvoiceDirectCommand, ErrorOr<ConfirmReservationResponseDto>>
 {
@@ -27,13 +29,14 @@ public sealed class CreateInvoiceDirectHandler(
             // Step 1: Create a reservation
             var reservationRequest = new CreateStockReservationRequest
             {
+                ExternalReference = externalRef,
                 ExternalReferenceId = externalRef,
                 SourceSystem = request.SourceSystem ?? "DESKTOP_APP",
                 DocumentType = ReservationDocumentType.Invoice,
                 CardCode = request.CardCode,
                 CardName = request.CardName,
                 Currency = request.DocCurrency,
-                ReservationDurationMinutes = 5,
+                ReservationDurationMinutes = sapCircuitBreakerState.IsOpen ? 60 : 5,
                 Lines = request.Lines.Select(l => new CreateStockReservationLineRequest
                 {
                     LineNum = l.LineNum,
@@ -60,6 +63,15 @@ public sealed class CreateInvoiceDirectHandler(
             if (!reservationResult.Success)
                 return Errors.DesktopIntegration.ReservationFailed(reservationResult.Message ?? "Reservation failed");
 
+            if (sapCircuitBreakerState.IsOpen)
+            {
+                return await QueueReservationForDeferredProcessingAsync(
+                    reservationRequest,
+                    reservationResult.Reservation!.ReservationId,
+                    command.CreatedBy,
+                    cancellationToken);
+            }
+
             // Step 2: Immediately confirm the reservation
             var confirmRequest = new ConfirmReservationRequest
             {
@@ -76,6 +88,23 @@ public sealed class CreateInvoiceDirectHandler(
 
             if (!confirmResult.Success)
             {
+                if (ShouldQueueForSapAvailabilityFailure(confirmResult))
+                {
+                    await reservationService.RenewReservationAsync(
+                        new RenewReservationRequest
+                        {
+                            ReservationId = reservationResult.Reservation.ReservationId,
+                            ExtensionMinutes = 60
+                        },
+                        cancellationToken);
+
+                    return await QueueReservationForDeferredProcessingAsync(
+                        reservationRequest,
+                        reservationResult.Reservation.ReservationId,
+                        command.CreatedBy,
+                        cancellationToken);
+                }
+
                 // Cancel the reservation if SAP posting failed
                 await reservationService.CancelReservationAsync(new CancelReservationRequest
                 {
@@ -94,5 +123,58 @@ public sealed class CreateInvoiceDirectHandler(
             logger.LogError(ex, "Error creating direct invoice");
             return Errors.DesktopIntegration.InvoiceCreationFailed(ex.Message);
         }
+    }
+
+    private static bool ShouldQueueForSapAvailabilityFailure(ConfirmReservationResponseDto confirmResult)
+    {
+        if (confirmResult.WasQueued)
+        {
+            return false;
+        }
+
+        if (SapFailureClassifier.ContainsAvailabilitySignal(confirmResult.Message))
+        {
+            return true;
+        }
+
+        return confirmResult.Errors.Any(SapFailureClassifier.ContainsAvailabilitySignal);
+    }
+
+    private async Task<ErrorOr<ConfirmReservationResponseDto>> QueueReservationForDeferredProcessingAsync(
+        CreateStockReservationRequest reservationRequest,
+        string reservationId,
+        string? createdBy,
+        CancellationToken cancellationToken)
+    {
+        var queueResult = await queueService.EnqueueInvoiceAsync(
+            reservationRequest,
+            reservationId,
+            createdBy,
+            cancellationToken);
+
+        if (!queueResult.Success)
+        {
+            return Errors.DesktopIntegration.InvoiceCreationFailed(
+                queueResult.ErrorMessage ?? "SAP is unavailable and invoice queue fallback failed");
+        }
+
+        logger.LogWarning(
+            "SAP is unavailable. Reservation {ReservationId} has been queued for deferred invoice posting as queue item {QueueId}.",
+            reservationId,
+            queueResult.QueueId);
+
+        return new ConfirmReservationResponseDto
+        {
+            Success = true,
+            Message = "SAP is currently unavailable. The invoice has been queued for deferred processing.",
+            ReservationId = reservationId,
+            WasQueued = true,
+            QueueId = queueResult.QueueId,
+            QueueStatus = queueResult.Status,
+            QueueExternalReference = queueResult.ExternalReference,
+            EstimatedProcessingSeconds = queueResult.EstimatedProcessingTime.HasValue
+                ? (int)Math.Ceiling(queueResult.EstimatedProcessingTime.Value.TotalSeconds)
+                : null
+        };
     }
 }

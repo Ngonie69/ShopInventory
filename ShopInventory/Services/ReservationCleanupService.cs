@@ -9,51 +9,82 @@ namespace ShopInventory.Services;
 /// </summary>
 public class ReservationCleanupService : BackgroundService
 {
+    private const string WorkerName = "reservation-cleanup";
     private readonly IServiceProvider _serviceProvider;
+    private readonly BackgroundWorkerLeaderElector _leaderElector;
+    private readonly BackgroundWorkerHealthRegistry _healthRegistry;
     private readonly ILogger<ReservationCleanupService> _logger;
     private readonly TimeSpan _checkInterval = TimeSpan.FromMinutes(1);
+    private readonly TimeSpan _leadershipRetryInterval = TimeSpan.FromSeconds(5);
 
     public ReservationCleanupService(
         IServiceProvider serviceProvider,
+        BackgroundWorkerLeaderElector leaderElector,
+        BackgroundWorkerHealthRegistry healthRegistry,
         ILogger<ReservationCleanupService> logger)
     {
         _serviceProvider = serviceProvider;
+        _leaderElector = leaderElector;
+        _healthRegistry = healthRegistry;
         _logger = logger;
+        _healthRegistry.RegisterWorker(WorkerName, critical: true, healthyWindow: TimeSpan.FromMinutes(3));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Reservation cleanup service starting...");
 
-        // Wait a bit before first run to allow app to fully start
-        await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
-
         while (!stoppingToken.IsCancellationRequested)
         {
-            try
+            await using var leadershipHandle = await _leaderElector.TryAcquireAsync(WorkerName, stoppingToken);
+            if (leadershipHandle is null)
             {
-                await CleanupExpiredReservationsAsync(stoppingToken);
+                _healthRegistry.MarkStandby(WorkerName);
+                await Task.Delay(_leadershipRetryInterval, stoppingToken);
+                continue;
             }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                // Normal shutdown, don't log as error
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during reservation cleanup");
-            }
+
+            _healthRegistry.MarkLeader(WorkerName);
+            _logger.LogInformation("Reservation cleanup leadership acquired on this instance");
 
             try
             {
-                await Task.Delay(_checkInterval, stoppingToken);
+                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+
+                while (!stoppingToken.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await CleanupExpiredReservationsAsync(stoppingToken);
+                        _healthRegistry.MarkSuccessfulRun(WorkerName);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        _healthRegistry.MarkFailure(WorkerName, ex);
+                        _logger.LogError(ex, "Error during reservation cleanup");
+                    }
+
+                    try
+                    {
+                        await Task.Delay(_checkInterval, stoppingToken);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                }
             }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            finally
             {
-                break;
+                _healthRegistry.MarkStandby(WorkerName);
             }
         }
 
+        _healthRegistry.MarkStopped(WorkerName);
         _logger.LogInformation("Reservation cleanup service stopped.");
     }
 

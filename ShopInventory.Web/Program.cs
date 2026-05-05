@@ -1,6 +1,8 @@
 using Blazored.LocalStorage;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using MediatR;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -8,9 +10,11 @@ using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using Serilog;
+using ShopInventory.Web.Configuration;
 using ShopInventory.Web.Behaviors;
 using ShopInventory.Web.Components;
 using ShopInventory.Web.Data;
+using ShopInventory.Web.Health;
 using ShopInventory.Web.Middleware;
 using ShopInventory.Web.Services;
 using System.Net;
@@ -123,9 +127,31 @@ try
     // Add Blazored LocalStorage
     builder.Services.AddBlazoredLocalStorage();
 
+    var postgresConnectionPolicy = builder.Configuration
+        .GetSection(PostgresConnectionPolicyOptions.SectionName)
+        .Get<PostgresConnectionPolicyOptions>()
+        ?? new PostgresConnectionPolicyOptions();
+
+    var defaultConnectionString = PostgresConnectionStringValidator.Validate(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        builder.Environment,
+        postgresConnectionPolicy,
+        "DefaultConnection");
+
     // Add PostgreSQL Database for caching products
     builder.Services.AddDbContextFactory<WebAppDbContext>(options =>
-        options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+        options.UseNpgsql(defaultConnectionString));
+    builder.Services.AddDataProtection()
+        .PersistKeysToDbContext<WebAppDbContext>()
+        .SetApplicationName("ShopInventory.Web");
+    builder.Services.Configure<PostgresConnectionPolicyOptions>(builder.Configuration.GetSection(PostgresConnectionPolicyOptions.SectionName));
+    builder.Services.AddSingleton<StartupReadinessSignal>();
+    builder.Services.AddHealthChecks()
+        .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("Process is running."), tags: ["live"])
+        .AddCheck<StartupReadinessHealthCheck>("startup", tags: ["ready"])
+        .AddCheck<WebAppDbHealthCheck>("database", tags: ["ready", "dependencies"])
+        .AddCheck<WebAppSchemaHealthCheck>("schema", tags: ["ready", "dependencies"])
+        .AddCheck<ApiDependencyHealthCheck>("api", tags: ["dependencies"]);
 
     // Add Cascading Authentication State (for Blazor component-level auth)
     // Note: We don't use server-side cookie auth - auth is handled by our custom AuthStateProvider
@@ -301,11 +327,18 @@ try
     });
 
     var app = builder.Build();
+    var startupReadiness = app.Services.GetRequiredService<StartupReadinessSignal>();
 
     // Apply database migrations and seed default data
-    using (var scope = app.Services.CreateScope())
+    try
     {
+        using var scope = app.Services.CreateScope();
         await DatabaseInitializer.InitializeAsync(scope.ServiceProvider);
+    }
+    catch (Exception ex)
+    {
+        startupReadiness.MarkFailed(ex);
+        throw;
     }
 
     // Load cached application settings (CompanyName, DateFormat, etc.)
@@ -317,6 +350,8 @@ try
     {
         Log.Warning(ex, "Could not load cached application settings — will use defaults until database is available");
     }
+
+    startupReadiness.MarkReady();
 
     // Configure the HTTP request pipeline.
 
@@ -353,6 +388,21 @@ try
     app.UseAuthorization();
 
     app.UseAntiforgery();
+
+    app.MapHealthChecks("/health/live", new HealthCheckOptions
+    {
+        Predicate = registration => registration.Tags.Contains("live")
+    }).AllowAnonymous();
+
+    app.MapHealthChecks("/health/ready", new HealthCheckOptions
+    {
+        Predicate = registration => registration.Tags.Contains("ready")
+    }).AllowAnonymous();
+
+    app.MapHealthChecks("/health/dependencies", new HealthCheckOptions
+    {
+        Predicate = registration => registration.Tags.Contains("dependencies")
+    }).AllowAnonymous();
 
     app.MapStaticAssets();
     // AllowAnonymous at the endpoint level so the HTTP pipeline always renders the

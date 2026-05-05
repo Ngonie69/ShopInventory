@@ -9,7 +9,13 @@ namespace ShopInventory.Services;
 /// </summary>
 public class DailyStockSnapshotService : BackgroundService
 {
+    private const string WorkerName = "daily-stock-snapshot";
+    private static readonly TimeSpan LeadershipRetryInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(30);
+
     private readonly IServiceProvider _serviceProvider;
+    private readonly BackgroundWorkerLeaderElector _leaderElector;
+    private readonly BackgroundWorkerHealthRegistry _healthRegistry;
     private readonly ILogger<DailyStockSnapshotService> _logger;
     private readonly DailyStockSettings _settings;
 
@@ -18,12 +24,21 @@ public class DailyStockSnapshotService : BackgroundService
 
     public DailyStockSnapshotService(
         IServiceProvider serviceProvider,
+        BackgroundWorkerLeaderElector leaderElector,
+        BackgroundWorkerHealthRegistry healthRegistry,
         IOptions<DailyStockSettings> settings,
         ILogger<DailyStockSnapshotService> logger)
     {
         _serviceProvider = serviceProvider;
+        _leaderElector = leaderElector;
+        _healthRegistry = healthRegistry;
         _logger = logger;
         _settings = settings.Value;
+
+        if (_settings.EnableAutoStockFetch)
+        {
+            _healthRegistry.RegisterWorker(WorkerName, critical: true, healthyWindow: TimeSpan.FromMinutes(2));
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -39,24 +54,51 @@ public class DailyStockSnapshotService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            await using var leadershipHandle = await _leaderElector.TryAcquireAsync(WorkerName, stoppingToken);
+            if (leadershipHandle is null)
+            {
+                _healthRegistry.MarkStandby(WorkerName);
+                await Task.Delay(LeadershipRetryInterval, stoppingToken);
+                continue;
+            }
+
+            _healthRegistry.MarkLeader(WorkerName);
+            _logger.LogInformation("Daily stock snapshot leadership acquired on this instance");
+
             try
             {
-                var delay = CalculateDelayUntilNextRun(_settings.StockFetchTimeCAT);
-                _logger.LogInformation("Next stock fetch in {Delay}", delay);
-                await Task.Delay(delay, stoppingToken);
+                while (!stoppingToken.IsCancellationRequested)
+                {
+                    try
+                    {
+                        var delay = CalculateDelayUntilNextRun(_settings.StockFetchTimeCAT);
+                        _logger.LogInformation("Next stock fetch in {Delay}", delay);
+                        await DelayWithHeartbeatAsync(delay, stoppingToken);
 
-                await RunStockFetchAsync(stoppingToken);
+                        await RunStockFetchAsync(stoppingToken);
+                        _healthRegistry.MarkSuccessfulRun(WorkerName);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        _healthRegistry.MarkFailure(WorkerName, ex);
+                        _logger.LogError(ex, "Error in daily stock snapshot service");
+                        await DelayWithHeartbeatAsync(TimeSpan.FromMinutes(5), stoppingToken);
+                    }
+                }
             }
-            catch (OperationCanceledException)
+            finally
             {
-                break;
+                _healthRegistry.MarkStandby(WorkerName);
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in daily stock snapshot service");
-                // Wait 5 minutes before retrying after an error
-                await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
-            }
+        }
+
+        if (_settings.EnableAutoStockFetch)
+        {
+            _healthRegistry.MarkStopped(WorkerName);
         }
     }
 
@@ -99,6 +141,19 @@ public class DailyStockSnapshotService : BackgroundService
         }
 
         _logger.LogInformation("Daily stock snapshot fetch complete");
+    }
+
+    private async Task DelayWithHeartbeatAsync(TimeSpan delay, CancellationToken cancellationToken)
+    {
+        var remaining = delay;
+        while (remaining > TimeSpan.Zero)
+        {
+            _healthRegistry.MarkLeader(WorkerName);
+
+            var nextDelay = remaining < HeartbeatInterval ? remaining : HeartbeatInterval;
+            await Task.Delay(nextDelay, cancellationToken);
+            remaining -= nextDelay;
+        }
     }
 
     private TimeSpan CalculateDelayUntilNextRun(string timeCAT)

@@ -183,8 +183,8 @@ public class LockFailureDetail
 }
 
 /// <summary>
-/// In-memory implementation of inventory lock service.
-/// For production with multiple instances, replace with Redis-based implementation.
+/// Legacy in-memory implementation of inventory lock service.
+/// Retained for local single-node scenarios; production uses PostgreSQL advisory locks.
 /// </summary>
 public class InMemoryInventoryLockService : IInventoryLockService
 {

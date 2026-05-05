@@ -23,7 +23,8 @@ public enum SalesOrderStatus
     Fulfilled = 4,
     Invoiced = Fulfilled,
     Cancelled = 5,
-    OnHold = 6
+    OnHold = 6,
+    Rejected = 7
 }
 
 /// <summary>

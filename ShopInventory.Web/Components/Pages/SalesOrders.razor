@@ -13,6 +13,7 @@
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JSRuntime
 @rendermode InteractiveServer
 
 <PageTitle>Sales Orders - Shop Inventory</PageTitle>
@@ -342,6 +343,11 @@
         color: #991b1b;
     }
 
+    .status-badge.rejected {
+        background: #fff7ed;
+        color: #c2410c;
+    }
+
     .status-badge.on-hold {
         background: #374151;
         color: #fff;
@@ -543,6 +549,53 @@
         display: flex;
         align-items: center;
         gap: .4rem;
+    }
+
+    .rejection-note {
+        background: #fff7ed;
+        border: 1px solid #fdba74;
+        border-radius: 10px;
+        padding: .85rem 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .rejection-note-title {
+        font-size: .72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .45px;
+        color: #c2410c;
+        margin-bottom: .25rem;
+    }
+
+    .rejection-note-meta {
+        font-size: .74rem;
+        color: #9a3412;
+        margin-bottom: .35rem;
+    }
+
+    .rejection-note-body {
+        font-size: .88rem;
+        color: #7c2d12;
+        white-space: pre-wrap;
+    }
+
+    .dark-theme .rejection-note {
+        background: #431407;
+        border-color: #9a3412;
+    }
+
+    .dark-theme .rejection-note-title {
+        color: #fdba74;
+    }
+
+    .dark-theme .rejection-note-meta {
+        color: #fdba74;
+        opacity: .85;
+    }
+
+    .dark-theme .rejection-note-body {
+        color: #fed7aa;
     }
 
     /* ── Lines Table ─────────────────────────────────── */
@@ -1139,6 +1192,13 @@
                                                                                OnClick="() => ApproveOrder(context.Id)" />
                                                             }
                                                         }
+                                                            @if (CanRejectOrder(context))
+                                                            {
+                                                                <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.UpdateStatus) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Block)" Size="Size.Small"
+                                                                               Variant="Variant.Outlined" Color="Color.Warning" aria-label="Reject"
+                                                                               Disabled="@IsOrderActionBusy(context.Id)"
+                                                                               OnClick="() => OpenRejectModal(context)" />
+                                                            }
                                                                     @if (CanCancelOrder(context))
                                                         {
                                                                         <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.UpdateStatus) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Cancel)" Size="Size.Small"
@@ -1211,6 +1271,7 @@
                                                OnClick="() => selectedOrder = null" />
                             </div>
                             <div class="drawer-body">
+                                @{ var rejectedNote = GetRejectedNote(selectedOrder); }
                                 <div class="detail-grid">
                                     <div class="detail-item">
                                         <div class="detail-label">Customer</div>
@@ -1239,6 +1300,24 @@
                                         <div class="detail-value">@selectedOrder.CreatedByUserName</div>
                                     </div>
                                 </div>
+
+                                @if (selectedOrder.Status == SalesOrderStatus.Rejected)
+                                {
+                                    <div class="rejection-note">
+                                        <div class="rejection-note-title">
+                                            <i class="bi bi-slash-circle me-1"></i>Rejected Reason
+                                        </div>
+                                        @if (!string.IsNullOrWhiteSpace(GetRejectedNoteRecordedAtLocalDisplay(rejectedNote)))
+                                        {
+                                            <div class="rejection-note-meta">Recorded @GetRejectedNoteRecordedAtLocalDisplay(rejectedNote)</div>
+                                        }
+                                        <div class="rejection-note-body">
+                                            @(string.IsNullOrWhiteSpace(rejectedNote?.Reason)
+                                                ? "No rejection reason was recorded for this order."
+                                                : rejectedNote.Reason)
+                                        </div>
+                                    </div>
+                                }
 
                                 @if (selectedOrder.Lines?.Any() == true)
                                 {
@@ -1293,6 +1372,24 @@
                                         <i class="bi bi-pencil-square me-1"></i> Edit
                                     </MudButton>
                                 }
+                                @if (!selectedOrder.IsSynced && CanRejectOrder(selectedOrder))
+                                {
+                                    <MudButton Class="btn-so-gradient"
+                                               Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#f59e0b,#d97706);"
+                                               Disabled="@IsOrderActionBusy(selectedOrder.Id)"
+                                               OnClick="() => OpenRejectModal(selectedOrder)">
+                                        @if (IsOrderActionBusy(selectedOrder.Id, OrderActionType.UpdateStatus))
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-1"></span>
+                                            <span>Rejecting...</span>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-slash-circle me-1"></i>
+                                            <span>Reject</span>
+                                        }
+                                    </MudButton>
+                                }
                                 @if (selectedOrder.Status == SalesOrderStatus.Approved && !selectedOrder.IsSynced)
                                 {
                                     <MudButton Class="btn-so-gradient"
@@ -1311,6 +1408,44 @@
                                     </MudButton>
                                 }
                                 <MudButton Class="btn-secondary-action" OnClick="() => selectedOrder = null">Close</MudButton>
+                            </div>
+                        </div>
+                    }
+
+                    @if (showRejectModal)
+                    {
+                        <div class="create-modal-overlay" @onclick="CloseRejectModal">
+                            <div class="create-modal" style="width:min(520px, 95vw);" @onclick:stopPropagation="true">
+                                <div class="create-modal-header">
+                                    <h5><i class="bi bi-slash-circle"></i> Reject Sales Order</h5>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-modal" OnClick="CloseRejectModal" Disabled="@isRejecting" />
+                                </div>
+                                <div class="create-modal-body">
+                                    <p style="margin:0 0 .9rem; color:#374151; font-size:.9rem;">
+                                        Add a rejection reason for <strong>@rejectOrderNumber</strong>. This reason will be saved with the order and sent in the mobile notification.
+                                    </p>
+                                    <div class="form-field full">
+                                        <label>Rejection Reason</label>
+                                        <textarea @bind="rejectReason" rows="4" placeholder="Explain why the order is being rejected" disabled="@isRejecting"></textarea>
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(rejectReasonError))
+                                    {
+                                        <div style="color:#dc2626; font-size:.82rem; margin-top:.45rem;">@rejectReasonError</div>
+                                    }
+                                </div>
+                                <div class="create-modal-footer">
+                                    <MudButton Class="btn-secondary-action" OnClick="CloseRejectModal" Disabled="@isRejecting">Cancel</MudButton>
+                                    <MudButton Class="btn-create"
+                                               Style="background:linear-gradient(135deg,#f59e0b,#d97706);"
+                                               OnClick="ConfirmRejectOrder"
+                                               Disabled="@isRejecting">
+                                        @if (isRejecting)
+                                        {
+                                            <span class="spinner-border spinner-border-sm"></span>
+                                        }
+                                        <span>Reject Order</span>
+                                    </MudButton>
+                                </div>
                             </div>
                         </div>
                     }
@@ -1691,9 +1826,17 @@
     private SalesOrderDto? selectedOrder;
     private bool isLoading = true;
     private bool isCreating = false;
+    private bool isRejecting = false;
     private bool showCreateModal = false;
+    private bool showRejectModal = false;
     private string? errorMessage;
+    private string rejectReason = string.Empty;
+    private string? rejectReasonError;
+    private string rejectOrderNumber = string.Empty;
+    private int? rejectOrderId;
     private readonly Dictionary<int, OrderActionType> orderActionStates = new();
+    private DateTime? resolvedRejectedNoteRecordedAtUtc;
+    private string? resolvedRejectedNoteRecordedAtLocalDisplay;
 
     // Filters
     private string? orderNumberFilter;
@@ -1777,6 +1920,32 @@
         toDate = DateTime.Today;
         await LoadOrders();
         await AuditService.LogAsync(AuditActions.ViewSalesOrders, "SalesOrder", null);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        var recordedAtUtc = selectedOrder is null
+            ? null
+            : GetRejectedNote(selectedOrder)?.RecordedAtUtc;
+
+        if (recordedAtUtc is null)
+        {
+            resolvedRejectedNoteRecordedAtUtc = null;
+            resolvedRejectedNoteRecordedAtLocalDisplay = null;
+            return;
+        }
+
+        if (resolvedRejectedNoteRecordedAtUtc == recordedAtUtc)
+            return;
+
+        resolvedRejectedNoteRecordedAtUtc = recordedAtUtc;
+        resolvedRejectedNoteRecordedAtLocalDisplay = await JSRuntime.InvokeAsync<string?>(
+            "shopInventory.formatUtcForBrowserLocalDisplay",
+            recordedAtUtc.Value.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task LoadOrders()
@@ -2052,6 +2221,82 @@
         finally
         {
             EndOrderAction(order.Id);
+            StateHasChanged();
+        }
+    }
+
+    private void OpenRejectModal(SalesOrderDto order)
+    {
+        if (order is null || IsOrderActionBusy(order.Id))
+            return;
+
+        rejectOrderId = order.Id;
+        rejectOrderNumber = order.OrderNumber;
+        rejectReason = string.Empty;
+        rejectReasonError = null;
+        showRejectModal = true;
+    }
+
+    private void CloseRejectModal()
+    {
+        if (isRejecting)
+            return;
+
+        showRejectModal = false;
+        rejectOrderId = null;
+        rejectOrderNumber = string.Empty;
+        rejectReason = string.Empty;
+        rejectReasonError = null;
+    }
+
+    private async Task ConfirmRejectOrder()
+    {
+        if (!rejectOrderId.HasValue)
+            return;
+
+        var reason = rejectReason.Trim();
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            rejectReasonError = "A rejection reason is required.";
+            return;
+        }
+
+        var orderId = rejectOrderId.Value;
+        var orderNumber = rejectOrderNumber;
+
+        if (!TryBeginOrderAction(orderId, OrderActionType.UpdateStatus))
+            return;
+
+        rejectReasonError = null;
+        isRejecting = true;
+        StateHasChanged();
+
+        try
+        {
+            var result = await SalesOrderService.UpdateStatusAsync(orderId, SalesOrderStatus.Rejected, reason);
+            if (result != null)
+            {
+                if (selectedOrder?.Id == orderId)
+                    selectedOrder = result;
+
+                Snackbar.Add($"Order {orderNumber} rejected successfully.", Severity.Warning);
+                await AuditService.LogAsync(AuditActions.UpdateSalesOrder, "SalesOrder", orderId.ToString(), $"Rejected: {reason}", true);
+                CloseRejectModal();
+                await LoadOrders();
+            }
+            else
+            {
+                Snackbar.Add("Failed to reject order. Please try again.", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error rejecting order: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isRejecting = false;
+            EndOrderAction(orderId);
             StateHasChanged();
         }
     }
@@ -2603,17 +2848,72 @@
         SalesOrderStatus.Fulfilled => "fulfilled",
         SalesOrderStatus.Cancelled => "cancelled",
         SalesOrderStatus.OnHold => "on-hold",
+        SalesOrderStatus.Rejected => "rejected",
         _ => "draft"
     };
+
+    private static RejectedStatusNote? GetRejectedNote(SalesOrderDto order)
+    {
+        if (order.Status != SalesOrderStatus.Rejected || string.IsNullOrWhiteSpace(order.Comments))
+            return null;
+
+        const string marker = "Status changed to Rejected:";
+        var commentLines = order.Comments
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        for (var index = commentLines.Length - 1; index >= 0; index--)
+        {
+            var line = commentLines[index];
+            var markerIndex = line.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex < 0)
+                continue;
+
+            var reason = line[(markerIndex + marker.Length)..].Trim();
+            if (string.IsNullOrWhiteSpace(reason))
+                return null;
+
+            DateTime? recordedAtUtc = null;
+            var closingBracketIndex = line.IndexOf(']');
+            if (line.StartsWith('[') && closingBracketIndex > 1)
+            {
+                var timestampText = line[1..closingBracketIndex].Trim();
+                if (DateTime.TryParseExact(
+                    timestampText,
+                    "yyyy-MM-dd HH:mm",
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                    out var parsedTimestamp))
+                {
+                    recordedAtUtc = parsedTimestamp;
+                }
+            }
+
+            return new RejectedStatusNote(reason, recordedAtUtc);
+        }
+
+        return null;
+    }
+
+    private sealed record RejectedStatusNote(string Reason, DateTime? RecordedAtUtc)
+    {
+    }
+
+    private string? GetRejectedNoteRecordedAtLocalDisplay(RejectedStatusNote? note)
+        => note?.RecordedAtUtc is not null && resolvedRejectedNoteRecordedAtUtc == note.RecordedAtUtc
+            ? resolvedRejectedNoteRecordedAtLocalDisplay
+            : null;
+
+    private static bool CanRejectOrder(SalesOrderDto order)
+        => !order.IsSynced && order.Status is SalesOrderStatus.Draft or SalesOrderStatus.Pending or SalesOrderStatus.OnHold;
 
     private static bool CanCancelOrder(SalesOrderDto order)
         => !order.IsSynced && order.Status is SalesOrderStatus.Draft or SalesOrderStatus.Pending or SalesOrderStatus.Approved or SalesOrderStatus.PartiallyFulfilled or SalesOrderStatus.OnHold;
 
     private static bool CanRestoreToDraft(SalesOrderDto order)
-        => !order.IsSynced && order.Status == SalesOrderStatus.Cancelled;
+        => !order.IsSynced && (order.Status == SalesOrderStatus.Cancelled || order.Status == SalesOrderStatus.Rejected);
 
     private static bool CanDeleteOrder(SalesOrderDto order)
-        => !order.IsSynced && (order.Status == SalesOrderStatus.Draft || order.Status == SalesOrderStatus.Cancelled);
+        => !order.IsSynced && (order.Status == SalesOrderStatus.Draft || order.Status == SalesOrderStatus.Cancelled || order.Status == SalesOrderStatus.Rejected);
 
     private static string GetStatusChangeVerb(SalesOrderStatus status)
         => status == SalesOrderStatus.Draft ? "restore" : "cancel";

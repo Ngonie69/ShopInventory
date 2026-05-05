@@ -43,4 +43,14 @@ public class SAPSettings
     /// Optional Windows domain for the SAP attachments UNC share username.
     /// </summary>
     public string AttachmentsDomain { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Number of transient SAP failures before the local circuit opens.
+    /// </summary>
+    public int CircuitFailureThreshold { get; set; } = 5;
+
+    /// <summary>
+    /// How long the local SAP circuit remains open before probing again.
+    /// </summary>
+    public int CircuitBreakDurationSeconds { get; set; } = 30;
 }

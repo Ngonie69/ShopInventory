@@ -25,7 +25,7 @@ public sealed class UpdateSalesOrderStatusHandler(
                 command.Id, command.Status, command.UserId, command.Comments, cancellationToken);
 
             if (order.Source == SalesOrderSource.Mobile
-                && order.Status == SalesOrderStatus.Cancelled
+                && (order.Status == SalesOrderStatus.Cancelled || order.Status == SalesOrderStatus.Rejected)
                 && !string.IsNullOrWhiteSpace(order.CreatedByUserName))
             {
                 try
@@ -33,11 +33,23 @@ public sealed class UpdateSalesOrderStatusHandler(
                     var customerName = string.IsNullOrWhiteSpace(order.CardName)
                         ? order.CardCode
                         : order.CardName;
+                    var isRejected = order.Status == SalesOrderStatus.Rejected;
+                    var notificationTitle = isRejected
+                        ? $"Sales Order Rejected: {order.OrderNumber}"
+                        : $"Sales Order Cancelled: {order.OrderNumber}";
+                    var statusVerb = isRejected ? "rejected" : "cancelled";
+                    var trimmedComments = string.IsNullOrWhiteSpace(command.Comments)
+                        ? null
+                        : command.Comments.Trim();
+                    var notificationMessage = $"Your mobile sales order {order.OrderNumber} for {customerName} was {statusVerb}.";
+
+                    if (!string.IsNullOrWhiteSpace(trimmedComments))
+                        notificationMessage += $" Reason: {trimmedComments}";
 
                     await notificationService.CreateNotificationAsync(new CreateNotificationRequest
                     {
-                        Title = $"Sales Order Cancelled: {order.OrderNumber}",
-                        Message = $"Your mobile sales order {order.OrderNumber} for {customerName} was cancelled.",
+                        Title = notificationTitle,
+                        Message = notificationMessage,
                         Type = "Warning",
                         Category = "SalesOrder",
                         EntityType = "SalesOrder",
@@ -49,7 +61,12 @@ public sealed class UpdateSalesOrderStatusHandler(
                         {
                             ["orderId"] = order.Id.ToString(),
                             ["orderNumber"] = order.OrderNumber,
-                            ["status"] = order.Status.ToString()
+                            ["cardCode"] = order.CardCode,
+                            ["customerCode"] = order.CardCode,
+                            ["customerName"] = customerName,
+                            ["status"] = order.Status.ToString(),
+                            ["action"] = order.Status.ToString(),
+                            ["comments"] = trimmedComments ?? string.Empty
                         }
                     }, cancellationToken);
                 }
@@ -57,8 +74,9 @@ public sealed class UpdateSalesOrderStatusHandler(
                 {
                     logger.LogWarning(
                         ex,
-                        "Failed to notify creator {Username} about cancelled mobile sales order {OrderId}",
+                        "Failed to notify creator {Username} about {Status} mobile sales order {OrderId}",
                         order.CreatedByUserName,
+                        order.Status,
                         order.Id);
                 }
             }

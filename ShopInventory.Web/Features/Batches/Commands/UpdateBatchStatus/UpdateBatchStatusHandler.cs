@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Net.Http.Json;
 using ErrorOr;
 using MediatR;
@@ -71,7 +72,7 @@ public sealed class UpdateBatchStatusHandler(
                 "BatchStatusUpdated",
                 "Batch",
                 request.BatchEntryId.ToString(),
-                $"{(isSuccess ? "Updated" : "Failed to update")} batch {request.BatchNumber} ({request.ItemCode}) to {request.Status}",
+                BuildAuditDetails(request),
                 isSuccess,
                 errorMessage);
         }
@@ -79,4 +80,23 @@ public sealed class UpdateBatchStatusHandler(
         {
         }
     }
+
+    private static string BuildAuditDetails(UpdateBatchStatusCommand request)
+    {
+        var payload = new BatchStatusAuditDetails(
+            request.BatchNumber,
+            request.ItemCode,
+            request.WarehouseCode,
+            request.CurrentStatus,
+            request.Status);
+
+        return JsonSerializer.Serialize(payload);
+    }
+
+    private sealed record BatchStatusAuditDetails(
+        string BatchNumber,
+        string ItemCode,
+        string WarehouseCode,
+        string FromStatus,
+        string ToStatus);
 }

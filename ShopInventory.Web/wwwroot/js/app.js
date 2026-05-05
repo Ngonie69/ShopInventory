@@ -217,6 +217,43 @@ window.themeManager = {
     }
 };
 
+window.shopInventory = window.shopInventory || {};
+
+window.shopInventory.formatUtcForBrowserLocalDisplay = function (utcIsoString) {
+    if (!utcIsoString) {
+        return null;
+    }
+
+    const date = new Date(utcIsoString);
+    if (Number.isNaN(date.getTime())) {
+        return null;
+    }
+
+    const formatter = new Intl.DateTimeFormat(undefined, {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZoneName: 'short'
+    });
+
+    const parts = formatter.formatToParts(date);
+    const day = parts.find(part => part.type === 'day')?.value;
+    const month = parts.find(part => part.type === 'month')?.value;
+    const year = parts.find(part => part.type === 'year')?.value;
+    const hour = parts.find(part => part.type === 'hour')?.value;
+    const minute = parts.find(part => part.type === 'minute')?.value;
+    const timeZoneName = parts.find(part => part.type === 'timeZoneName')?.value;
+
+    if (!day || !month || !year || !hour || !minute) {
+        return formatter.format(date);
+    }
+
+    return `${day} ${month} ${year} ${hour}:${minute}${timeZoneName ? ` ${timeZoneName}` : ''}`;
+};
+
 // File Download Handler - supports both signatures (from Kefalos-Workshop)
 window.downloadFile = function (fileName, contentTypeOrBase64, base64Content) {
     let base64Data, contentType;

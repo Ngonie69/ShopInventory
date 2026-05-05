@@ -7,6 +7,7 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Common.Extensions;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.UserManagement;
 using ShopInventory.Models;
 using ShopInventory.Services;
 
@@ -16,6 +17,8 @@ public sealed class UpdateUserHandler(
     ApplicationDbContext context,
     IMemoryCache memoryCache,
     IAuditService auditService,
+    IBusinessPartnerService businessPartnerService,
+    INotificationService notificationService,
     ILogger<UpdateUserHandler> logger
 ) : IRequestHandler<UpdateUserCommand, ErrorOr<Success>>
 {
@@ -50,6 +53,14 @@ public sealed class UpdateUserHandler(
         {
             return Errors.UserManagement.NotFound(command.Id);
         }
+
+        var currentRole = user.Role;
+        var currentAssignedCustomerCodes = user.GetCustomerCodes()
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         if (command.Request.Username != null)
         {
@@ -165,6 +176,31 @@ public sealed class UpdateUserHandler(
             return Errors.UserManagement.UpdateFailed("An assigned section is required for Driver role");
         }
 
+        var shouldNotifyCustomerAssignmentChanges = command.Request.AssignedCustomerCodes != null &&
+            (string.Equals(user.Role, "Merchandiser", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(user.Role, "Driver", StringComparison.OrdinalIgnoreCase));
+
+        var updatedAssignedCustomerCodes = user.GetCustomerCodes()
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var addedCustomerCodes = shouldNotifyCustomerAssignmentChanges
+            ? updatedAssignedCustomerCodes
+                .Except(currentAssignedCustomerCodes, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+            : [];
+
+        var removedCustomerCodes = shouldNotifyCustomerAssignmentChanges
+            ? currentAssignedCustomerCodes
+                .Except(updatedAssignedCustomerCodes, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+            : [];
+
         if (command.Request.Permissions != null)
         {
             if (command.Request.Permissions.Count == 0)
@@ -215,9 +251,61 @@ public sealed class UpdateUserHandler(
         memoryCache.Remove(GetEffectivePermissionsCacheKey(command.Id));
         logger.LogInformation("User {UserId} updated to username {Username}", command.Id, user.Username);
 
+        if (shouldNotifyCustomerAssignmentChanges)
+        {
+            var customerNamesByCode = addedCustomerCodes.Count > 0 || removedCustomerCodes.Count > 0
+                ? await CustomerAssignmentNotificationCustomerResolver.ResolveNamesAsync(
+                    businessPartnerService,
+                    addedCustomerCodes.Concat(removedCustomerCodes),
+                    cancellationToken)
+                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            if (addedCustomerCodes.Count > 0)
+            {
+                var addedNotification = CustomerAssignmentNotificationFactory.CreateForUser(
+                    user.Username,
+                    user.Role,
+                    addedCustomerCodes,
+                    customerNamesByCode,
+                    isRemoval: false,
+                    user.Id);
+
+                if (addedNotification is not null)
+                {
+                    await notificationService.CreateNotificationAsync(addedNotification, cancellationToken);
+                }
+            }
+
+            if (removedCustomerCodes.Count > 0)
+            {
+                var removedNotification = CustomerAssignmentNotificationFactory.CreateForUser(
+                    user.Username,
+                    user.Role,
+                    removedCustomerCodes,
+                    customerNamesByCode,
+                    isRemoval: true,
+                    user.Id);
+
+                if (removedNotification is not null)
+                {
+                    await notificationService.CreateNotificationAsync(removedNotification, cancellationToken);
+                }
+            }
+        }
+
         try
         {
-            await auditService.LogAsync(AuditActions.UpdateUser, "User", command.Id.ToString(), $"User {user.Username} updated", true);
+            var assignmentAuditDetail = shouldNotifyCustomerAssignmentChanges &&
+                                        (addedCustomerCodes.Count > 0 || removedCustomerCodes.Count > 0)
+                ? $"; customer assignments added={addedCustomerCodes.Count}, removed={removedCustomerCodes.Count}"
+                : string.Empty;
+
+            await auditService.LogAsync(
+                AuditActions.UpdateUser,
+                "User",
+                command.Id.ToString(),
+                $"User {user.Username} updated{assignmentAuditDetail}",
+                true);
         }
         catch
         {
