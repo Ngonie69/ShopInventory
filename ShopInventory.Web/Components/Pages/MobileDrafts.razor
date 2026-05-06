@@ -13,7 +13,7 @@
 @inject IPriceService PriceService
 @rendermode InteractiveServer
 
-<PageTitle>Mobile Drafts - Shop Inventory</PageTitle>
+<PageTitle>Mobile Orders - Shop Inventory</PageTitle>
 
 <style>
     /* ── Page ────────────────────────────────────────── */
@@ -122,58 +122,81 @@
         color: #9ca3af;
     }
 
-    /* ── Filter Bar ──────────────────────────────────── */
-    .filter-bar {
+    /* ── Table Filters ───────────────────────────────── */
+    .md-table-tools {
         display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: .6rem;
         flex-wrap: wrap;
-        gap: .75rem;
-        align-items: flex-end;
-        padding: 1rem 1.25rem;
+    }
+
+    .md-clear-filters {
         background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        margin-bottom: 1.25rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .filter-bar .filter-field {
-        flex: 1;
-        min-width: 140px;
-    }
-
-    .filter-bar .filter-field label {
-        display: block;
-        font-size: .72rem;
-        font-weight: 600;
         color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        margin-bottom: .3rem;
+        border: 1px solid #d1d5db;
+        padding: .35rem .7rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .78rem;
+        cursor: pointer;
+        transition: all .15s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
     }
 
-    .filter-bar .filter-field input,
-    .filter-bar .filter-field select {
+    .md-clear-filters:hover {
+        background: #f3f4f6;
+    }
+
+    .md-clear-filters:disabled {
+        opacity: .55;
+        cursor: not-allowed;
+    }
+
+    .md-table-wrap .mud-table-head .mud-table-cell {
+        vertical-align: top;
+    }
+
+    .md-header-filter {
+        display: flex;
+        flex-direction: column;
+        gap: .35rem;
+        min-width: 108px;
+    }
+
+    .md-filter-label {
+        font-size: .72rem;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: .45px;
+        white-space: nowrap;
+    }
+
+    .md-filter-input,
+    .md-filter-select {
         width: 100%;
-        padding: .5rem .75rem;
+        min-height: 34px;
+        padding: .4rem .55rem;
         border: 1px solid #d1d5db;
         border-radius: 8px;
-        font-size: .88rem;
+        font-size: .8rem;
         color: #374151;
         background: #fff;
         transition: all .15s;
     }
 
-    .filter-bar .filter-field input:focus,
-    .filter-bar .filter-field select:focus {
+    .md-filter-input::placeholder {
+        color: #94a3b8;
+    }
+
+    .md-filter-input:focus,
+    .md-filter-select:focus {
         outline: none;
         border-color: #2563eb;
         box-shadow: 0 0 0 3px rgba(37, 99, 235, .15);
-    }
-
-    .filter-actions-row {
-        display: flex;
-        gap: .5rem;
-        align-items: flex-end;
     }
 
     .btn-search {
@@ -677,7 +700,7 @@
 
     @@media (max-width:768px) {
         .md-header { flex-direction: column; }
-        .filter-bar { flex-direction: column; }
+        .md-table-tools { width: 100%; justify-content: space-between; }
         .stat-row { grid-template-columns: 1fr 1fr; }
         .detail-grid { grid-template-columns: 1fr; }
         .md-po-viewer-overlay { padding: .75rem; }
@@ -694,8 +717,8 @@
             <div class="md-header-left">
                 <div class="md-header-icon"><i class="bi bi-phone"></i></div>
                 <div>
-                    <h2>Mobile Draft Orders</h2>
-                    <p>Review and approve sales orders submitted from the mobile app</p>
+                    <h2>Mobile Orders</h2>
+                    <p>Review pending sales orders submitted from the mobile app</p>
                 </div>
             </div>
         </div>
@@ -720,7 +743,7 @@
                     <div class="stat-icon total"><i class="bi bi-phone"></i></div>
                     <div class="stat-info">
                         <div class="stat-value">@totalCount</div>
-                        <div class="stat-label">Total Drafts</div>
+                        <div class="stat-label">Total Orders</div>
                     </div>
                 </div>
                 <div class="stat-card">
@@ -747,74 +770,94 @@
             </div>
         }
 
-        <!-- ━━━ Filter Bar ━━━ -->
-        <div class="filter-bar">
-            <div class="filter-field">
-                <label>Customer</label>
-                <input type="text" @bind="customerFilter" placeholder="Customer code" />
-            </div>
-            <div class="filter-field">
-                <label>Order / SAP Doc #</label>
-                <input type="text" @bind="orderSearchFilter" placeholder="Order number or SAP doc #" />
-            </div>
-            <div class="filter-field">
-                <label>Status</label>
-                <select @bind="statusFilter">
-                    <option value="">All Statuses</option>
-                    @foreach (var statusOption in GetStatusFilterOptions())
-                    {
-                        <option value="@(((int)statusOption.Value).ToString())">@statusOption.Label</option>
-                    }
-                </select>
-            </div>
-            <div class="filter-field">
-                <label>From Date</label>
-                <MudDatePicker @bind-Date="fromDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                               DateFormat="@AppSettings.DateFormat" Editable="true" />
-            </div>
-            <div class="filter-field">
-                <label>To Date</label>
-                <MudDatePicker @bind-Date="toDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                               DateFormat="@AppSettings.DateFormat" Editable="true" />
-            </div>
-            <div class="filter-actions-row">
-                <MudButton Class="btn-search" OnClick="ApplyFilter">
-                    <i class="bi bi-search"></i> Search
-                </MudButton>
-                <MudButton Class="btn-clear" OnClick="ClearFilter">
-                    <i class="bi bi-x-circle"></i> Clear
-                </MudButton>
-            </div>
-        </div>
-
         <!-- ━━━ Content ━━━ -->
         @if (isLoading)
         {
             <div class="loading-state">
                 <div class="spinner-border" style="color:#2563eb;width:2.5rem;height:2.5rem;" role="status"></div>
-                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading mobile drafts...</p>
+                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading mobile orders...</p>
             </div>
         }
         else if (orders?.Any() == true)
         {
             <div class="md-table-wrap">
                 <div class="md-table-header">
-                    <h6><i class="bi bi-phone"></i> Mobile Draft Orders</h6>
-                    <span class="md-count-badge">@totalCount total</span>
+                    <h6><i class="bi bi-phone"></i> Mobile Orders</h6>
+                    <div class="md-table-tools">
+                        <span class="md-count-badge">@GetOrderCountSummary()</span>
+                        @if (HasActiveFilters())
+                        {
+                            <button type="button" class="md-clear-filters" @onclick="ClearFilter">
+                                <i class="bi bi-x-circle"></i> Clear filters
+                            </button>
+                        }
+                    </div>
                 </div>
-                <MudTable @ref="@_table" Items="@orders" RowsPerPage="@_pageSize" Hover="true" Striped="true" Dense="true"
+                <MudTable @ref="@_table" Items="@GetFilteredOrders()" RowsPerPage="@_pageSize" Hover="true" Striped="true" Dense="true"
                           Breakpoint="Breakpoint.Sm" Loading="@isLoading" LoadingProgressColor="Color.Primary" T="SalesOrderDto"
                           Elevation="0" Style="background:transparent;">
                     <HeaderContent>
-                        <MudTh>Order #</MudTh>
-                        <MudTh>Customer</MudTh>
-                        <MudTh>Order Date</MudTh>
-                        <MudTh>Delivery</MudTh>
-                        <MudTh>Status</MudTh>
-                        <MudTh>Currency</MudTh>
-                        <MudTh Style="text-align:right">Total</MudTh>
-                        <MudTh>SAP Doc #</MudTh>
-                        <MudTh Style="width:150px">Actions</MudTh>
+                        <MudTh>
+                            <div class="md-header-filter">
+                                <span class="md-filter-label">Order #</span>
+                                <input class="md-filter-input" type="text" @bind="orderNumberFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" placeholder="Search" />
+                            </div>
+                        </MudTh>
+                        <MudTh>
+                            <div class="md-header-filter">
+                                <span class="md-filter-label">Customer</span>
+                                <input class="md-filter-input" type="text" @bind="customerFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" placeholder="Name or code" />
+                            </div>
+                        </MudTh>
+                        <MudTh>
+                            <div class="md-header-filter">
+                                <span class="md-filter-label">Order Date</span>
+                                <input class="md-filter-input" type="date" @bind="orderDateFilter" @bind:after="ResetToFirstPage" />
+                            </div>
+                        </MudTh>
+                        <MudTh>
+                            <div class="md-header-filter">
+                                <span class="md-filter-label">Delivery</span>
+                                <input class="md-filter-input" type="date" @bind="deliveryDateFilter" @bind:after="ResetToFirstPage" />
+                            </div>
+                        </MudTh>
+                        <MudTh>
+                            <div class="md-header-filter">
+                                <span class="md-filter-label">Status</span>
+                                <select class="md-filter-select" @bind="statusFilter" @bind:after="ResetToFirstPage">
+                                    <option value="">All</option>
+                                    @foreach (var statusOption in GetStatusFilterOptions())
+                                    {
+                                        <option value="@(((int)statusOption.Value).ToString())">@statusOption.Label</option>
+                                    }
+                                </select>
+                            </div>
+                        </MudTh>
+                        <MudTh>
+                            <div class="md-header-filter">
+                                <span class="md-filter-label">Currency</span>
+                                <select class="md-filter-select" @bind="currencyFilter" @bind:after="ResetToFirstPage">
+                                    <option value="">All</option>
+                                    @foreach (var currencyOption in GetCurrencyFilterOptions())
+                                    {
+                                        <option value="@currencyOption">@currencyOption</option>
+                                    }
+                                </select>
+                            </div>
+                        </MudTh>
+                        <MudTh Style="text-align:right">
+                            <div class="md-header-filter">
+                                <span class="md-filter-label">Total</span>
+                                <input class="md-filter-input" type="text" @bind="totalFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" placeholder="Amount" />
+                            </div>
+                        </MudTh>
+                        <MudTh>
+                            <div class="md-header-filter">
+                                <span class="md-filter-label">SAP Doc #</span>
+                                <input class="md-filter-input" type="text" @bind="sapDocFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" placeholder="SAP #" />
+                            </div>
+                        </MudTh>
+                        <MudTh Style="width:150px"><span class="md-filter-label">Actions</span></MudTh>
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd DataLabel="Order #"><span class="doc-number">@context.OrderNumber</span></MudTd>
@@ -824,7 +867,12 @@
                                 <span class="code">@context.CardCode</span>
                             </div>
                         </MudTd>
-                        <MudTd DataLabel="Order Date"><span style="font-size:.85rem;color:#374151;">@context.OrderDate.ToString("dd MMM yyyy")</span></MudTd>
+                        <MudTd DataLabel="Order Date">
+                            <div style="display:flex; flex-direction:column; gap:.15rem;">
+                                <span style="font-size:.85rem;color:#374151;">@context.OrderDate.ToString("dd MMM yyyy")</span>
+                                <span style="font-size:.72rem;color:#6b7280;">Received @IAuditService.ToCAT(context.CreatedAt).ToString("HH:mm") CAT</span>
+                            </div>
+                        </MudTd>
                         <MudTd DataLabel="Delivery"><span style="font-size:.85rem;color:#374151;">@(context.DeliveryDate?.ToString("dd MMM yyyy") ?? "—")</span></MudTd>
                         <MudTd DataLabel="Status">
                             <span class="status-badge @GetStatusCssClass(context.Status)">@context.StatusName</span>
@@ -927,20 +975,30 @@
                             </MudStack>
                         </MudTd>
                     </RowTemplate>
+                    <NoRecordsContent>
+                        <div class="empty-state py-4">
+                            <div class="empty-icon"><i class="bi bi-funnel"></i></div>
+                            <h6>No matching mobile orders</h6>
+                            <p>Adjust the header filters or clear them to see more orders.</p>
+                            <button type="button" class="md-clear-filters" @onclick="ClearFilter" disabled="@(!HasActiveFilters())">
+                                <i class="bi bi-x-circle"></i> Clear filters
+                            </button>
+                        </div>
+                    </NoRecordsContent>
                     <PagerContent>
                         <div class="pager-row">
                             <div class="page-size-wrap">
                                 <span>Show</span>
-                                <select @bind="_pageSize">
-                                    <option value="10">10</option>
-                                    <option value="25">25</option>
-                                    <option value="50">50</option>
-                                    <option value="100">100</option>
+                                <select @bind="_pageSize" @bind:after="OnPageSizeChanged">
+                                    @foreach (var size in GetPageSizeOptions())
+                                    {
+                                        <option value="@size">@size</option>
+                                    }
                                 </select>
                                 <span>per page</span>
                             </div>
                             <MudPagination SelectedChanged="PageChanged"
-                                           Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
+                                           Count="@GetVisiblePageCount()"
                                            Class="pa-4" />
                         </div>
                     </PagerContent>
@@ -951,7 +1009,7 @@
         {
             <div class="empty-state">
                 <div class="empty-icon"><i class="bi bi-phone"></i></div>
-                <h6>No mobile draft orders found</h6>
+                <h6>No mobile orders found</h6>
                 <p>Orders submitted from the mobile app will appear here for review.</p>
             </div>
         }
@@ -977,6 +1035,10 @@
                 <div class="detail-item">
                     <div class="detail-label">Order Date</div>
                     <div class="detail-value">@selectedOrder.OrderDate.ToString("dd MMM yyyy")</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Received From Mobile</div>
+                    <div class="detail-value">@IAuditService.ToCAT(selectedOrder.CreatedAt).ToString("dd MMM yyyy HH:mm") CAT</div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">Delivery Date</div>
@@ -1126,6 +1188,7 @@
                             <th>Item</th>
                             <th>Description</th>
                             <th style="text-align:right">Qty</th>
+                            <th>UoM</th>
                             <th style="text-align:right">Unit Price</th>
                             <th style="text-align:right">Total</th>
                         </tr>
@@ -1137,6 +1200,7 @@
                                 <td><span style="font-weight:600;color:#2563eb;">@line.ItemCode</span></td>
                                 <td>@line.ItemDescription</td>
                                 <td style="text-align:right;font-weight:600;">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
+                                <td>@(string.IsNullOrWhiteSpace(line.UoMCode) ? "-" : line.UoMCode)</td>
                                 <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
                                 <td style="text-align:right;font-weight:600;">@line.LineTotal.ToString("N2")</td>
                             </tr>
@@ -1144,15 +1208,15 @@
                     </tbody>
                     <tfoot>
                         <tr>
-                            <td colspan="4" style="text-align:right;font-weight:600;">Item Count:</td>
+                            <td colspan="5" style="text-align:right;font-weight:600;">Item Count:</td>
                             <td style="text-align:right;font-weight:600;">@FormatOrderItemCount(selectedOrder)</td>
                         </tr>
                         <tr>
-                            <td colspan="4" style="text-align:right;font-weight:600;">Subtotal:</td>
+                            <td colspan="5" style="text-align:right;font-weight:600;">Subtotal:</td>
                             <td style="text-align:right;font-weight:600;">@selectedOrder.SubTotal.ToString("N2")</td>
                         </tr>
                         <tr>
-                            <td colspan="4" style="text-align:right;font-weight:600;">Tax:</td>
+                            <td colspan="5" style="text-align:right;font-weight:600;">Tax:</td>
                             <td style="text-align:right;">@selectedOrder.TaxAmount.ToString("N2")</td>
                         </tr>
                     </tfoot>
@@ -1255,6 +1319,8 @@
 }
 
 @code {
+    private static readonly int[] DefaultPageSizeOptions = [10, 25, 50, 100, 200];
+
     private MudTable<SalesOrderDto> _table = null!;
     private int _pageSize = 10;
     private List<SalesOrderDto>? orders;
@@ -1294,11 +1360,14 @@
     ];
 
     // Filters
+    private string? orderNumberFilter;
     private string? customerFilter;
-    private string? orderSearchFilter;
+    private DateTime? orderDateFilter;
+    private DateTime? deliveryDateFilter;
     private string? statusFilter;
-    private DateTime? fromDate;
-    private DateTime? toDate;
+    private string? currencyFilter;
+    private string? totalFilter;
+    private string? sapDocFilter;
 
     // Pagination
     private int currentPage = 1;
@@ -1318,13 +1387,45 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _pageSize = AppSettings.PageSize;
+        _pageSize = ResolveInitialPageSize(AppSettings.PageSize);
         await LoadOrders();
     }
 
     private void PageChanged(int i)
     {
         _table?.NavigateTo(i - 1);
+    }
+
+    private IEnumerable<int> GetPageSizeOptions()
+    {
+        if (DefaultPageSizeOptions.Contains(_pageSize))
+        {
+            return DefaultPageSizeOptions;
+        }
+
+        return DefaultPageSizeOptions
+            .Append(_pageSize)
+            .Where(size => size > 0)
+            .Distinct()
+            .OrderBy(size => size)
+            .ToArray();
+    }
+
+    private Task OnPageSizeChanged()
+    {
+        _table?.NavigateTo(0);
+        return Task.CompletedTask;
+    }
+
+    private Task ResetToFirstPage()
+    {
+        _table?.NavigateTo(0);
+        return Task.CompletedTask;
+    }
+
+    private static int ResolveInitialPageSize(int configuredPageSize)
+    {
+        return configuredPageSize > 0 ? configuredPageSize : DefaultPageSizeOptions[0];
     }
 
     private SalesOrderStatus? GetSelectedStatusFilter()
@@ -1348,6 +1449,136 @@
         return AllStatusFilterOptions.Where(option => availableStatusFilters.Contains(option.Value));
     }
 
+    private IEnumerable<string> GetCurrencyFilterOptions()
+    {
+        var options = orders?
+            .Select(order => order.Currency?.Trim())
+            .Where(currency => !string.IsNullOrWhiteSpace(currency))
+            .Select(currency => currency!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(currency => currency, StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? [];
+
+        if (!string.IsNullOrWhiteSpace(currencyFilter) && !options.Contains(currencyFilter, StringComparer.OrdinalIgnoreCase))
+        {
+            options.Add(currencyFilter);
+            options = options.OrderBy(currency => currency, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        return options;
+    }
+
+    private IEnumerable<SalesOrderDto> GetFilteredOrders()
+    {
+        return orders?.Where(MatchesColumnFilters) ?? Enumerable.Empty<SalesOrderDto>();
+    }
+
+    private bool MatchesColumnFilters(SalesOrderDto order)
+    {
+        if (!string.IsNullOrWhiteSpace(orderNumberFilter) &&
+            !(order.OrderNumber?.Contains(orderNumberFilter.Trim(), StringComparison.OrdinalIgnoreCase) ?? false))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(customerFilter))
+        {
+            var customerTerm = customerFilter.Trim();
+            var matchesCustomer = (order.CardName?.Contains(customerTerm, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (order.CardCode?.Contains(customerTerm, StringComparison.OrdinalIgnoreCase) ?? false);
+
+            if (!matchesCustomer)
+            {
+                return false;
+            }
+        }
+
+        if (orderDateFilter.HasValue && order.OrderDate.Date != orderDateFilter.Value.Date)
+        {
+            return false;
+        }
+
+        if (deliveryDateFilter.HasValue
+            && (!order.DeliveryDate.HasValue || order.DeliveryDate.Value.Date != deliveryDateFilter.Value.Date))
+        {
+            return false;
+        }
+
+        var selectedStatus = GetSelectedStatusFilter();
+        if (selectedStatus.HasValue && order.Status != selectedStatus.Value)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(currencyFilter) &&
+            !string.Equals(order.Currency, currencyFilter, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(totalFilter))
+        {
+            var totalTerm = totalFilter.Trim();
+            var formattedTotal = order.DocTotal.ToString("N2");
+            var compactTotal = order.DocTotal.ToString("0.##");
+
+            if (!formattedTotal.Contains(totalTerm, StringComparison.OrdinalIgnoreCase)
+                && !compactTotal.Contains(totalTerm, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(sapDocFilter))
+        {
+            var sapDocNumber = order.SAPDocNum?.ToString() ?? string.Empty;
+            if (!sapDocNumber.Contains(sapDocFilter.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private bool HasActiveFilters()
+    {
+        return !string.IsNullOrWhiteSpace(orderNumberFilter)
+            || !string.IsNullOrWhiteSpace(customerFilter)
+            || orderDateFilter.HasValue
+            || deliveryDateFilter.HasValue
+            || !string.IsNullOrWhiteSpace(statusFilter)
+            || !string.IsNullOrWhiteSpace(currencyFilter)
+            || !string.IsNullOrWhiteSpace(totalFilter)
+            || !string.IsNullOrWhiteSpace(sapDocFilter);
+    }
+
+    private int GetVisibleOrderCount()
+    {
+        return GetFilteredOrders().Count();
+    }
+
+    private string GetOrderCountSummary()
+    {
+        if (totalCount <= 0)
+        {
+            return "0 total";
+        }
+
+        if (!HasActiveFilters())
+        {
+            return $"{totalCount} total";
+        }
+
+        return $"{GetVisibleOrderCount()} of {totalCount}";
+    }
+
+    private int GetVisiblePageCount()
+    {
+        var visibleCount = GetVisibleOrderCount();
+        return Math.Max(1, (visibleCount + _pageSize - 1) / _pageSize);
+    }
+
     private void TrackAvailableStatusFilters(IEnumerable<SalesOrderDto>? loadedOrders)
     {
         if (loadedOrders == null)
@@ -1367,9 +1598,7 @@
 
         try
         {
-            var status = GetSelectedStatusFilter();
-
-            var response = await SalesOrderService.GetSalesOrdersAsync(currentPage, pageSize, status, customerFilter, fromDate, toDate, SalesOrderSource.Mobile, orderSearchFilter);
+            var response = await SalesOrderService.GetSalesOrdersAsync(currentPage, pageSize, source: SalesOrderSource.Mobile);
             if (loadVersion != ordersLoadVersion)
                 return;
 
@@ -1388,7 +1617,7 @@
             }
             else
             {
-                errorMessage = "Failed to load mobile draft orders.";
+                errorMessage = "Failed to load mobile orders.";
             }
         }
         catch (Exception ex)
@@ -1407,17 +1636,17 @@
         }
     }
 
-    private async Task ApplyFilter() => await LoadOrders();
-
-    private async Task ClearFilter()
+    private void ClearFilter()
     {
+        orderNumberFilter = null;
         customerFilter = null;
-        orderSearchFilter = null;
+        orderDateFilter = null;
+        deliveryDateFilter = null;
         statusFilter = null;
-        fromDate = null;
-        toDate = null;
-        currentPage = 1;
-        await LoadOrders();
+        currencyFilter = null;
+        totalFilter = null;
+        sapDocFilter = null;
+        _table?.NavigateTo(0);
     }
 
     private async Task ViewOrder(SalesOrderDto order)
@@ -1650,7 +1879,16 @@
     {
         try
         {
-            var bpPrices = await PriceService.GetPricesByBusinessPartnerAsync(order.CardCode);
+            var itemCodes = order.Lines?
+                .Select(line => line.ItemCode)
+                .Where(itemCode => !string.IsNullOrWhiteSpace(itemCode))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? [];
+
+            if (itemCodes.Count == 0)
+                return;
+
+            var bpPrices = await PriceService.GetPricesByBusinessPartnerAsync(order.CardCode, itemCodes);
             if (bpPrices?.Prices == null || bpPrices.Prices.Count == 0)
                 return;
 
@@ -1998,7 +2236,7 @@
         => !order.IsSynced && order.Status == SalesOrderStatus.Cancelled;
 
     private static bool CanDeleteOrder(SalesOrderDto order)
-        => !order.IsSynced && (order.Status == SalesOrderStatus.Draft || order.Status == SalesOrderStatus.Cancelled);
+        => !order.IsSynced && (order.Status == SalesOrderStatus.Draft || order.Status == SalesOrderStatus.Pending || order.Status == SalesOrderStatus.Cancelled);
 
     private static string GetStatusChangeVerb(SalesOrderStatus status)
         => status == SalesOrderStatus.Draft ? "restore" : "cancel";

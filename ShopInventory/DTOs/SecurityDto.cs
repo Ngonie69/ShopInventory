@@ -482,6 +482,8 @@ public class UserActivityItem
     public string? PageUrl { get; set; }
     public bool IsSuccess { get; set; }
     public string? ErrorMessage { get; set; }
+    public string? AppVersion { get; set; }
+    public string? DeviceModel { get; set; }
     public DateTime Timestamp { get; set; }
 }
 

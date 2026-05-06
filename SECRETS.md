@@ -46,6 +46,10 @@ dotnet user-secrets set "Jwt:SecretKey" "YOUR_JWT_SECRET_KEY_MIN_32_CHARS_LONG!"
 dotnet user-secrets set "Security:ApiKeys:0:Key" "YOUR_MAIN_API_KEY"
 dotnet user-secrets set "Security:ApiKeys:1:Key" "YOUR_TEST_API_KEY"
 
+# Email (SMTP for system health alerts and notifications)
+# Production: set Email__Password env var in the IIS web.config on 10.10.10.9
+dotnet user-secrets set "Email:Password" "YOUR_SMTP_PASSWORD"
+
 # Payment gateways (only if those providers are enabled locally)
 # dotnet user-secrets set "PaymentGateways:PayNow:IntegrationKey" "YOUR_PAYNOW_INTEGRATION_KEY"
 # dotnet user-secrets set "PaymentGateways:Innbucks:ApiSecret" "YOUR_INNBUCKS_API_SECRET"

@@ -250,6 +250,7 @@ try
     builder.Services.AddScoped<INotificationHubService, NotificationHubService>();
     builder.Services.AddScoped<ISyncStatusClientService, SyncStatusClientService>();
     builder.Services.AddScoped<IExceptionCenterService, ExceptionCenterService>();
+    builder.Services.AddScoped<ISystemHealthService, SystemHealthService>();
 
     // Add Sales Order, Purchase Order, Credit Note, and Quotation services
     builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();

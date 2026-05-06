@@ -1064,7 +1064,7 @@
                                 <MudTd DataLabel="Currency">
                                     <span
                                         style="font-size:.82rem;padding:.15rem .45rem;border-radius:4px;background:#f3f4f6;color:#374151;font-weight:600;">@(context.Currency
-                                                                                                                                                                                                                                                                                                                    ?? "USD")</span>
+                                                                                                                                                                                                                                                                                                                                                            ?? "USD")</span>
                                     </MudTd>
                                     <MudTd DataLabel="Balance" Style="text-align:right">
                                         <span class="@(context.Balance > 0 ? "balance-positive" : "balance-zero")">
@@ -1100,6 +1100,7 @@
                                                 <option value="25">25</option>
                                                 <option value="50">50</option>
                                                 <option value="100">100</option>
+                                                <option value="200">200</option>
                                             </select>
                                             <span>per page</span>
                                         </div>

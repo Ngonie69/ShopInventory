@@ -230,7 +230,7 @@ Write-Host ""
 # Validate remoting access up front because deployment packages are transferred over WinRM.
 Write-Host "Validating deployment remoting access..." -ForegroundColor Yellow
 try {
-    $remoteComputerName = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -ScriptBlock {
+    $remoteComputerName = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
         $env:COMPUTERNAME
     } -ErrorAction Stop
 
@@ -255,7 +255,7 @@ if ($RestartOnly) {
     Write-Host ""
     
     try {
-        $restartResults = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -ScriptBlock {
+        $restartResults = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
             param($Definitions)
 
             Import-Module WebAdministration
@@ -337,7 +337,7 @@ if ($FirstTimeSetup) {
     Write-Host ""
     
     try {
-        Invoke-Command -ComputerName $ProductionServer -Credential $Credential -ScriptBlock {
+        Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
             param($ApiPool, $WebPool, $ApiSite, $WebSite, $ApiPath, $WebPath, $ApiPort, $WebPort)
             
             Import-Module WebAdministration
@@ -508,7 +508,7 @@ Write-Host "Step 2: Preparing blue/green deployment slots..." -ForegroundColor C
 Write-Host "----------------------------------------" -ForegroundColor Gray
 
 try {
-    $deploymentPlans = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -ScriptBlock {
+    $deploymentPlans = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
         param($Definitions)
 
         Import-Module WebAdministration
@@ -706,7 +706,7 @@ if (-not $SkipBackup) {
     Write-Host "----------------------------------------" -ForegroundColor Gray
 
     try {
-        Invoke-Command -ComputerName $ProductionServer -Credential $Credential -ScriptBlock {
+        Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
             param($Plans, $IncludeRuntimeDataInBackup)
 
             function Invoke-AppBackup {
@@ -819,7 +819,7 @@ try {
         Write-Host "  Uploading to production server..." -ForegroundColor Gray
         $transferSession = $null
         try {
-            $transferSession = New-PSSession -ComputerName $ProductionServer -Credential $Credential -ErrorAction Stop
+            $transferSession = New-PSSession -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ErrorAction Stop
             Copy-Item -Path $zipPath -Destination "C:\inetpub\$zipFileName" -ToSession $transferSession -Force -ErrorAction Stop
         }
         finally {
@@ -831,7 +831,7 @@ try {
         Write-Host "  Upload complete!" -ForegroundColor Green
 
         Write-Host "  Deploying to inactive slot and warming it up..." -ForegroundColor Gray
-        $cutoverResult = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -ScriptBlock {
+        $cutoverResult = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
             param($ZipFile, $Plan, $DatabaseConnectionOverrides)
 
             Import-Module WebAdministration
@@ -1243,7 +1243,7 @@ Write-Host "Step 5: Verifying public readiness endpoints..." -ForegroundColor Cy
 Write-Host "----------------------------------------" -ForegroundColor Gray
 
 try {
-    $verificationResults = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -ScriptBlock {
+    $verificationResults = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
         param($Plans)
 
         function Test-EndpointStability {

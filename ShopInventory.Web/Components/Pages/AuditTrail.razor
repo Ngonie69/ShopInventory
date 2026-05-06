@@ -280,7 +280,7 @@
                         {
                             <span class="page-status">Page @currentPage</span>
                         }
-                        <button class="page-btn" disabled="@(totalCount.HasValue ? currentPage >= totalPages : !hasMorePages)"
+                        <button class="page-btn" disabled="@(totalCount.HasValue? currentPage >= totalPages : !hasMorePages)"
                                 @onclick="() => GoToPage(currentPage + 1)">
                             <i class="bi bi-chevron-right"></i>
                         </button>
@@ -375,6 +375,21 @@
                                     <span class="detail-label">IP Address</span>
                                     <span class="detail-value"
                                           style="font-family:'Space Grotesk',monospace;">@selectedLog.IpAddress</span>
+                                </div>
+                            }
+                            @if (!string.IsNullOrEmpty(selectedLog.AppVersion))
+                            {
+                                <div class="detail-item">
+                                    <span class="detail-label">App Version</span>
+                                    <span class="detail-value"
+                                          style="font-family:'Space Grotesk',monospace;">@selectedLog.AppVersion</span>
+                                </div>
+                            }
+                            @if (!string.IsNullOrEmpty(selectedLog.DeviceModel))
+                            {
+                                <div class="detail-item">
+                                    <span class="detail-label">Device Model</span>
+                                    <span class="detail-value">@selectedLog.DeviceModel</span>
                                 </div>
                             }
                             @if (!string.IsNullOrEmpty(selectedLog.PageUrl))
@@ -1842,7 +1857,8 @@
                     selectedAction);
             }
 
-            var pageResult = await AuditService.GetLogPageAsync(fromDate, toDate, selectedUser, selectedAction, currentPage, pageSize);
+            var pageResult = await AuditService.GetLogPageAsync(fromDate, toDate, selectedUser, selectedAction, currentPage,
+pageSize);
             if (_isDisposed || pageLoadVersion != _pageLoadVersion)
             {
                 return;
@@ -1883,7 +1899,8 @@
         try
         {
             var count = await AuditService.GetLogCountAsync(countFromDate, countToDate, countSelectedUser, countSelectedAction);
-            if (_isDisposed || countLoadVersion != _countLoadVersion || !string.Equals(_activeCountKey, countKey, StringComparison.Ordinal))
+            if (_isDisposed || countLoadVersion != _countLoadVersion || !string.Equals(_activeCountKey, countKey,
+StringComparison.Ordinal))
             {
                 return;
             }
@@ -1892,7 +1909,8 @@
         }
         catch
         {
-            if (_isDisposed || countLoadVersion != _countLoadVersion || !string.Equals(_activeCountKey, countKey, StringComparison.Ordinal))
+            if (_isDisposed || countLoadVersion != _countLoadVersion || !string.Equals(_activeCountKey, countKey,
+StringComparison.Ordinal))
             {
                 return;
             }
@@ -1901,7 +1919,8 @@
         }
         finally
         {
-            if (!_isDisposed && countLoadVersion == _countLoadVersion && string.Equals(_activeCountKey, countKey, StringComparison.Ordinal))
+            if (!_isDisposed && countLoadVersion == _countLoadVersion && string.Equals(_activeCountKey, countKey,
+StringComparison.Ordinal))
             {
                 isTotalCountLoading = false;
                 await TryRefreshAsync();
@@ -2037,7 +2056,7 @@
     private static string BuildCsv(IEnumerable<AuditLog> auditLogs)
     {
         var csv = new System.Text.StringBuilder();
-        csv.AppendLine("Timestamp CAT,Username,User Role,Action,Entity Type,Entity Id,Details,Page Url,Status,Error Message,IP Address,User Agent");
+        csv.AppendLine("Timestamp CAT,Username,User Role,Action,Entity Type,Entity Id,Details,Page Url,Status,Error Message,IP Address,App Version,Device Model,User Agent");
 
         foreach (var log in auditLogs)
         {
@@ -2053,6 +2072,8 @@
                 EscapeCsv(log.IsSuccess ? "Success" : "Failed"),
                 EscapeCsv(log.ErrorMessage),
                 EscapeCsv(log.IpAddress),
+                EscapeCsv(log.AppVersion),
+                EscapeCsv(log.DeviceModel),
                 EscapeCsv(log.UserAgent));
             csv.AppendLine();
         }

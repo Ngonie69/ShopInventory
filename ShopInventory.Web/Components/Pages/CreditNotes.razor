@@ -1199,7 +1199,7 @@
                                                            Size="Size.Small" />
                                         }
                                         @if (context.Status == CreditNoteStatus.Draft || context.Status ==
-                                                                                                                                                                                                                                                                            CreditNoteStatus.Cancelled)
+                                                                                                                                                                                                                                                                                                                    CreditNoteStatus.Cancelled)
                                         {
                                             <MudIconButton Icon="@Icons.Material.Filled.Delete"
                                                            OnClick="() => DeleteCreditNote(context.Id)" title="Delete" Class="action-btn delete"
@@ -1217,6 +1217,7 @@
                                             <option value="25">25</option>
                                             <option value="50">50</option>
                                             <option value="100">100</option>
+                                            <option value="200">200</option>
                                         </select>
                                         <span>per page</span>
                                     </div>
@@ -1508,7 +1509,7 @@
                                                                     @if (!string.IsNullOrEmpty(line.ItemDescription))
                                                                     {
                                                                         <span style="font-size:.82rem;color:#374151;">@TruncateText(line.ItemDescription,
-                                                                                                                                                                                                                                                                                                                                                                                                                                    25)</span>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                25)</span>
                                                                         }
                                                             else
                                                                         {

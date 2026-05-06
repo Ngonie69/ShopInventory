@@ -292,7 +292,7 @@
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.PhoneAndroid" />
                         </span>
-                        <span class="snav-text">Mobile Drafts</span>
+                        <span class="snav-text">Mobile Orders</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/timesheets" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
@@ -321,7 +321,7 @@
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.PhoneAndroid" />
                         </span>
-                        <span class="snav-text">Mobile Drafts</span>
+                        <span class="snav-text">Mobile Orders</span>
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
@@ -506,12 +506,16 @@
                         </span>
                         <span class="snav-text">Status History</span>
                     </NavLink>
-                    <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Security" />
-                        </span>
-                        <span class="snav-text">Security</span>
-                    </NavLink>
+                    <AuthorizeView Roles="Lab" Context="labSecurityCtx">
+                        <Authorized>
+                            <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
+                                <span class="snav-icon">
+                                    <MudIcon Icon="@Icons.Material.Filled.Security" />
+                                </span>
+                                <span class="snav-text">Security</span>
+                            </NavLink>
+                        </Authorized>
+                    </AuthorizeView>
                 </Authorized>
             </AuthorizeView>
 

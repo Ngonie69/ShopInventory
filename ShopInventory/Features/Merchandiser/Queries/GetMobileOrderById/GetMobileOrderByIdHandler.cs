@@ -4,13 +4,15 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.AppVersion;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.Merchandiser.Queries.GetMobileOrderById;
 
 public sealed class GetMobileOrderByIdHandler(
-    ApplicationDbContext context
+    ApplicationDbContext context,
+    MobileOrderStatusCompatibilityService statusCompatibilityService
 ) : IRequestHandler<GetMobileOrderByIdQuery, ErrorOr<SalesOrderDto>>
 {
     public async Task<ErrorOr<SalesOrderDto>> Handle(
@@ -55,7 +57,7 @@ public sealed class GetMobileOrderByIdHandler(
                 CreatedAt = o.CreatedAt,
                 UpdatedAt = o.UpdatedAt,
                 InvoiceId = o.InvoiceId,
-                IsSynced = o.IsSynced,
+                IsSynced = o.IsSynced && o.SAPDocNum.HasValue && o.SAPDocNum > 0,
                 SyncError = o.SyncError,
                 Source = o.Source,
                 ClientRequestId = o.ClientRequestId,
@@ -83,6 +85,10 @@ public sealed class GetMobileOrderByIdHandler(
             })
             .FirstOrDefaultAsync(cancellationToken);
 
-        return order is null ? Errors.SalesOrder.NotFound(request.Id) : order;
+        if (order is null)
+            return Errors.SalesOrder.NotFound(request.Id);
+
+        order.Status = statusCompatibilityService.GetVisibleMobileStatus(order.Status, order.IsSynced, order.SAPDocNum);
+        return order;
     }
 }

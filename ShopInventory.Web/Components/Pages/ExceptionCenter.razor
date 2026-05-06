@@ -16,6 +16,8 @@
         </div>
     </div>
 
+    <SystemHealthBanner ShowDetailsButton="false" />
+
     @if (!string.IsNullOrWhiteSpace(errorMessage))
     {
         <div class="exc-alert exc-alert-error">@errorMessage</div>
@@ -29,9 +31,9 @@
     <div class="exc-stats">
         <div class="exc-stat exc-stat-ink"><span>Open</span><strong>@(dashboard?.OpenCount ?? 0)</strong></div>
         <div class="exc-stat exc-stat-red"><span>Requires Review</span><strong>@(dashboard?.RequiresReviewCount ??
-                            0)</strong></div>
+                                        0)</strong></div>
             <div class="exc-stat exc-stat-amber"><span>Retry Scheduled</span><strong>@(dashboard?.RetryScheduledCount ??
-                                0)</strong></div>
+                                                0)</strong></div>
                 <div class="exc-stat exc-stat-sand"><span>SAP</span><strong>@(dashboard?.SapIssueCount ?? 0)</strong></div>
                 <div class="exc-stat exc-stat-slate"><span>REVMax</span><strong>@(dashboard?.RevmaxIssueCount ?? 0)</strong>
                 </div>
@@ -134,7 +136,7 @@
                                             <div class="exc-title">@item.Title</div>
                                             <div class="exc-ref">@item.Reference</div>
                                             @if (!string.IsNullOrWhiteSpace(item.SourceSystem) ||
-                                                                        !string.IsNullOrWhiteSpace(item.Provider))
+                                                                                                                    !string.IsNullOrWhiteSpace(item.Provider))
                                             {
                                                 <div class="exc-meta">@(item.SourceSystem ?? item.Provider)</div>
                                             }
@@ -142,7 +144,7 @@
                                             {
                                                 <div class="exc-meta exc-meta-owner">Assigned to @item.AssignedToUsername@if
                                                     (item.AssignedAtUtc.HasValue)
-                                                                                            {
+                                                                                                                                            {
                                                         <span> · @FormatDateTime(item.AssignedAtUtc)</span>
                                                     }
                                                 </div>

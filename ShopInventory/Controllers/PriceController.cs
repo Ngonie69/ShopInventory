@@ -115,6 +115,7 @@ public class PriceController(IMediator mediator) : ApiControllerBase
     public async Task<IActionResult> GetPricesByBusinessPartner(
         string cardCode,
         [FromQuery] bool? forceRefresh = null,
+        [FromQuery] string[]? itemCodes = null,
         CancellationToken cancellationToken = default)
     {
         if (forceRefresh == true)
@@ -125,7 +126,13 @@ public class PriceController(IMediator mediator) : ApiControllerBase
             });
         }
 
-        var result = await mediator.Send(new GetPricesByBusinessPartnerQuery(cardCode, false), cancellationToken);
+        var requestedItemCodes = itemCodes?
+            .SelectMany(value => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var result = await mediator.Send(new GetPricesByBusinessPartnerQuery(cardCode, false, requestedItemCodes), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 }

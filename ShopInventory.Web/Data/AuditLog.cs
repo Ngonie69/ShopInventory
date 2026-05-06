@@ -63,6 +63,16 @@ public class AuditLog
     public string? ErrorMessage { get; set; }
 
     /// <summary>
+    /// App version of the mobile client, if applicable
+    /// </summary>
+    public string? AppVersion { get; set; }
+
+    /// <summary>
+    /// Device model of the mobile client, if applicable
+    /// </summary>
+    public string? DeviceModel { get; set; }
+
+    /// <summary>
     /// The timestamp when the action occurred
     /// </summary>
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;

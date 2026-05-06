@@ -116,7 +116,7 @@ public class SalesOrderController(IMediator mediator) : ApiControllerBase
     }
 
     /// <summary>
-    /// Update a sales order (Draft only)
+    /// Update a sales order (Draft or Pending only)
     /// </summary>
     [HttpPut("{id}")]
     [RequirePermission(Permission.EditSalesOrders)]

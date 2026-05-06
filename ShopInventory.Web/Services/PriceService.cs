@@ -22,7 +22,7 @@ public interface IPriceService
     Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum);
     Task<ItemPricesByListResponse?> GetPricesByPriceListForceRefreshAsync(int priceListNum);
     Task<ItemPriceByListDto?> GetItemPriceFromListAsync(int priceListNum, string itemCode);
-    Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode);
+    Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode, IReadOnlyCollection<string>? itemCodes = null);
 }
 
 public class PriceService : IPriceService
@@ -266,13 +266,26 @@ public class PriceService : IPriceService
         }
     }
 
-    public async Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode)
+    public async Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode, IReadOnlyCollection<string>? itemCodes = null)
     {
         try
         {
             _logger.LogDebug("Fetching prices for business partner {CardCode}", cardCode);
 
-            var response = await _httpClient.GetAsync($"api/price/businesspartner/{Uri.EscapeDataString(cardCode)}");
+            var url = $"api/price/businesspartner/{Uri.EscapeDataString(cardCode)}";
+            var requestedItemCodes = itemCodes?
+                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .Select(code => code.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (requestedItemCodes?.Count > 0)
+            {
+                var query = string.Join("&", requestedItemCodes.Select(code => $"itemCodes={Uri.EscapeDataString(code)}"));
+                url = $"{url}?{query}";
+            }
+
+            var response = await _httpClient.GetAsync(url);
             _logger.LogDebug("GetPricesByBusinessPartnerAsync response: {StatusCode}", response.StatusCode);
 
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)

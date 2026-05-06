@@ -367,6 +367,7 @@ try
 
     // Register audit service
     builder.Services.AddScoped<IAuditService, AuditService>();
+    builder.Services.AddScoped<MobileOrderStatusCompatibilityService>();
 
     builder.Services.AddSingleton<IMobileVersionPolicyEvaluator, MobileVersionPolicyEvaluator>();
 
@@ -399,6 +400,9 @@ try
     // Register email service
     builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
     builder.Services.AddScoped<IEmailService, EmailService>();
+
+    // Register system health alert settings
+    builder.Services.Configure<SystemHealthAlertSettings>(builder.Configuration.GetSection("SystemHealthAlert"));
 
     // Register sync and queue services
     builder.Services.AddScoped<IOfflineQueueService, OfflineQueueService>();
@@ -474,6 +478,9 @@ try
 
     // Register background service for processing queued incoming payments
     builder.Services.AddHostedService<IncomingPaymentPostingBackgroundService>();
+
+    // Register system failure email alert background service
+    builder.Services.AddHostedService<SystemFailureAlertBackgroundService>();
 
     // Register FetchDailyStockHandler for direct resolution by background service
     builder.Services.AddScoped<ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock.FetchDailyStockHandler>();

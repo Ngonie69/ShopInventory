@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ShopInventory.Web.Data;
@@ -11,9 +12,11 @@ using ShopInventory.Web.Data;
 namespace ShopInventory.Web.Migrations
 {
     [DbContext(typeof(WebAppDbContext))]
-    partial class WebAppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260505215504_ExpandAppSettingValueToText")]
+    partial class ExpandAppSettingValueToText
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -111,15 +114,9 @@ namespace ShopInventory.Web.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<string>("AppVersion")
-                        .HasColumnType("text");
-
                     b.Property<string>("Details")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
-
-                    b.Property<string>("DeviceModel")
-                        .HasColumnType("text");
 
                     b.Property<string>("EntityId")
                         .HasMaxLength(100)

@@ -105,6 +105,8 @@ internal sealed class ApiAuditLogItem
     public string? PageUrl { get; set; }
     public bool IsSuccess { get; set; }
     public string? ErrorMessage { get; set; }
+    public string? AppVersion { get; set; }
+    public string? DeviceModel { get; set; }
     public DateTime Timestamp { get; set; }
 }
 
@@ -758,6 +760,8 @@ public class AuditService : IAuditService
         PageUrl = item.PageUrl,
         IsSuccess = item.IsSuccess,
         ErrorMessage = item.ErrorMessage,
+        AppVersion = item.AppVersion,
+        DeviceModel = item.DeviceModel,
         Timestamp = item.Timestamp
     };
 

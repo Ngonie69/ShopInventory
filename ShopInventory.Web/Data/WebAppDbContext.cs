@@ -369,7 +369,7 @@ public class WebAppDbContext : DbContext, IDataProtectionKeyContext
                 .IsRequired();
 
             entity.Property(e => e.Value)
-                .HasMaxLength(500)
+                .HasColumnType("text")
                 .IsRequired();
 
             entity.Property(e => e.DataType)

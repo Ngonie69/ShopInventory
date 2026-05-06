@@ -4749,6 +4749,38 @@ html.dark-theme {
     background: #1e3a5f !important;
     color: #93c5fd !important;
 }
+.dark-theme .md-table-wrap .mud-table-head .mud-table-cell {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+}
+.dark-theme .md-filter-label {
+    color: #cbd5e1 !important;
+}
+.dark-theme .md-filter-input,
+.dark-theme .md-filter-select {
+    background: #0f172a !important;
+    color: #e2e8f0 !important;
+    border-color: #475569 !important;
+}
+.dark-theme .md-filter-input::placeholder {
+    color: #64748b !important;
+}
+.dark-theme .md-filter-input:focus,
+.dark-theme .md-filter-select:focus {
+    border-color: #60a5fa !important;
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, .18) !important;
+}
+.dark-theme .md-filter-input::-webkit-calendar-picker-indicator {
+    filter: invert(1) brightness(1.2);
+}
+.dark-theme .md-clear-filters {
+    background: #1e293b !important;
+    color: #cbd5e1 !important;
+    border-color: #475569 !important;
+}
+.dark-theme .md-clear-filters:hover {
+    background: #334155 !important;
+}
 .dark-theme .doc-number {
     color: #60a5fa !important;
 }
@@ -7707,4 +7739,283 @@ html.dark-theme {
         max-width: 100% !important;
         padding: 0 !important;
     }
+}
+
+/* ── Driver Business Partners (dbp-) dark mode ── */
+.dark-theme .dbp-page {
+    background:
+        radial-gradient(ellipse at top left, rgba(34, 197, 94, 0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at bottom right, rgba(20, 184, 166, 0.04) 0%, transparent 50%),
+        #0f172a;
+}
+
+.dark-theme .dbp-header,
+.dark-theme .dbp-card,
+.dark-theme .dbp-state-card {
+    background: #1e293b;
+    border-color: #334155;
+    box-shadow: 0 1px 3px rgba(0,0,0,.25), 0 8px 32px rgba(0,0,0,.2);
+}
+
+.dark-theme .dbp-header-text h1 { color: #f1f5f9; }
+.dark-theme .dbp-header-text p { color: #94a3b8; }
+.dark-theme .dbp-helper-sub { color: #64748b !important; }
+.dark-theme .dbp-card-title h2 { color: #e2e8f0; }
+.dark-theme .dbp-card-title { color: #64748b; }
+.dark-theme .dbp-state-card { color: #94a3b8; }
+
+.dark-theme .dbp-progress-pill {
+    background: rgba(22, 163, 74, 0.15);
+    color: #4ade80;
+}
+
+.dark-theme .dbp-badge-green {
+    background: rgba(22, 163, 74, 0.18);
+    color: #4ade80;
+}
+
+.dark-theme .dbp-badge-neutral {
+    background: #0f172a;
+    color: #64748b;
+}
+
+.dark-theme .dbp-helper { color: #64748b; }
+
+.dark-theme .dbp-link-btn {
+    color: #f87171;
+}
+
+.dark-theme .dbp-link-btn:hover {
+    background: rgba(239, 68, 68, 0.12);
+}
+
+.dark-theme .dbp-input-icon { color: #475569; }
+
+.dark-theme .dbp-input {
+    background: #0f172a;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+.dark-theme .dbp-input:focus {
+    border-color: #16a34a;
+    background: #1a2332;
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+}
+
+.dark-theme .dbp-input::placeholder { color: #475569; }
+
+.dark-theme .dbp-input-clear { color: #475569; }
+.dark-theme .dbp-input-clear:hover { background: #0f172a; color: #94a3b8; }
+
+.dark-theme .dbp-bulk-count { color: #475569; }
+.dark-theme .dbp-bulk-btn--add { background: rgba(22,163,74,.12); color: #4ade80; border-color: rgba(22,163,74,.3); }
+.dark-theme .dbp-bulk-btn--add:hover { background: rgba(22,163,74,.2); }
+.dark-theme .dbp-bulk-btn--remove { background: rgba(239,68,68,.1); color: #f87171; border-color: rgba(239,68,68,.25); }
+.dark-theme .dbp-bulk-btn--remove:hover { background: rgba(239,68,68,.18); }
+
+.dark-theme .dbp-customer-item { background: #162032; border-color: #1e3050; }
+.dark-theme .dbp-customer-item:hover { background: #162e1e; border-color: rgba(22,163,74,.3); }
+.dark-theme .dbp-customer-item--checked { background: rgba(22,163,74,.1); border-color: rgba(22,163,74,.35); }
+.dark-theme .dbp-customer-item--checked:hover { background: rgba(22,163,74,.15); }
+
+.dark-theme .dbp-item-check { background: #0f172a; border-color: #334155; }
+.dark-theme .dbp-item-check--on { background: #16a34a; border-color: #16a34a; }
+
+.dark-theme .dbp-customer-text strong { color: #e2e8f0; }
+.dark-theme .dbp-customer-text span { color: #64748b; }
+
+.dark-theme .dbp-chip {
+    background: rgba(22, 163, 74, 0.12);
+    border-color: rgba(22, 163, 74, 0.3);
+    color: #4ade80;
+}
+.dark-theme .dbp-chip:hover { background: rgba(22,163,74,.2); border-color: rgba(22,163,74,.45); }
+.dark-theme .dbp-chip-name { color: #86efac; }
+.dark-theme .dbp-chip-remove { color: #4ade80; }
+.dark-theme .dbp-chip-remove:hover { background: rgba(239,68,68,.15); color: #f87171; }
+
+.dark-theme .dbp-empty { color: #475569; }
+.dark-theme .dbp-empty svg { color: #334155; }
+.dark-theme .dbp-empty small { color: #334155; }
+
+.dark-theme .dbp-refresh {
+    background: #1e293b;
+    color: #94a3b8;
+    border-color: #334155;
+}
+.dark-theme .dbp-refresh:hover:not(:disabled) {
+    background: #273548;
+    border-color: #475569;
+    color: #e2e8f0;
+}
+
+.dark-theme .dbp-customer-list::-webkit-scrollbar-thumb,
+.dark-theme .dbp-chips-scroll::-webkit-scrollbar-thumb {
+    background: #334155;
+}
+
+/* ===== System Health Banner (syshb-) ===== */
+.syshb-banner {
+    width: 100%;
+    padding: 0;
+    font-size: 0.875rem;
+    border-bottom: 1px solid transparent;
+}
+
+.syshb-critical {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #991b1b;
+}
+
+.syshb-degraded {
+    background: #fffbeb;
+    border-color: #fde68a;
+    color: #92400e;
+}
+
+.syshb-inner {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 1rem;
+    flex-wrap: wrap;
+}
+
+.syshb-icon-wrap {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+
+.syshb-icon {
+    width: 20px;
+    height: 20px;
+}
+
+.syshb-content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.syshb-title {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.syshb-checks {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.syshb-check-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.syshb-pill-critical {
+    background: #fee2e2;
+    color: #b91c1c;
+    border: 1px solid #fca5a5;
+}
+
+.syshb-pill-warn {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fcd34d;
+}
+
+.syshb-desc {
+    font-size: 0.8rem;
+    opacity: 0.8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 360px;
+}
+
+.syshb-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.syshb-btn-link {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-decoration: underline;
+    color: inherit;
+    padding: 2px 4px;
+}
+
+.syshb-btn-link:hover {
+    opacity: 0.75;
+}
+
+.syshb-dismiss {
+    background: none;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    border-radius: 4px;
+    color: inherit;
+    opacity: 0.6;
+}
+
+.syshb-dismiss:hover {
+    opacity: 1;
+    background: rgba(0, 0, 0, 0.08);
+}
+
+.syshb-timestamp {
+    font-size: 0.7rem;
+    opacity: 0.55;
+    text-align: right;
+    padding: 0 1rem 0.25rem;
+}
+
+/* Dark mode overrides */
+.dark-theme .syshb-critical {
+    background: rgba(127, 29, 29, 0.25);
+    border-color: rgba(239, 68, 68, 0.35);
+    color: #fca5a5;
+}
+
+.dark-theme .syshb-degraded {
+    background: rgba(120, 53, 15, 0.25);
+    border-color: rgba(251, 191, 36, 0.35);
+    color: #fcd34d;
+}
+
+.dark-theme .syshb-pill-critical {
+    background: rgba(127, 29, 29, 0.4);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #fca5a5;
+}
+
+.dark-theme .syshb-pill-warn {
+    background: rgba(120, 53, 15, 0.4);
+    border-color: rgba(251, 191, 36, 0.4);
+    color: #fcd34d;
+}
+
+.dark-theme .syshb-dismiss:hover {
+    background: rgba(255, 255, 255, 0.08);
 }

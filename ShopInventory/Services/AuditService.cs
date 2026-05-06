@@ -55,6 +55,8 @@ public class AuditService : IAuditService
                 PageUrl = endpoint ?? $"{httpContext?.Request.Method} {httpContext?.Request.Path}",
                 IsSuccess = isSuccess,
                 ErrorMessage = errorMessage,
+                AppVersion = httpContext?.Request.Headers["X-App-Version"].FirstOrDefault(),
+                DeviceModel = httpContext?.Request.Headers["X-Device-Model"].FirstOrDefault(),
                 Timestamp = DateTime.UtcNow
             };
 

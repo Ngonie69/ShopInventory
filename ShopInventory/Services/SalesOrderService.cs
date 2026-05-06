@@ -179,7 +179,14 @@ public class SalesOrderService : ISalesOrderService
             .AsQueryable();
 
         if (status.HasValue)
-            query = query.Where(o => o.Status == status.Value);
+        {
+            query = status.Value switch
+            {
+                SalesOrderStatus.Approved => query.Where(o => o.Status == SalesOrderStatus.Approved && o.SAPDocNum.HasValue),
+                SalesOrderStatus.Pending => query.Where(o => o.Status == SalesOrderStatus.Pending || (o.Status == SalesOrderStatus.Approved && !o.SAPDocNum.HasValue)),
+                _ => query.Where(o => o.Status == status.Value)
+            };
+        }
 
         if (!string.IsNullOrEmpty(cardCode))
             query = query.Where(o => o.CardCode == cardCode);
@@ -231,7 +238,7 @@ public class SalesOrderService : ISalesOrderService
                 CardCode = o.CardCode,
                 CardName = o.CardName,
                 CustomerRefNo = o.CustomerRefNo,
-                Status = o.Status,
+                Status = o.Status == SalesOrderStatus.Approved && !o.SAPDocNum.HasValue ? SalesOrderStatus.Pending : o.Status,
                 Comments = o.Comments,
                 SalesPersonCode = o.SalesPersonCode,
                 SalesPersonName = o.SalesPersonName,
@@ -291,7 +298,14 @@ public class SalesOrderService : ISalesOrderService
             .AsNoTracking()
             .AsQueryable();
         if (status.HasValue)
-            query = query.Where(o => o.Status == status.Value);
+        {
+            query = status.Value switch
+            {
+                SalesOrderStatus.Approved => query.Where(o => o.Status == SalesOrderStatus.Approved && o.SAPDocNum.HasValue),
+                SalesOrderStatus.Pending => query.Where(o => o.Status == SalesOrderStatus.Pending || (o.Status == SalesOrderStatus.Approved && !o.SAPDocNum.HasValue)),
+                _ => query.Where(o => o.Status == status.Value)
+            };
+        }
 
         if (!string.IsNullOrEmpty(cardCode))
             query = query.Where(o => o.CardCode == cardCode);
@@ -328,7 +342,7 @@ public class SalesOrderService : ISalesOrderService
                 CardCode = o.CardCode,
                 CardName = o.CardName,
                 CustomerRefNo = o.CustomerRefNo,
-                Status = o.Status,
+                Status = o.Status == SalesOrderStatus.Approved && !o.SAPDocNum.HasValue ? SalesOrderStatus.Pending : o.Status,
                 Comments = o.Comments,
                 SalesPersonCode = o.SalesPersonCode,
                 SalesPersonName = o.SalesPersonName,
@@ -426,6 +440,10 @@ public class SalesOrderService : ISalesOrderService
 
             try
             {
+                var initialStatus = request.Source == SalesOrderSource.Mobile
+                    ? SalesOrderStatus.Pending
+                    : SalesOrderStatus.Draft;
+
                 var order = new SalesOrderEntity
                 {
                     OrderNumber = orderNumber,
@@ -445,7 +463,7 @@ public class SalesOrderService : ISalesOrderService
                     BillToAddress = request.BillToAddress,
                     WarehouseCode = request.WarehouseCode,
                     CreatedByUserId = userId,
-                    Status = SalesOrderStatus.Draft,
+                    Status = initialStatus,
                     Source = request.Source,
                     ClientRequestId = string.IsNullOrWhiteSpace(request.ClientRequestId) ? null : request.ClientRequestId.Trim(),
                     MerchandiserNotes = request.MerchandiserNotes,
@@ -535,29 +553,26 @@ public class SalesOrderService : ISalesOrderService
                 {
                     try
                     {
-                        order.Status = SalesOrderStatus.Approved;
-                        await _context.SaveChangesAsync(cancellationToken);
-
-                        var sapOrder = await _sapClient.CreateSalesOrderAsync(order, cancellationToken);
-
-                        order.SAPDocEntry = sapOrder.DocEntry;
-                        order.SAPDocNum = sapOrder.DocNum;
-                        order.IsSynced = true;
-                        order.SyncError = null;
-                        order.UpdatedAt = DateTime.UtcNow;
-
-                        await _context.SaveChangesAsync(cancellationToken);
+                        order.ApprovedByUserId = userId;
+                        order.ApprovedDate = DateTime.UtcNow;
+                        await PostApprovedOrderToSapAsync(order, cancellationToken);
 
                         _logger.LogInformation("Auto-posted sales order {OrderNumber} to SAP as DocEntry={DocEntry}, DocNum={DocNum}",
-                            order.OrderNumber, sapOrder.DocEntry, sapOrder.DocNum);
+                            order.OrderNumber, order.SAPDocEntry, order.SAPDocNum);
                     }
                     catch (Exception ex)
                     {
+                        order.Status = SalesOrderStatus.Draft;
+                        order.ApprovedByUserId = null;
+                        order.ApprovedDate = null;
+                        order.SAPDocEntry = null;
+                        order.SAPDocNum = null;
+                        order.IsSynced = false;
                         order.SyncError = ex.Message.Length > 500 ? ex.Message[..500] : ex.Message;
                         order.UpdatedAt = DateTime.UtcNow;
                         await _context.SaveChangesAsync(cancellationToken);
 
-                        _logger.LogWarning(ex, "Auto-post to SAP failed for order {OrderNumber}. Order saved locally as Approved.", order.OrderNumber);
+                        _logger.LogWarning(ex, "Auto-post to SAP failed for order {OrderNumber}. Order remains Draft.", order.OrderNumber);
                     }
                 }
 
@@ -830,8 +845,8 @@ public class SalesOrderService : ISalesOrderService
         if (order == null)
             throw new InvalidOperationException($"Sales order with ID {id} not found");
 
-        if (order.Status != SalesOrderStatus.Draft)
-            throw new InvalidOperationException("Only41/8 draft orders can be edited");
+        if (order.Status != SalesOrderStatus.Draft && order.Status != SalesOrderStatus.Pending)
+            throw new InvalidOperationException("Only draft or pending orders can be edited");
 
         // Optimistic concurrency: set the original RowVersion so EF detects conflicts
         if (!string.IsNullOrEmpty(request.RowVersion))
@@ -912,6 +927,9 @@ public class SalesOrderService : ISalesOrderService
         if (order == null)
             throw new InvalidOperationException($"Sales order with ID {id} not found");
 
+        if (status == SalesOrderStatus.Approved && !HasSapDocNum(order))
+            throw new InvalidOperationException("Sales orders can only be marked approved after SAP returns a document number. Use the approve action to post the order to SAP.");
+
         var previousStatus = order.Status;
 
         if (!IsValidStatusTransition(previousStatus, status))
@@ -949,10 +967,11 @@ public class SalesOrderService : ISalesOrderService
             return false;
 
         if (order.Status != SalesOrderStatus.Draft
+            && order.Status != SalesOrderStatus.Pending
             && order.Status != SalesOrderStatus.Cancelled
             && order.Status != SalesOrderStatus.Rejected)
         {
-            throw new InvalidOperationException("Only draft, cancelled, or rejected orders can be deleted");
+            throw new InvalidOperationException("Only draft, pending, cancelled, or rejected orders can be deleted");
         }
 
         _context.SalesOrders.Remove(order);
@@ -970,6 +989,18 @@ public class SalesOrderService : ISalesOrderService
 
         if (order == null)
             throw new InvalidOperationException($"Sales order with ID {id} not found");
+
+        if (order.Status == SalesOrderStatus.Approved && !HasSapDocNum(order))
+        {
+            _logger.LogWarning(
+                "Repairing sales order {OrderId} ({OrderNumber}) from Approved to Pending because it has no SAP DocNum.",
+                order.Id,
+                order.OrderNumber);
+
+            order.Status = SalesOrderStatus.Pending;
+            order.ApprovedByUserId = null;
+            order.ApprovedDate = null;
+        }
 
         if (order.Status != SalesOrderStatus.Draft && order.Status != SalesOrderStatus.Pending)
             throw new InvalidOperationException("Only draft or pending orders can be approved");
@@ -1017,12 +1048,9 @@ public class SalesOrderService : ISalesOrderService
 
         order.Comments = updatedComments;
 
-        order.Status = SalesOrderStatus.Approved;
         order.ApprovedByUserId = userId;
         order.ApprovedDate = DateTime.UtcNow;
         order.UpdatedAt = DateTime.UtcNow;
-
-        await _context.SaveChangesAsync(cancellationToken);
 
         try
         {
@@ -1259,6 +1287,13 @@ public class SalesOrderService : ISalesOrderService
         }
         catch (Exception ex)
         {
+            if (order.Status == SalesOrderStatus.Approved && !HasSapDocNum(order))
+            {
+                order.Status = SalesOrderStatus.Pending;
+                order.ApprovedByUserId = null;
+                order.ApprovedDate = null;
+            }
+
             order.SyncError = TruncateSyncError(ex.Message);
             order.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync(cancellationToken);
@@ -1274,6 +1309,10 @@ public class SalesOrderService : ISalesOrderService
 
         var sapOrder = await _sapClient.CreateSalesOrderAsync(order, cancellationToken);
 
+        if (sapOrder.DocNum <= 0)
+            throw new InvalidOperationException("SAP created the sales order but did not return a document number.");
+
+        order.Status = SalesOrderStatus.Approved;
         order.SAPDocEntry = sapOrder.DocEntry;
         order.SAPDocNum = sapOrder.DocNum;
         order.IsSynced = true;
@@ -1292,21 +1331,77 @@ public class SalesOrderService : ISalesOrderService
     private static string TruncateSyncError(string message)
         => message.Length > 500 ? message[..500] : message;
 
+    private static bool HasSapDocNum(SalesOrderEntity order)
+        => order.SAPDocNum.GetValueOrDefault() > 0;
+
     private static string TruncateMobileQueueError(string message)
         => message.Length > 2000 ? message[..2000] : message;
+
+    private async Task<Dictionary<string, string>> ResolveSalesOrderLineUomLookupAsync(
+        IEnumerable<(string? ItemCode, string? UoMCode)> lines,
+        CancellationToken cancellationToken)
+    {
+        var normalizedLines = lines
+            .Select(line => (
+                ItemCode: string.IsNullOrWhiteSpace(line.ItemCode) ? null : line.ItemCode.Trim(),
+                UoMCode: string.IsNullOrWhiteSpace(line.UoMCode) ? null : line.UoMCode.Trim()))
+            .ToList();
+
+        var lineUomLookup = await UomQuantityValidation.ResolveUomLookupAsync(
+            _context,
+            normalizedLines,
+            cancellationToken);
+
+        var missingItemCodes = normalizedLines
+            .Where(line => !string.IsNullOrWhiteSpace(line.ItemCode)
+                && string.IsNullOrWhiteSpace(line.UoMCode)
+                && !lineUomLookup.ContainsKey(line.ItemCode!))
+            .Select(line => line.ItemCode!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var itemCode in missingItemCodes)
+        {
+            try
+            {
+                var item = await _sapClient.GetItemByCodeAsync(itemCode, cancellationToken);
+                var resolvedUomCode = NormalizeResolvedUomCode(item?.SalesUnit)
+                    ?? NormalizeResolvedUomCode(item?.InventoryUOM);
+
+                if (string.IsNullOrWhiteSpace(resolvedUomCode))
+                {
+                    _logger.LogWarning(
+                        "Could not resolve a UoM code for sales order item {ItemCode} from local cache or SAP item master",
+                        itemCode);
+                    continue;
+                }
+
+                lineUomLookup[itemCode] = resolvedUomCode;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to resolve sales order UoM from SAP for item {ItemCode}", itemCode);
+            }
+        }
+
+        return lineUomLookup;
+    }
+
+    private static string? NormalizeResolvedUomCode(string? uomCode)
+        => string.IsNullOrWhiteSpace(uomCode) ? null : uomCode.Trim();
 
     private async Task ValidateAndNormalizeSalesOrderRequestAsync(CreateSalesOrderRequest request, CancellationToken cancellationToken)
     {
         var validationErrors = RecursiveDataAnnotationsValidator.Validate(request);
-        var lineUomLookup = await UomQuantityValidation.ResolveUomLookupAsync(
-            _context,
+        var lineUomLookup = await ResolveSalesOrderLineUomLookupAsync(
             request.Lines.Select(line => (ItemCode: (string?)line.ItemCode, line.UoMCode)),
             cancellationToken);
 
         foreach (var (line, index) in request.Lines.Select((line, index) => (line, index)))
         {
             var resolvedUomCode = UomQuantityValidation.ResolveLineUomCode(line.UoMCode, line.ItemCode, lineUomLookup);
-            if (string.IsNullOrWhiteSpace(line.UoMCode) && !string.IsNullOrWhiteSpace(resolvedUomCode))
+            if (!string.IsNullOrWhiteSpace(resolvedUomCode)
+                && !string.Equals(line.UoMCode, resolvedUomCode, StringComparison.Ordinal))
             {
                 line.UoMCode = resolvedUomCode;
             }
@@ -1358,15 +1453,15 @@ public class SalesOrderService : ISalesOrderService
         }
         else
         {
-            var lineUomLookup = await UomQuantityValidation.ResolveUomLookupAsync(
-                _context,
+            var lineUomLookup = await ResolveSalesOrderLineUomLookupAsync(
                 order.Lines.Select(line => (ItemCode: (string?)line.ItemCode, line.UoMCode)),
                 cancellationToken);
 
             foreach (var (line, index) in order.Lines.Select((line, index) => (line, index)))
             {
                 var resolvedUomCode = UomQuantityValidation.ResolveLineUomCode(line.UoMCode, line.ItemCode, lineUomLookup);
-                if (string.IsNullOrWhiteSpace(line.UoMCode) && !string.IsNullOrWhiteSpace(resolvedUomCode))
+                if (!string.IsNullOrWhiteSpace(resolvedUomCode)
+                    && !string.Equals(line.UoMCode, resolvedUomCode, StringComparison.Ordinal))
                 {
                     line.UoMCode = resolvedUomCode;
                 }
@@ -1633,6 +1728,10 @@ public class SalesOrderService : ISalesOrderService
 
     private static SalesOrderDto MapToDto(SalesOrderEntity entity)
     {
+        var status = entity.Status == SalesOrderStatus.Approved && !HasSapDocNum(entity)
+            ? SalesOrderStatus.Pending
+            : entity.Status;
+
         return new SalesOrderDto
         {
             Id = entity.Id,
@@ -1644,7 +1743,7 @@ public class SalesOrderService : ISalesOrderService
             CardCode = entity.CardCode,
             CardName = entity.CardName,
             CustomerRefNo = entity.CustomerRefNo,
-            Status = entity.Status,
+            Status = status,
             Comments = entity.Comments,
             SalesPersonCode = entity.SalesPersonCode,
             SalesPersonName = entity.SalesPersonName,

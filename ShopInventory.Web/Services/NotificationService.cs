@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using ShopInventory.Web.Data;
 using ShopInventory.Web.Models;
 using System.Net.Http.Json;
 
@@ -115,11 +117,22 @@ public interface ISyncStatusClientService
 public class SyncStatusClientService : ISyncStatusClientService
 {
     private readonly HttpClient _httpClient;
+    private readonly IDbContextFactory<WebAppDbContext> _dbContextFactory;
     private readonly ILogger<SyncStatusClientService> _logger;
 
-    public SyncStatusClientService(HttpClient httpClient, ILogger<SyncStatusClientService> logger)
+    private const string ProductsCacheKey = "Products_All";
+    private const string PricesCacheKey = "ItemPrices";
+    private const string BusinessPartnersCacheKey = "BusinessPartners";
+    private const string WarehousesCacheKey = "Warehouses";
+    private const string CostCentresCacheKey = "CostCentres";
+
+    public SyncStatusClientService(
+        HttpClient httpClient,
+        IDbContextFactory<WebAppDbContext> dbContextFactory,
+        ILogger<SyncStatusClientService> logger)
     {
         _httpClient = httpClient;
+        _dbContextFactory = dbContextFactory;
         _logger = logger;
     }
 
@@ -127,7 +140,14 @@ public class SyncStatusClientService : ISyncStatusClientService
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<SyncDashboardModel>("api/sync/status");
+            var dashboard = await _httpClient.GetFromJsonAsync<SyncDashboardModel>("api/sync/status");
+            if (dashboard == null)
+            {
+                return null;
+            }
+
+            dashboard.CacheStatuses = await GetCacheSyncStatusAsync();
+            return dashboard;
         }
         catch (Exception ex)
         {
@@ -185,7 +205,94 @@ public class SyncStatusClientService : ISyncStatusClientService
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<List<CacheSyncStatusModel>>("api/sync/cache-status") ?? new();
+            await using var db = await _dbContextFactory.CreateDbContextAsync();
+
+            var syncInfoByKey = await db.CacheSyncInfo
+                .AsNoTracking()
+                .Where(info => info.CacheKey == ProductsCacheKey
+                    || info.CacheKey == PricesCacheKey
+                    || info.CacheKey == BusinessPartnersCacheKey
+                    || info.CacheKey == WarehousesCacheKey
+                    || info.CacheKey == CostCentresCacheKey)
+                .ToDictionaryAsync(info => info.CacheKey);
+
+            var productsCount = await db.CachedProducts
+                .AsNoTracking()
+                .CountAsync(product => product.IsActive);
+            var productsLastSyncedAt = await db.CachedProducts
+                .AsNoTracking()
+                .Where(product => product.IsActive)
+                .OrderByDescending(product => product.LastSyncedAt)
+                .Select(product => (DateTime?)product.LastSyncedAt)
+                .FirstOrDefaultAsync();
+
+            var pricesCount = await db.CachedPrices
+                .AsNoTracking()
+                .CountAsync();
+            var pricesLastSyncedAt = await db.CachedPrices
+                .AsNoTracking()
+                .OrderByDescending(price => price.LastSyncedAt)
+                .Select(price => (DateTime?)price.LastSyncedAt)
+                .FirstOrDefaultAsync();
+
+            var businessPartnersCount = await db.CachedBusinessPartners
+                .AsNoTracking()
+                .CountAsync(partner => partner.IsActive);
+            var businessPartnersLastSyncedAt = await db.CachedBusinessPartners
+                .AsNoTracking()
+                .Where(partner => partner.IsActive)
+                .OrderByDescending(partner => partner.LastSyncedAt)
+                .Select(partner => (DateTime?)partner.LastSyncedAt)
+                .FirstOrDefaultAsync();
+
+            var warehousesCount = await db.CachedWarehouses
+                .AsNoTracking()
+                .CountAsync(warehouse => warehouse.IsActive);
+            var warehousesLastSyncedAt = await db.CachedWarehouses
+                .AsNoTracking()
+                .Where(warehouse => warehouse.IsActive)
+                .OrderByDescending(warehouse => warehouse.LastSyncedAt)
+                .Select(warehouse => (DateTime?)warehouse.LastSyncedAt)
+                .FirstOrDefaultAsync();
+
+            var costCentresCount = await db.CachedCostCentres
+                .AsNoTracking()
+                .CountAsync(costCentre => costCentre.IsActive);
+            var costCentresLastSyncedAt = await db.CachedCostCentres
+                .AsNoTracking()
+                .Where(costCentre => costCentre.IsActive)
+                .OrderByDescending(costCentre => costCentre.LastSyncedAt)
+                .Select(costCentre => (DateTime?)costCentre.LastSyncedAt)
+                .FirstOrDefaultAsync();
+
+            return new List<CacheSyncStatusModel>
+            {
+                BuildLocalCacheStatus(
+                    "Products",
+                    productsCount,
+                    productsLastSyncedAt,
+                    syncInfoByKey.GetValueOrDefault(ProductsCacheKey)),
+                BuildLocalCacheStatus(
+                    "Prices",
+                    pricesCount,
+                    pricesLastSyncedAt,
+                    syncInfoByKey.GetValueOrDefault(PricesCacheKey)),
+                BuildLocalCacheStatus(
+                    "Business Partners",
+                    businessPartnersCount,
+                    businessPartnersLastSyncedAt,
+                    syncInfoByKey.GetValueOrDefault(BusinessPartnersCacheKey)),
+                BuildLocalCacheStatus(
+                    "Warehouses",
+                    warehousesCount,
+                    warehousesLastSyncedAt,
+                    syncInfoByKey.GetValueOrDefault(WarehousesCacheKey)),
+                BuildLocalCacheStatus(
+                    "Cost Centres",
+                    costCentresCount,
+                    costCentresLastSyncedAt,
+                    syncInfoByKey.GetValueOrDefault(CostCentresCacheKey))
+            };
         }
         catch (Exception ex)
         {
@@ -275,5 +382,38 @@ public class SyncStatusClientService : ISyncStatusClientService
     private class ProcessQueueResult
     {
         public int ProcessedCount { get; set; }
+    }
+
+    private static CacheSyncStatusModel BuildLocalCacheStatus(
+        string displayName,
+        int itemCount,
+        DateTime? lastSyncedAt,
+        CacheSyncInfo? syncInfo)
+    {
+        var syncFailed = syncInfo?.SyncSuccessful == false;
+        var cacheAge = lastSyncedAt.HasValue ? DateTime.UtcNow - lastSyncedAt.Value : (TimeSpan?)null;
+        var isStale = cacheAge.HasValue && cacheAge.Value.TotalHours > 2;
+        var staleMinutes = isStale && cacheAge.HasValue ? (int)cacheAge.Value.TotalMinutes : 0;
+
+        var status = syncFailed
+            ? "Error"
+            : !lastSyncedAt.HasValue
+                ? "Unknown"
+                : isStale
+                    ? "Stale"
+                    : "Synced";
+
+        return new CacheSyncStatusModel
+        {
+            CacheKey = displayName.Replace(" ", string.Empty),
+            DisplayName = displayName,
+            LastSyncedAt = lastSyncedAt,
+            ItemCount = itemCount,
+            IsStale = isStale,
+            StaleMinutes = staleMinutes,
+            LastError = syncFailed ? syncInfo?.LastError : null,
+            LastErrorAt = syncFailed ? syncInfo?.LastSyncedAt : null,
+            Status = status
+        };
     }
 }

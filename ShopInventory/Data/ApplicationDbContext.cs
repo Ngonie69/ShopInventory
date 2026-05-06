@@ -15,6 +15,40 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   {
   }
 
+  public override int SaveChanges()
+      => SaveChanges(acceptAllChangesOnSuccess: true);
+
+  public override int SaveChanges(bool acceptAllChangesOnSuccess)
+  {
+    EnsureApprovedSalesOrdersHaveSapDocNum();
+    return base.SaveChanges(acceptAllChangesOnSuccess);
+  }
+
+  public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+      => SaveChangesAsync(acceptAllChangesOnSuccess: true, cancellationToken);
+
+  public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+  {
+    EnsureApprovedSalesOrdersHaveSapDocNum();
+    return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+  }
+
+  private void EnsureApprovedSalesOrdersHaveSapDocNum()
+  {
+    var invalidOrder = ChangeTracker.Entries<SalesOrderEntity>()
+        .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
+        .Select(entry => entry.Entity)
+        .FirstOrDefault(order =>
+            order.Status == SalesOrderStatus.Approved
+            && order.SAPDocNum.GetValueOrDefault() <= 0);
+
+    if (invalidOrder != null)
+    {
+      throw new InvalidOperationException(
+          $"Sales order {invalidOrder.OrderNumber} cannot be saved as Approved until SAP returns a document number.");
+    }
+  }
+
   // Authentication tables
   public DbSet<User> Users { get; set; }
   public DbSet<RefreshToken> RefreshTokens { get; set; }

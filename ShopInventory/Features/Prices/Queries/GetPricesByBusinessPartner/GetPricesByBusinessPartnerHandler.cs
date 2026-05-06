@@ -20,10 +20,20 @@ public sealed class GetPricesByBusinessPartnerHandler(
 
         var priceListNum = bp.PriceListNum ?? 1; // Default to price list 1 if none assigned
 
-        var prices = await sapClient.GetPricesByPriceListAsync(priceListNum, cancellationToken);
+        var itemCodes = request.ItemCodes?
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? [];
+
+        var prices = itemCodes.Count > 0
+            ? await sapClient.GetItemPricesForCustomerAsync(request.CardCode, itemCodes, cancellationToken)
+            : await sapClient.GetPricesByPriceListAsync(priceListNum, cancellationToken);
 
         // Overlay BP-specific special prices (OSPP) on top of the price list prices
-        var specialPrices = await sapClient.GetSpecialPricesForBPAsync(request.CardCode, cancellationToken);
+        var specialPrices = itemCodes.Count > 0
+            ? await sapClient.GetSpecialPricesForBPAsync(request.CardCode, itemCodes, cancellationToken)
+            : await sapClient.GetSpecialPricesForBPAsync(request.CardCode, cancellationToken);
         if (specialPrices.Count > 0)
         {
             logger.LogInformation("Applying {Count} special prices for BP {CardCode} over price list {PriceListNum}",

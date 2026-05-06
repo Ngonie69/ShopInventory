@@ -234,6 +234,7 @@ public interface ISAPServiceLayerClient
     Task<List<SAPSalesOrder>> GetPagedSalesOrdersAsync(int page, int pageSize, CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetPagedSalesOrdersByOffsetAsync(int skip, int pageSize, CancellationToken cancellationToken = default);
     Task<SAPSalesOrder?> GetSalesOrderByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
+    Task<SAPSalesOrder?> GetSalesOrderByOrderNumberAsync(string orderNumber, CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetSalesOrdersByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetSalesOrdersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetSalesOrderHeadersAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, int skip = 0, int pageSize = 20, string? documentStatus = null, string? cancelled = null, string? search = null, CancellationToken cancellationToken = default);

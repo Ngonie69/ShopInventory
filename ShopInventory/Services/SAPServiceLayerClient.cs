@@ -9144,6 +9144,55 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
             ? order.Currency
             : (string?)null;
 
+        var lineSapUomLookup = await ResolveSalesOrderLineSapUomsAsync(
+            order.Lines.Select(line => (ItemCode: (string?)line.ItemCode, RequestedUomCode: line.UoMCode)),
+            cancellationToken);
+
+        var documentLines = new List<object>();
+        foreach (var (line, index) in order.Lines.OrderBy(l => l.LineNum).Select((line, index) => (line, index)))
+        {
+            var normalizedItemCode = NormalizeSapUomIdentifier(line.ItemCode);
+            var normalizedRequestedUomCode = NormalizeSapUomIdentifier(line.UoMCode);
+            (string? resolvedUomCode, int? resolvedUomEntry) = (normalizedRequestedUomCode, null);
+
+            if (!string.IsNullOrWhiteSpace(normalizedItemCode)
+                && lineSapUomLookup.TryGetValue(normalizedItemCode, out var resolvedSapUom))
+            {
+                (resolvedUomCode, resolvedUomEntry) = resolvedSapUom;
+            }
+
+            if (!resolvedUomEntry.HasValue)
+            {
+                throw new Exception(
+                    $"Sales order {order.OrderNumber} line {index + 1} (item {line.ItemCode ?? "unknown"}) has no SAP UoMEntry. Requested UoM: '{line.UoMCode ?? "<blank>"}', resolved UoMCode: '{resolvedUomCode ?? "<blank>"}'.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(resolvedUomCode)
+                && !string.Equals(line.UoMCode, resolvedUomCode, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation(
+                    "Normalizing sales order line UoM for item {ItemCode} from '{CurrentUoMCode}' to canonical SAP UoM '{ResolvedUoMCode}' (Entry {ResolvedUoMEntry}) before posting order {OrderNumber}",
+                    line.ItemCode,
+                    line.UoMCode,
+                    resolvedUomCode,
+                    resolvedUomEntry,
+                    order.OrderNumber);
+
+                line.UoMCode = resolvedUomCode;
+            }
+
+            documentLines.Add(new
+            {
+                LineNum = index,
+                ItemCode = line.ItemCode,
+                Quantity = line.Quantity,
+                UnitPrice = line.UnitPrice,
+                WarehouseCode = line.WarehouseCode,
+                DiscountPercent = line.DiscountPercent,
+                UoMEntry = resolvedUomEntry
+            });
+        }
+
         var payload = new
         {
             CardCode = order.CardCode,
@@ -9157,16 +9206,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
             Address = order.ShipToAddress,
             Address2 = order.BillToAddress,
             U_OrderNumber = order.OrderNumber,
-            DocumentLines = order.Lines.OrderBy(l => l.LineNum).Select((line, index) => new
-            {
-                LineNum = index,
-                ItemCode = line.ItemCode,
-                Quantity = line.Quantity,
-                UnitPrice = line.UnitPrice,
-                WarehouseCode = line.WarehouseCode,
-                DiscountPercent = line.DiscountPercent,
-                UoMCode = line.UoMCode
-            }).ToList()
+            DocumentLines = documentLines
         };
 
         var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
@@ -9211,7 +9251,364 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         return sapOrder ?? throw new Exception("Failed to deserialize created sales order from SAP");
     }
 
-    private async Task<SAPSalesOrder?> GetSalesOrderByOrderNumberAsync(
+    private async Task<Dictionary<string, (string? UoMCode, int? UoMEntry)>> ResolveSalesOrderLineSapUomsAsync(
+        IEnumerable<(string? ItemCode, string? RequestedUomCode)> lines,
+        CancellationToken cancellationToken)
+    {
+        var normalizedLines = lines
+            .Select(line => (
+                ItemCode: NormalizeSapUomIdentifier(line.ItemCode),
+                RequestedUomCode: NormalizeSapUomIdentifier(line.RequestedUomCode)))
+            .Where(line => !string.IsNullOrWhiteSpace(line.ItemCode))
+            .ToList();
+
+        var itemCodes = normalizedLines
+            .Select(line => line.ItemCode!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var resolvedUoms = new Dictionary<string, (string? UoMCode, int? UoMEntry)>(StringComparer.OrdinalIgnoreCase);
+        if (itemCodes.Count == 0)
+        {
+            return resolvedUoms;
+        }
+
+        var itemUnitsByCode = await GetSalesOrderLineItemUnitsAsync(itemCodes, cancellationToken);
+        var invoiceCandidatesByItemCode = await TryGetSalesOrderLineSapUomHistoryCandidatesAsync(
+            itemCodes,
+            "OINV",
+            "INV1",
+            "invoice",
+            cancellationToken);
+
+        var unresolvedItemCodes = new List<string>();
+
+        foreach (var itemCode in itemCodes)
+        {
+            var requestedUomCode = normalizedLines
+                .First(line => string.Equals(line.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase))
+                .RequestedUomCode;
+            itemUnitsByCode.TryGetValue(itemCode, out var itemUnits);
+            invoiceCandidatesByItemCode.TryGetValue(itemCode, out var candidates);
+
+            var match = MatchSalesOrderLineSapUomCandidate(candidates ?? [], requestedUomCode, itemUnits.SalesUnit, itemUnits.InventoryUom);
+            if (match.UoMEntry.HasValue)
+            {
+                resolvedUoms[itemCode] = match;
+                continue;
+            }
+
+            unresolvedItemCodes.Add(itemCode);
+        }
+
+        if (unresolvedItemCodes.Count > 0)
+        {
+            var salesOrderCandidatesByItemCode = await TryGetSalesOrderLineSapUomHistoryCandidatesAsync(
+                unresolvedItemCodes,
+                "ORDR",
+                "RDR1",
+                "sales-order",
+                cancellationToken);
+
+            foreach (var itemCode in unresolvedItemCodes)
+            {
+                var requestedUomCode = normalizedLines
+                    .First(line => string.Equals(line.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase))
+                    .RequestedUomCode;
+                itemUnitsByCode.TryGetValue(itemCode, out var itemUnits);
+                salesOrderCandidatesByItemCode.TryGetValue(itemCode, out var candidates);
+
+                var match = MatchSalesOrderLineSapUomCandidate(candidates ?? [], requestedUomCode, itemUnits.SalesUnit, itemUnits.InventoryUom);
+                resolvedUoms[itemCode] = match.UoMEntry.HasValue
+                    ? match
+                    : ResolveSalesOrderSapUomFallback(itemUnits.SalesUnit, itemUnits.InventoryUom, requestedUomCode);
+            }
+        }
+
+        return resolvedUoms;
+    }
+
+    private async Task<Dictionary<string, (string? SalesUnit, string? InventoryUom)>> GetSalesOrderLineItemUnitsAsync(
+        List<string> itemCodes,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var items = await GetItemsByCodesAsync(itemCodes, cancellationToken);
+            return items
+                .Where(item => !string.IsNullOrWhiteSpace(item.ItemCode))
+                .GroupBy(item => item.ItemCode!, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (
+                        SalesUnit: NormalizeSapUomIdentifier(group.First().SalesUnit),
+                        InventoryUom: NormalizeSapUomIdentifier(group.First().InventoryUOM)),
+                    StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to batch resolve SAP item units for sales order lines");
+            return new Dictionary<string, (string? SalesUnit, string? InventoryUom)>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private async Task<Dictionary<string, List<(string? UoMCode, int? UoMEntry)>>> TryGetSalesOrderLineSapUomHistoryCandidatesAsync(
+        List<string> itemCodes,
+        string headerTable,
+        string lineTable,
+        string sourceName,
+        CancellationToken cancellationToken)
+    {
+        var candidatesByItemCode = new Dictionary<string, List<(string? UoMCode, int? UoMEntry)>>(StringComparer.OrdinalIgnoreCase);
+        if (itemCodes.Count == 0)
+        {
+            return candidatesByItemCode;
+        }
+
+        foreach (var batch in itemCodes.Chunk(40))
+        {
+            var queryCode = $"SO_UOM_{sourceName.Replace("-", string.Empty, StringComparison.OrdinalIgnoreCase).ToUpperInvariant()}_{Random.Shared.Next(100000, 999999)}";
+            var safeItemCodes = string.Join(", ", batch.Select(code => $"'{SanitizeSqlValue(code)}'"));
+            var sqlText = BuildSalesOrderLineUomHistorySql(headerTable, lineTable, safeItemCodes);
+
+            try
+            {
+                await TryDeleteQueryAsync(queryCode, cancellationToken);
+                await CreateSqlQueryAsync(queryCode, $"Resolve sales-order UoM from {sourceName} history", sqlText, cancellationToken);
+
+                var batchCandidates = await GetSalesOrderLineSapUomCandidatesAsync(queryCode, cancellationToken);
+                foreach (var (itemCode, candidates) in batchCandidates)
+                {
+                    if (!candidatesByItemCode.TryGetValue(itemCode, out var existingCandidates))
+                    {
+                        candidatesByItemCode[itemCode] = candidates;
+                        continue;
+                    }
+
+                    foreach (var candidate in candidates)
+                    {
+                        if (!existingCandidates.Contains(candidate))
+                        {
+                            existingCandidates.Add(candidate);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed to batch resolve canonical SAP UoMs from {SourceName} history for {ItemCount} sales order item(s)",
+                    sourceName,
+                    batch.Length);
+            }
+            finally
+            {
+                await TryDeleteQueryAsync(queryCode, cancellationToken);
+            }
+        }
+
+        return candidatesByItemCode;
+    }
+
+    private async Task<Dictionary<string, List<(string? UoMCode, int? UoMEntry)>>> GetSalesOrderLineSapUomCandidatesAsync(
+        string queryCode,
+        CancellationToken cancellationToken)
+    {
+        var currentSession = _sessionId;
+        var request = new HttpRequestMessage(HttpMethod.Get, $"SQLQueries('{queryCode}')/List");
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.Add("Prefer", "odata.maxpagesize=1000");
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, $"SQLQueries('{queryCode}')/List");
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            request.Headers.Add("Prefer", "odata.maxpagesize=1000");
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new Exception($"Failed to resolve item UoM via SQL query: {response.StatusCode} - {errorContent}");
+        }
+
+        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+        using var document = JsonDocument.Parse(responseContent);
+        if (!document.RootElement.TryGetProperty("value", out var rows) || rows.ValueKind != JsonValueKind.Array)
+        {
+            return new Dictionary<string, List<(string? UoMCode, int? UoMEntry)>>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var candidatesByItemCode = new Dictionary<string, List<(string? UoMCode, int? UoMEntry)>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows.EnumerateArray())
+        {
+            var itemCode = NormalizeSapUomIdentifier(GetSqlString(row, "ItemCode"));
+            var candidate = (
+                UoMCode: NormalizeSapUomIdentifier(GetSqlString(row, "UoMCode")),
+                UoMEntry: GetSqlInt32(row, "UoMEntry"));
+
+            if (string.IsNullOrWhiteSpace(itemCode) || string.IsNullOrWhiteSpace(candidate.UoMCode))
+            {
+                continue;
+            }
+
+            if (!candidatesByItemCode.TryGetValue(itemCode, out var candidates))
+            {
+                candidates = [];
+                candidatesByItemCode[itemCode] = candidates;
+            }
+
+            if (!candidates.Contains(candidate))
+            {
+                candidates.Add(candidate);
+            }
+        }
+
+        return candidatesByItemCode;
+    }
+
+    private static (string? UoMCode, int? UoMEntry) MatchSalesOrderLineSapUomCandidate(
+        List<(string? UoMCode, int? UoMEntry)> candidates,
+        string? requestedUomCode,
+        string? salesUnit,
+        string? inventoryUom)
+    {
+        if (candidates.Count == 0)
+        {
+            return ResolveSalesOrderSapUomFallback(salesUnit, inventoryUom, requestedUomCode);
+        }
+
+        var exactRequestedMatch = candidates.FirstOrDefault(candidate =>
+            !string.IsNullOrWhiteSpace(candidate.UoMCode)
+            && string.Equals(candidate.UoMCode, requestedUomCode, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(exactRequestedMatch.UoMCode))
+        {
+            return EnsureSalesOrderSapUomEntry(exactRequestedMatch);
+        }
+
+        var itemMasterCodeMatch = candidates.FirstOrDefault(candidate =>
+            !string.IsNullOrWhiteSpace(candidate.UoMCode)
+            && (string.Equals(candidate.UoMCode, salesUnit, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(candidate.UoMCode, inventoryUom, StringComparison.OrdinalIgnoreCase)));
+        if (!string.IsNullOrWhiteSpace(itemMasterCodeMatch.UoMCode))
+        {
+            return EnsureSalesOrderSapUomEntry(itemMasterCodeMatch);
+        }
+
+        var requestedMatchesDisplayUnit =
+            string.IsNullOrWhiteSpace(requestedUomCode)
+            || string.Equals(requestedUomCode, salesUnit, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(requestedUomCode, inventoryUom, StringComparison.OrdinalIgnoreCase);
+        if (requestedMatchesDisplayUnit)
+        {
+            return EnsureSalesOrderSapUomEntry(candidates[0]);
+        }
+
+        return candidates.Count == 1
+            ? EnsureSalesOrderSapUomEntry(candidates[0])
+            : ResolveSalesOrderSapUomFallback(salesUnit, inventoryUom, requestedUomCode);
+    }
+
+    private static (string? UoMCode, int? UoMEntry) EnsureSalesOrderSapUomEntry((string? UoMCode, int? UoMEntry) sapUom)
+        => sapUom.UoMEntry.HasValue
+            ? sapUom
+            : ResolveSalesOrderSapUomFallback(sapUom.UoMCode);
+
+    private static (string? UoMCode, int? UoMEntry) ResolveSalesOrderSapUomFallback(params string?[] uomCodes)
+    {
+        foreach (var uomCode in uomCodes)
+        {
+            var resolvedUom = ResolveKnownSalesOrderSapUom(uomCode);
+            if (!string.IsNullOrWhiteSpace(resolvedUom.UoMCode) || resolvedUom.UoMEntry.HasValue)
+            {
+                return resolvedUom;
+            }
+        }
+
+        return (null, null);
+    }
+
+    private static (string? UoMCode, int? UoMEntry) ResolveKnownSalesOrderSapUom(string? uomCode)
+    {
+        var normalizedUomCode = NormalizeSapUomIdentifier(uomCode);
+        if (string.IsNullOrWhiteSpace(normalizedUomCode))
+        {
+            return (null, null);
+        }
+
+        if (string.Equals(normalizedUomCode, "EA", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalizedUomCode, "Each", StringComparison.OrdinalIgnoreCase))
+        {
+            return ("EA", 3);
+        }
+
+        if (string.Equals(normalizedUomCode, "Kg", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalizedUomCode, "Kilogram", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalizedUomCode, "Kilograms", StringComparison.OrdinalIgnoreCase))
+        {
+            return ("Kg", 1);
+        }
+
+        if (string.Equals(normalizedUomCode, "Ltr", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalizedUomCode, "Litre", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalizedUomCode, "Liter", StringComparison.OrdinalIgnoreCase))
+        {
+            return ("Ltr", 2);
+        }
+
+        return (normalizedUomCode, null);
+    }
+
+    private static string BuildSalesOrderLineUomHistorySql(string headerTable, string lineTable, string safeItemCodes)
+        => $@"SELECT
+    T1.""ItemCode"" AS ""ItemCode"",
+    T1.""UomCode"" AS ""UoMCode"",
+    T1.""UomEntry"" AS ""UoMEntry""
+FROM {headerTable} T0
+INNER JOIN {lineTable} T1 ON T0.""DocEntry"" = T1.""DocEntry""
+WHERE T1.""ItemCode"" IN ({safeItemCodes})
+  AND T0.""CANCELED"" = 'N'
+  AND T1.""UomCode"" IS NOT NULL
+  AND T1.""UomCode"" <> ''
+ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
+
+    private static string? NormalizeSapUomIdentifier(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string? GetSqlString(JsonElement row, string propertyName)
+        => row.TryGetProperty(propertyName, out var value) && value.ValueKind != JsonValueKind.Null
+            ? value.GetString()
+            : null;
+
+    private static int? GetSqlInt32(JsonElement row, string propertyName)
+    {
+        if (!row.TryGetProperty(propertyName, out var value) || value.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (value.TryGetInt32(out var intValue))
+        {
+            return intValue;
+        }
+
+        if (value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), out intValue))
+        {
+            return intValue;
+        }
+
+        return null;
+    }
+
+    public async Task<SAPSalesOrder?> GetSalesOrderByOrderNumberAsync(
         string orderNumber,
         CancellationToken cancellationToken = default)
     {
