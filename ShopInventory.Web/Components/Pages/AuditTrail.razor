@@ -212,6 +212,19 @@
                                             {
                                                 <span class="detail-text">@TruncateText(log.Details, 60)</span>
                                             }
+                                            @if (!string.IsNullOrWhiteSpace(log.AppVersion) || !string.IsNullOrWhiteSpace(log.DeviceModel))
+                                            {
+                                                <div class="client-meta">
+                                                    @if (!string.IsNullOrWhiteSpace(log.AppVersion))
+                                                    {
+                                                        <span class="entity-tag">@log.AppVersion</span>
+                                                    }
+                                                    @if (!string.IsNullOrWhiteSpace(log.DeviceModel))
+                                                    {
+                                                        <span class="detail-text">Device: @TruncateText(log.DeviceModel, 32)</span>
+                                                    }
+                                                </div>
+                                            }
                                             @if (!log.IsSuccess && !string.IsNullOrEmpty(log.ErrorMessage))
                                             {
                                                 <span class="error-text">@TruncateText(log.ErrorMessage, 50)</span>
@@ -1011,6 +1024,13 @@
                 flex-direction: column;
                 gap: 3px;
                 max-width: 350px;
+            }
+
+            .client-meta {
+                display: flex;
+                flex-wrap: wrap;
+                gap: .35rem;
+                align-items: center;
             }
 
             .entity-tag {
@@ -2051,7 +2071,9 @@ StringComparison.Ordinal))
         (log.UserRole?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
         (log.Action?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
         (log.EntityType?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
-        (log.Details?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true);
+        (log.Details?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
+        (log.AppVersion?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
+        (log.DeviceModel?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true);
 
     private static string BuildCsv(IEnumerable<AuditLog> auditLogs)
     {

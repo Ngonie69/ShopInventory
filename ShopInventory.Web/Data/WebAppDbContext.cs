@@ -112,6 +112,9 @@ public class WebAppDbContext : DbContext, IDataProtectionKeyContext
             entity.Property(e => e.CardName)
                 .HasMaxLength(200);
 
+            entity.Property(e => e.Channel)
+                .HasMaxLength(100);
+
             entity.Property(e => e.Balance)
                 .HasPrecision(18, 6);
 

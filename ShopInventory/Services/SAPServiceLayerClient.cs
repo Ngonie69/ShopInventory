@@ -946,6 +946,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var currentSession = _sessionId;
 
         var safeCardCode = SanitizeODataValue(cardCode);
+        const string selectClause = "&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,PaidToDate,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocStatus,DocumentStatus,Cancelled";
         var allInvoices = new List<Invoice>();
         int skip = 0;
         const int pageSize = 500;
@@ -953,10 +954,11 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         while (hasMore)
         {
-            var url = $"Invoices?$filter=CardCode eq '{safeCardCode}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+            var url = $"Invoices?$filter=CardCode eq '{safeCardCode}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}{selectClause}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", "odata.maxpagesize=500");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -967,6 +969,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", "odata.maxpagesize=500");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -1013,6 +1016,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var safeCardCode = SanitizeODataValue(cardCode);
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
+        const string selectClause = "&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,PaidToDate,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocStatus,DocumentStatus,Cancelled";
         var allInvoices = new List<Invoice>();
         int skip = 0;
         const int pageSize = 500;
@@ -1020,10 +1024,11 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         while (hasMore)
         {
-            var url = $"Invoices?$filter=CardCode eq '{safeCardCode}' and DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+            var url = $"Invoices?$filter=CardCode eq '{safeCardCode}' and DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}{selectClause}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", "odata.maxpagesize=500");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -1034,6 +1039,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", "odata.maxpagesize=500");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }

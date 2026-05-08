@@ -11,6 +11,12 @@ namespace ShopInventory.Web.Components.Pages;
 
 public partial class DriverBusinessPartners : ComponentBase
 {
+    private const string StatusFilterAll = "all";
+    private const string StatusFilterActive = "active";
+    private const string StatusFilterInactive = "inactive";
+    private const string ChannelFilterAll = "all";
+    private const string ChannelFilterNone = "__none__";
+
     [Inject]
     private IMediator Mediator { get; set; } = null!;
 
@@ -25,21 +31,38 @@ public partial class DriverBusinessPartners : ComponentBase
     private List<BusinessPartnerDto> customers = new();
     private Dictionary<string, string> customerLabels = new(StringComparer.OrdinalIgnoreCase);
     private string customerSearchTerm = string.Empty;
+    private string customerStatusFilter = StatusFilterAll;
+    private string customerChannelFilter = ChannelFilterAll;
     private string selectedSearchTerm = string.Empty;
     private bool isLoading = true;
     private bool isRefreshing;
     private bool isSaving;
 
     private List<BusinessPartnerDto> FilteredCustomers =>
-        (string.IsNullOrWhiteSpace(customerSearchTerm)
-                ? customers
-                : customers.Where(c =>
-                    (c.CardCode?.Contains(customerSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                    (c.CardName?.Contains(customerSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false))
-                .ToList())
+        customers
+            .Where(MatchesCustomerSearch)
+            .Where(MatchesStatusFilter)
+            .Where(MatchesChannelFilter)
             .OrderByDescending(c => selectedCustomerCodes.Contains(c.CardCode ?? string.Empty))
             .ThenBy(c => c.CardCode)
             .ToList();
+
+    private List<string> AvailableChannels =>
+        customers
+            .Select(customer => customer.Channel?.Trim())
+            .Where(channel => !string.IsNullOrWhiteSpace(channel))
+            .Select(channel => channel!)
+            .Distinct(_codeComparer)
+            .OrderBy(channel => channel, _codeComparer)
+            .ToList();
+
+    private bool HasCustomersWithoutChannel =>
+        customers.Any(customer => string.IsNullOrWhiteSpace(customer.Channel));
+
+    private bool HasCustomerFilters =>
+        !string.IsNullOrWhiteSpace(customerSearchTerm) ||
+        customerStatusFilter != StatusFilterAll ||
+        customerChannelFilter != ChannelFilterAll;
 
     private IEnumerable<string> FilteredSelectedCodes =>
         string.IsNullOrWhiteSpace(selectedSearchTerm)
@@ -77,6 +100,18 @@ public partial class DriverBusinessPartners : ComponentBase
             .Where(c => !string.IsNullOrWhiteSpace(c.CardCode))
             .GroupBy(c => c.CardCode!, _codeComparer)
             .ToDictionary(g => g.Key, g => GetBusinessPartnerDisplayName(g.First()), _codeComparer);
+
+        if (customerChannelFilter == ChannelFilterNone && !HasCustomersWithoutChannel)
+        {
+            customerChannelFilter = ChannelFilterAll;
+        }
+
+        if (customerChannelFilter != ChannelFilterAll &&
+            customerChannelFilter != ChannelFilterNone &&
+            !AvailableChannels.Contains(customerChannelFilter, _codeComparer))
+        {
+            customerChannelFilter = ChannelFilterAll;
+        }
 
         selectedCustomerCodes.Clear();
         foreach (var code in preservedSelection ?? result.Value.AssignedCustomerCodes)
@@ -169,9 +204,37 @@ public partial class DriverBusinessPartners : ComponentBase
     private string GetCustomerDisplayName(string cardCode)
         => customerLabels.TryGetValue(cardCode, out var label) ? label : cardCode;
 
+    private bool MatchesCustomerSearch(BusinessPartnerDto customer)
+        => string.IsNullOrWhiteSpace(customerSearchTerm) ||
+           (customer.CardCode?.Contains(customerSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
+           (customer.CardName?.Contains(customerSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false);
+
+    private bool MatchesStatusFilter(BusinessPartnerDto customer)
+        => customerStatusFilter switch
+        {
+            StatusFilterActive => customer.IsActive,
+            StatusFilterInactive => !customer.IsActive,
+            _ => true
+        };
+
+    private bool MatchesChannelFilter(BusinessPartnerDto customer)
+        => customerChannelFilter switch
+        {
+            ChannelFilterAll => true,
+            ChannelFilterNone => string.IsNullOrWhiteSpace(customer.Channel),
+            _ => string.Equals(customer.Channel?.Trim(), customerChannelFilter, StringComparison.OrdinalIgnoreCase)
+        };
+
     private static string GetBusinessPartnerDisplayName(BusinessPartnerDto bp)
     {
         var name = string.IsNullOrWhiteSpace(bp.CardName) ? bp.CardCode ?? string.Empty : bp.CardName;
-        return bp.IsActive ? name : $"{name} (Inactive)";
+        if (!bp.IsActive)
+        {
+            name = $"{name} (Inactive)";
+        }
+
+        return string.IsNullOrWhiteSpace(bp.Channel)
+            ? name
+            : $"{name} - {bp.Channel.Trim()}";
     }
 }

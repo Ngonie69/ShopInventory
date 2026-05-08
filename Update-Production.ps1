@@ -4,6 +4,8 @@
 
 param(
     [string]$ProductionServer = "10.10.10.9",
+    [string[]]$AdditionalProductionServers = @(),
+    [string[]]$AdditionalSerializedCredentialPaths = @(),
     [string]$ApiAppPoolName = "ShopInventoryAPI",
     [string]$WebAppPoolName = "ShopInventoryWeb",
     [string]$ApiSiteName = "ShopInventory-API",
@@ -18,6 +20,7 @@ param(
     [switch]$FirstTimeSetup,
     [string]$ApiDbConnectionString,
     [string]$WebDbConnectionString,
+    [switch]$SuppressExitPrompt,
     [PSCredential]$Credential,
     [string]$SerializedCredentialPath
 )
@@ -56,6 +59,58 @@ function Get-DeploymentCredential {
     )
 
     return Get-Credential -Message "Enter credentials with administrator access to \\$Server\C`$ and PowerShell remoting."
+}
+
+function Get-TargetProductionServers {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PrimaryServer,
+        [string[]]$AdditionalServers
+    )
+
+    $orderedServers = [System.Collections.Generic.List[string]]::new()
+    foreach ($server in @($PrimaryServer) + @($AdditionalServers)) {
+        if ([string]::IsNullOrWhiteSpace($server)) {
+            continue
+        }
+
+        $normalizedServer = $server.Trim()
+        if (-not $orderedServers.Contains($normalizedServer)) {
+            [void]$orderedServers.Add($normalizedServer)
+        }
+    }
+
+    return $orderedServers.ToArray()
+}
+
+function Get-AdditionalCredentialPathByServer {
+    param(
+        [string[]]$AdditionalServers,
+        [string[]]$CredentialPaths
+    )
+
+    $credentialPathByServer = @{}
+    for ($index = 0; $index -lt $AdditionalServers.Count; $index++) {
+        if ($index -ge $CredentialPaths.Count) {
+            break
+        }
+
+        $server = $AdditionalServers[$index]
+        $credentialPath = $CredentialPaths[$index]
+        if ([string]::IsNullOrWhiteSpace($server) -or [string]::IsNullOrWhiteSpace($credentialPath)) {
+            continue
+        }
+
+        $credentialPathByServer[$server.Trim()] = $credentialPath.Trim()
+    }
+
+    return $credentialPathByServer
+}
+
+function Wait-ForExitPrompt {
+    if (-not $SuppressExitPrompt) {
+        Read-Host "Press Enter to exit"
+    }
 }
 
 function Get-BlueGreenDeploymentDefinitions {
@@ -137,16 +192,138 @@ function Get-SelectedDeploymentDefinitions {
     }
 }
 
+$targetServers = Get-TargetProductionServers -PrimaryServer $ProductionServer -AdditionalServers $AdditionalProductionServers
+$additionalCredentialPathByServer = Get-AdditionalCredentialPathByServer -AdditionalServers $AdditionalProductionServers -CredentialPaths $AdditionalSerializedCredentialPaths
+
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "ShopInventory - Production Deployment" -ForegroundColor Cyan
+if ($targetServers.Count -gt 1) {
+    Write-Host "ShopInventory - Multi-Server Deployment" -ForegroundColor Cyan
+}
+else {
+    Write-Host "ShopInventory - Production Deployment" -ForegroundColor Cyan
+}
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Server: $ProductionServer" -ForegroundColor White
+if ($targetServers.Count -gt 1) {
+    Write-Host "Servers: $($targetServers -join ', ')" -ForegroundColor White
+}
+else {
+    Write-Host "Server: $ProductionServer" -ForegroundColor White
+}
 Write-Host "Target: $DeployTarget" -ForegroundColor White
 Write-Host ""
 
 if (-not $Credential -and $SerializedCredentialPath) {
     $Credential = Import-SerializedCredential -Path $SerializedCredentialPath
+}
+
+if ($targetServers.Count -gt 1) {
+    if ($FirstTimeSetup) {
+        Write-Host "ERROR: Multi-server deployment is not supported with -FirstTimeSetup. Run first-time setup once per server." -ForegroundColor Red
+        Wait-ForExitPrompt
+        exit 1
+    }
+
+    if ($AdditionalSerializedCredentialPaths.Count -gt $AdditionalProductionServers.Count) {
+        Write-Host "ERROR: AdditionalSerializedCredentialPaths cannot contain more entries than AdditionalProductionServers." -ForegroundColor Red
+        Wait-ForExitPrompt
+        exit 1
+    }
+
+    if (-not $Credential) {
+        $Credential = Get-DeploymentCredential -Server $targetServers[0]
+
+        if (-not $Credential) {
+            Write-Host "ERROR: Deployment credential was not provided." -ForegroundColor Red
+            Wait-ForExitPrompt
+            exit 1
+        }
+
+        Write-Host "Deployment credentials acquired securely." -ForegroundColor Green
+        Write-Host ""
+    }
+
+    foreach ($targetServer in $targetServers) {
+        Write-Host "Deploying to $targetServer..." -ForegroundColor Yellow
+
+        $serializedCredentialForTarget = $null
+        $childCredentialPath = $null
+        try {
+            if ($additionalCredentialPathByServer.ContainsKey($targetServer)) {
+                $childCredentialPath = $additionalCredentialPathByServer[$targetServer]
+                if (-not (Test-Path -LiteralPath $childCredentialPath)) {
+                    Write-Host "ERROR: Credential file not found for $targetServer at $childCredentialPath" -ForegroundColor Red
+                    Wait-ForExitPrompt
+                    exit 1
+                }
+            }
+            else {
+                $serializedCredentialForTarget = Export-SerializedCredential -Credential $Credential
+                $childCredentialPath = $serializedCredentialForTarget
+            }
+
+            $argumentList = @(
+                '-NoProfile'
+                '-ExecutionPolicy'
+                'Bypass'
+                '-File'
+                $PSCommandPath
+                '-ProductionServer'
+                $targetServer
+                '-ApiAppPoolName'
+                $ApiAppPoolName
+                '-WebAppPoolName'
+                $WebAppPoolName
+                '-ApiSiteName'
+                $ApiSiteName
+                '-WebSiteName'
+                $WebSiteName
+                '-ApiRemotePath'
+                $ApiRemotePath
+                '-WebRemotePath'
+                $WebRemotePath
+                '-DeployTarget'
+                $DeployTarget
+                '-SerializedCredentialPath'
+                $childCredentialPath
+                '-SuppressExitPrompt'
+            )
+
+            if ($SkipBackup) { $argumentList += '-SkipBackup' }
+            if ($IncludeRuntimeDataInBackup) { $argumentList += '-IncludeRuntimeDataInBackup' }
+            if ($RestartOnly) { $argumentList += '-RestartOnly' }
+            if (-not [string]::IsNullOrWhiteSpace($ApiDbConnectionString)) {
+                $argumentList += @('-ApiDbConnectionString', $ApiDbConnectionString)
+            }
+            if (-not [string]::IsNullOrWhiteSpace($WebDbConnectionString)) {
+                $argumentList += @('-WebDbConnectionString', $WebDbConnectionString)
+            }
+
+            & powershell.exe @argumentList
+            $childExitCode = $LASTEXITCODE
+        }
+        finally {
+            if ($serializedCredentialForTarget -and (Test-Path -LiteralPath $serializedCredentialForTarget)) {
+                Remove-Item -LiteralPath $serializedCredentialForTarget -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        if ($childExitCode -ne 0) {
+            Write-Host "ERROR: Deployment failed for $targetServer with exit code $childExitCode." -ForegroundColor Red
+            Wait-ForExitPrompt
+            exit $childExitCode
+        }
+
+        Write-Host "Completed deployment for $targetServer." -ForegroundColor Green
+        Write-Host ""
+    }
+
+    Write-Host "========================================" -ForegroundColor Green
+    Write-Host "Multi-server deployment completed!" -ForegroundColor Green
+    Write-Host "========================================" -ForegroundColor Green
+    Write-Host ""
+    Wait-ForExitPrompt
+    exit 0
 }
 
 # First-time IIS bootstrap needs local elevation for the remote setup workflow.
@@ -221,7 +398,7 @@ $pingResult = Test-Connection -ComputerName $ProductionServer -Count 2 -Quiet
 if (-not $pingResult) {
     Write-Host "ERROR: Cannot reach production server at $ProductionServer" -ForegroundColor Red
     Write-Host "Please check network connectivity and server address." -ForegroundColor Yellow
-    Read-Host "Press Enter to exit"
+    Wait-ForExitPrompt
     exit 1
 }
 Write-Host "Connection successful!" -ForegroundColor Green
@@ -244,7 +421,7 @@ catch {
     Write-Host "  1. WinRM is enabled on the server" -ForegroundColor White
     Write-Host "  2. Your account has administrator access on the server" -ForegroundColor White
     Write-Host "  3. PowerShell remoting is allowed through the firewall" -ForegroundColor White
-    Read-Host "Press Enter to exit"
+    Wait-ForExitPrompt
     exit 1
 }
 Write-Host ""
@@ -327,7 +504,7 @@ if ($RestartOnly) {
         Write-Host "Try using IIS Manager on the production server manually." -ForegroundColor Yellow
     }
     
-    Read-Host "Press Enter to exit"
+    Wait-ForExitPrompt
     exit 0
 }
 
@@ -416,7 +593,7 @@ if ($FirstTimeSetup) {
         Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
     }
     
-    Read-Host "Press Enter to exit"
+    Wait-ForExitPrompt
     exit 0
 }
 
@@ -471,7 +648,7 @@ if ($DeployTarget -eq "Both" -or $DeployTarget -eq "API") {
     dotnet publish $ApiProjectPath -c Release -o "$PublishPath\api" --no-self-contained
     if ($LASTEXITCODE -ne 0) {
         Write-Host "ERROR: API publish failed!" -ForegroundColor Red
-        Read-Host "Press Enter to exit"
+        Wait-ForExitPrompt
         exit 1
     }
     Write-Host "  API published successfully!" -ForegroundColor Green
@@ -494,7 +671,7 @@ if ($DeployTarget -eq "Both" -or $DeployTarget -eq "Web") {
     dotnet publish $WebProjectPath -c Release -o "$PublishPath\web" --no-self-contained
     if ($LASTEXITCODE -ne 0) {
         Write-Host "ERROR: Web publish failed!" -ForegroundColor Red
-        Read-Host "Press Enter to exit"
+        Wait-ForExitPrompt
         exit 1
     }
     Write-Host "  Web app published successfully!" -ForegroundColor Green
@@ -694,7 +871,7 @@ try {
 catch {
     Write-Host "ERROR: Could not prepare blue/green deployment slots." -ForegroundColor Red
     Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
+    Wait-ForExitPrompt
     exit 1
 }
 
@@ -1232,7 +1409,7 @@ catch {
     Write-Host ""
     Write-Host "ERROR: Deployment failed!" -ForegroundColor Red
     Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
+    Wait-ForExitPrompt
     exit 1
 }
 
@@ -1341,6 +1518,8 @@ Write-Host "Quick commands:" -ForegroundColor Yellow
 Write-Host "  - Restart only: .\Update-Production.ps1 -RestartOnly" -ForegroundColor White
 Write-Host "  - Deploy API only: .\Update-Production.ps1 -DeployTarget API" -ForegroundColor White
 Write-Host "  - Deploy Web only: .\Update-Production.ps1 -DeployTarget Web" -ForegroundColor White
+Write-Host "  - Deploy both IIS nodes: .\Update-Production.ps1 -AdditionalProductionServers 10.10.10.58" -ForegroundColor White
+Write-Host "  - Deploy both IIS nodes with separate creds: .\Update-Production.ps1 -AdditionalProductionServers 10.10.10.58 -AdditionalSerializedCredentialPaths <10.10.10.58-cred.xml>" -ForegroundColor White
 Write-Host "  - Skip backup: .\Update-Production.ps1 -SkipBackup" -ForegroundColor White
 Write-Host "  - Include uploads/logs in backup: .\Update-Production.ps1 -IncludeRuntimeDataInBackup" -ForegroundColor White
 Write-Host ""
@@ -1350,4 +1529,4 @@ foreach ($result in $cutoverResults) {
 }
 Write-Host ""
 
-Read-Host "Press Enter to exit"
+Wait-ForExitPrompt

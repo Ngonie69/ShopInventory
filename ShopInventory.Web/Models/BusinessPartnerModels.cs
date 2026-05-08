@@ -18,6 +18,7 @@ public class BusinessPartnerDto
     public int? PriceListNum { get; set; }
     public string? PriceListName { get; set; }
     public int? PayTermGrpCode { get; set; }
+    public string? Channel { get; set; }
 
     // Display helper
     public string DisplayName => $"{CardCode} - {CardName}";

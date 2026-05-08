@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
+using ShopInventory.Models;
 using ShopInventory.Services;
 
 namespace ShopInventory.Features.Timesheets.Queries.GetAssignedCustomers;
@@ -9,6 +10,7 @@ namespace ShopInventory.Features.Timesheets.Queries.GetAssignedCustomers;
 public sealed class GetAssignedCustomersHandler(
     ApplicationDbContext db,
     ISAPServiceLayerClient sapClient,
+    IAuditService auditService,
     ILogger<GetAssignedCustomersHandler> logger
 ) : IRequestHandler<GetAssignedCustomersQuery, ErrorOr<List<AssignedCustomerDto>>>
 {
@@ -25,7 +27,22 @@ public sealed class GetAssignedCustomersHandler(
 
         var customerCodes = user.GetCustomerCodes();
         if (customerCodes.Count == 0)
+        {
+            try
+            {
+                await auditService.LogAsync(
+                    AuditActions.ViewAssignedCustomers,
+                    "User",
+                    request.UserId.ToString(),
+                    "Loaded 0 assigned customers.",
+                    true);
+            }
+            catch
+            {
+            }
+
             return new List<AssignedCustomerDto>();
+        }
 
         // Check if user has an active check-in
         var activeCheckInCustomerCode = await db.TimesheetEntries
@@ -56,6 +73,19 @@ public sealed class GetAssignedCustomersHandler(
                 code,
                 name,
                 HasActiveCheckIn: code == activeCheckInCustomerCode));
+        }
+
+        try
+        {
+            await auditService.LogAsync(
+                AuditActions.ViewAssignedCustomers,
+                "User",
+                request.UserId.ToString(),
+                $"Loaded {results.Count} assigned customer(s).",
+                true);
+        }
+        catch
+        {
         }
 
         return results;

@@ -100,6 +100,32 @@
                         }
                     </div>
 
+                    <div class="dbp-filter-row">
+                        <label class="dbp-filter-group" for="driver-bp-status-filter">
+                            <span class="dbp-filter-label">Status</span>
+                            <select id="driver-bp-status-filter" class="dbp-select" @bind="customerStatusFilter">
+                                <option value="@StatusFilterAll">All</option>
+                                <option value="@StatusFilterActive">Active</option>
+                                <option value="@StatusFilterInactive">Inactive</option>
+                            </select>
+                        </label>
+
+                        <label class="dbp-filter-group" for="driver-bp-channel-filter">
+                            <span class="dbp-filter-label">Channel</span>
+                            <select id="driver-bp-channel-filter" class="dbp-select" @bind="customerChannelFilter">
+                                <option value="@ChannelFilterAll">All channels</option>
+                                @if (HasCustomersWithoutChannel)
+                                {
+                                    <option value="@ChannelFilterNone">No channel</option>
+                                }
+                                @foreach (var channel in AvailableChannels)
+                                {
+                                    <option value="@channel">@channel</option>
+                                }
+                            </select>
+                        </label>
+                    </div>
+
                     @{
                         var filtered = FilteredCustomers;
                         var filteredCount = filtered.Count;
@@ -115,7 +141,7 @@
                                          stroke="currentColor" stroke-width="2.5">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                                     </svg>
-                                    Add @(string.IsNullOrWhiteSpace(customerSearchTerm) ? "all" : "matching")
+                                    Add @(HasCustomerFilters ? "matching" : "all")
                                 </button>
                             }
                             @if (allSelected && filteredCount > 0)
@@ -125,7 +151,7 @@
                                          stroke="currentColor" stroke-width="2.5">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14" />
                                     </svg>
-                                    Remove @(string.IsNullOrWhiteSpace(customerSearchTerm) ? "all" : "matching")
+                                    Remove @(HasCustomerFilters ? "matching" : "all")
                                 </button>
                             }
                         </div>
@@ -165,7 +191,7 @@
                                     <path stroke-linecap="round" stroke-linejoin="round"
                                           d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
                                 </svg>
-                                <span>No business partners match the search.</span>
+                                <span>No business partners match the current filters.</span>
                             </div>
                         }
                     </div>
@@ -431,6 +457,17 @@
     .dbp-input:focus { outline: none; border-color: #16a34a; background: #fff; box-shadow: 0 0 0 3px rgba(34,197,94,.13); }
     .dbp-input::placeholder { color: #94a3b8; }
 
+    .dbp-filter-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+    .dbp-filter-group { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
+    .dbp-filter-label { font-size: .78rem; font-weight: 700; color: #64748b; }
+    .dbp-select {
+        width: 100%; border-radius: 12px; border: 1.5px solid #e2e8f0;
+        padding: .68rem .9rem;
+        background: #f8fafc; color: #0f172a; font-size: .88rem;
+        transition: border-color .15s, box-shadow .15s, background .15s; box-sizing: border-box;
+    }
+    .dbp-select:focus { outline: none; border-color: #16a34a; background: #fff; box-shadow: 0 0 0 3px rgba(34,197,94,.13); }
+
     /* BULK ROW */
     .dbp-bulk-row { display: flex; align-items: center; justify-content: space-between; gap: .6rem; min-height: 1.75rem; }
     .dbp-bulk-count { font-size: .8rem; color: #94a3b8; font-weight: 500; }
@@ -543,5 +580,6 @@
     @@media (max-width: 600px) {
         .dbp-page { padding: 1rem; }
         .dbp-header-body { flex-direction: column; gap: .85rem; }
+        .dbp-filter-row { grid-template-columns: 1fr; }
     }
 </style>

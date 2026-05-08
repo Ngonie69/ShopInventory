@@ -92,14 +92,20 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("by-docnum/{docNum:int}")]
-    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
+    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager,Driver")]
     [ProducesResponseType(typeof(InvoiceDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetInvoiceByDocNum(
         int docNum,
         CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetInvoiceByDocNumQuery(docNum), cancellationToken);
+        var restrictToAssignedCustomers = User.IsInRole("Driver");
+        var result = await mediator.Send(
+            new GetInvoiceByDocNumQuery(
+                docNum,
+                restrictToAssignedCustomers ? GetUserId() : null,
+                restrictToAssignedCustomers),
+            cancellationToken);
         return result.Match(Ok, Problem);
     }
 
@@ -130,7 +136,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("customer/{cardCode}")]
-    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
+    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager,Driver")]
     [ProducesResponseType(typeof(InvoiceDateResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetInvoicesByCustomer(
@@ -141,8 +147,17 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null)
     {
+        var restrictToAssignedCustomers = User.IsInRole("Driver");
         var result = await mediator.Send(
-            new GetInvoicesByCustomerQuery(cardCode, fromDate, toDate, page, pageSize), cancellationToken);
+            new GetInvoicesByCustomerQuery(
+                cardCode,
+                fromDate,
+                toDate,
+                page,
+                pageSize,
+                restrictToAssignedCustomers ? GetUserId() : null,
+                restrictToAssignedCustomers),
+            cancellationToken);
 
         return result.Match(Ok, Problem);
     }

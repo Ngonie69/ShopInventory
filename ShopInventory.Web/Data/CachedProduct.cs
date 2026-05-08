@@ -106,6 +106,9 @@ public class CachedBusinessPartner
 
     public int? PriceListNum { get; set; }
 
+    [MaxLength(100)]
+    public string? Channel { get; set; }
+
     public bool IsActive { get; set; } = true;
 
     public DateTime LastSyncedAt { get; set; }

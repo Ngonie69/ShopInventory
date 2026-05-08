@@ -133,6 +133,7 @@ public class BusinessPartnerService : IBusinessPartnerService
                     Currency = p.Currency,
                     Balance = p.Balance,
                     PriceListNum = p.PriceListNum,
+                    Channel = p.Channel,
                     IsActive = p.IsActive
                 })
                 .ToListAsync();
@@ -174,6 +175,7 @@ public class BusinessPartnerService : IBusinessPartnerService
                     Currency = p.Currency,
                     Balance = p.Balance,
                     PriceListNum = p.PriceListNum,
+                    Channel = p.Channel,
                     IsActive = p.IsActive
                 })
                 .ToListAsync();
@@ -221,6 +223,7 @@ public class BusinessPartnerService : IBusinessPartnerService
                     Currency = p.Currency,
                     Balance = p.Balance,
                     PriceListNum = p.PriceListNum,
+                    Channel = p.Channel,
                     IsActive = p.IsActive
                 })
                 .ToListAsync();
@@ -261,6 +264,7 @@ public class BusinessPartnerService : IBusinessPartnerService
                     Currency = p.Currency,
                     Balance = p.Balance,
                     PriceListNum = p.PriceListNum,
+                    Channel = p.Channel,
                     IsActive = p.IsActive
                 })
                 .FirstOrDefaultAsync();
@@ -320,6 +324,7 @@ public class BusinessPartnerService : IBusinessPartnerService
                             .SetProperty(cp => cp.Currency, partner.Currency)
                             .SetProperty(cp => cp.Balance, partner.Balance)
                             .SetProperty(cp => cp.PriceListNum, partner.PriceListNum)
+                                .SetProperty(cp => cp.Channel, partner.Channel)
                             .SetProperty(cp => cp.IsActive, partner.IsActive)
                             .SetProperty(cp => cp.LastSyncedAt, syncTime));
                     updatedCount++;
@@ -341,6 +346,7 @@ public class BusinessPartnerService : IBusinessPartnerService
                         Currency = partner.Currency,
                         Balance = partner.Balance,
                         PriceListNum = partner.PriceListNum,
+                        Channel = partner.Channel,
                         IsActive = partner.IsActive,
                         LastSyncedAt = syncTime
                     });

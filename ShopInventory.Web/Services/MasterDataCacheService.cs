@@ -841,6 +841,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                         .SetProperty(cp => cp.Balance, partner.Balance)
                         .SetProperty(cp => cp.IsActive, partner.IsActive)
                         .SetProperty(cp => cp.PriceListNum, partner.PriceListNum)
+                        .SetProperty(cp => cp.Channel, partner.Channel)
                         .SetProperty(cp => cp.LastSyncedAt, syncTime));
                 updatedCount++;
             }
@@ -862,6 +863,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                     Balance = partner.Balance,
                     IsActive = partner.IsActive,
                     PriceListNum = partner.PriceListNum,
+                    Channel = partner.Channel,
                     LastSyncedAt = syncTime
                 });
                 insertedCount++;
@@ -1055,7 +1057,8 @@ public class MasterDataCacheService : IMasterDataCacheService
                 Currency = p.Currency,
                 Balance = p.Balance,
                 IsActive = p.IsActive,
-                PriceListNum = p.PriceListNum
+                PriceListNum = p.PriceListNum,
+                Channel = p.Channel
             })
             .ToListAsync();
     }

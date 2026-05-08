@@ -21,6 +21,7 @@ public static class AuditActions
 
     // Invoice actions
     public const string CreateInvoice = "CreateInvoice";
+    public const string ViewInvoices = "ViewInvoices";
 
     // Payment actions
     public const string CreatePayment = "CreatePayment";
@@ -99,4 +100,5 @@ public static class AuditActions
     // Timesheet actions
     public const string CheckIn = "CheckIn";
     public const string CheckOut = "CheckOut";
+    public const string ViewAssignedCustomers = "ViewAssignedCustomers";
 }

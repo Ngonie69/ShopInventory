@@ -1,7 +1,9 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Mappings;
 using ShopInventory.Models;
@@ -11,7 +13,9 @@ using Microsoft.Extensions.Options;
 namespace ShopInventory.Features.Invoices.Queries.GetInvoicesByCustomer;
 
 public sealed class GetInvoicesByCustomerHandler(
+    ApplicationDbContext db,
     ISAPServiceLayerClient sapClient,
+    IAuditService auditService,
     IOptions<SAPSettings> settings,
     ILogger<GetInvoicesByCustomerHandler> logger
 ) : IRequestHandler<GetInvoicesByCustomerQuery, ErrorOr<InvoiceDateResponseDto>>
@@ -25,6 +29,41 @@ public sealed class GetInvoicesByCustomerHandler(
 
         if (string.IsNullOrWhiteSpace(request.CardCode))
             return Errors.Invoice.CustomerCodeRequired;
+
+        if (request.RestrictToAssignedCustomers)
+        {
+            if (!request.RequestingUserId.HasValue)
+                return Errors.Auth.Unauthenticated;
+
+            var user = await db.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == request.RequestingUserId.Value, cancellationToken);
+
+            if (user is null)
+                return Errors.Auth.UserNotFound;
+
+            var hasAssignedCustomer = user.GetCustomerCodes()
+                .Any(code => string.Equals(code, request.CardCode, StringComparison.OrdinalIgnoreCase));
+
+            if (!hasAssignedCustomer)
+            {
+                try
+                {
+                    await auditService.LogAsync(
+                        AuditActions.ViewInvoices,
+                        "Customer",
+                        request.CardCode,
+                        $"Blocked invoice lookup for unassigned customer {request.CardCode}.",
+                        false,
+                        "Customer is not assigned to the current driver.");
+                }
+                catch
+                {
+                }
+
+                return BuildEmptyResponse(request);
+            }
+        }
 
         try
         {
@@ -71,7 +110,7 @@ public sealed class GetInvoicesByCustomerHandler(
 
             logger.LogInformation("Retrieved {Count} invoices for customer {CardCode}", invoices.Count, request.CardCode);
 
-            return new InvoiceDateResponseDto
+            var response = new InvoiceDateResponseDto
             {
                 Customer = request.CardCode,
                 FromDate = filterFromDate?.ToString("yyyy-MM-dd"),
@@ -84,6 +123,21 @@ public sealed class GetInvoicesByCustomerHandler(
                 HasMore = hasMore,
                 Invoices = invoices.ToDto()
             };
+
+            try
+            {
+                await auditService.LogAsync(
+                    AuditActions.ViewInvoices,
+                    "Customer",
+                    request.CardCode,
+                    $"Loaded {response.Count} invoice(s) for customer {request.CardCode}.",
+                    true);
+            }
+            catch
+            {
+            }
+
+            return response;
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {
@@ -100,5 +154,25 @@ public sealed class GetInvoicesByCustomerHandler(
             logger.LogError(ex, "Error retrieving invoices for customer {CardCode}", request.CardCode);
             return Errors.Invoice.CreationFailed(ex.Message);
         }
+    }
+
+    private static InvoiceDateResponseDto BuildEmptyResponse(GetInvoicesByCustomerQuery request)
+    {
+        var filterFromDate = request.FromDate.HasValue && request.ToDate.HasValue ? request.FromDate : null;
+        var filterToDate = request.FromDate.HasValue && request.ToDate.HasValue ? request.ToDate : null;
+
+        return new InvoiceDateResponseDto
+        {
+            Customer = request.CardCode,
+            FromDate = filterFromDate?.ToString("yyyy-MM-dd"),
+            ToDate = filterToDate?.ToString("yyyy-MM-dd"),
+            Page = Math.Max(request.Page ?? 1, 1),
+            PageSize = request.PageSize.HasValue ? Math.Clamp(request.PageSize.Value, 1, 100) : 20,
+            Count = 0,
+            TotalCount = 0,
+            TotalPages = 0,
+            HasMore = false,
+            Invoices = new List<InvoiceDto>()
+        };
     }
 }

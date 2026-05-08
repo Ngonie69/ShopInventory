@@ -312,7 +312,8 @@ public static class Permissions
             },
             "Driver" => new List<string>
             {
-                ViewDashboard, ViewInvoices
+                ViewDashboard, ViewInvoices,
+                ViewTimesheets, ManageTimesheets
             },
             "Lab" => new List<string>
             {
