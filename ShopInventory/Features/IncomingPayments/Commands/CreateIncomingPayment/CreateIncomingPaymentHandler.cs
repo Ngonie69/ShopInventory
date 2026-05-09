@@ -3,6 +3,7 @@ using MediatR;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Notifications;
 using ShopInventory.Mappings;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -15,6 +16,7 @@ public sealed class CreateIncomingPaymentHandler(
     ISAPServiceLayerClient sapClient,
     IIncomingPaymentQueueService incomingPaymentQueueService,
     IAuditService auditService,
+    INotificationService notificationService,
     SapCircuitBreakerState sapCircuitBreakerState,
     IOptions<SAPSettings> settings,
     ILogger<CreateIncomingPaymentHandler> logger
@@ -46,16 +48,47 @@ public sealed class CreateIncomingPaymentHandler(
         try
         {
             var payment = await sapClient.CreateIncomingPaymentAsync(request, cancellationToken);
+            var paymentDto = payment.ToDto();
 
             logger.LogInformation("Incoming payment created successfully. DocEntry: {DocEntry}, DocNum: {DocNum}, Customer: {CardCode}, Total: {Total}",
                 payment.DocEntry, payment.DocNum, payment.CardCode, payment.DocTotal);
 
             try { await auditService.LogAsync(AuditActions.CreatePayment, "IncomingPayment", payment.DocEntry.ToString(), $"Payment #{payment.DocNum} created for {payment.CardCode}, Total: {payment.DocTotal}", true); } catch { }
 
+            try
+            {
+                var customerDisplay = BuildBusinessPartnerDisplay(paymentDto.CardCode, paymentDto.CardName);
+                var totalDisplay = BuildMoneyDisplay(paymentDto.DocCurrency, paymentDto.DocTotal);
+
+                await notificationService.CreateNotificationAsync(
+                    ModuleNotificationFactory.CreateBroadcastNotification(
+                        $"Incoming Payment Created: #{payment.DocNum}",
+                        $"Incoming payment #{payment.DocNum} for {customerDisplay} totaling {totalDisplay} was created successfully.",
+                        "Success",
+                        "IncomingPayment",
+                        "IncomingPayment",
+                        payment.DocEntry.ToString(),
+                        "/payments",
+                        new Dictionary<string, string>
+                        {
+                            ["docEntry"] = payment.DocEntry.ToString(),
+                            ["docNum"] = payment.DocNum.ToString(),
+                            ["cardCode"] = paymentDto.CardCode ?? string.Empty,
+                            ["cardName"] = paymentDto.CardName ?? string.Empty,
+                            ["docCurrency"] = paymentDto.DocCurrency ?? string.Empty,
+                            ["docTotal"] = paymentDto.DocTotal.ToString("N2")
+                        }),
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to publish incoming payment notification for DocEntry {DocEntry}", payment.DocEntry);
+            }
+
             return new IncomingPaymentCreatedResponseDto
             {
                 Message = "Incoming payment created successfully",
-                Payment = payment.ToDto()
+                Payment = paymentDto
             };
         }
         catch (ArgumentException ex)
@@ -149,4 +182,27 @@ public sealed class CreateIncomingPaymentHandler(
 
         return errors;
     }
+
+    private static string BuildBusinessPartnerDisplay(string? cardCode, string? cardName)
+    {
+        var normalizedCode = cardCode?.Trim();
+        var normalizedName = cardName?.Trim();
+
+        if (string.IsNullOrWhiteSpace(normalizedName))
+        {
+            return normalizedCode ?? "unknown customer";
+        }
+
+        if (string.IsNullOrWhiteSpace(normalizedCode))
+        {
+            return normalizedName;
+        }
+
+        return $"{normalizedCode} - {normalizedName}";
+    }
+
+    private static string BuildMoneyDisplay(string? currency, decimal total)
+        => string.IsNullOrWhiteSpace(currency)
+            ? total.ToString("N2")
+            : $"{currency} {total:N2}";
 }

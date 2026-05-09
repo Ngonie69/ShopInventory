@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
+using ShopInventory.Features.SalesOrders;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -22,38 +23,65 @@ public sealed class ApproveSalesOrderHandler(
         try
         {
             var order = await salesOrderService.ApproveAsync(command.Id, command.UserId, cancellationToken);
-            if (order.Source == SalesOrderSource.Mobile && !string.IsNullOrWhiteSpace(order.CreatedByUserName))
+            if (order.Source == SalesOrderSource.Mobile)
             {
+                var customerName = string.IsNullOrWhiteSpace(order.CardName)
+                    ? order.CardCode
+                    : order.CardName;
+                var notificationTitle = $"Sales Order Approved: {order.OrderNumber}";
+                var creatorNotificationMessage = order.SAPDocNum.HasValue
+                    ? $"Your mobile sales order {order.OrderNumber} for {customerName} was approved and posted to SAP as document #{order.SAPDocNum}."
+                    : $"Your mobile sales order {order.OrderNumber} for {customerName} was approved successfully.";
+                var staffNotificationMessage = order.SAPDocNum.HasValue
+                    ? $"Mobile sales order {order.OrderNumber} for {customerName} was approved and posted to SAP as document #{order.SAPDocNum}."
+                    : $"Mobile sales order {order.OrderNumber} for {customerName} was approved successfully.";
+                var notificationData = new Dictionary<string, string>
+                {
+                    ["sapDocNum"] = order.SAPDocNum?.ToString() ?? string.Empty,
+                    ["action"] = "Approved"
+                };
+
+                var creatorNotification = SalesOrderLifecycleNotificationFactory.CreateCreatorNotification(
+                    order,
+                    notificationTitle,
+                    creatorNotificationMessage,
+                    "Success",
+                    notificationData);
+
+                if (creatorNotification is not null)
+                {
+                    try
+                    {
+                        await notificationService.CreateNotificationAsync(creatorNotification, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(
+                            ex,
+                            "Failed to notify creator {Username} about approved mobile sales order {OrderId}",
+                            order.CreatedByUserName,
+                            order.Id);
+                    }
+                }
+
                 try
                 {
-                    var notificationMessage = order.SAPDocNum.HasValue
-                        ? $"Your mobile sales order {order.OrderNumber} for {order.CardName ?? order.CardCode} was approved and posted to SAP as document #{order.SAPDocNum}."
-                        : $"Your mobile sales order {order.OrderNumber} for {order.CardName ?? order.CardCode} was approved successfully.";
-
-                    await notificationService.CreateNotificationAsync(new CreateNotificationRequest
+                    foreach (var staffNotification in SalesOrderLifecycleNotificationFactory.CreateStaffNotifications(
+                                 order,
+                                 notificationTitle,
+                                 staffNotificationMessage,
+                                 "Success",
+                                 notificationData))
                     {
-                        Title = $"Sales Order Approved: {order.OrderNumber}",
-                        Message = notificationMessage,
-                        Type = "Success",
-                        Category = "SalesOrder",
-                        EntityType = "SalesOrder",
-                        EntityId = order.OrderNumber,
-                        ActionUrl = "/mobile-drafts",
-                        TargetUsername = order.CreatedByUserName,
-                        Data = new Dictionary<string, string>
-                        {
-                            ["orderId"] = order.Id.ToString(),
-                            ["orderNumber"] = order.OrderNumber,
-                            ["cardCode"] = order.CardCode,
-                            ["customerCode"] = order.CardCode,
-                            ["customerName"] = order.CardName ?? order.CardCode,
-                            ["status"] = order.Status.ToString(),
-                            ["sapDocNum"] = order.SAPDocNum?.ToString() ?? string.Empty
-                        }
-                    }, cancellationToken);
+                        await notificationService.CreateNotificationAsync(staffNotification, cancellationToken);
+                    }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    logger.LogWarning(
+                        ex,
+                        "Failed to publish staff approval notifications for mobile sales order {OrderId}",
+                        order.Id);
                 }
             }
 

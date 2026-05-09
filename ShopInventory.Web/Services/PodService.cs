@@ -7,7 +7,7 @@ namespace ShopInventory.Web.Services;
 
 public interface IPodService
 {
-    Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, CancellationToken cancellationToken = default);
+    Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, string? uploadedFromLocation = null, CancellationToken cancellationToken = default);
     Task<PodAttachmentListResponse?> GetAllPodsForAccountsAsync(int page, int pageSize, List<string> cardCodes, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
     Task<DocumentAttachmentListResponse?> GetInvoicePodsAsync(int docEntry);
     Task<BulkPodValidationResponse?> ValidateBulkPodsAsync(IEnumerable<int> docNums, CancellationToken cancellationToken = default);
@@ -55,7 +55,7 @@ public class PodService : IPodService
         }
     }
 
-    public async Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, CancellationToken cancellationToken = default)
+    public async Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, string? uploadedFromLocation = null, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -69,6 +69,8 @@ public class PodService : IPodService
                 url += $"&toDate={toDate.Value:yyyy-MM-dd}";
             if (!string.IsNullOrEmpty(search))
                 url += $"&search={Uri.EscapeDataString(search)}";
+            if (!string.IsNullOrWhiteSpace(uploadedFromLocation))
+                url += $"&uploadedFromLocation={Uri.EscapeDataString(uploadedFromLocation)}";
 
             return await _httpClient.GetFromJsonAsync<PodAttachmentListResponse>(url, cancellationToken);
         }

@@ -5,6 +5,7 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Notifications;
 using ShopInventory.Mappings;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -17,6 +18,7 @@ public sealed class CreateTransferRequestHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
     IAuditService auditService,
+    INotificationService notificationService,
     IOptions<SAPSettings> settings,
     ILogger<CreateTransferRequestHandler> logger
 ) : IRequestHandler<CreateTransferRequestCommand, ErrorOr<TransferRequestCreatedResponseDto>>
@@ -95,10 +97,41 @@ public sealed class CreateTransferRequestHandler(
 
             try { await auditService.LogAsync(AuditActions.CreateTransferRequest, "TransferRequest", transferRequest.DocEntry.ToString(), $"Transfer request #{transferRequest.DocNum} from {request.FromWarehouse} to {request.ToWarehouse}", true); } catch { }
 
+            var transferRequestDto = transferRequest.ToDto();
+
+            try
+            {
+                var fromWarehouse = transferRequestDto.FromWarehouse ?? request.FromWarehouse ?? "unspecified";
+                var toWarehouse = transferRequestDto.ToWarehouse ?? request.ToWarehouse ?? "unknown";
+
+                await notificationService.CreateNotificationAsync(
+                    ModuleNotificationFactory.CreateBroadcastNotification(
+                        $"Transfer Request Created: #{transferRequest.DocNum}",
+                        $"Transfer request #{transferRequest.DocNum} from {fromWarehouse} to {toWarehouse} was created successfully.",
+                        "Success",
+                        "TransferRequest",
+                        "TransferRequest",
+                        transferRequest.DocEntry.ToString(),
+                        "/inventory-transfers",
+                        new Dictionary<string, string>
+                        {
+                            ["docEntry"] = transferRequest.DocEntry.ToString(),
+                            ["docNum"] = transferRequest.DocNum.ToString(),
+                            ["fromWarehouse"] = fromWarehouse,
+                            ["toWarehouse"] = toWarehouse,
+                            ["status"] = transferRequestDto.DocumentStatus ?? string.Empty
+                        }),
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to publish transfer request notification for DocEntry {DocEntry}", transferRequest.DocEntry);
+            }
+
             return new TransferRequestCreatedResponseDto
             {
                 Message = "Transfer request created successfully",
-                TransferRequest = transferRequest.ToDto()
+                TransferRequest = transferRequestDto
             };
         }
         catch (ArgumentException ex)

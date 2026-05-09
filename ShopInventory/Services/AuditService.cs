@@ -89,10 +89,13 @@ public class AuditService : IAuditService
         var httpContext = _httpContextAccessor.HttpContext;
         var user = httpContext?.User;
 
-        if (user?.Identity?.IsAuthenticated == true)
+        var preferredIdentity = ResolvePreferredIdentity(user);
+        if (preferredIdentity != null)
         {
-            var username = user.Identity.Name ?? user.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
-            var role = user.FindFirst(ClaimTypes.Role)?.Value ?? "User";
+            var username = preferredIdentity.Name
+                ?? preferredIdentity.FindFirst(ClaimTypes.Name)?.Value
+                ?? "Unknown";
+            var role = preferredIdentity.FindFirst(ClaimTypes.Role)?.Value ?? "User";
             return (username, role);
         }
 
@@ -104,19 +107,54 @@ public class AuditService : IAuditService
         var httpContext = _httpContextAccessor.HttpContext;
         var user = httpContext?.User;
 
-        if (user?.Identity?.IsAuthenticated != true)
+        var preferredIdentity = ResolvePreferredIdentity(user);
+        if (preferredIdentity == null)
         {
             return null;
         }
 
-        var currentUsername = user.Identity.Name ?? user.FindFirst(ClaimTypes.Name)?.Value;
+        var currentUsername = preferredIdentity.Name ?? preferredIdentity.FindFirst(ClaimTypes.Name)?.Value;
         if (string.IsNullOrWhiteSpace(currentUsername) ||
             !string.Equals(currentUsername, username, StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
 
-        return user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return preferredIdentity.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    }
+
+    private static ClaimsIdentity? ResolvePreferredIdentity(ClaimsPrincipal? user)
+    {
+        if (user == null)
+        {
+            return null;
+        }
+
+        var identities = user.Identities
+            .Where(identity => identity.IsAuthenticated)
+            .OfType<ClaimsIdentity>()
+            .ToList();
+
+        if (identities.Count == 0)
+        {
+            return null;
+        }
+
+        return identities.FirstOrDefault(identity => !IsApiKeyIdentity(identity) && HasDisplayableUser(identity))
+            ?? identities.FirstOrDefault(HasDisplayableUser)
+            ?? identities.First();
+    }
+
+    private static bool IsApiKeyIdentity(ClaimsIdentity identity)
+    {
+        return string.Equals(identity.FindFirst(ClaimTypes.AuthenticationMethod)?.Value, "ApiKey", StringComparison.OrdinalIgnoreCase)
+            || identity.HasClaim(claim => string.Equals(claim.Type, "api_key_name", StringComparison.Ordinal));
+    }
+
+    private static bool HasDisplayableUser(ClaimsIdentity identity)
+    {
+        var username = identity.Name ?? identity.FindFirst(ClaimTypes.Name)?.Value;
+        return !string.IsNullOrWhiteSpace(username);
     }
 
     private static string? GetClientIpAddress(HttpContext? httpContext)

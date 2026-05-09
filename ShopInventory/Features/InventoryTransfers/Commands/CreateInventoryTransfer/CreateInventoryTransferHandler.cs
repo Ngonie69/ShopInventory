@@ -5,6 +5,7 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Notifications;
 using ShopInventory.Mappings;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -19,6 +20,7 @@ public sealed class CreateInventoryTransferHandler(
     IInventoryTransferQueueService transferQueueService,
     IStockValidationService stockValidation,
     IAuditService auditService,
+    INotificationService notificationService,
     SapCircuitBreakerState sapCircuitBreakerState,
     IOptions<SAPSettings> settings,
     ILogger<CreateInventoryTransferHandler> logger
@@ -78,16 +80,45 @@ public sealed class CreateInventoryTransferHandler(
             }
 
             var transfer = await sapClient.CreateInventoryTransferAsync(request, stockValidationResult.PreFetchedData, cancellationToken);
+            var transferDto = transfer.ToDto();
 
             logger.LogInformation("Inventory transfer created successfully. DocEntry: {DocEntry}, DocNum: {DocNum}, From: {FromWarehouse}, To: {ToWarehouse}",
                 transfer.DocEntry, transfer.DocNum, request.FromWarehouse, request.ToWarehouse);
 
             try { await auditService.LogAsync(AuditActions.CreateTransfer, "InventoryTransfer", transfer.DocEntry.ToString(), $"Transfer #{transfer.DocNum} from {request.FromWarehouse} to {request.ToWarehouse}", true); } catch { }
 
+            try
+            {
+                var fromWarehouse = transferDto.FromWarehouse ?? request.FromWarehouse ?? "unknown";
+                var toWarehouse = transferDto.ToWarehouse ?? request.ToWarehouse ?? "unknown";
+
+                await notificationService.CreateNotificationAsync(
+                    ModuleNotificationFactory.CreateBroadcastNotification(
+                        $"Inventory Transfer Created: #{transfer.DocNum}",
+                        $"Inventory transfer #{transfer.DocNum} from {fromWarehouse} to {toWarehouse} was created successfully.",
+                        "Success",
+                        "InventoryTransfer",
+                        "InventoryTransfer",
+                        transfer.DocEntry.ToString(),
+                        "/inventory-transfers",
+                        new Dictionary<string, string>
+                        {
+                            ["docEntry"] = transfer.DocEntry.ToString(),
+                            ["docNum"] = transfer.DocNum.ToString(),
+                            ["fromWarehouse"] = fromWarehouse,
+                            ["toWarehouse"] = toWarehouse
+                        }),
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to publish inventory transfer notification for DocEntry {DocEntry}", transfer.DocEntry);
+            }
+
             return new InventoryTransferCreatedResponseDto
             {
                 Message = "Inventory transfer created successfully",
-                Transfer = transfer.ToDto()
+                Transfer = transferDto
             };
         }
         catch (Exception ex) when (SapFailureClassifier.IsTransient(ex, cancellationToken) && CanQueueFallback(request))

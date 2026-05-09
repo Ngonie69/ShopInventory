@@ -22,6 +22,8 @@ public class PodStatusInfo
 public class PodUploadUserSummaryInfo
 {
     public string Username { get; set; } = string.Empty;
+    public string? Role { get; set; }
+    public string? AssignedSection { get; set; }
     public int FileCount { get; set; }
     public DateTime? LatestUploadedAt { get; set; }
 }
@@ -52,7 +54,7 @@ public interface IDocumentService
     Task<bool> DeleteAttachmentAsync(int id, CancellationToken cancellationToken = default);
 
     // POD (Proof of Delivery)
-    Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null, string? assignedSection = null);
+    Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null, string? assignedSection = null, string? uploadedFromLocation = null);
     Task<List<int>> GetScopedPodInvoiceDocEntriesAsync(IEnumerable<int> candidateDocEntries, string assignedSection, CancellationToken cancellationToken = default);
     Task EnsureInvoiceCachedAsync(int sapDocEntry, int sapDocNum, string cardCode, string? cardName, CancellationToken cancellationToken = default);
     Task<Dictionary<int, PodStatusInfo>> GetPodStatusByDocEntriesAsync(List<int> docEntries, CancellationToken cancellationToken = default);
@@ -582,7 +584,7 @@ public class DocumentService : IDocumentService
         return true;
     }
 
-    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null, string? assignedSection = null)
+    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null, string? assignedSection = null, string? uploadedFromLocation = null)
     {
         var excludedCardCodes = PodExclusions.ExcludedCardCodes.ToArray();
 
@@ -606,6 +608,15 @@ public class DocumentService : IDocumentService
         if (uploadedByUserId.HasValue)
         {
             query = query.Where(a => a.UploadedByUserId == uploadedByUserId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(uploadedFromLocation))
+        {
+            var locationPattern = $"%{uploadedFromLocation.Trim()}%";
+            query = query.Where(a =>
+                a.UploadedByUser != null &&
+                a.UploadedByUser.AssignedSection != null &&
+                EF.Functions.ILike(a.UploadedByUser.AssignedSection, locationPattern));
         }
 
         if (fromDate.HasValue)
@@ -732,6 +743,7 @@ public class DocumentService : IDocumentService
                 Description = dto.Description,
                 UploadedAt = dto.UploadedAt,
                 UploadedByUserName = dto.UploadedByUserName,
+                UploadedFromLocation = a.UploadedByUser?.AssignedSection,
                 DownloadUrl = dto.DownloadUrl,
                 InvoiceDocEntry = a.EntityId,
                 InvoiceDocNum = inv?.DocNum ?? 0,
@@ -1277,7 +1289,9 @@ public class DocumentService : IDocumentService
             {
                 DocEntry = a.EntityId,
                 a.UploadedAt,
-                UploadedBy = a.UploadedByUser != null ? a.UploadedByUser.Username : null
+                UploadedBy = a.UploadedByUser != null ? a.UploadedByUser.Username : null,
+                UploadedByRole = a.UploadedByUser != null ? a.UploadedByUser.Role : null,
+                UploadedFromLocation = a.UploadedByUser != null ? a.UploadedByUser.AssignedSection : null
             })
             .ToListAsync(cancellationToken);
 
@@ -1293,11 +1307,24 @@ public class DocumentService : IDocumentService
                     .GroupBy(
                         a => string.IsNullOrWhiteSpace(a.UploadedBy) ? "Unknown uploader" : a.UploadedBy!.Trim(),
                         StringComparer.OrdinalIgnoreCase)
-                    .Select(uploaderGroup => new PodUploadUserSummaryInfo
+                    .Select(uploaderGroup =>
                     {
-                        Username = uploaderGroup.Key,
-                        FileCount = uploaderGroup.Count(),
-                        LatestUploadedAt = uploaderGroup.Max(a => a.UploadedAt)
+                        var latestUpload = uploaderGroup
+                            .OrderByDescending(a => a.UploadedAt)
+                            .First();
+
+                        return new PodUploadUserSummaryInfo
+                        {
+                            Username = uploaderGroup.Key,
+                            Role = string.IsNullOrWhiteSpace(latestUpload.UploadedByRole)
+                                ? null
+                                : latestUpload.UploadedByRole.Trim(),
+                            AssignedSection = string.IsNullOrWhiteSpace(latestUpload.UploadedFromLocation)
+                                ? null
+                                : latestUpload.UploadedFromLocation.Trim(),
+                            FileCount = uploaderGroup.Count(),
+                            LatestUploadedAt = latestUpload.UploadedAt
+                        };
                     })
                     .OrderByDescending(uploader => uploader.LatestUploadedAt)
                     .ThenBy(uploader => uploader.Username)

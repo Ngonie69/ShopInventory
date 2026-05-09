@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
+using ShopInventory.Features.SalesOrders;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -29,42 +30,60 @@ public sealed class DeleteSalesOrderHandler(
             if (!deleted)
                 return Errors.SalesOrder.NotFound(command.Id);
 
-            if (order.Source == SalesOrderSource.Mobile && !string.IsNullOrWhiteSpace(order.CreatedByUserName))
+            if (order.Source == SalesOrderSource.Mobile)
             {
+                var customerName = string.IsNullOrWhiteSpace(order.CardName)
+                    ? order.CardCode
+                    : order.CardName;
+                var notificationTitle = $"Sales Order Deleted: {order.OrderNumber}";
+                var creatorNotificationMessage = $"Your mobile sales order {order.OrderNumber} for {customerName} was deleted.";
+                var staffNotificationMessage = $"Mobile sales order {order.OrderNumber} for {customerName} was deleted.";
+                var notificationData = new Dictionary<string, string>
+                {
+                    ["action"] = "Deleted",
+                    ["status"] = "Deleted"
+                };
+
+                var creatorNotification = SalesOrderLifecycleNotificationFactory.CreateCreatorNotification(
+                    order,
+                    notificationTitle,
+                    creatorNotificationMessage,
+                    "Warning",
+                    notificationData);
+
+                if (creatorNotification is not null)
+                {
+                    try
+                    {
+                        await notificationService.CreateNotificationAsync(creatorNotification, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(
+                            ex,
+                            "Failed to notify creator {Username} about deleted mobile sales order {OrderId}",
+                            order.CreatedByUserName,
+                            order.Id);
+                    }
+                }
+
                 try
                 {
-                    var customerName = string.IsNullOrWhiteSpace(order.CardName)
-                        ? order.CardCode
-                        : order.CardName;
-
-                    await notificationService.CreateNotificationAsync(new CreateNotificationRequest
+                    foreach (var staffNotification in SalesOrderLifecycleNotificationFactory.CreateStaffNotifications(
+                                 order,
+                                 notificationTitle,
+                                 staffNotificationMessage,
+                                 "Warning",
+                                 notificationData))
                     {
-                        Title = $"Sales Order Deleted: {order.OrderNumber}",
-                        Message = $"Your mobile sales order {order.OrderNumber} for {customerName} was deleted.",
-                        Type = "Warning",
-                        Category = "SalesOrder",
-                        EntityType = "SalesOrder",
-                        EntityId = order.OrderNumber,
-                        ActionUrl = "/mobile-drafts",
-                        TargetUsername = order.CreatedByUserName,
-                        Data = new Dictionary<string, string>
-                        {
-                            ["orderId"] = order.Id.ToString(),
-                            ["orderNumber"] = order.OrderNumber,
-                            ["cardCode"] = order.CardCode,
-                            ["customerCode"] = order.CardCode,
-                            ["customerName"] = customerName,
-                            ["action"] = "Deleted",
-                            ["status"] = "Deleted"
-                        }
-                    }, cancellationToken);
+                        await notificationService.CreateNotificationAsync(staffNotification, cancellationToken);
+                    }
                 }
                 catch (Exception ex)
                 {
                     logger.LogWarning(
                         ex,
-                        "Failed to notify creator {Username} about deleted mobile sales order {OrderId}",
-                        order.CreatedByUserName,
+                        "Failed to publish staff deletion notifications for mobile sales order {OrderId}",
                         order.Id);
                 }
             }

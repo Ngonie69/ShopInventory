@@ -74,6 +74,8 @@ public sealed class GetPodUploadStatusHandler(
                         .Select(uploader => new PodUploadUserSummaryDto
                         {
                             Username = uploader.Username,
+                            Role = uploader.Role,
+                            AssignedSection = uploader.AssignedSection,
                             FileCount = uploader.FileCount,
                             LatestUploadedAt = uploader.LatestUploadedAt
                         })

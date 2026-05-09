@@ -1,5 +1,6 @@
 @page "/pods"
 @using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Common
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @attribute [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
@@ -460,7 +461,7 @@
             </div>
             <div class="pod-filter-bar">
                 <div class="row g-2 align-items-end">
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <label class="pod-label">Search</label>
                         <input type="text" class="form-control pod-input" @bind="filterSearch" @bind:event="oninput"
                                @onkeydown="OnFilterKeyDown" placeholder="Invoice #, customer name or code" />
@@ -469,6 +470,16 @@
                         <label class="pod-label">Customer Code</label>
                         <input type="text" class="form-control pod-input" @bind="filterCardCode" @bind:event="oninput"
                                @onkeydown="OnFilterKeyDown" placeholder="e.g. C00001" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="pod-label">Upload Location</label>
+                        <select class="form-select pod-input" @bind="filterUploadedFromLocation">
+                            <option value="">All locations</option>
+                            @foreach (var location in AssignedSectionOptions.All)
+                            {
+                                <option value="@location">@location</option>
+                            }
+                        </select>
                     </div>
                     <div class="col-md-2">
                         <label class="pod-label">From Date</label>
@@ -539,7 +550,13 @@
                             <div class="pod-date">@context.UploadedAt.ToString("MMM dd, yyyy")</div>
                             <div class="pod-time">@context.UploadedAt.ToString("HH:mm")</div>
                         </MudTd>
-                        <MudTd DataLabel="By" Class="pod-user">@(context.UploadedByUserName ?? "-")</MudTd>
+                        <MudTd DataLabel="By" Class="pod-user">
+                            <div class="pod-user-name">@(context.UploadedByUserName ?? "-")</div>
+                            @if (!string.IsNullOrWhiteSpace(context.UploadedFromLocation))
+                            {
+                                <div class="pod-user-location">@context.UploadedFromLocation</div>
+                            }
+                        </MudTd>
                         <MudTd DataLabel="Actions" Class="text-end">
                             <div class="pod-actions">
                                 @if (IsViewable(context.MimeType))
@@ -1074,6 +1091,8 @@
     .pod-date { font-weight: 500; color: #0f172a; }
     .pod-time { font-size: 0.78rem; color: #94a3b8; }
     .pod-user { color: #64748b; }
+    .pod-user-name { color: #64748b; font-weight: 500; }
+    .pod-user-location { font-size: 0.78rem; color: #94a3b8; }
 
     /* ── Action Buttons (icon-only) ──────────────── */
     .pod-actions {
@@ -1270,16 +1289,19 @@
     private const int DefaultPodPageSize = 20;
     private string? filterCardCode;
     private string? filterSearch;
+    private string? filterUploadedFromLocation;
     private DateTime? filterFromDate;
     private DateTime? filterToDate;
     private string? activeFilterCardCode;
     private string? activeFilterSearch;
+    private string? activeFilterUploadedFromLocation;
     private DateTime? activeFilterFromDate;
     private DateTime? activeFilterToDate;
 
     private bool HasActiveFilters =>
         !string.IsNullOrEmpty(activeFilterCardCode) ||
         !string.IsNullOrEmpty(activeFilterSearch) ||
+        !string.IsNullOrEmpty(activeFilterUploadedFromLocation) ||
         activeFilterFromDate.HasValue ||
         activeFilterToDate.HasValue;
 
@@ -1383,7 +1405,7 @@
         {
             var requestedPage = state.Page + 1;
             var requestedPageSize = state.PageSize > 0 ? state.PageSize : DefaultPodPageSize;
-            var response = await PodService.GetAllPodsAsync(requestedPage, requestedPageSize, activeFilterCardCode, activeFilterFromDate, activeFilterToDate, activeFilterSearch, cancellationToken);
+            var response = await PodService.GetAllPodsAsync(requestedPage, requestedPageSize, activeFilterCardCode, activeFilterFromDate, activeFilterToDate, activeFilterSearch, activeFilterUploadedFromLocation, cancellationToken);
             if (response != null)
             {
                 podResponse = response;
@@ -1428,6 +1450,7 @@
     {
         activeFilterCardCode = string.IsNullOrWhiteSpace(filterCardCode) ? null : filterCardCode.Trim();
         activeFilterSearch = string.IsNullOrWhiteSpace(filterSearch) ? null : filterSearch.Trim();
+        activeFilterUploadedFromLocation = string.IsNullOrWhiteSpace(filterUploadedFromLocation) ? null : filterUploadedFromLocation.Trim();
         activeFilterFromDate = filterFromDate;
         activeFilterToDate = filterToDate;
         await ReloadPodsTableAsync(resetToFirstPage: true);
@@ -1437,10 +1460,12 @@
     {
         filterCardCode = null;
         filterSearch = null;
+        filterUploadedFromLocation = null;
         filterFromDate = null;
         filterToDate = null;
         activeFilterCardCode = null;
         activeFilterSearch = null;
+        activeFilterUploadedFromLocation = null;
         activeFilterFromDate = null;
         activeFilterToDate = null;
         await ReloadPodsTableAsync(resetToFirstPage: true);

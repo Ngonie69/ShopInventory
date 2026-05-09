@@ -3,6 +3,7 @@ using MediatR;
 using ShopInventory.Common.Pods;
 using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Notifications;
 using ShopInventory.Models;
 using ShopInventory.Services;
 
@@ -13,6 +14,7 @@ public sealed class UploadPodHandler(
     IDocumentService documentService,
     IAuthService authService,
     IAuditService auditService,
+    INotificationService notificationService,
     ILogger<UploadPodHandler> logger
 ) : IRequestHandler<UploadPodCommand, ErrorOr<DocumentAttachmentDto>>
 {
@@ -89,6 +91,38 @@ public sealed class UploadPodHandler(
         {
         }
 
+        try
+        {
+            var invoiceLabel = invoiceInfo?.DocNum is int docNum
+                ? $"invoice {docNum}"
+                : $"invoice doc entry {command.DocEntry}";
+            var customerDisplay = BuildBusinessPartnerDisplay(invoiceInfo?.CardCode, invoiceInfo?.CardName);
+
+            await notificationService.CreateNotificationAsync(
+                ModuleNotificationFactory.CreateBroadcastNotification(
+                    $"POD Uploaded: {invoiceLabel}",
+                    $"POD file {attachment.FileName} was uploaded for {invoiceLabel} ({customerDisplay}).",
+                    "Success",
+                    "POD",
+                    "Invoice",
+                    command.DocEntry.ToString(),
+                    "/pods",
+                    new Dictionary<string, string>
+                    {
+                        ["attachmentId"] = attachment.Id.ToString(),
+                        ["fileName"] = attachment.FileName,
+                        ["invoiceDocEntry"] = command.DocEntry.ToString(),
+                        ["invoiceDocNum"] = invoiceInfo?.DocNum.ToString() ?? string.Empty,
+                        ["cardCode"] = invoiceInfo?.CardCode ?? string.Empty,
+                        ["cardName"] = invoiceInfo?.CardName ?? string.Empty
+                    }),
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to publish POD notification for invoice {DocEntry}", command.DocEntry);
+        }
+
         // Best-effort: sync POD to SAP
         try
         {
@@ -119,5 +153,23 @@ public sealed class UploadPodHandler(
         }
 
         return attachment;
+    }
+
+    private static string BuildBusinessPartnerDisplay(string? cardCode, string? cardName)
+    {
+        var normalizedCode = cardCode?.Trim();
+        var normalizedName = cardName?.Trim();
+
+        if (string.IsNullOrWhiteSpace(normalizedName))
+        {
+            return normalizedCode ?? "unknown customer";
+        }
+
+        if (string.IsNullOrWhiteSpace(normalizedCode))
+        {
+            return normalizedName;
+        }
+
+        return $"{normalizedCode} - {normalizedName}";
     }
 }

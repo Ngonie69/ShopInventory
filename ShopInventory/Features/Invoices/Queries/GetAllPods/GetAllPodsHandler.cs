@@ -35,7 +35,7 @@ public sealed class GetAllPodsHandler(
 
         var result = await documentService.GetAllPodAttachmentsAsync(
             page, pageSize, request.CardCode, cancellationToken,
-            request.FromDate, request.ToDate, request.Search, request.UploadedByUserId, assignedSection);
+            request.FromDate, request.ToDate, request.Search, request.UploadedByUserId, assignedSection, request.UploadedFromLocation);
 
         return result;
     }

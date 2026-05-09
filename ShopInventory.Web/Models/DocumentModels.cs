@@ -30,6 +30,7 @@ public class PodAttachmentItemDto
     public string? Description { get; set; }
     public DateTime UploadedAt { get; set; }
     public string? UploadedByUserName { get; set; }
+    public string? UploadedFromLocation { get; set; }
     public string DownloadUrl { get; set; } = string.Empty;
     public int InvoiceDocEntry { get; set; }
     public int InvoiceDocNum { get; set; }
@@ -65,6 +66,8 @@ public class PodUploadStatusItem
 public class PodUploadUserSummary
 {
     public string Username { get; set; } = string.Empty;
+    public string? Role { get; set; }
+    public string? AssignedSection { get; set; }
     public int FileCount { get; set; }
     public DateTime? LatestUploadedAt { get; set; }
 }

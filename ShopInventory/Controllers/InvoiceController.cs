@@ -229,6 +229,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null,
         [FromQuery] string? search = null,
+        [FromQuery] string? uploadedFromLocation = null,
         CancellationToken cancellationToken = default)
     {
         var userId = GetUserId();
@@ -238,7 +239,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         Guid? uploadedByUserId = User.IsInRole("Driver") ? userId : null;
 
         var result = await mediator.Send(
-            new GetAllPodsQuery(page, pageSize, cardCode, fromDate, toDate, search, uploadedByUserId, userId.Value),
+            new GetAllPodsQuery(page, pageSize, cardCode, fromDate, toDate, search, uploadedFromLocation, uploadedByUserId, userId.Value),
             cancellationToken);
 
         return result.Match(Ok, Problem);

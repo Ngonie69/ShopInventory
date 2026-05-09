@@ -6490,6 +6490,12 @@ html.dark-theme {
     background: #1e293b;
     border-bottom-color: #334155;
 }
+.dark-theme .pod-user-name {
+    color: #e2e8f0 !important;
+}
+.dark-theme .pod-user-location {
+    color: #94a3b8 !important;
+}
 .dark-theme .pod-table-wrap,
 .dark-theme .pod-mud-table,
 .dark-theme .pod-mud-table .mud-table-container,
@@ -6519,6 +6525,40 @@ html.dark-theme {
 }
 .dark-theme .pod-row:hover {
     background: #334155;
+}
+.dark-theme .podr-filter-card .form-control,
+.dark-theme .podr-filter-card .form-select {
+    background: #0f172a !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .podr-filter-card .form-control::placeholder {
+    color: #64748b !important;
+}
+.dark-theme .podr-filter-card .form-control:focus,
+.dark-theme .podr-filter-card .form-select:focus {
+    border-color: #7986cb !important;
+    box-shadow: 0 0 0 3px rgba(121, 134, 203, 0.15) !important;
+}
+.dark-theme .podr-table tbody td {
+    background: #0f172a !important;
+    color: #e2e8f0 !important;
+    border-bottom-color: #334155 !important;
+}
+.dark-theme .podr-cardcode,
+.dark-theme .podr-upload-location,
+.dark-theme .podr-pagination .text-muted {
+    color: #94a3b8 !important;
+}
+.dark-theme .podr-tab-bar .btn-outline-secondary,
+.dark-theme .podr-pagination .btn-outline-secondary {
+    background: #1e293b !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .podr-tab-bar .btn-outline-secondary:hover,
+.dark-theme .podr-pagination .btn-outline-secondary:hover {
+    background: #334155 !important;
 }
 .dark-theme .pod-mud-table .mud-table-head .mud-table-cell {
     background: #1e293b;
