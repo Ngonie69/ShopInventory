@@ -281,15 +281,19 @@ public class UserManagementService : IUserManagementService
             }
         }
 
-        var effectivePermissions = await GetEffectivePermissionsAsync(userId);
+        var normalizedDirectPermissions = NormalizePermissions(directPermissions);
+        var effectivePermissions = NormalizePermissions(await GetEffectivePermissionsAsync(userId));
+        var roleDefaultPermissions = Permission.GetDefaultPermissionsForRole(user.Role);
 
         return new UserPermissionsResponse
         {
             UserId = user.Id,
             Username = user.Username,
             Role = user.Role,
-            Permissions = directPermissions,
-            EffectivePermissions = effectivePermissions
+            Permissions = normalizedDirectPermissions,
+            EffectivePermissions = effectivePermissions,
+            UsesRoleDefaults = normalizedDirectPermissions.Count == 0 ||
+                HasSamePermissions(normalizedDirectPermissions, roleDefaultPermissions)
         };
     }
 
@@ -476,6 +480,23 @@ public class UserManagementService : IUserManagementService
     private void InvalidateEffectivePermissionsCache(Guid userId)
     {
         _memoryCache.Remove(GetEffectivePermissionsCacheKey(userId));
+    }
+
+    private static bool HasSamePermissions(IEnumerable<string> permissions, IEnumerable<string> otherPermissions)
+    {
+        return NormalizePermissions(permissions)
+            .SequenceEqual(NormalizePermissions(otherPermissions), StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static List<string> NormalizePermissions(IEnumerable<string>? permissions)
+    {
+        return permissions?
+            .Where(permission => !string.IsNullOrWhiteSpace(permission))
+            .Select(permission => permission.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(permission => permission, StringComparer.OrdinalIgnoreCase)
+            .ToList()
+            ?? new List<string>();
     }
 
     private static UserDetailDto MapToUserDetailDto(User user)

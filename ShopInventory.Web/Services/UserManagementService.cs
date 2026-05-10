@@ -20,6 +20,7 @@ public interface IUserManagementService
 {
     Task<UserListResponse> GetUsersAsync(int page = 1, int pageSize = 20, string? search = null, string? role = null, string? status = null);
     Task<UserModel?> GetUserAsync(Guid id);
+    Task<(List<string> DirectPermissions, List<string> EffectivePermissions, bool UsesRoleDefaults)> GetUserPermissionsAsync(Guid id);
     Task CreateUserAsync(string username, string email, string password, string role);
     Task CreateUserAsync(UserFormModel model);
     Task CreateMerchandiserAccountAsync(CreateMerchandiserAccountFormModel model, CancellationToken cancellationToken = default);
@@ -98,6 +99,25 @@ public class UserManagementService : IUserManagementService
             _logger.LogError(ex, "Error fetching user {Id}", id);
             return null;
         }
+    }
+
+    public async Task<(List<string> DirectPermissions, List<string> EffectivePermissions, bool UsesRoleDefaults)> GetUserPermissionsAsync(Guid id)
+    {
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.GetAsync($"api/usermanagement/{id}/permissions");
+
+        if (!response.IsSuccessStatusCode)
+        {
+            await ThrowApiExceptionAsync(response, "Failed to load user permissions.");
+        }
+
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = document.RootElement;
+
+        return (
+            ReadStringListProperty(root, "permissions"),
+            ReadStringListProperty(root, "effectivePermissions"),
+            ReadBooleanProperty(root, "usesRoleDefaults"));
     }
 
     public async Task CreateUserAsync(string username, string email, string password, string role)
@@ -469,6 +489,48 @@ public class UserManagementService : IUserManagementService
             ExtractApiErrorMessage(errorBody, response.StatusCode, fallbackMessage),
             null,
             response.StatusCode);
+    }
+
+    private static List<string> ReadStringListProperty(JsonElement root, string propertyName)
+    {
+        if (!TryGetPropertyIgnoreCase(root, propertyName, out var propertyElement) || propertyElement.ValueKind != JsonValueKind.Array)
+        {
+            return new List<string>();
+        }
+
+        return propertyElement.EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.String)
+            .Select(item => item.GetString())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static bool ReadBooleanProperty(JsonElement root, string propertyName)
+    {
+        return TryGetPropertyIgnoreCase(root, propertyName, out var propertyElement)
+            && (propertyElement.ValueKind == JsonValueKind.True || propertyElement.ValueKind == JsonValueKind.False)
+            && propertyElement.GetBoolean();
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement root, string propertyName, out JsonElement propertyElement)
+    {
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in root.EnumerateObject())
+            {
+                if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    propertyElement = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        propertyElement = default;
+        return false;
     }
 
     private static string ExtractApiErrorMessage(

@@ -3091,7 +3091,7 @@
 
     private bool showPermissionsModal = false;
     private UserDisplayModel? selectedUserForPermissions;
-    private HashSet<string> selectedPermissions = new();
+    private HashSet<string> selectedPermissions = new(StringComparer.OrdinalIgnoreCase);
     private bool useRoleDefaults = false;
 
     // Security stats
@@ -3546,12 +3546,22 @@ new();
         }
     }
 
-    private void ShowPermissionsModal(UserDisplayModel user)
+    private async Task ShowPermissionsModal(UserDisplayModel user)
     {
-        selectedUserForPermissions = user;
-        selectedPermissions = new HashSet<string>(user.Permissions ?? new List<string>());
-        useRoleDefaults = selectedPermissions.Count == 0;
-        showPermissionsModal = true;
+        CloseActionMenu();
+
+        try
+        {
+            var permissions = await UserService.GetUserPermissionsAsync(user.Id);
+            selectedUserForPermissions = user;
+            selectedPermissions = new HashSet<string>(permissions.EffectivePermissions, StringComparer.OrdinalIgnoreCase);
+            useRoleDefaults = permissions.UsesRoleDefaults;
+            showPermissionsModal = true;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
     }
 
     private void ClosePermissionsModal()
@@ -3602,7 +3612,9 @@ new();
         {
             var userId = selectedUserForPermissions.Id;
             var username = selectedUserForPermissions.Username;
-            var permissions = useRoleDefaults ? new List<string>() : selectedPermissions.ToList();
+            var permissions = useRoleDefaults
+                ? new List<string>()
+                : selectedPermissions.OrderBy(permission => permission, StringComparer.OrdinalIgnoreCase).ToList();
             await UserService.UpdateUserPermissionsAsync(userId, permissions);
             Snackbar.Add("Permissions updated successfully", Severity.Success);
             ClosePermissionsModal();
