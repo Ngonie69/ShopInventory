@@ -35,16 +35,26 @@ jobs:
       - name: Check vulnerable packages
         shell: pwsh
         run: |
+          function Get-Items {
+            param($InputObject)
+
+            if ($null -eq $InputObject) {
+              return @()
+            }
+
+            return @($InputObject | Where-Object { $null -ne $_ })
+          }
+
           $reportPath = Join-Path $env:RUNNER_TEMP "nuget-vulnerabilities.json"
           dotnet list ShopInventory.sln package --vulnerable --include-transitive --format json --output-version 1 | Set-Content -LiteralPath $reportPath
 
           $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
           $vulnerabilities = @()
 
-          foreach ($project in @($report.projects)) {
-            foreach ($framework in @($project.frameworks)) {
-              foreach ($package in @($framework.topLevelPackages)) {
-                foreach ($vulnerability in @($package.vulnerabilities)) {
+          foreach ($project in Get-Items $report.projects) {
+            foreach ($framework in Get-Items $project.frameworks) {
+              foreach ($package in Get-Items $framework.topLevelPackages) {
+                foreach ($vulnerability in Get-Items $package.vulnerabilities) {
                   $vulnerabilities += [PSCustomObject]@{
                     Project = $project.path
                     Framework = $framework.framework
@@ -57,8 +67,8 @@ jobs:
                 }
               }
 
-              foreach ($package in @($framework.transitivePackages)) {
-                foreach ($vulnerability in @($package.vulnerabilities)) {
+              foreach ($package in Get-Items $framework.transitivePackages) {
+                foreach ($vulnerability in Get-Items $package.vulnerabilities) {
                   $vulnerabilities += [PSCustomObject]@{
                     Project = $project.path
                     Framework = $framework.framework
