@@ -145,7 +145,7 @@
                         <option value="all">Any location</option>
                         @foreach (var location in AvailableUploadLocations)
                         {
-                            <option value="@location">@location</option>
+                            <option value="@location">@AssignedSectionOptions.GetLabel(location)</option>
                         }
                     </select>
                 </div>
@@ -987,7 +987,9 @@
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return locations.Count == 0 ? "-" : string.Join(", ", locations);
+        return locations.Count == 0
+            ? "-"
+            : string.Join(", ", locations.Select(AssignedSectionOptions.GetLabel));
     }
 
     private string FormatDate(string? dateStr)

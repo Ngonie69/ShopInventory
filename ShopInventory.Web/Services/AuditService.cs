@@ -815,15 +815,36 @@ public class AuditService : IAuditService
 
     private static string BuildDedupKey(AuditLog log)
     {
+        var entityType = NormalizeDedupToken(log.EntityType);
+        var entityId = NormalizeDedupToken(log.EntityId);
+        var detailsFingerprint = string.IsNullOrWhiteSpace(entityType) && string.IsNullOrWhiteSpace(entityId)
+            ? NormalizeDedupToken(log.Details)
+            : string.Empty;
+        var errorFingerprint = log.IsSuccess
+            ? string.Empty
+            : NormalizeDedupToken(log.ErrorMessage);
+
         return string.Join('\u001F',
-            (log.Username ?? string.Empty).ToUpperInvariant(),
-            (log.UserRole ?? string.Empty).ToUpperInvariant(),
-            log.Action ?? string.Empty,
-            log.EntityType ?? string.Empty,
-            log.EntityId ?? string.Empty,
-            log.Details ?? string.Empty,
-            log.ErrorMessage ?? string.Empty,
-            log.PageUrl ?? string.Empty,
+            NormalizeDedupToken(log.Username),
+            NormalizeDedupToken(log.UserRole),
+            NormalizeDedupToken(log.Action),
+            entityType,
+            entityId,
+            detailsFingerprint,
+            errorFingerprint,
             log.IsSuccess);
+    }
+
+    private static string NormalizeDedupToken(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        return new string(value
+            .Where(char.IsLetterOrDigit)
+            .Select(char.ToUpperInvariant)
+            .ToArray());
     }
 }

@@ -465,7 +465,7 @@
                                             <option value="">-- Select Section --</option>
                                             @foreach (var sec in availableSections)
                                             {
-                                                <option value="@sec">@sec</option>
+                                                <option value="@sec">@AssignedSectionOptions.GetLabel(sec)</option>
                                             }
                                         </InputSelect>
                                     </div>

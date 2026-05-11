@@ -6,6 +6,7 @@ using ShopInventory.Authentication;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Features.Backups.Queries.GetAllBackups;
+using ShopInventory.Features.Backups.Queries.GetBackupCapabilities;
 using ShopInventory.Features.Backups.Queries.GetBackupById;
 using ShopInventory.Features.Backups.Queries.GetBackupStats;
 using ShopInventory.Features.Backups.Queries.DownloadBackup;
@@ -28,7 +29,15 @@ public class BackupController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    [HttpGet("{id}")]
+    [HttpGet("capabilities")]
+    [RequirePermission(Permission.ViewBackups)]
+    public async Task<IActionResult> GetCapabilities(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetBackupCapabilitiesQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpGet("{id:int}")]
     [RequirePermission(Permission.ViewBackups)]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
@@ -58,7 +67,7 @@ public class BackupController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
-    [HttpPost("{id}/restore")]
+    [HttpPost("{id:int}/restore")]
     [RequirePermission(Permission.RestoreBackups)]
     public async Task<IActionResult> Restore(int id, CancellationToken cancellationToken)
     {
@@ -70,7 +79,7 @@ public class BackupController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => Ok(new { message = "Backup restored successfully" }), errors => Problem(errors));
     }
 
-    [HttpGet("{id}/download")]
+    [HttpGet("{id:int}/download")]
     [RequirePermission(Permission.ViewBackups)]
     public async Task<IActionResult> Download(int id, CancellationToken cancellationToken)
     {
@@ -80,7 +89,7 @@ public class BackupController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
-    [HttpDelete("{id}")]
+    [HttpDelete("{id:int}")]
     [RequirePermission(Permission.DeleteBackups)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {

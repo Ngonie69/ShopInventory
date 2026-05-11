@@ -4020,6 +4020,12 @@ html.dark-theme {
 .dark-theme .bak-toggle-label {
     color: #e2e8f0 !important;
 }
+.dark-theme .bak-toggle.bak-toggle-disabled .bak-toggle-slider {
+    background: #334155 !important;
+}
+.dark-theme .bak-toggle-hint {
+    color: #94a3b8 !important;
+}
 .dark-theme .bak-table thead th {
     background: #0f172a !important;
     color: #94a3b8 !important;
@@ -4535,6 +4541,75 @@ html.dark-theme {
     background: #334155 !important;
     color: #e2e8f0 !important;
 }
+.dark-theme .cust-table-wrap .mud-table-container,
+.dark-theme .cust-table-wrap .mud-table-root,
+.dark-theme .cust-table-wrap .mud-table,
+.dark-theme .cust-table-wrap .mud-table-body {
+    background: #0f172a !important;
+}
+.dark-theme .cust-table-wrap .mud-table-head .mud-table-cell {
+    background: #1e293b !important;
+    color: #cbd5e1 !important;
+    border-bottom-color: #334155 !important;
+}
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row .mud-table-cell {
+    background: #0f172a !important;
+    color: #e2e8f0 !important;
+    border-bottom-color: #334155 !important;
+}
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row:nth-of-type(even) .mud-table-cell {
+    background: #132033 !important;
+}
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row:hover .mud-table-cell,
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row.mud-table-row-selected .mud-table-cell {
+    background: #1e293b !important;
+}
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row .customer-name,
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row .contact-cell,
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row .contact-cell .phone,
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row span[style*="font-size:.85rem"],
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row .detail-value {
+    color: #e2e8f0 !important;
+}
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row .customer-code,
+.dark-theme .detail-drawer .detail-value[style*="font-family:'Space Grotesk',monospace;color:#667eea"],
+.dark-theme .detail-drawer a[style*="color:#667eea"] {
+    color: #93c5fd !important;
+}
+.dark-theme .cust-table-wrap .table-quick-filter {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .cust-table-wrap .table-quick-filter::placeholder {
+    color: #64748b !important;
+}
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row .type-badge.customer {
+    background: #1e3a8a !important;
+    color: #bfdbfe !important;
+}
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row .type-badge.supplier {
+    background: #14532d !important;
+    color: #bbf7d0 !important;
+}
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row .type-badge.lead {
+    background: #4c1d95 !important;
+    color: #ddd6fe !important;
+}
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row .status-badge.active {
+    background: #064e3b !important;
+    color: #86efac !important;
+}
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row .status-badge.inactive {
+    background: #334155 !important;
+    color: #cbd5e1 !important;
+}
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row .balance-positive {
+    color: #fca5a5 !important;
+}
+.dark-theme .cust-table-wrap .mud-table-body .mud-table-row .balance-zero {
+    color: #6ee7b7 !important;
+}
 
 /* --- UserActivity page --- */
 .dark-theme .time-btn {
@@ -4734,6 +4809,10 @@ html.dark-theme {
 .dark-theme .md-header p {
     color: #94a3b8 !important;
 }
+.dark-theme .md-filter-panel {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+}
 .dark-theme .md-table-wrap {
     background: #1e293b !important;
     border-color: #334155 !important;
@@ -4792,6 +4871,29 @@ html.dark-theme {
 }
 .dark-theme .sap-doc-num {
     color: #6ee7b7 !important;
+}
+
+.dark-theme .md-order-actions-header,
+.dark-theme .md-order-actions-cell {
+    border-left-color: #334155 !important;
+}
+
+.dark-theme .md-order-actions-header {
+    background: #0f172a !important;
+    box-shadow: -10px 0 18px -18px rgba(2, 6, 23, .95) !important;
+}
+
+.dark-theme .md-table-wrap .mud-table-body .mud-table-row .md-order-actions-cell {
+    background: #1e293b !important;
+}
+
+.dark-theme .md-table-wrap .mud-table-body .mud-table-row:nth-of-type(even) .md-order-actions-cell {
+    background: #243244 !important;
+}
+
+.dark-theme .md-table-wrap .mud-table-body .mud-table-row:hover .md-order-actions-cell,
+.dark-theme .md-table-wrap .mud-table-body .mud-table-row.mud-table-row-selected .md-order-actions-cell {
+    background: #1d4f91 !important;
 }
 
 /* --- Invoices page --- */

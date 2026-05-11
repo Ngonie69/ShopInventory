@@ -19,7 +19,7 @@
                 <p class="bak-subtitle">Manage database backups and restore points</p>
             </div>
         </div>
-        <button class="bak-btn bak-btn-primary" @onclick="() => showCreateModal = true" disabled="@isCreating">
+        <button class="bak-btn bak-btn-primary" @onclick="OpenCreateModal" disabled="@isCreating">
             <i class="bi bi-plus-lg"></i>
             <span>Create Backup</span>
         </button>
@@ -203,7 +203,7 @@
             <i class="bi bi-database-add"></i>
             <h3>No backups yet</h3>
             <p>Create your first backup to protect your data</p>
-            <button class="bak-btn bak-btn-primary" @onclick="() => showCreateModal = true">
+            <button class="bak-btn bak-btn-primary" @onclick="OpenCreateModal">
                 <i class="bi bi-plus-lg"></i> Create First Backup
             </button>
         </div>
@@ -233,11 +233,15 @@
                     <textarea class="bak-input" @bind="newBackup.Description" rows="2"
                               placeholder="Optional description for this backup"></textarea>
                 </div>
-                <label class="bak-toggle">
-                    <input type="checkbox" @bind="newBackup.UploadToCloud" />
+                <label class="@(CloudUploadAvailable ? "bak-toggle" : "bak-toggle bak-toggle-disabled")">
+                    <input type="checkbox" @bind="newBackup.UploadToCloud" disabled="@(!CloudUploadAvailable)" />
                     <span class="bak-toggle-slider"></span>
                     <span class="bak-toggle-label"><i class="bi bi-cloud-upload me-1"></i>Upload to Cloud Storage</span>
                 </label>
+                @if (!CloudUploadAvailable)
+                {
+                    <div class="bak-toggle-hint">Cloud storage upload is not configured in this environment yet. Backups will be created locally.</div>
+                }
             </div>
             <div class="bak-modal-footer">
                 <button class="bak-btn bak-btn-ghost" @onclick="() => showCreateModal = false">Cancel</button>
@@ -873,6 +877,14 @@
             padding-top: .4rem;
         }
 
+        .bak-toggle-disabled {
+            cursor: not-allowed;
+        }
+
+        .bak-toggle-disabled .bak-toggle-slider {
+            background: #cbd5e1;
+        }
+
         .bak-toggle input {
             display: none;
         }
@@ -911,6 +923,13 @@
         .bak-toggle-label {
             font-size: .85rem;
             color: #374151;
+        }
+
+        .bak-toggle-hint {
+            margin-top: .55rem;
+            font-size: .78rem;
+            color: #6b7280;
+            line-height: 1.45;
         }
 
         /* ── Loading / Empty ──────────────────── */
@@ -1167,6 +1186,8 @@
     </style>
 
 @code {
+    private const bool CloudUploadAvailable = false;
+
     private List<BackupDto>? backups;
     private BackupStatsDto? stats;
     private BackupDto? backupToRestore;
@@ -1227,12 +1248,25 @@
         await LoadData();
     }
 
+    private void OpenCreateModal()
+    {
+        newBackup.UploadToCloud = CloudUploadAvailable && newBackup.UploadToCloud;
+        showCreateModal = true;
+    }
+
     private async Task CreateBackup()
     {
         isCreating = true;
         try
         {
-            var result = await BackupService.CreateBackupAsync(newBackup);
+            var request = new CreateBackupRequest
+            {
+                BackupType = newBackup.BackupType,
+                Description = newBackup.Description,
+                UploadToCloud = CloudUploadAvailable && newBackup.UploadToCloud
+            };
+
+            var result = await BackupService.CreateBackupAsync(request);
             if (result != null)
             {
                 showCreateModal = false;

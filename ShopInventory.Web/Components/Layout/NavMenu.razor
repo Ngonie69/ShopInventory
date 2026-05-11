@@ -682,6 +682,16 @@
                         </span>
                         <span class="snav-text">Notifications</span>
                     </NavLink>
+                    <AuthorizeView Roles="Admin" Context="mobilePushCtx">
+                        <Authorized>
+                            <NavLink class="snav-link" href="/mobile-push" Match="NavLinkMatch.Prefix">
+                                <span class="snav-icon">
+                                    <MudIcon Icon="@Icons.Material.Filled.Campaign" />
+                                </span>
+                                <span class="snav-text">Mobile Push</span>
+                            </NavLink>
+                        </Authorized>
+                    </AuthorizeView>
                     <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.Security" />

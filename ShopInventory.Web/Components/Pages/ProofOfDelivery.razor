@@ -477,7 +477,7 @@
                             <option value="">All locations</option>
                             @foreach (var location in AssignedSectionOptions.All)
                             {
-                                <option value="@location">@location</option>
+                                <option value="@location">@AssignedSectionOptions.GetLabel(location)</option>
                             }
                         </select>
                     </div>
@@ -554,7 +554,7 @@
                             <div class="pod-user-name">@(context.UploadedByUserName ?? "-")</div>
                             @if (!string.IsNullOrWhiteSpace(context.UploadedFromLocation))
                             {
-                                <div class="pod-user-location">@context.UploadedFromLocation</div>
+                                <div class="pod-user-location">@AssignedSectionOptions.GetLabel(context.UploadedFromLocation)</div>
                             }
                         </MudTd>
                         <MudTd DataLabel="Actions" Class="text-end">

@@ -217,6 +217,16 @@ try
             OnAuthenticationFailed = context =>
             {
                 var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+
+                if (context.Exception is SecurityTokenExpiredException expiredException)
+                {
+                    logger.LogDebug(
+                        "Expired JWT rejected for {Path}. Expired at {ExpiresUtc:O}.",
+                        context.Request.Path,
+                        expiredException.Expires);
+                    return Task.CompletedTask;
+                }
+
                 logger.LogWarning("JWT authentication failed: {Error}", context.Exception.Message);
                 return Task.CompletedTask;
             },
@@ -441,6 +451,8 @@ try
     builder.Services.AddScoped<IRateLimitService, RateLimitService>();
 
     // Register backup service
+    builder.Services.Configure<ShopInventory.Features.Backups.Support.BackupCloudStorageOptions>(builder.Configuration.GetSection("Backup:CloudStorage"));
+    builder.Services.AddScoped<ShopInventory.Features.Backups.Support.IBackupCloudStorage, ShopInventory.Features.Backups.Support.GoogleCloudBackupStorage>();
     builder.Services.AddScoped<IBackupService, BackupService>();
 
     // Register document management service

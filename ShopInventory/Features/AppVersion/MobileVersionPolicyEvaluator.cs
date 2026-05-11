@@ -154,6 +154,31 @@ public sealed class MobileVersionPolicyEvaluator(
         if (string.IsNullOrWhiteSpace(candidate))
             return false;
 
+        candidate = ExtractVersionCandidate(candidate);
         return Version.TryParse(candidate, out version);
+    }
+
+    private static string ExtractVersionCandidate(string value)
+    {
+        var startIndex = -1;
+        for (var index = 0; index < value.Length; index++)
+        {
+            if (char.IsDigit(value[index]))
+            {
+                startIndex = index;
+                break;
+            }
+        }
+
+        if (startIndex < 0)
+            return value;
+
+        var endIndex = startIndex;
+        while (endIndex < value.Length && (char.IsDigit(value[endIndex]) || value[endIndex] == '.'))
+        {
+            endIndex++;
+        }
+
+        return value[startIndex..endIndex];
     }
 }

@@ -247,6 +247,7 @@ try
     builder.Services.AddScoped<IReportExportService, ReportExportService>();
     builder.Services.AddScoped<IUserManagementService, UserManagementService>();
     builder.Services.AddScoped<INotificationClientService, NotificationClientService>();
+    builder.Services.AddScoped<IPushNotificationClientService, PushNotificationClientService>();
     builder.Services.AddScoped<INotificationHubService, NotificationHubService>();
     builder.Services.AddScoped<ISyncStatusClientService, SyncStatusClientService>();
     builder.Services.AddScoped<IExceptionCenterService, ExceptionCenterService>();

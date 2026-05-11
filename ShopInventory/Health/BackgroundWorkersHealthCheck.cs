@@ -7,11 +7,15 @@ namespace ShopInventory.Health;
 
 public sealed class BackgroundWorkersHealthCheck(
     IServiceScopeFactory scopeFactory,
-    BackgroundWorkerHealthRegistry healthRegistry) : IHealthCheck
+    BackgroundWorkerHealthRegistry healthRegistry,
+    RuntimeInstanceIdentity runtimeInstanceIdentity) : IHealthCheck
 {
+    private static readonly TimeSpan ClusterStartupGracePeriod = TimeSpan.FromSeconds(20);
+
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
         var utcNow = DateTime.UtcNow;
+        var uptime = utcNow - runtimeInstanceIdentity.StartedAtUtc;
         var requiredWorkers = healthRegistry.GetSnapshots()
             .Where(worker => worker.IsCritical)
             .OrderBy(worker => worker.WorkerName, StringComparer.Ordinal)
@@ -64,12 +68,24 @@ public sealed class BackgroundWorkersHealthCheck(
         {
             ["workers"] = clusterStates.Select(worker =>
                 $"{worker.WorkerName}|instance={worker.InstanceId}|mode={worker.Mode}|heartbeat={worker.LastHeartbeatUtc:O}|success={(worker.LastSuccessfulRunUtc.HasValue ? worker.LastSuccessfulRunUtc.Value.ToString("O") : "none")}|failures={worker.ConsecutiveFailures}")
+                .ToArray(),
+            ["localWorkers"] = requiredWorkers.Select(worker =>
+                $"{worker.WorkerName}|mode={worker.Mode}|heartbeat={worker.LastHeartbeatUtc:O}|success={(worker.LastSuccessfulRunUtc.HasValue ? worker.LastSuccessfulRunUtc.Value.ToString("O") : "none")}|failures={worker.ConsecutiveFailures}")
                 .ToArray()
         };
 
         if (failures.Count > 0)
         {
             data["unhealthyWorkers"] = failures.ToArray();
+
+            if (uptime <= ClusterStartupGracePeriod)
+            {
+                data["startupGraceRemainingSeconds"] = Math.Max(0, (int)Math.Ceiling((ClusterStartupGracePeriod - uptime).TotalSeconds));
+                return HealthCheckResult.Degraded(
+                    "Critical background workers are still establishing cluster leadership after startup.",
+                    data: data);
+            }
+
             return HealthCheckResult.Unhealthy("Critical background workers have no healthy cluster leader.", data: data);
         }
 
