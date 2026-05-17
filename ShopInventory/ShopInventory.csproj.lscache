@@ -1,0 +1,2189 @@
+version=1
+
+# This file caches language service data to improve the performance of C# Dev Kit.
+# It is not intended for manual editing. It can safely be deleted and will be
+# regenerated automatically. For more information, see https://aka.ms/lscache
+#
+# To control where cache files are stored, use the following VS Code setting:
+#   "dotnet.projectsystem.cacheInProjectFolder": true
+
+[project]
+language=C#
+primary
+lastDtbSucceeded
+
+[properties]
+AssemblyName=ShopInventory
+CommandLineArgsForDesignTimeEvaluation=-langversion:14.0 -define:TRACE -doc:"obj\Debug\net10.0\ShopInventory.xml"
+CompilerGeneratedFilesOutputPath=
+MaxSupportedLangVersion=14.0
+ProjectAssetsFile=<PATH>obj/project.assets.json
+RootNamespace=ShopInventory
+RunAnalyzers=
+RunAnalyzersDuringLiveAnalysis=
+SolutionPath=<PATH>../ShopInventory.sln
+TargetFrameworkIdentifier=.NETCoreApp
+TargetPath=<PATH>bin/Debug/net10.0/ShopInventory.dll
+TargetRefPath=<PATH>obj/Debug/net10.0/ref/ShopInventory.dll
+TemporaryDependencyNodeTargetIdentifier=net10.0
+
+[commandLineArguments]
+/noconfig
+/unsafe-
+/checked-
+/nowarn:1701,1702,1591,1701,1702,8002
+/fullpaths
+/nostdlib+
+/errorreport:prompt
+/warn:10
+/doc:obj\Debug\net10.0\ShopInventory.xml
+/define:TRACE;DEBUG;NET;NET10_0;NETCOREAPP;NET5_0_OR_GREATER;NET6_0_OR_GREATER;NET7_0_OR_GREATER;NET8_0_OR_GREATER;NET9_0_OR_GREATER;NET10_0_OR_GREATER;NETCOREAPP1_0_OR_GREATER;NETCOREAPP1_1_OR_GREATER;NETCOREAPP2_0_OR_GREATER;NETCOREAPP2_1_OR_GREATER;NETCOREAPP2_2_OR_GREATER;NETCOREAPP3_0_OR_GREATER;NETCOREAPP3_1_OR_GREATER
+/highentropyva+
+/nullable:enable
+/features:"InterceptorsNamespaces=;Microsoft.Extensions.Validation.Generated"
+/debug+
+/debug:portable
+/filealign:512
+/optimize-
+/out:obj\Debug\net10.0\ShopInventory.dll
+/refout:obj\Debug\net10.0\refint\ShopInventory.dll
+/target:exe
+/warnaserror-
+/utf8output
+/deterministic+
+/langversion:14.0
+/features:use-roslyn-tokenizer=true
+/warnaserror+:NU1605,SYSLIB0011
+
+[sourceFiles]
+Authentication/
+ ApiKeyAuthenticationHandler.cs
+ PermissionAuthorization.cs
+Behaviors/
+ LoggingBehavior.cs
+ ValidationBehavior.cs
+Common/
+ BatchStatusValues.cs
+ Caching/
+  CacheStatusKeys.cs
+  CacheSyncStateRecorder.cs
+ Errors/
+  Errors.AppVersion.cs
+  Errors.Auth.cs
+  Errors.Backup.cs
+  Errors.Batch.cs
+  Errors.BusinessPartner.cs
+  Errors.CostCentre.cs
+  Errors.CreditNote.cs
+  Errors.CustomerPortal.cs
+  Errors.DesktopIntegration.cs
+  Errors.DesktopSales.cs
+  Errors.Document.cs
+  Errors.Email.cs
+  Errors.ExceptionCenter.cs
+  Errors.ExchangeRate.cs
+  Errors.GLAccount.cs
+  Errors.GoodsReceiptPurchaseOrder.cs
+  Errors.IncomingPayment.cs
+  Errors.InventoryTransfer.cs
+  Errors.Invoice.cs
+  Errors.Merchandiser.cs
+  Errors.Notification.cs
+  Errors.Password.cs
+  Errors.Payment.cs
+  Errors.Price.cs
+  Errors.Product.cs
+  Errors.PurchaseInvoice.cs
+  Errors.PurchaseOrder.cs
+  Errors.PurchaseQuotation.cs
+  Errors.PurchaseRequest.cs
+  Errors.PushNotification.cs
+  Errors.Quotation.cs
+  Errors.RateLimit.cs
+  Errors.Report.cs
+  Errors.Revmax.cs
+  Errors.SalesOrder.cs
+  Errors.SAPSettings.cs
+  Errors.Statement.cs
+  Errors.Stock.cs
+  Errors.Sync.cs
+  Errors.Timesheet.cs
+  Errors.TwoFactor.cs
+  Errors.User.cs
+  Errors.UserActivity.cs
+  Errors.UserManagement.cs
+  Errors.Webhook.cs
+ Extensions/UserCredentialQueryExtensions.cs
+ Mobile/MobileAssignedCustomerScope.cs
+ Pods/
+  PodExclusions.cs
+  PodLocationScope.cs
+ Validation/
+  RecursiveDataAnnotationsValidator.cs
+  UomQuantityValidation.cs
+Configuration/
+ ApiVersionOperationFilter.cs
+ ConfigureSwaggerOptions.cs
+ DailyStockSettings.cs
+ FirebaseSettings.cs
+ JwtSettings.cs
+ MobileVersionPolicyOptions.cs
+ PaymentGatewaySettings.cs
+ PostgresConnectionPolicyOptions.cs
+ PostgresConnectionStringValidator.cs
+ RateLimitSettings.cs
+ RevmaxSettings.cs
+ SAPSettings.cs
+ SecuritySettings.cs
+ SystemHealthAlertSettings.cs
+Controllers/
+ ApiControllerBase.cs
+ AppVersionController.cs
+ AuthController.cs
+ BackupController.cs
+ BatchController.cs
+ BusinessPartnerController.cs
+ CostCentreController.cs
+ CreditNoteController.cs
+ CustomerPortalController.cs
+ DesktopIntegrationController.cs
+ DocumentController.cs
+ EmailController.cs
+ ExceptionCenterController.cs
+ ExchangeRateController.cs
+ GLAccountController.cs
+ GoodsReceiptPurchaseOrderController.cs
+ HealthController.cs
+ IncomingPaymentController.cs
+ InventoryTransferController.cs
+ InvoiceController.cs
+ MerchandiserController.cs
+ NotificationController.cs
+ PasswordController.cs
+ PaymentController.cs
+ PriceController.cs
+ ProductController.cs
+ PurchaseInvoiceController.cs
+ PurchaseOrderController.cs
+ PurchaseQuotationController.cs
+ PurchaseRequestController.cs
+ PushNotificationController.cs
+ QuotationController.cs
+ RateLimitController.cs
+ ReportController.cs
+ RevmaxProxyController.cs
+ SalesOrderController.cs
+ SAPSettingsController.cs
+ StatementController.cs
+ StockController.cs
+ SyncController.cs
+ TimesheetController.cs
+ TwoFactorController.cs
+ UserActivityController.cs
+ UserController.cs
+ UserManagementController.cs
+ WebhookController.cs
+Data/
+ ApplicationDbContext.cs
+ DbInitializer.cs
+DTOs/
+ AuthDto.cs
+ AvailableBatchWithReservationsDto.cs
+ BatchSearchResponseDto.cs
+ BatchSearchResultDto.cs
+ BatchValidationDto.cs
+ BlockClientRequest.cs
+ BulkPodValidationRequestDto.cs
+ BulkPodValidationResponseDto.cs
+ BulkPodValidationResultDto.cs
+ BulkRegistrationRequest.cs
+ BulkRegistrationResponse.cs
+ BusinessPartnerDto.cs
+ CommonDto.cs
+ ConvertResponse.cs
+ ConvertSalesOrderToInvoiceRequest.cs
+ ConvertSalesOrderToInvoiceResponseDto.cs
+ CostCentreDto.cs
+ CreateDesktopInvoiceLineRequest.cs
+ CreateDesktopInvoiceRequest.cs
+ CreateDesktopTransferRequestDto.cs
+ CreateDesktopTransferRequestLineDto.cs
+ CustomerBasicInfo.cs
+ CustomerRegistrationRequest.cs
+ CustomerRegistrationResponse.cs
+ DesktopBatchRequest.cs
+ DocumentDto.cs
+ ExceptionCenterDto.cs
+ GenerateHashRequest.cs
+ GLAccountDto.cs
+ GoodsReceiptPurchaseOrderDto.cs
+ IncomingPaymentDto.cs
+ InventoryTransferDto.cs
+ InvoiceDto.cs
+ ItemPriceDto.cs
+ ManagedMerchandiserAccountDto.cs
+ MerchandiserDto.cs
+ MerchandiserPurchaseOrderReportAttachmentDto.cs
+ MerchandiserPurchaseOrderReportDto.cs
+ MerchandiserPurchaseOrderReportLineDto.cs
+ MerchandiserPurchaseOrderReportMerchandiserDto.cs
+ MerchandiserPurchaseOrderReportOrderDto.cs
+ MobileBiometricLoginRequest.cs
+ MobileBiometricPreferenceRequest.cs
+ MobileVersionPolicySettingsDto.cs
+ NotificationDto.cs
+ PasskeyAssertionCompleteRequest.cs
+ PasskeyAssertionOptionsRequest.cs
+ PasskeyAssertionOptionsResponse.cs
+ PasskeyCredentialDto.cs
+ PasskeyRegistrationCompleteRequest.cs
+ PasskeyRegistrationOptionsRequest.cs
+ PasskeyRegistrationOptionsResponse.cs
+ PasswordHashResponse.cs
+ PaymentDto.cs
+ ProductDto.cs
+ PurchaseInvoiceDto.cs
+ PurchaseOrderDto.cs
+ PurchaseQuotationDto.cs
+ PurchaseRequestDto.cs
+ PushNotificationDto.cs
+ QueuedInvoiceResponseDto.cs
+ QueuedTransferResponseDto.cs
+ QuotationDto.cs
+ ReportDto.cs
+ SalesOrderDto.cs
+ SecurityDto.cs
+ StockDto.cs
+ StockReservationDto.cs
+ StockValidationResultDto.cs
+ SystemDto.cs
+ UpdateBatchStatusRequestDto.cs
+ UpdateGlobalDriverAssignedCustomersRequest.cs
+ UpdateMerchandiserAssignedCustomersRequest.cs
+ UpdateMobileVersionPolicySettingsRequest.cs
+ UserActivityFilterOptionsDto.cs
+ UserManagementDto.cs
+ ValidateStockRequest.cs
+ WebhookDto.cs
+Features/AppVersion/Commands/UpdateMobileVersionPolicySettings/
+ UpdateMobileVersionPolicySettingsCommand.cs
+ UpdateMobileVersionPolicySettingsHandler.cs
+ UpdateMobileVersionPolicySettingsResult.cs
+ UpdateMobileVersionPolicySettingsValidator.cs
+Features/AppVersion/
+ IMobileVersionPolicyEvaluator.cs
+ MobileOrderStatusCompatibilityService.cs
+ MobileVersionPolicyConfigurationValue.cs
+ MobileVersionPolicyEvaluation.cs
+ MobileVersionPolicyEvaluator.cs
+ Queries/GetMobileVersionPolicy/
+  GetMobileVersionPolicyHandler.cs
+  GetMobileVersionPolicyQuery.cs
+  MobileVersionPolicyResponse.cs
+ Queries/GetMobileVersionPolicySettings/
+  GetMobileVersionPolicySettingsHandler.cs
+  GetMobileVersionPolicySettingsQuery.cs
+Features/Auth/Commands/BeginPasskeyLogin/
+ BeginPasskeyLoginCommand.cs
+ BeginPasskeyLoginHandler.cs
+Features/Auth/Commands/BeginPasskeyRegistration/
+ BeginPasskeyRegistrationCommand.cs
+ BeginPasskeyRegistrationHandler.cs
+Features/Auth/Commands/CompleteMobileBiometricLogin/
+ CompleteMobileBiometricLoginCommand.cs
+ CompleteMobileBiometricLoginHandler.cs
+ CompleteMobileBiometricLoginValidator.cs
+Features/Auth/Commands/CompletePasskeyLogin/
+ CompletePasskeyLoginCommand.cs
+ CompletePasskeyLoginHandler.cs
+Features/Auth/Commands/CompletePasskeyRegistration/
+ CompletePasskeyRegistrationCommand.cs
+ CompletePasskeyRegistrationHandler.cs
+Features/Auth/Commands/CompleteTwoFactorLogin/
+ CompleteTwoFactorLoginCommand.cs
+ CompleteTwoFactorLoginHandler.cs
+Features/Auth/Commands/Login/
+ LoginCommand.cs
+ LoginHandler.cs
+ LoginValidator.cs
+Features/Auth/Commands/Logout/
+ LogoutCommand.cs
+ LogoutHandler.cs
+Features/Auth/Commands/RecordMobileBiometricPreference/
+ RecordMobileBiometricPreferenceCommand.cs
+ RecordMobileBiometricPreferenceHandler.cs
+ RecordMobileBiometricPreferenceValidator.cs
+Features/Auth/Commands/RefreshToken/
+ RefreshTokenCommand.cs
+ RefreshTokenHandler.cs
+Features/Auth/Commands/Register/
+ RegisterCommand.cs
+ RegisterHandler.cs
+Features/Auth/
+ Passkeys/PasskeyRelyingParty.cs
+ Queries/GetCurrentUser/
+  GetCurrentUserHandler.cs
+  GetCurrentUserQuery.cs
+ Queries/GetPasskeys/
+  GetPasskeysHandler.cs
+  GetPasskeysQuery.cs
+Features/Backups/Commands/CreateBackup/
+ CreateBackupCommand.cs
+ CreateBackupHandler.cs
+ CreateBackupValidator.cs
+Features/Backups/Commands/DeleteBackup/
+ DeleteBackupCommand.cs
+ DeleteBackupHandler.cs
+Features/Backups/Commands/ResetDatabase/
+ ResetDatabaseCommand.cs
+ ResetDatabaseHandler.cs
+Features/Backups/Commands/RestoreBackup/
+ RestoreBackupCommand.cs
+ RestoreBackupHandler.cs
+Features/Backups/Queries/DownloadBackup/
+ DownloadBackupHandler.cs
+ DownloadBackupQuery.cs
+Features/Backups/Queries/GetAllBackups/
+ GetAllBackupsHandler.cs
+ GetAllBackupsQuery.cs
+Features/Backups/Queries/GetBackupById/
+ GetBackupByIdHandler.cs
+ GetBackupByIdQuery.cs
+Features/Backups/Queries/GetBackupCapabilities/
+ BackupCapabilitiesDto.cs
+ GetBackupCapabilitiesHandler.cs
+ GetBackupCapabilitiesQuery.cs
+Features/Backups/Queries/GetBackupStats/
+ GetBackupStatsHandler.cs
+ GetBackupStatsQuery.cs
+Features/Backups/Support/
+ BackupCloudStorageOptions.cs
+ GoogleCloudBackupStorage.cs
+ IBackupCloudStorage.cs
+Features/Batches/Commands/UpdateBatchStatus/
+ UpdateBatchStatusCommand.cs
+ UpdateBatchStatusHandler.cs
+ UpdateBatchStatusValidator.cs
+Features/Batches/Queries/SearchBatches/
+ SearchBatchesHandler.cs
+ SearchBatchesQuery.cs
+ SearchBatchesValidator.cs
+Features/BusinessPartners/Queries/GetBusinessPartnerByCode/
+ GetBusinessPartnerByCodeHandler.cs
+ GetBusinessPartnerByCodeQuery.cs
+Features/BusinessPartners/Queries/GetBusinessPartners/
+ GetBusinessPartnersHandler.cs
+ GetBusinessPartnersQuery.cs
+Features/BusinessPartners/Queries/GetBusinessPartnersByType/
+ GetBusinessPartnersByTypeHandler.cs
+ GetBusinessPartnersByTypeQuery.cs
+Features/BusinessPartners/Queries/GetPaymentTerms/
+ GetPaymentTermsHandler.cs
+ GetPaymentTermsQuery.cs
+Features/BusinessPartners/Queries/SearchBusinessPartners/
+ SearchBusinessPartnersHandler.cs
+ SearchBusinessPartnersQuery.cs
+Features/CostCentres/Queries/GetCostCentreByCode/
+ GetCostCentreByCodeHandler.cs
+ GetCostCentreByCodeQuery.cs
+Features/CostCentres/Queries/GetCostCentres/
+ GetCostCentresHandler.cs
+ GetCostCentresQuery.cs
+Features/CostCentres/Queries/GetCostCentresByDimension/
+ GetCostCentresByDimensionHandler.cs
+ GetCostCentresByDimensionQuery.cs
+Features/CreditNotes/Commands/ApproveCreditNote/
+ ApproveCreditNoteCommand.cs
+ ApproveCreditNoteHandler.cs
+Features/CreditNotes/Commands/CreateCreditNote/
+ CreateCreditNoteCommand.cs
+ CreateCreditNoteHandler.cs
+Features/CreditNotes/Commands/CreateCreditNoteFromInvoice/
+ CreateCreditNoteFromInvoiceCommand.cs
+ CreateCreditNoteFromInvoiceHandler.cs
+Features/CreditNotes/Commands/DeleteCreditNote/
+ DeleteCreditNoteCommand.cs
+ DeleteCreditNoteHandler.cs
+Features/CreditNotes/Commands/UpdateCreditNoteStatus/
+ UpdateCreditNoteStatusCommand.cs
+ UpdateCreditNoteStatusHandler.cs
+Features/CreditNotes/Queries/GetAllCreditNotes/
+ GetAllCreditNotesHandler.cs
+ GetAllCreditNotesQuery.cs
+Features/CreditNotes/Queries/GetCreditNoteById/
+ GetCreditNoteByIdHandler.cs
+ GetCreditNoteByIdQuery.cs
+Features/CreditNotes/Queries/GetCreditNoteByNumber/
+ GetCreditNoteByNumberHandler.cs
+ GetCreditNoteByNumberQuery.cs
+Features/CreditNotes/Queries/GetCreditNotesByInvoice/
+ GetCreditNotesByInvoiceHandler.cs
+ GetCreditNotesByInvoiceQuery.cs
+Features/CustomerPortal/Commands/BulkRegisterCustomers/
+ BulkRegisterCustomersCommand.cs
+ BulkRegisterCustomersHandler.cs
+Features/CustomerPortal/Commands/GeneratePasswordHash/
+ GeneratePasswordHashCommand.cs
+ GeneratePasswordHashHandler.cs
+Features/CustomerPortal/Commands/RegisterCustomer/
+ RegisterCustomerCommand.cs
+ RegisterCustomerHandler.cs
+Features/DesktopIntegration/Commands/CancelQueuedInvoice/
+ CancelQueuedInvoiceCommand.cs
+ CancelQueuedInvoiceHandler.cs
+Features/DesktopIntegration/Commands/CancelQueuedTransfer/
+ CancelQueuedTransferCommand.cs
+ CancelQueuedTransferHandler.cs
+Features/DesktopIntegration/Commands/CancelReservation/
+ CancelReservationCommand.cs
+ CancelReservationHandler.cs
+Features/DesktopIntegration/Commands/CloseTransferRequest/
+ CloseTransferRequestCommand.cs
+ CloseTransferRequestHandler.cs
+Features/DesktopIntegration/Commands/ConfirmReservation/
+ ConfirmReservationCommand.cs
+ ConfirmReservationHandler.cs
+Features/DesktopIntegration/Commands/ConsolidateDailySales/
+ ConsolidateDailySalesCommand.cs
+ ConsolidateDailySalesHandler.cs
+Features/DesktopIntegration/Commands/ConvertSalesOrderToInvoice/
+ ConvertSalesOrderToInvoiceCommand.cs
+ ConvertSalesOrderToInvoiceHandler.cs
+Features/DesktopIntegration/Commands/ConvertTransferRequest/
+ ConvertTransferRequestCommand.cs
+ ConvertTransferRequestHandler.cs
+Features/DesktopIntegration/Commands/CreateDesktopSale/
+ CreateDesktopSaleCommand.cs
+ CreateDesktopSaleHandler.cs
+ CreateDesktopSaleValidator.cs
+Features/DesktopIntegration/Commands/CreateInvoiceDirect/
+ CreateInvoiceDirectCommand.cs
+ CreateInvoiceDirectHandler.cs
+Features/DesktopIntegration/Commands/CreateQueuedInvoice/
+ CreateQueuedInvoiceCommand.cs
+ CreateQueuedInvoiceHandler.cs
+Features/DesktopIntegration/Commands/CreateQueuedTransfer/
+ CreateQueuedTransferCommand.cs
+ CreateQueuedTransferHandler.cs
+Features/DesktopIntegration/Commands/CreateReservation/
+ CreateReservationCommand.cs
+ CreateReservationHandler.cs
+Features/DesktopIntegration/Commands/CreateTransfer/
+ CreateTransferCommand.cs
+ CreateTransferHandler.cs
+Features/DesktopIntegration/Commands/CreateTransferRequest/
+ CreateTransferRequestCommand.cs
+ CreateTransferRequestHandler.cs
+Features/DesktopIntegration/Commands/FetchDailyStock/
+ FetchDailyStockCommand.cs
+ FetchDailyStockHandler.cs
+Features/DesktopIntegration/Commands/ProcessTransferEvent/
+ ProcessTransferEventCommand.cs
+ ProcessTransferEventHandler.cs
+ ProcessTransferEventValidator.cs
+Features/DesktopIntegration/Commands/RenewReservation/
+ RenewReservationCommand.cs
+ RenewReservationHandler.cs
+Features/DesktopIntegration/Commands/RetryQueuedInvoice/
+ RetryQueuedInvoiceCommand.cs
+ RetryQueuedInvoiceHandler.cs
+Features/DesktopIntegration/Commands/RetryQueuedTransfer/
+ RetryQueuedTransferCommand.cs
+ RetryQueuedTransferHandler.cs
+Features/DesktopIntegration/Commands/ValidateTransfer/
+ ValidateTransferCommand.cs
+ ValidateTransferHandler.cs
+ ValidateTransferResult.cs
+Features/DesktopIntegration/Queries/DownloadInvoicePdf/
+ DownloadInvoicePdfHandler.cs
+ DownloadInvoicePdfQuery.cs
+Features/DesktopIntegration/Queries/GenerateEndOfDayReport/
+ GenerateEndOfDayReportHandler.cs
+ GenerateEndOfDayReportQuery.cs
+Features/DesktopIntegration/Queries/GetAvailableBatches/
+ GetAvailableBatchesHandler.cs
+ GetAvailableBatchesQuery.cs
+Features/DesktopIntegration/Queries/GetDesktopSales/
+ GetDesktopSalesHandler.cs
+ GetDesktopSalesQuery.cs
+Features/DesktopIntegration/Queries/GetFiscalizedSalesReport/
+ GetFiscalizedSalesReportHandler.cs
+ GetFiscalizedSalesReportQuery.cs
+Features/DesktopIntegration/Queries/GetInvoice/
+ GetInvoiceHandler.cs
+ GetInvoiceQuery.cs
+Features/DesktopIntegration/Queries/GetInvoiceByDocNum/
+ GetInvoiceByDocNumHandler.cs
+ GetInvoiceByDocNumQuery.cs
+Features/DesktopIntegration/Queries/GetInvoicesByCustomer/
+ GetInvoicesByCustomerHandler.cs
+ GetInvoicesByCustomerQuery.cs
+Features/DesktopIntegration/Queries/GetInvoicesByDateRange/
+ GetInvoicesByDateRangeHandler.cs
+ GetInvoicesByDateRangeQuery.cs
+Features/DesktopIntegration/Queries/GetInvoicesRequiringReview/
+ GetInvoicesRequiringReviewHandler.cs
+ GetInvoicesRequiringReviewQuery.cs
+Features/DesktopIntegration/Queries/GetItemStock/
+ GetItemStockHandler.cs
+ GetItemStockQuery.cs
+Features/DesktopIntegration/Queries/GetLocalStock/
+ GetLocalStockHandler.cs
+ GetLocalStockQuery.cs
+Features/DesktopIntegration/Queries/GetMonitoredWarehouses/
+ GetMonitoredWarehousesHandler.cs
+ GetMonitoredWarehousesQuery.cs
+Features/DesktopIntegration/Queries/GetPagedInvoices/
+ GetPagedInvoicesHandler.cs
+ GetPagedInvoicesQuery.cs
+Features/DesktopIntegration/Queries/GetPagedTransferRequests/
+ GetPagedTransferRequestsHandler.cs
+ GetPagedTransferRequestsQuery.cs
+Features/DesktopIntegration/Queries/GetPagedTransfers/
+ GetPagedTransfersHandler.cs
+ GetPagedTransfersQuery.cs
+Features/DesktopIntegration/Queries/GetPendingQueue/
+ GetPendingQueueHandler.cs
+ GetPendingQueueQuery.cs
+Features/DesktopIntegration/Queries/GetPendingTransferQueue/
+ GetPendingTransferQueueHandler.cs
+ GetPendingTransferQueueQuery.cs
+Features/DesktopIntegration/Queries/GetQueueStats/
+ GetQueueStatsHandler.cs
+ GetQueueStatsQuery.cs
+Features/DesktopIntegration/Queries/GetQueueStatus/
+ GetQueueStatusHandler.cs
+ GetQueueStatusQuery.cs
+Features/DesktopIntegration/Queries/GetQueueStatusByReservation/
+ GetQueueStatusByReservationHandler.cs
+ GetQueueStatusByReservationQuery.cs
+Features/DesktopIntegration/Queries/GetReservation/
+ GetReservationHandler.cs
+ GetReservationQuery.cs
+Features/DesktopIntegration/Queries/GetReservationByReference/
+ GetReservationByReferenceHandler.cs
+ GetReservationByReferenceQuery.cs
+Features/DesktopIntegration/Queries/GetReservedStockSummary/
+ GetReservedStockSummaryHandler.cs
+ GetReservedStockSummaryQuery.cs
+Features/DesktopIntegration/Queries/GetTransfer/
+ GetTransferHandler.cs
+ GetTransferQuery.cs
+Features/DesktopIntegration/Queries/GetTransferQueueStats/
+ GetTransferQueueStatsHandler.cs
+ GetTransferQueueStatsQuery.cs
+Features/DesktopIntegration/Queries/GetTransferQueueStatus/
+ GetTransferQueueStatusHandler.cs
+ GetTransferQueueStatusQuery.cs
+Features/DesktopIntegration/Queries/GetTransferRequest/
+ GetTransferRequestHandler.cs
+ GetTransferRequestQuery.cs
+Features/DesktopIntegration/Queries/GetTransferRequestsByWarehouse/
+ GetTransferRequestsByWarehouseHandler.cs
+ GetTransferRequestsByWarehouseQuery.cs
+Features/DesktopIntegration/Queries/GetTransfersByDateRange/
+ GetTransfersByDateRangeHandler.cs
+ GetTransfersByDateRangeQuery.cs
+Features/DesktopIntegration/Queries/GetTransfersByWarehouse/
+ GetTransfersByWarehouseHandler.cs
+ GetTransfersByWarehouseQuery.cs
+Features/DesktopIntegration/Queries/GetTransfersRequiringReview/
+ GetTransfersRequiringReviewHandler.cs
+ GetTransfersRequiringReviewQuery.cs
+Features/DesktopIntegration/Queries/ListReservations/
+ ListReservationsHandler.cs
+ ListReservationsQuery.cs
+Features/DesktopIntegration/Queries/ValidateInvoice/
+ ValidateInvoiceHandler.cs
+ ValidateInvoiceQuery.cs
+Features/DesktopIntegration/Queries/ValidateStockAvailability/
+ ValidateStockAvailabilityHandler.cs
+ ValidateStockAvailabilityQuery.cs
+Features/Documents/Commands/CreateEmailTemplate/
+ CreateEmailTemplateCommand.cs
+ CreateEmailTemplateHandler.cs
+Features/Documents/Commands/CreateSignature/
+ CreateSignatureCommand.cs
+ CreateSignatureHandler.cs
+Features/Documents/Commands/CreateTemplate/
+ CreateTemplateCommand.cs
+ CreateTemplateHandler.cs
+Features/Documents/Commands/DeleteAttachment/
+ DeleteAttachmentCommand.cs
+ DeleteAttachmentHandler.cs
+Features/Documents/Commands/DeleteTemplate/
+ DeleteTemplateCommand.cs
+ DeleteTemplateHandler.cs
+Features/Documents/Commands/EmailDocument/
+ EmailDocumentCommand.cs
+ EmailDocumentHandler.cs
+Features/Documents/Commands/GenerateAndDownloadDocument/
+ GenerateAndDownloadDocumentCommand.cs
+ GenerateAndDownloadDocumentHandler.cs
+Features/Documents/Commands/GenerateDocument/
+ GenerateDocumentCommand.cs
+ GenerateDocumentHandler.cs
+Features/Documents/Commands/SetDefaultTemplate/
+ SetDefaultTemplateCommand.cs
+ SetDefaultTemplateHandler.cs
+Features/Documents/Commands/UpdateEmailTemplate/
+ UpdateEmailTemplateCommand.cs
+ UpdateEmailTemplateHandler.cs
+Features/Documents/Commands/UpdateTemplate/
+ UpdateTemplateCommand.cs
+ UpdateTemplateHandler.cs
+Features/Documents/Commands/UploadAttachment/
+ UploadAttachmentCommand.cs
+ UploadAttachmentHandler.cs
+Features/Documents/Commands/VerifySignature/
+ VerifySignatureCommand.cs
+ VerifySignatureHandler.cs
+Features/Documents/
+ DocumentAttachmentAccessService.cs
+ Queries/DownloadAttachment/
+  DownloadAttachmentHandler.cs
+  DownloadAttachmentQuery.cs
+ Queries/GetAttachments/
+  GetAttachmentsHandler.cs
+  GetAttachmentsQuery.cs
+ Queries/GetDefaultTemplate/
+  GetDefaultTemplateHandler.cs
+  GetDefaultTemplateQuery.cs
+ Queries/GetDocumentHistory/
+  GetDocumentHistoryHandler.cs
+  GetDocumentHistoryQuery.cs
+ Queries/GetEmailTemplateByCode/
+  GetEmailTemplateByCodeHandler.cs
+  GetEmailTemplateByCodeQuery.cs
+ Queries/GetEmailTemplates/
+  GetEmailTemplatesHandler.cs
+  GetEmailTemplatesQuery.cs
+ Queries/GetPlaceholders/
+  GetPlaceholdersHandler.cs
+  GetPlaceholdersQuery.cs
+ Queries/GetSignatures/
+  GetSignaturesHandler.cs
+  GetSignaturesQuery.cs
+ Queries/GetTemplateById/
+  GetTemplateByIdHandler.cs
+  GetTemplateByIdQuery.cs
+ Queries/GetTemplates/
+  GetTemplatesHandler.cs
+  GetTemplatesQuery.cs
+Features/Email/Commands/ProcessEmailQueue/
+ ProcessEmailQueueCommand.cs
+ ProcessEmailQueueHandler.cs
+Features/Email/Commands/QueueEmail/
+ QueueEmailCommand.cs
+ QueueEmailHandler.cs
+Features/Email/Commands/SendEmail/
+ SendEmailCommand.cs
+ SendEmailHandler.cs
+Features/Email/Commands/SendTestEmail/
+ SendTestEmailCommand.cs
+ SendTestEmailHandler.cs
+Features/ExceptionCenter/Commands/AcknowledgeExceptionCenterItem/
+ AcknowledgeExceptionCenterItemCommand.cs
+ AcknowledgeExceptionCenterItemHandler.cs
+Features/ExceptionCenter/Commands/AssignExceptionCenterItem/
+ AssignExceptionCenterItemCommand.cs
+ AssignExceptionCenterItemHandler.cs
+Features/ExceptionCenter/Commands/RetryExceptionCenterItem/
+ RetryExceptionCenterItemCommand.cs
+ RetryExceptionCenterItemHandler.cs
+Features/ExceptionCenter/Queries/GetExceptionCenter/
+ GetExceptionCenterHandler.cs
+ GetExceptionCenterQuery.cs
+Features/ExchangeRates/Queries/ConvertCurrency/
+ ConvertCurrencyHandler.cs
+ ConvertCurrencyQuery.cs
+Features/ExchangeRates/Queries/GetAllActiveRates/
+ GetAllActiveRatesHandler.cs
+ GetAllActiveRatesQuery.cs
+Features/ExchangeRates/Queries/GetCurrentRate/
+ GetCurrentRateHandler.cs
+ GetCurrentRateQuery.cs
+Features/ExchangeRates/Queries/GetRateHistory/
+ GetRateHistoryHandler.cs
+ GetRateHistoryQuery.cs
+Features/GLAccounts/Queries/GetGLAccountByCode/
+ GetGLAccountByCodeHandler.cs
+ GetGLAccountByCodeQuery.cs
+Features/GLAccounts/Queries/GetGLAccounts/
+ GetGLAccountsHandler.cs
+ GetGLAccountsQuery.cs
+Features/GLAccounts/Queries/GetGLAccountsByType/
+ GetGLAccountsByTypeHandler.cs
+ GetGLAccountsByTypeQuery.cs
+Features/GoodsReceiptPurchaseOrders/Commands/CreateGoodsReceiptPurchaseOrder/
+ CreateGoodsReceiptPurchaseOrderCommand.cs
+ CreateGoodsReceiptPurchaseOrderHandler.cs
+Features/GoodsReceiptPurchaseOrders/
+ GoodsReceiptPurchaseOrderMappings.cs
+ Queries/GetGoodsReceiptPurchaseOrderByDocEntry/
+  GetGoodsReceiptPurchaseOrderByDocEntryHandler.cs
+  GetGoodsReceiptPurchaseOrderByDocEntryQuery.cs
+ Queries/GetGoodsReceiptPurchaseOrders/
+  GetGoodsReceiptPurchaseOrdersHandler.cs
+  GetGoodsReceiptPurchaseOrdersQuery.cs
+Features/IncomingPayments/Commands/CreateIncomingPayment/
+ CreateIncomingPaymentCommand.cs
+ CreateIncomingPaymentHandler.cs
+Features/IncomingPayments/Commands/UploadPaymentAttachment/
+ UploadPaymentAttachmentCommand.cs
+ UploadPaymentAttachmentHandler.cs
+Features/IncomingPayments/Queries/GetPagedPayments/
+ GetPagedPaymentsHandler.cs
+ GetPagedPaymentsQuery.cs
+Features/IncomingPayments/Queries/GetPaymentByDocEntry/
+ GetPaymentByDocEntryHandler.cs
+ GetPaymentByDocEntryQuery.cs
+Features/IncomingPayments/Queries/GetPaymentByDocNum/
+ GetPaymentByDocNumHandler.cs
+ GetPaymentByDocNumQuery.cs
+Features/IncomingPayments/Queries/GetPaymentsByCustomer/
+ GetPaymentsByCustomerHandler.cs
+ GetPaymentsByCustomerQuery.cs
+Features/IncomingPayments/Queries/GetPaymentsByDateRange/
+ GetPaymentsByDateRangeHandler.cs
+ GetPaymentsByDateRangeQuery.cs
+Features/IncomingPayments/Queries/GetQueueStatus/
+ GetQueueStatusHandler.cs
+ GetQueueStatusQuery.cs
+Features/IncomingPayments/Queries/GetTodaysPayments/
+ GetTodaysPaymentsHandler.cs
+ GetTodaysPaymentsQuery.cs
+Features/InventoryTransfers/Commands/CloseTransferRequest/
+ CloseTransferRequestCommand.cs
+ CloseTransferRequestHandler.cs
+Features/InventoryTransfers/Commands/ConvertTransferRequest/
+ ConvertTransferRequestCommand.cs
+ ConvertTransferRequestHandler.cs
+Features/InventoryTransfers/Commands/CreateInventoryTransfer/
+ CreateInventoryTransferCommand.cs
+ CreateInventoryTransferHandler.cs
+Features/InventoryTransfers/Commands/CreateTransferRequest/
+ CreateTransferRequestCommand.cs
+ CreateTransferRequestHandler.cs
+Features/InventoryTransfers/Queries/GetPagedTransferRequests/
+ GetPagedTransferRequestsHandler.cs
+ GetPagedTransferRequestsQuery.cs
+Features/InventoryTransfers/Queries/GetPagedTransfers/
+ GetPagedTransfersHandler.cs
+ GetPagedTransfersQuery.cs
+Features/InventoryTransfers/Queries/GetTransferByDocEntry/
+ GetTransferByDocEntryHandler.cs
+ GetTransferByDocEntryQuery.cs
+Features/InventoryTransfers/Queries/GetTransferRequestByDocEntry/
+ GetTransferRequestByDocEntryHandler.cs
+ GetTransferRequestByDocEntryQuery.cs
+Features/InventoryTransfers/Queries/GetTransferRequestsByWarehouse/
+ GetTransferRequestsByWarehouseHandler.cs
+ GetTransferRequestsByWarehouseQuery.cs
+Features/InventoryTransfers/Queries/GetTransfersByDate/
+ GetTransfersByDateHandler.cs
+ GetTransfersByDateQuery.cs
+Features/InventoryTransfers/Queries/GetTransfersByDateRange/
+ GetTransfersByDateRangeHandler.cs
+ GetTransfersByDateRangeQuery.cs
+Features/InventoryTransfers/Queries/GetTransfersByWarehouse/
+ GetTransfersByWarehouseHandler.cs
+ GetTransfersByWarehouseQuery.cs
+Features/Invoices/Commands/CreateInvoice/
+ CreateInvoiceCommand.cs
+ CreateInvoiceHandler.cs
+Features/Invoices/Commands/UploadPod/
+ UploadPodCommand.cs
+ UploadPodHandler.cs
+Features/Invoices/
+ Events/InvoiceFiscalizationWorkItem.cs
+ Queries/DownloadInvoiceAttachment/
+  DownloadInvoiceAttachmentHandler.cs
+  DownloadInvoiceAttachmentQuery.cs
+ Queries/DownloadInvoicePdf/
+  DownloadInvoicePdfHandler.cs
+  DownloadInvoicePdfQuery.cs
+ Queries/GetAllPods/
+  GetAllPodsHandler.cs
+  GetAllPodsQuery.cs
+ Queries/GetAvailableBatches/
+  GetAvailableBatchesHandler.cs
+  GetAvailableBatchesQuery.cs
+ Queries/GetInvoiceAttachments/
+  GetInvoiceAttachmentsHandler.cs
+  GetInvoiceAttachmentsQuery.cs
+ Queries/GetInvoiceByDocEntry/
+  GetInvoiceByDocEntryHandler.cs
+  GetInvoiceByDocEntryQuery.cs
+ Queries/GetInvoiceByDocNum/
+  GetInvoiceByDocNumHandler.cs
+  GetInvoiceByDocNumQuery.cs
+ Queries/GetInvoicesByCustomer/
+  GetInvoicesByCustomerHandler.cs
+  GetInvoicesByCustomerQuery.cs
+ Queries/GetInvoicesByDateRange/
+  GetInvoicesByDateRangeHandler.cs
+  GetInvoicesByDateRangeQuery.cs
+ Queries/GetPagedInvoices/
+  GetPagedInvoicesHandler.cs
+  GetPagedInvoicesQuery.cs
+ Queries/GetPodDashboard/
+  GetPodDashboardHandler.cs
+  GetPodDashboardQuery.cs
+ Queries/GetPodUploadStatus/
+  GetPodUploadStatusHandler.cs
+  GetPodUploadStatusQuery.cs
+ Queries/ValidateBulkPods/
+  ValidateBulkPodsHandler.cs
+  ValidateBulkPodsQuery.cs
+  ValidateBulkPodsValidator.cs
+ Queries/ValidateInvoice/
+  ValidateInvoiceHandler.cs
+  ValidateInvoiceQuery.cs
+Features/Merchandiser/Commands/AssignProducts/
+ AssignProductsCommand.cs
+ AssignProductsHandler.cs
+Features/Merchandiser/Commands/AssignProductsGlobal/
+ AssignProductsGlobalCommand.cs
+ AssignProductsGlobalHandler.cs
+Features/Merchandiser/Commands/BackfillMobileOrderTax/
+ BackfillMobileOrderTaxCommand.cs
+ BackfillMobileOrderTaxHandler.cs
+ BackfillMobileOrderTaxResult.cs
+Features/Merchandiser/Commands/BackfillProductDetails/
+ BackfillProductDetailsCommand.cs
+ BackfillProductDetailsHandler.cs
+Features/Merchandiser/Commands/RemoveProducts/
+ RemoveProductsCommand.cs
+ RemoveProductsHandler.cs
+Features/Merchandiser/Commands/RemoveProductsGlobal/
+ RemoveProductsGlobalCommand.cs
+ RemoveProductsGlobalHandler.cs
+Features/Merchandiser/Commands/SubmitMobileOrder/
+ SubmitMobileOrderCommand.cs
+ SubmitMobileOrderHandler.cs
+Features/Merchandiser/Commands/UpdateProductStatus/
+ UpdateProductStatusCommand.cs
+ UpdateProductStatusHandler.cs
+Features/Merchandiser/Commands/UpdateProductStatusGlobal/
+ UpdateProductStatusGlobalCommand.cs
+ UpdateProductStatusGlobalHandler.cs
+Features/Merchandiser/Events/ProductCatalogChanged/
+ ProductCatalogChangedEvent.cs
+ ProductCatalogChangedNotificationHandler.cs
+Features/Merchandiser/Queries/GetActiveProducts/
+ GetActiveProductsHandler.cs
+ GetActiveProductsQuery.cs
+Features/Merchandiser/Queries/GetActiveProductsByUser/
+ GetActiveProductsByUserHandler.cs
+ GetActiveProductsByUserQuery.cs
+Features/Merchandiser/Queries/GetCustomerProducts/
+ GetCustomerProductsHandler.cs
+ GetCustomerProductsQuery.cs
+Features/Merchandiser/Queries/GetGlobalProducts/
+ GetGlobalProductsHandler.cs
+ GetGlobalProductsQuery.cs
+Features/Merchandiser/Queries/GetMerchandiserProducts/
+ GetMerchandiserProductsHandler.cs
+ GetMerchandiserProductsQuery.cs
+Features/Merchandiser/Queries/GetMerchandisers/
+ GetMerchandisersHandler.cs
+ GetMerchandisersQuery.cs
+Features/Merchandiser/Queries/GetMobileOrderById/
+ GetMobileOrderByIdHandler.cs
+ GetMobileOrderByIdQuery.cs
+Features/Merchandiser/Queries/GetMobileOrders/
+ GetMobileOrdersHandler.cs
+ GetMobileOrdersQuery.cs
+Features/Merchandiser/Queries/GetProductCategories/
+ GetProductCategoriesHandler.cs
+ GetProductCategoriesQuery.cs
+Features/Merchandiser/Queries/GetSapSalesItems/
+ GetSapSalesItemsHandler.cs
+ GetSapSalesItemsQuery.cs
+Features/Notifications/Commands/CreateNotification/
+ CreateNotificationCommand.cs
+ CreateNotificationHandler.cs
+ CreateNotificationValidator.cs
+Features/Notifications/Commands/DeleteNotification/
+ DeleteNotificationCommand.cs
+ DeleteNotificationHandler.cs
+Features/Notifications/Commands/MarkAsRead/
+ MarkAsReadCommand.cs
+ MarkAsReadHandler.cs
+Features/Notifications/
+ ModuleNotificationFactory.cs
+ NotificationAudienceRules.cs
+ Queries/GetNotifications/
+  GetNotificationsHandler.cs
+  GetNotificationsQuery.cs
+ Queries/GetUnreadCount/
+  GetUnreadCountHandler.cs
+  GetUnreadCountQuery.cs
+Features/Password/Commands/ChangePassword/
+ ChangePasswordCommand.cs
+ ChangePasswordHandler.cs
+Features/Password/Commands/CompleteReset/
+ CompleteResetCommand.cs
+ CompleteResetHandler.cs
+Features/Password/Commands/RequestReset/
+ RequestResetCommand.cs
+ RequestResetHandler.cs
+Features/Password/Commands/UpdateCredentials/
+ UpdateCredentialsCommand.cs
+ UpdateCredentialsHandler.cs
+Features/Password/Queries/GetCredentials/
+ GetCredentialsHandler.cs
+ GetCredentialsQuery.cs
+Features/Password/Queries/ValidateToken/
+ ValidateTokenHandler.cs
+ ValidateTokenQuery.cs
+Features/Payments/Commands/CancelPayment/
+ CancelPaymentCommand.cs
+ CancelPaymentHandler.cs
+Features/Payments/Commands/InitiatePayment/
+ InitiatePaymentCommand.cs
+ InitiatePaymentHandler.cs
+Features/Payments/Commands/ProcessEcocashCallback/
+ ProcessEcocashCallbackCommand.cs
+ ProcessEcocashCallbackHandler.cs
+Features/Payments/Commands/ProcessInnbucksCallback/
+ ProcessInnbucksCallbackCommand.cs
+ ProcessInnbucksCallbackHandler.cs
+Features/Payments/Commands/ProcessPayNowCallback/
+ ProcessPayNowCallbackCommand.cs
+ ProcessPayNowCallbackHandler.cs
+Features/Payments/Commands/RefundPayment/
+ RefundPaymentCommand.cs
+ RefundPaymentHandler.cs
+Features/Payments/Queries/CheckPaymentStatus/
+ CheckPaymentStatusHandler.cs
+ CheckPaymentStatusQuery.cs
+Features/Payments/Queries/GetProviders/
+ GetProvidersHandler.cs
+ GetProvidersQuery.cs
+Features/Payments/Queries/GetTransactions/
+ GetTransactionsHandler.cs
+ GetTransactionsQuery.cs
+Features/Prices/Commands/SyncItemPricesForPriceList/
+ SyncItemPricesForPriceListCommand.cs
+ SyncItemPricesForPriceListHandler.cs
+Features/Prices/Commands/SyncPriceLists/
+ SyncPriceListsCommand.cs
+ SyncPriceListsHandler.cs
+Features/Prices/Queries/GetAllPrices/
+ GetAllPricesHandler.cs
+ GetAllPricesQuery.cs
+Features/Prices/Queries/GetCachedPrices/
+ GetCachedPricesHandler.cs
+ GetCachedPricesQuery.cs
+Features/Prices/Queries/GetGroupedPrices/
+ GetGroupedPricesHandler.cs
+ GetGroupedPricesQuery.cs
+Features/Prices/Queries/
+ GetItemPriceFromList/GetItemPriceFromListQuery.cs
+ GetPriceByItemCode/
+  GetPriceByItemCodeHandler.cs
+  GetPriceByItemCodeQuery.cs
+ GetPriceLists/
+  GetPriceListsHandler.cs
+  GetPriceListsQuery.cs
+ GetPricesByBusinessPartner/
+  GetPricesByBusinessPartnerHandler.cs
+  GetPricesByBusinessPartnerQuery.cs
+ GetPricesByCurrency/
+  GetPricesByCurrencyHandler.cs
+  GetPricesByCurrencyQuery.cs
+ GetPricesByPriceList/
+  GetPricesByPriceListHandler.cs
+  GetPricesByPriceListQuery.cs
+Features/Products/Queries/GetAllProducts/
+ GetAllProductsHandler.cs
+ GetAllProductsQuery.cs
+Features/Products/Queries/GetPagedProductsInWarehouse/
+ GetPagedProductsInWarehouseHandler.cs
+ GetPagedProductsInWarehouseQuery.cs
+ GetPagedProductsInWarehouseValidator.cs
+Features/Products/Queries/GetProductBatches/
+ GetProductBatchesHandler.cs
+ GetProductBatchesQuery.cs
+ GetProductBatchesValidator.cs
+Features/Products/Queries/GetProductByCode/
+ GetProductByCodeHandler.cs
+ GetProductByCodeQuery.cs
+ GetProductByCodeValidator.cs
+Features/Products/Queries/GetProductsInWarehouse/
+ GetProductsInWarehouseHandler.cs
+ GetProductsInWarehouseQuery.cs
+ GetProductsInWarehouseValidator.cs
+Features/PurchaseInvoices/Commands/CreatePurchaseInvoice/
+ CreatePurchaseInvoiceCommand.cs
+ CreatePurchaseInvoiceHandler.cs
+Features/PurchaseInvoices/
+ PurchaseInvoiceMappings.cs
+ Queries/GetPurchaseInvoiceByDocEntry/
+  GetPurchaseInvoiceByDocEntryHandler.cs
+  GetPurchaseInvoiceByDocEntryQuery.cs
+ Queries/GetPurchaseInvoices/
+  GetPurchaseInvoicesHandler.cs
+  GetPurchaseInvoicesQuery.cs
+Features/PurchaseOrders/Commands/ApprovePurchaseOrder/
+ ApprovePurchaseOrderCommand.cs
+ ApprovePurchaseOrderHandler.cs
+Features/PurchaseOrders/Commands/CreatePurchaseOrder/
+ CreatePurchaseOrderCommand.cs
+ CreatePurchaseOrderHandler.cs
+Features/PurchaseOrders/Commands/DeletePurchaseOrder/
+ DeletePurchaseOrderCommand.cs
+ DeletePurchaseOrderHandler.cs
+Features/PurchaseOrders/Commands/ReceivePurchaseOrder/
+ ReceivePurchaseOrderCommand.cs
+ ReceivePurchaseOrderHandler.cs
+Features/PurchaseOrders/Commands/UpdatePurchaseOrder/
+ UpdatePurchaseOrderCommand.cs
+ UpdatePurchaseOrderHandler.cs
+Features/PurchaseOrders/Commands/UpdatePurchaseOrderStatus/
+ UpdatePurchaseOrderStatusCommand.cs
+ UpdatePurchaseOrderStatusHandler.cs
+Features/PurchaseOrders/Commands/UploadPurchaseOrderDocument/
+ UploadPurchaseOrderDocumentCommand.cs
+ UploadPurchaseOrderDocumentHandler.cs
+ UploadPurchaseOrderDocumentValidator.cs
+Features/PurchaseOrders/
+ PurchaseOrderLifecycleNotificationFactory.cs
+ Queries/GetAllPurchaseOrders/
+  GetAllPurchaseOrdersHandler.cs
+  GetAllPurchaseOrdersQuery.cs
+ Queries/GetPurchaseOrderById/
+  GetPurchaseOrderByIdHandler.cs
+  GetPurchaseOrderByIdQuery.cs
+ Queries/GetPurchaseOrderByNumber/
+  GetPurchaseOrderByNumberHandler.cs
+  GetPurchaseOrderByNumberQuery.cs
+ Queries/GetPurchaseOrderDocuments/
+  GetPurchaseOrderDocumentsHandler.cs
+  GetPurchaseOrderDocumentsQuery.cs
+ Queries/GetPurchaseOrderFromSAPByDocEntry/
+  GetPurchaseOrderFromSAPByDocEntryHandler.cs
+  GetPurchaseOrderFromSAPByDocEntryQuery.cs
+ Queries/GetPurchaseOrdersFromSAP/
+  GetPurchaseOrdersFromSAPHandler.cs
+  GetPurchaseOrdersFromSAPQuery.cs
+Features/PurchaseQuotations/Commands/CreatePurchaseQuotation/
+ CreatePurchaseQuotationCommand.cs
+ CreatePurchaseQuotationHandler.cs
+Features/PurchaseQuotations/
+ PurchaseQuotationMappings.cs
+ Queries/GetPurchaseQuotationByDocEntry/
+  GetPurchaseQuotationByDocEntryHandler.cs
+  GetPurchaseQuotationByDocEntryQuery.cs
+ Queries/GetPurchaseQuotations/
+  GetPurchaseQuotationsHandler.cs
+  GetPurchaseQuotationsQuery.cs
+Features/PurchaseRequests/Commands/CreatePurchaseRequest/
+ CreatePurchaseRequestCommand.cs
+ CreatePurchaseRequestHandler.cs
+Features/PurchaseRequests/
+ PurchaseRequestMappings.cs
+ Queries/GetPurchaseRequestByDocEntry/
+  GetPurchaseRequestByDocEntryHandler.cs
+  GetPurchaseRequestByDocEntryQuery.cs
+ Queries/GetPurchaseRequests/
+  GetPurchaseRequestsHandler.cs
+  GetPurchaseRequestsQuery.cs
+Features/PushNotifications/Commands/RegisterDevice/
+ RegisterDeviceCommand.cs
+ RegisterDeviceHandler.cs
+Features/PushNotifications/Commands/SendPushNotification/
+ SendPushNotificationCommand.cs
+ SendPushNotificationHandler.cs
+Features/PushNotifications/Commands/TestPush/
+ TestPushCommand.cs
+ TestPushHandler.cs
+Features/PushNotifications/Commands/UnregisterDevice/
+ UnregisterDeviceCommand.cs
+ UnregisterDeviceHandler.cs
+Features/PushNotifications/Queries/GetMyDevices/
+ GetMyDevicesHandler.cs
+ GetMyDevicesQuery.cs
+Features/Quotations/Commands/ApplyStandardVat/
+ ApplyStandardVatCommand.cs
+ ApplyStandardVatHandler.cs
+Features/Quotations/Commands/ApproveQuotation/
+ ApproveQuotationCommand.cs
+ ApproveQuotationHandler.cs
+Features/Quotations/Commands/ConvertToSalesOrder/
+ ConvertToSalesOrderCommand.cs
+ ConvertToSalesOrderHandler.cs
+Features/Quotations/Commands/CreateQuotation/
+ CreateQuotationCommand.cs
+ CreateQuotationHandler.cs
+Features/Quotations/Commands/DeleteQuotation/
+ DeleteQuotationCommand.cs
+ DeleteQuotationHandler.cs
+Features/Quotations/Commands/RepriceQuotation/
+ RepriceQuotationCommand.cs
+ RepriceQuotationHandler.cs
+Features/Quotations/Commands/UpdateQuotation/
+ UpdateQuotationCommand.cs
+ UpdateQuotationHandler.cs
+Features/Quotations/Commands/UpdateQuotationStatus/
+ UpdateQuotationStatusCommand.cs
+ UpdateQuotationStatusHandler.cs
+Features/Quotations/Queries/DownloadQuotationPdf/
+ DownloadQuotationPdfHandler.cs
+ DownloadQuotationPdfQuery.cs
+Features/Quotations/Queries/DownloadSapQuotationPdf/
+ DownloadSapQuotationPdfHandler.cs
+ DownloadSapQuotationPdfQuery.cs
+Features/Quotations/Queries/GetAllQuotations/
+ GetAllQuotationsHandler.cs
+ GetAllQuotationsQuery.cs
+Features/Quotations/Queries/GetQuotationById/
+ GetQuotationByIdHandler.cs
+ GetQuotationByIdQuery.cs
+Features/Quotations/Queries/GetQuotationByNumber/
+ GetQuotationByNumberHandler.cs
+ GetQuotationByNumberQuery.cs
+Features/Quotations/Queries/GetQuotationFromSAPByDocEntry/
+ GetQuotationFromSAPByDocEntryHandler.cs
+ GetQuotationFromSAPByDocEntryQuery.cs
+Features/Quotations/Queries/GetQuotationsFromSAP/
+ GetQuotationsFromSAPHandler.cs
+ GetQuotationsFromSAPQuery.cs
+Features/RateLimit/Commands/BlockClient/
+ BlockClientCommand.cs
+ BlockClientHandler.cs
+Features/RateLimit/Commands/CleanupRateLimits/
+ CleanupRateLimitsCommand.cs
+ CleanupRateLimitsHandler.cs
+Features/RateLimit/Commands/ResetClient/
+ ResetClientCommand.cs
+ ResetClientHandler.cs
+Features/RateLimit/Commands/UnblockClient/
+ UnblockClientCommand.cs
+ UnblockClientHandler.cs
+Features/RateLimit/Commands/UpdateRateLimitConfig/
+ UpdateRateLimitConfigCommand.cs
+ UpdateRateLimitConfigHandler.cs
+Features/RateLimit/Queries/CheckRateLimit/
+ CheckRateLimitHandler.cs
+ CheckRateLimitQuery.cs
+Features/RateLimit/Queries/GetAllRateLimits/
+ GetAllRateLimitsHandler.cs
+ GetAllRateLimitsQuery.cs
+Features/RateLimit/Queries/GetBlockedClients/
+ GetBlockedClientsHandler.cs
+ GetBlockedClientsQuery.cs
+Features/RateLimit/Queries/GetCurrentStatus/
+ GetCurrentStatusHandler.cs
+ GetCurrentStatusQuery.cs
+Features/RateLimit/Queries/GetRateLimitByClient/
+ GetRateLimitByClientHandler.cs
+ GetRateLimitByClientQuery.cs
+Features/RateLimit/Queries/GetRateLimitConfig/
+ GetRateLimitConfigHandler.cs
+ GetRateLimitConfigQuery.cs
+Features/RateLimit/Queries/GetRateLimitStats/
+ GetRateLimitStatsHandler.cs
+ GetRateLimitStatsQuery.cs
+Features/Reports/Queries/GetCreditNoteSummary/
+ GetCreditNoteSummaryHandler.cs
+ GetCreditNoteSummaryQuery.cs
+Features/Reports/Queries/GetLowStockAlerts/
+ GetLowStockAlertsHandler.cs
+ GetLowStockAlertsQuery.cs
+Features/Reports/Queries/GetMerchandiserPurchaseOrderReport/
+ GetMerchandiserPurchaseOrderReportHandler.cs
+ GetMerchandiserPurchaseOrderReportQuery.cs
+Features/Reports/Queries/GetOrderFulfillment/
+ GetOrderFulfillmentHandler.cs
+ GetOrderFulfillmentQuery.cs
+Features/Reports/Queries/GetPaymentSummary/
+ GetPaymentSummaryHandler.cs
+ GetPaymentSummaryQuery.cs
+Features/Reports/Queries/GetProfitOverview/
+ GetProfitOverviewHandler.cs
+ GetProfitOverviewQuery.cs
+Features/Reports/Queries/GetPurchaseOrderSummary/
+ GetPurchaseOrderSummaryHandler.cs
+ GetPurchaseOrderSummaryQuery.cs
+Features/Reports/Queries/GetReceivablesAging/
+ GetReceivablesAgingHandler.cs
+ GetReceivablesAgingQuery.cs
+Features/Reports/Queries/GetSalesSummary/
+ GetSalesSummaryHandler.cs
+ GetSalesSummaryQuery.cs
+Features/Reports/Queries/GetSlowMovingProducts/
+ GetSlowMovingProductsHandler.cs
+ GetSlowMovingProductsQuery.cs
+Features/Reports/Queries/GetStockMovement/
+ GetStockMovementHandler.cs
+ GetStockMovementQuery.cs
+Features/Reports/Queries/GetStockSummary/
+ GetStockSummaryHandler.cs
+ GetStockSummaryQuery.cs
+Features/Reports/Queries/GetTopCustomers/
+ GetTopCustomersHandler.cs
+ GetTopCustomersQuery.cs
+Features/Reports/Queries/GetTopProducts/
+ GetTopProductsHandler.cs
+ GetTopProductsQuery.cs
+Features/Revmax/Commands/SetLicense/
+ SetLicenseCommand.cs
+ SetLicenseHandler.cs
+Features/Revmax/Commands/Transact/
+ TransactCommand.cs
+ TransactHandler.cs
+Features/Revmax/Commands/TransactExt/
+ TransactExtCommand.cs
+ TransactExtHandler.cs
+Features/Revmax/Queries/GetCardDetails/
+ GetCardDetailsHandler.cs
+ GetCardDetailsQuery.cs
+Features/Revmax/Queries/GetDayStatus/
+ GetDayStatusHandler.cs
+ GetDayStatusQuery.cs
+Features/Revmax/Queries/GetInvoice/
+ GetInvoiceHandler.cs
+ GetInvoiceQuery.cs
+Features/Revmax/Queries/GetLicense/
+ GetLicenseHandler.cs
+ GetLicenseQuery.cs
+Features/Revmax/Queries/GetUnprocessedInvoicesSummary/
+ GetUnprocessedInvoicesSummaryHandler.cs
+ GetUnprocessedInvoicesSummaryQuery.cs
+Features/Revmax/Queries/GetZReport/
+ GetZReportHandler.cs
+ GetZReportQuery.cs
+Features/SalesOrders/Commands/ApproveSalesOrder/
+ ApproveSalesOrderCommand.cs
+ ApproveSalesOrderHandler.cs
+Features/SalesOrders/Commands/BackfillSalesOrderCardNames/
+ BackfillSalesOrderCardNamesCommand.cs
+ BackfillSalesOrderCardNamesHandler.cs
+ BackfillSalesOrderCardNamesResult.cs
+Features/SalesOrders/Commands/ConvertToInvoice/
+ ConvertToInvoiceCommand.cs
+ ConvertToInvoiceHandler.cs
+Features/SalesOrders/Commands/CreateSalesOrder/
+ CreateSalesOrderCommand.cs
+ CreateSalesOrderHandler.cs
+ CreateSalesOrderValidator.cs
+Features/SalesOrders/Commands/DeleteSalesOrder/
+ DeleteSalesOrderCommand.cs
+ DeleteSalesOrderHandler.cs
+Features/SalesOrders/Commands/PostToSAP/
+ PostToSAPCommand.cs
+ PostToSAPHandler.cs
+Features/SalesOrders/Commands/UpdateSalesOrder/
+ UpdateSalesOrderCommand.cs
+ UpdateSalesOrderHandler.cs
+Features/SalesOrders/Commands/UpdateSalesOrderStatus/
+ UpdateSalesOrderStatusCommand.cs
+ UpdateSalesOrderStatusHandler.cs
+Features/SalesOrders/Queries/DownloadSalesOrderPdf/
+ DownloadSalesOrderPdfHandler.cs
+ DownloadSalesOrderPdfQuery.cs
+Features/SalesOrders/Queries/GetAllSalesOrders/
+ GetAllSalesOrdersHandler.cs
+ GetAllSalesOrdersQuery.cs
+Features/SalesOrders/Queries/GetLocalSalesOrderById/
+ GetLocalSalesOrderByIdHandler.cs
+ GetLocalSalesOrderByIdQuery.cs
+Features/SalesOrders/Queries/GetSalesOrderById/
+ GetSalesOrderByIdHandler.cs
+ GetSalesOrderByIdQuery.cs
+Features/SalesOrders/Queries/GetSalesOrderByNumber/
+ GetSalesOrderByNumberHandler.cs
+ GetSalesOrderByNumberQuery.cs
+Features/
+ SalesOrders/SalesOrderLifecycleNotificationFactory.cs
+ SapConfiguration/Commands/TestSAPConnection/
+  TestSAPConnectionCommand.cs
+  TestSAPConnectionHandler.cs
+ SapConfiguration/Commands/UpdateSAPSettings/
+  UpdateSAPSettingsCommand.cs
+  UpdateSAPSettingsHandler.cs
+ SapConfiguration/Queries/GetSAPSettings/
+  GetSAPSettingsHandler.cs
+  GetSAPSettingsQuery.cs
+ Statements/Queries/GenerateStatement/
+  GenerateStatementHandler.cs
+  GenerateStatementQuery.cs
+ Stock/Queries/GetSalesInWarehouse/
+  GetSalesInWarehouseHandler.cs
+  GetSalesInWarehouseQuery.cs
+ Stock/Queries/GetSalesInWarehousePost/
+  GetSalesInWarehousePostHandler.cs
+  GetSalesInWarehousePostQuery.cs
+ Stock/Queries/GetStockForItemsInWarehouse/
+  GetStockForItemsInWarehouseHandler.cs
+  GetStockForItemsInWarehouseQuery.cs
+ Stock/Queries/GetStockInWarehouse/
+  GetStockInWarehouseHandler.cs
+  GetStockInWarehouseQuery.cs
+ Stock/Queries/GetStockInWarehousePaged/
+  GetStockInWarehousePagedHandler.cs
+  GetStockInWarehousePagedQuery.cs
+ Stock/Queries/GetWarehouseCodes/
+  GetWarehouseCodesHandler.cs
+  GetWarehouseCodesQuery.cs
+ Stock/Queries/GetWarehouses/
+  GetWarehousesHandler.cs
+  GetWarehousesQuery.cs
+ Sync/Commands/CancelTransaction/
+  CancelTransactionCommand.cs
+  CancelTransactionHandler.cs
+ Sync/Commands/ProcessQueue/
+  ProcessQueueCommand.cs
+  ProcessQueueHandler.cs
+ Sync/Commands/RetryTransaction/
+  RetryTransactionCommand.cs
+  RetryTransactionHandler.cs
+ Sync/Commands/TestConnection/
+  TestConnectionCommand.cs
+  TestConnectionHandler.cs
+ Sync/Queries/CheckSapConnection/
+  CheckSapConnectionHandler.cs
+  CheckSapConnectionQuery.cs
+ Sync/Queries/GetCacheStatus/
+  GetCacheStatusHandler.cs
+  GetCacheStatusQuery.cs
+ Sync/Queries/GetConnectionLogs/
+  GetConnectionLogsHandler.cs
+  GetConnectionLogsQuery.cs
+ Sync/Queries/GetHealthSummary/
+  GetHealthSummaryHandler.cs
+  GetHealthSummaryQuery.cs
+ Sync/Queries/GetQueuedItems/
+  GetQueuedItemsHandler.cs
+  GetQueuedItemsQuery.cs
+ Sync/Queries/GetQueueStatus/
+  GetQueueStatusHandler.cs
+  GetQueueStatusQuery.cs
+ Sync/Queries/GetSyncStatus/
+  GetSyncStatusHandler.cs
+  GetSyncStatusQuery.cs
+ Timesheets/Commands/CheckIn/
+  CheckInCommand.cs
+  CheckInHandler.cs
+  CheckInValidator.cs
+ Timesheets/Commands/CheckOut/
+  CheckOutCommand.cs
+  CheckOutHandler.cs
+  CheckOutValidator.cs
+ Timesheets/Queries/GetActiveCheckIn/
+  GetActiveCheckInHandler.cs
+  GetActiveCheckInQuery.cs
+ Timesheets/Queries/GetAssignedCustomers/
+  GetAssignedCustomersHandler.cs
+  GetAssignedCustomersQuery.cs
+ Timesheets/Queries/GetTimesheetReport/
+  GetTimesheetReportHandler.cs
+  GetTimesheetReportQuery.cs
+ Timesheets/Queries/GetTimesheets/
+  GetTimesheetsHandler.cs
+  GetTimesheetsQuery.cs
+ TwoFactor/Commands/DisableTwoFactor/
+  DisableTwoFactorCommand.cs
+  DisableTwoFactorHandler.cs
+ TwoFactor/Commands/EnableTwoFactor/
+  EnableTwoFactorCommand.cs
+  EnableTwoFactorHandler.cs
+ TwoFactor/Commands/InitiateTwoFactorSetup/
+  InitiateTwoFactorSetupCommand.cs
+  InitiateTwoFactorSetupHandler.cs
+ TwoFactor/Commands/RegenerateBackupCodes/
+  RegenerateBackupCodesCommand.cs
+  RegenerateBackupCodesHandler.cs
+ TwoFactor/Commands/VerifyTwoFactorCode/
+  VerifyTwoFactorCodeCommand.cs
+  VerifyTwoFactorCodeHandler.cs
+ TwoFactor/Queries/GetTwoFactorStatus/
+  GetTwoFactorStatusHandler.cs
+  GetTwoFactorStatusQuery.cs
+ UserActivity/Queries/GetActivities/
+  GetActivitiesHandler.cs
+  GetActivitiesQuery.cs
+ UserActivity/Queries/GetActivityDashboard/
+  GetActivityDashboardHandler.cs
+  GetActivityDashboardQuery.cs
+ UserActivity/Queries/GetActivityFilterOptions/
+  GetActivityFilterOptionsHandler.cs
+  GetActivityFilterOptionsQuery.cs
+ UserActivity/Queries/GetEntityActivities/
+  GetEntityActivitiesHandler.cs
+  GetEntityActivitiesQuery.cs
+ UserActivity/Queries/GetMyActivity/
+  GetMyActivityHandler.cs
+  GetMyActivityQuery.cs
+ UserActivity/Queries/GetUserActivity/
+  GetUserActivityHandler.cs
+  GetUserActivityQuery.cs
+ UserManagement/Commands/CreateUser/
+  CreateUserCommand.cs
+  CreateUserHandler.cs
+ UserManagement/Commands/DeleteUser/
+  DeleteUserCommand.cs
+  DeleteUserHandler.cs
+ UserManagement/Commands/ResetTwoFactor/
+  ResetTwoFactorCommand.cs
+  ResetTwoFactorHandler.cs
+ UserManagement/Commands/UnlockUser/
+  UnlockUserCommand.cs
+  UnlockUserHandler.cs
+ UserManagement/Commands/UpdateGlobalDriverAssignedCustomers/
+  UpdateGlobalDriverAssignedCustomersCommand.cs
+  UpdateGlobalDriverAssignedCustomersHandler.cs
+  UpdateGlobalDriverAssignedCustomersValidator.cs
+ UserManagement/Commands/UpdateMerchandiserAssignedCustomers/
+  UpdateMerchandiserAssignedCustomersCommand.cs
+  UpdateMerchandiserAssignedCustomersHandler.cs
+  UpdateMerchandiserAssignedCustomersValidator.cs
+ UserManagement/Commands/UpdateUser/
+  UpdateUserCommand.cs
+  UpdateUserHandler.cs
+ UserManagement/Commands/UpdateUserPermissions/
+  UpdateUserPermissionsCommand.cs
+  UpdateUserPermissionsHandler.cs
+ UserManagement/
+  CustomerAssignmentNotificationCustomerResolver.cs
+  CustomerAssignmentNotificationFactory.cs
+  Queries/GetAvailablePermissions/
+   GetAvailablePermissionsHandler.cs
+   GetAvailablePermissionsQuery.cs
+  Queries/GetCurrentUser/
+   GetCurrentUserHandler.cs
+   GetCurrentUserQuery.cs
+  Queries/GetCurrentUserPermissions/
+   GetCurrentUserPermissionsHandler.cs
+   GetCurrentUserPermissionsQuery.cs
+  Queries/GetManagedMerchandiserAccounts/
+   GetManagedMerchandiserAccountsHandler.cs
+   GetManagedMerchandiserAccountsQuery.cs
+  Queries/GetUser/
+   GetUserHandler.cs
+   GetUserQuery.cs
+  Queries/GetUserPermissions/
+   GetUserPermissionsHandler.cs
+   GetUserPermissionsQuery.cs
+  Queries/GetUsers/
+   GetUsersHandler.cs
+   GetUsersQuery.cs
+ Users/Commands/ActivateUser/
+  ActivateUserCommand.cs
+  ActivateUserHandler.cs
+ Users/Commands/AdminChangePassword/
+  AdminChangePasswordCommand.cs
+  AdminChangePasswordHandler.cs
+ Users/Commands/CreateUser/
+  CreateUserCommand.cs
+  CreateUserHandler.cs
+ Users/Commands/DeactivateUser/
+  DeactivateUserCommand.cs
+  DeactivateUserHandler.cs
+ Users/Commands/DeleteUser/
+  DeleteUserCommand.cs
+  DeleteUserHandler.cs
+ Users/Commands/UnlockUser/
+  UnlockUserCommand.cs
+  UnlockUserHandler.cs
+ Users/Commands/UpdateUser/
+  UpdateUserCommand.cs
+  UpdateUserHandler.cs
+ Users/Queries/GetRoles/
+  GetRolesHandler.cs
+  GetRolesQuery.cs
+ Users/Queries/GetUser/
+  GetUserHandler.cs
+  GetUserQuery.cs
+ Users/Queries/GetUsers/
+  GetUsersHandler.cs
+  GetUsersQuery.cs
+ Webhooks/Commands/CreateWebhook/
+  CreateWebhookCommand.cs
+  CreateWebhookHandler.cs
+ Webhooks/Commands/DeleteWebhook/
+  DeleteWebhookCommand.cs
+  DeleteWebhookHandler.cs
+ Webhooks/Commands/TestWebhook/
+  TestWebhookCommand.cs
+  TestWebhookHandler.cs
+ Webhooks/Commands/UpdateWebhook/
+  UpdateWebhookCommand.cs
+  UpdateWebhookHandler.cs
+ Webhooks/Queries/GetDeliveries/
+  GetDeliveriesHandler.cs
+  GetDeliveriesQuery.cs
+ Webhooks/Queries/GetEventTypes/
+  GetEventTypesHandler.cs
+  GetEventTypesQuery.cs
+ Webhooks/Queries/GetWebhook/
+  GetWebhookHandler.cs
+  GetWebhookQuery.cs
+ Webhooks/Queries/GetWebhooks/
+  GetWebhooksHandler.cs
+  GetWebhooksQuery.cs
+Health/
+ ApplicationDbHealthCheck.cs
+ ApplicationSchemaHealthCheck.cs
+ BackgroundWorkersHealthCheck.cs
+ DatabaseConnectionLatencyHealthCheck.cs
+ OperationalSyncHealthCheck.cs
+ QueuePressureHealthCheck.cs
+ SapDependencyHealthCheck.cs
+ StartupReadinessHealthCheck.cs
+ StartupReadinessSignal.cs
+ ThreadPoolPressureHealthCheck.cs
+Hubs/NotificationHub.cs
+Mappings/MappingExtensions.cs
+Middleware/
+ IdempotencyMiddleware.cs
+ MobileVersionEnforcementMiddleware.cs
+ SAPCircuitBreakerHandler.cs
+ SAPConcurrencyHandler.cs
+ SAPRequestLoggingHandler.cs
+ SecurityMiddleware.cs
+Migrations/
+ 20260103122411_InitialCreate.cs
+ 20260103122411_InitialCreate.Designer.cs
+ 20260104045051_AddInventoryEntities.cs
+ 20260104045051_AddInventoryEntities.Designer.cs
+ 20260104045954_AddNonNegativeQuantityConstraints.cs
+ 20260104045954_AddNonNegativeQuantityConstraints.Designer.cs
+ 20260104102722_SyncModelChanges.cs
+ 20260104102722_SyncModelChanges.Designer.cs
+ 20260107030131_AddSalesOrdersAndCreditNotes.cs
+ 20260107030131_AddSalesOrdersAndCreditNotes.Designer.cs
+ 20260111105317_AddPriceListsTable.cs
+ 20260111105317_AddPriceListsTable.Designer.cs
+ 20260111114735_AddForeignNameToItemPrices.cs
+ 20260111114735_AddForeignNameToItemPrices.Designer.cs
+ 20260112202904_AddDocumentManagement.cs
+ 20260112202904_AddDocumentManagement.Designer.cs
+ 20260205062311_AddStockReservations.cs
+ 20260205062311_AddStockReservations.Designer.cs
+ 20260205070354_AddInvoiceQueue.cs
+ 20260205070354_AddInvoiceQueue.Designer.cs
+ 20260205084857_AddInventoryTransferQueue.cs
+ 20260205084857_AddInventoryTransferQueue.Designer.cs
+ 20260205091521_SyncModelChanges_Feb2026.cs
+ 20260205091521_SyncModelChanges_Feb2026.Designer.cs
+ 20260306200651_AddPurchaseOrders.cs
+ 20260306200651_AddPurchaseOrders.Designer.cs
+ 20260311075700_AddUserAssignedWarehouseCode.cs
+ 20260311075700_AddUserAssignedWarehouseCode.Designer.cs
+ 20260318091321_AddUserAssignedWarehouseCodes.cs
+ 20260318091321_AddUserAssignedWarehouseCodes.Designer.cs
+ 20260320113034_AddAllowedPaymentMethodsToUser.cs
+ 20260320113034_AddAllowedPaymentMethodsToUser.Designer.cs
+ 20260321085037_AddQuotations.cs
+ 20260321085037_AddQuotations.Designer.cs
+ 20260407090141_AddMobileSalesOrderSupport.cs
+ 20260407090141_AddMobileSalesOrderSupport.Designer.cs
+ 20260409084516_AddAssignedSectionToUsers.cs
+ 20260409084516_AddAssignedSectionToUsers.Designer.cs
+ 20260409115733_AddMerchandiserProducts.cs
+ 20260409115733_AddMerchandiserProducts.Designer.cs
+ 20260415104158_AddPushDeviceRegistrations.cs
+ 20260415104158_AddPushDeviceRegistrations.Designer.cs
+ 20260416120951_AddExternalReferenceToDocumentAttachments.cs
+ 20260416120951_AddExternalReferenceToDocumentAttachments.Designer.cs
+ 20260416121513_AddTimesheetEntries.cs
+ 20260416121513_AddTimesheetEntries.Designer.cs
+ 20260418184447_AddGPSCoordinatesToSalesOrder.cs
+ 20260418184447_AddGPSCoordinatesToSalesOrder.Designer.cs
+ 20260418194707_AddDesktopOfflineInvoicing.cs
+ 20260418194707_AddDesktopOfflineInvoicing.Designer.cs
+ 20260418223023_FixSnapshotItemConcurrency.cs
+ 20260418223023_FixSnapshotItemConcurrency.Designer.cs
+ 20260419134558_AddUserPaymentSettings.cs
+ 20260419134558_AddUserPaymentSettings.Designer.cs
+ 20260420081142_AddDenormalizedFieldsToMerchandiserProducts.cs
+ 20260420081142_AddDenormalizedFieldsToMerchandiserProducts.Designer.cs
+ 20260422134816_AddMobileOrderPostProcessingQueue.cs
+ 20260422134816_AddMobileOrderPostProcessingQueue.Designer.cs
+ 20260423173618_AddPasskeyCredentials.cs
+ 20260423173618_AddPasskeyCredentials.Designer.cs
+ 20260424124357_AddMobileSalesOrderClientRequestId.cs
+ 20260424124357_AddMobileSalesOrderClientRequestId.Designer.cs
+ 20260425113000_AddPerformanceHotspotIndexes.cs
+ 20260425114500_UseCitextForUserCredentials.cs
+ 20260428012752_AddCacheSyncStates.cs
+ 20260428012752_AddCacheSyncStates.Designer.cs
+ 20260430051105_EnforceSingleActiveTimesheetCheckIn.cs
+ 20260430051105_EnforceSingleActiveTimesheetCheckIn.Designer.cs
+ 20260501004846_AddExceptionCenterIncidentTracking.cs
+ 20260501004846_AddExceptionCenterIncidentTracking.Designer.cs
+ 20260504133941_AddBackgroundWorkerClusterStates.cs
+ 20260504133941_AddBackgroundWorkerClusterStates.Designer.cs
+ 20260504155040_AddIncomingPaymentQueue.cs
+ 20260504155040_AddIncomingPaymentQueue.Designer.cs
+ 20260505130149_AddDataProtectionKeyRing.cs
+ 20260505130149_AddDataProtectionKeyRing.Designer.cs
+ 20260506045457_AddAuditLogMobileFields.cs
+ 20260506045457_AddAuditLogMobileFields.Designer.cs
+ 20260514055429_AddQuotationClientRequestId.cs
+ 20260514055429_AddQuotationClientRequestId.Designer.cs
+ 20260517081325_AddTwoFactorLastUsedTimeStep.cs
+ 20260517081325_AddTwoFactorLastUsedTimeStep.Designer.cs
+ 20260517084133_AddPodAttachmentExternalReferenceUniqueness.cs
+ 20260517084133_AddPodAttachmentExternalReferenceUniqueness.Designer.cs
+ ApplicationDbContextModelSnapshot.cs
+Models/
+ AuditActions.cs
+ BatchSearchResult.cs
+ Entities/
+  AuditLog.cs
+  BackgroundWorkerClusterStateEntity.cs
+  CacheSyncStateEntity.cs
+  CreditNoteEntity.cs
+  DailyStockSnapshotEntity.cs
+  DailyStockSnapshotItemEntity.cs
+  DesktopSaleEntity.cs
+  DesktopSaleLineEntity.cs
+  DocumentEntity.cs
+  ExceptionCenterIncidentEntity.cs
+  ExceptionCenterItemStateEntity.cs
+  IncomingPaymentEntity.cs
+  IncomingPaymentQueueEntity.cs
+  InventoryTransferEntity.cs
+  InventoryTransferQueueEntity.cs
+  InvoiceEntity.cs
+  InvoiceQueueEntity.cs
+  ItemPriceEntity.cs
+  MerchandiserProductEntity.cs
+  MobileOrderPostProcessingQueueEntity.cs
+  PriceListEntity.cs
+  ProductEntity.cs
+  PurchaseOrderEntity.cs
+  QuotationEntity.cs
+  SaleConsolidationEntity.cs
+  SalesOrderEntity.cs
+  StockReservationEntity.cs
+  StockTransferAdjustmentEntity.cs
+  SystemEntities.cs
+  TimesheetEntryEntity.cs
+ IncomingPayment.cs
+ InventoryTransfer.cs
+ InventoryTransferRequest.cs
+ Invoice.cs
+ Item.cs
+ Notification.cs
+ PasskeyCredential.cs
+ Payment.cs
+ Permission.cs
+ PushDeviceRegistration.cs
+ Revmax/
+  RevmaxItem.cs
+  RevmaxResponses.cs
+  SetLicenseRequest.cs
+  TransactM.cs
+  TransactMExt.cs
+ SAPCreditNote.cs
+ SAPExchangeRate.cs
+ SAPGoodsReceiptPurchaseOrder.cs
+ SAPPurchaseInvoice.cs
+ SAPPurchaseOrder.cs
+ SAPPurchaseQuotation.cs
+ SAPPurchaseRequest.cs
+ SAPQuotation.cs
+ SAPSalesOrder.cs
+ User.cs
+ Webhook.cs
+obj/Debug/net10.0/
+ .NETCoreApp,Version=v10.0.AssemblyAttributes.cs
+ ShopInventory.AssemblyInfo.cs
+ ShopInventory.GlobalUsings.g.cs
+Program.cs
+Services/
+ AuditService.cs
+ AuthService.cs
+ BackgroundWorkerClusterStateSyncService.cs
+ BackgroundWorkerHealthRegistry.cs
+ BackgroundWorkerLeaderElector.cs
+ BackupService.cs
+ BatchInventoryValidationService.cs
+ BusinessPartnerService.cs
+ CreditNoteService.cs
+ DailyStockSnapshotService.cs
+ DocumentService.cs
+ EmailQueueService.cs
+ EmailService.cs
+ EndOfDayConsolidationService.cs
+ ExchangeRateService.cs
+ FiscalizationService.cs
+ IInvoiceFiscalizationQueue.cs
+ IMobileOrderPostProcessingQueue.cs
+ IncomingPaymentPostingBackgroundService.cs
+ IncomingPaymentQueueService.cs
+ IncomingPaymentService.cs
+ INewFeatureServices.cs
+ InventoryLockService.cs
+ InventoryTransferPostingBackgroundService.cs
+ InventoryTransferQueueService.cs
+ InvoiceFiscalizationBackgroundService.cs
+ InvoiceFiscalizationQueue.cs
+ InvoicePdfService.cs
+ InvoicePostingBackgroundService.cs
+ InvoiceQueueService.cs
+ InvoiceService.cs
+ IQuotationPdfService.cs
+ IRevmaxClient.cs
+ ISAPServiceLayerClient.cs
+ MobileOrderPostProcessingBackgroundService.cs
+ MobileOrderPostProcessingQueue.cs
+ NotificationService.cs
+ PasskeyOperationStore.cs
+ PasswordResetService.cs
+ PaymentGatewayService.cs
+ PaymentService.cs
+ PostgresInventoryLockService.cs
+ PurchaseOrderService.cs
+ PushNotificationService.cs
+ QuotationPdfService.cs
+ QuotationService.cs
+ RateLimitService.cs
+ ReportService.cs
+ ReservationCleanupService.cs
+ RevmaxClient.cs
+ RuntimeInstanceIdentity.cs
+ SalesOrderPdfService.cs
+ SalesOrderService.cs
+ SapCircuitBreakerState.cs
+ SapCircuitOpenException.cs
+ SapFailureClassifier.cs
+ SapPostingPeriodException.cs
+ SAPServiceLayerClient.cs
+ SapSqlPriceListExpressions.cs
+ StatementService.cs
+ StockReservationService.cs
+ StockValidationService.cs
+ SyncStatusService.cs
+ SystemFailureAlertBackgroundService.cs
+ TwoFactorPendingStore.cs
+ TwoFactorService.cs
+ UserActivityService.cs
+ UserManagementService.cs
+ WebhookService.cs
+
+[metadataReferences]
+<DOTNET>/packs/Microsoft.AspNetCore.App.Ref/10.0.8/ref/net10.0/
+ Microsoft.AspNetCore.Antiforgery.dll
+ Microsoft.AspNetCore.Authentication.Abstractions.dll
+ Microsoft.AspNetCore.Authentication.BearerToken.dll
+ Microsoft.AspNetCore.Authentication.Cookies.dll
+ Microsoft.AspNetCore.Authentication.Core.dll
+ Microsoft.AspNetCore.Authentication.dll
+ Microsoft.AspNetCore.Authentication.OAuth.dll
+ Microsoft.AspNetCore.Authorization.dll
+ Microsoft.AspNetCore.Authorization.Policy.dll
+ Microsoft.AspNetCore.Components.Authorization.dll
+ Microsoft.AspNetCore.Components.dll
+ Microsoft.AspNetCore.Components.Endpoints.dll
+ Microsoft.AspNetCore.Components.Forms.dll
+ Microsoft.AspNetCore.Components.Server.dll
+ Microsoft.AspNetCore.Components.Web.dll
+ Microsoft.AspNetCore.Connections.Abstractions.dll
+ Microsoft.AspNetCore.CookiePolicy.dll
+ Microsoft.AspNetCore.Cors.dll
+ Microsoft.AspNetCore.Cryptography.Internal.dll
+ Microsoft.AspNetCore.Cryptography.KeyDerivation.dll
+ Microsoft.AspNetCore.DataProtection.Abstractions.dll
+ Microsoft.AspNetCore.DataProtection.dll
+ Microsoft.AspNetCore.DataProtection.Extensions.dll
+ Microsoft.AspNetCore.Diagnostics.Abstractions.dll
+ Microsoft.AspNetCore.Diagnostics.dll
+ Microsoft.AspNetCore.Diagnostics.HealthChecks.dll
+ Microsoft.AspNetCore.dll
+ Microsoft.AspNetCore.HostFiltering.dll
+ Microsoft.AspNetCore.Hosting.Abstractions.dll
+ Microsoft.AspNetCore.Hosting.dll
+ Microsoft.AspNetCore.Hosting.Server.Abstractions.dll
+ Microsoft.AspNetCore.Html.Abstractions.dll
+ Microsoft.AspNetCore.Http.Abstractions.dll
+ Microsoft.AspNetCore.Http.Connections.Common.dll
+ Microsoft.AspNetCore.Http.Connections.dll
+ Microsoft.AspNetCore.Http.dll
+ Microsoft.AspNetCore.Http.Extensions.dll
+ Microsoft.AspNetCore.Http.Features.dll
+ Microsoft.AspNetCore.Http.Results.dll
+ Microsoft.AspNetCore.HttpLogging.dll
+ Microsoft.AspNetCore.HttpOverrides.dll
+ Microsoft.AspNetCore.HttpsPolicy.dll
+ Microsoft.AspNetCore.Identity.dll
+ Microsoft.AspNetCore.Localization.dll
+ Microsoft.AspNetCore.Localization.Routing.dll
+ Microsoft.AspNetCore.Metadata.dll
+ Microsoft.AspNetCore.Mvc.Abstractions.dll
+ Microsoft.AspNetCore.Mvc.ApiExplorer.dll
+ Microsoft.AspNetCore.Mvc.Core.dll
+ Microsoft.AspNetCore.Mvc.Cors.dll
+ Microsoft.AspNetCore.Mvc.DataAnnotations.dll
+ Microsoft.AspNetCore.Mvc.dll
+ Microsoft.AspNetCore.Mvc.Formatters.Json.dll
+ Microsoft.AspNetCore.Mvc.Formatters.Xml.dll
+ Microsoft.AspNetCore.Mvc.Localization.dll
+ Microsoft.AspNetCore.Mvc.Razor.dll
+ Microsoft.AspNetCore.Mvc.RazorPages.dll
+ Microsoft.AspNetCore.Mvc.TagHelpers.dll
+ Microsoft.AspNetCore.Mvc.ViewFeatures.dll
+ Microsoft.AspNetCore.OutputCaching.dll
+ Microsoft.AspNetCore.RateLimiting.dll
+ Microsoft.AspNetCore.Razor.dll
+ Microsoft.AspNetCore.Razor.Runtime.dll
+ Microsoft.AspNetCore.RequestDecompression.dll
+ Microsoft.AspNetCore.ResponseCaching.Abstractions.dll
+ Microsoft.AspNetCore.ResponseCaching.dll
+ Microsoft.AspNetCore.ResponseCompression.dll
+ Microsoft.AspNetCore.Rewrite.dll
+ Microsoft.AspNetCore.Routing.Abstractions.dll
+ Microsoft.AspNetCore.Routing.dll
+ Microsoft.AspNetCore.Server.HttpSys.dll
+ Microsoft.AspNetCore.Server.IIS.dll
+ Microsoft.AspNetCore.Server.IISIntegration.dll
+ Microsoft.AspNetCore.Server.Kestrel.Core.dll
+ Microsoft.AspNetCore.Server.Kestrel.dll
+ Microsoft.AspNetCore.Server.Kestrel.Transport.NamedPipes.dll
+ Microsoft.AspNetCore.Server.Kestrel.Transport.Quic.dll
+ Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets.dll
+ Microsoft.AspNetCore.Session.dll
+ Microsoft.AspNetCore.SignalR.Common.dll
+ Microsoft.AspNetCore.SignalR.Core.dll
+ Microsoft.AspNetCore.SignalR.dll
+ Microsoft.AspNetCore.SignalR.Protocols.Json.dll
+ Microsoft.AspNetCore.StaticAssets.dll
+ Microsoft.AspNetCore.StaticFiles.dll
+ Microsoft.AspNetCore.WebSockets.dll
+ Microsoft.AspNetCore.WebUtilities.dll
+ Microsoft.Extensions.Caching.Abstractions.dll
+ Microsoft.Extensions.Caching.Memory.dll
+ Microsoft.Extensions.Configuration.Abstractions.dll
+ Microsoft.Extensions.Configuration.Binder.dll
+ Microsoft.Extensions.Configuration.CommandLine.dll
+ Microsoft.Extensions.Configuration.dll
+ Microsoft.Extensions.Configuration.EnvironmentVariables.dll
+ Microsoft.Extensions.Configuration.FileExtensions.dll
+ Microsoft.Extensions.Configuration.Ini.dll
+ Microsoft.Extensions.Configuration.Json.dll
+ Microsoft.Extensions.Configuration.KeyPerFile.dll
+ Microsoft.Extensions.Configuration.UserSecrets.dll
+ Microsoft.Extensions.Configuration.Xml.dll
+ Microsoft.Extensions.DependencyInjection.Abstractions.dll
+ Microsoft.Extensions.DependencyInjection.dll
+ Microsoft.Extensions.Diagnostics.Abstractions.dll
+ Microsoft.Extensions.Diagnostics.dll
+ Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions.dll
+ Microsoft.Extensions.Diagnostics.HealthChecks.dll
+ Microsoft.Extensions.Features.dll
+ Microsoft.Extensions.FileProviders.Abstractions.dll
+ Microsoft.Extensions.FileProviders.Composite.dll
+ Microsoft.Extensions.FileProviders.Embedded.dll
+ Microsoft.Extensions.FileProviders.Physical.dll
+ Microsoft.Extensions.FileSystemGlobbing.dll
+ Microsoft.Extensions.Hosting.Abstractions.dll
+ Microsoft.Extensions.Hosting.dll
+ Microsoft.Extensions.Http.dll
+ Microsoft.Extensions.Identity.Core.dll
+ Microsoft.Extensions.Identity.Stores.dll
+ Microsoft.Extensions.Localization.Abstractions.dll
+ Microsoft.Extensions.Localization.dll
+ Microsoft.Extensions.Logging.Abstractions.dll
+ Microsoft.Extensions.Logging.Configuration.dll
+ Microsoft.Extensions.Logging.Console.dll
+ Microsoft.Extensions.Logging.Debug.dll
+ Microsoft.Extensions.Logging.dll
+ Microsoft.Extensions.Logging.EventLog.dll
+ Microsoft.Extensions.Logging.EventSource.dll
+ Microsoft.Extensions.Logging.TraceSource.dll
+ Microsoft.Extensions.ObjectPool.dll
+ Microsoft.Extensions.Options.ConfigurationExtensions.dll
+ Microsoft.Extensions.Options.DataAnnotations.dll
+ Microsoft.Extensions.Options.dll
+ Microsoft.Extensions.Primitives.dll
+ Microsoft.Extensions.Validation.dll
+ Microsoft.Extensions.WebEncoders.dll
+ Microsoft.JSInterop.dll
+ Microsoft.Net.Http.Headers.dll
+ System.Diagnostics.EventLog.dll
+ System.Formats.Cbor.dll
+ System.Security.Cryptography.Xml.dll
+ System.Threading.RateLimiting.dll
+<DOTNET>/packs/Microsoft.NETCore.App.Ref/10.0.8/ref/net10.0/
+ Microsoft.CSharp.dll
+ Microsoft.VisualBasic.Core.dll
+ Microsoft.VisualBasic.dll
+ Microsoft.Win32.Primitives.dll
+ Microsoft.Win32.Registry.dll
+ mscorlib.dll
+ netstandard.dll
+ System.AppContext.dll
+ System.Buffers.dll
+ System.Collections.Concurrent.dll
+ System.Collections.dll
+ System.Collections.Immutable.dll
+ System.Collections.NonGeneric.dll
+ System.Collections.Specialized.dll
+ System.ComponentModel.Annotations.dll
+ System.ComponentModel.DataAnnotations.dll
+ System.ComponentModel.dll
+ System.ComponentModel.EventBasedAsync.dll
+ System.ComponentModel.Primitives.dll
+ System.ComponentModel.TypeConverter.dll
+ System.Configuration.dll
+ System.Console.dll
+ System.Core.dll
+ System.Data.Common.dll
+ System.Data.DataSetExtensions.dll
+ System.Data.dll
+ System.Diagnostics.Contracts.dll
+ System.Diagnostics.Debug.dll
+ System.Diagnostics.DiagnosticSource.dll
+ System.Diagnostics.FileVersionInfo.dll
+ System.Diagnostics.Process.dll
+ System.Diagnostics.StackTrace.dll
+ System.Diagnostics.TextWriterTraceListener.dll
+ System.Diagnostics.Tools.dll
+ System.Diagnostics.TraceSource.dll
+ System.Diagnostics.Tracing.dll
+ System.dll
+ System.Drawing.dll
+ System.Drawing.Primitives.dll
+ System.Dynamic.Runtime.dll
+ System.Formats.Asn1.dll
+ System.Formats.Tar.dll
+ System.Globalization.Calendars.dll
+ System.Globalization.dll
+ System.Globalization.Extensions.dll
+ System.IO.Compression.Brotli.dll
+ System.IO.Compression.dll
+ System.IO.Compression.FileSystem.dll
+ System.IO.Compression.ZipFile.dll
+ System.IO.dll
+ System.IO.FileSystem.AccessControl.dll
+ System.IO.FileSystem.dll
+ System.IO.FileSystem.DriveInfo.dll
+ System.IO.FileSystem.Primitives.dll
+ System.IO.FileSystem.Watcher.dll
+ System.IO.IsolatedStorage.dll
+ System.IO.MemoryMappedFiles.dll
+ System.IO.Pipelines.dll
+ System.IO.Pipes.AccessControl.dll
+ System.IO.Pipes.dll
+ System.IO.UnmanagedMemoryStream.dll
+ System.Linq.AsyncEnumerable.dll
+ System.Linq.dll
+ System.Linq.Expressions.dll
+ System.Linq.Parallel.dll
+ System.Linq.Queryable.dll
+ System.Memory.dll
+ System.Net.dll
+ System.Net.Http.dll
+ System.Net.Http.Json.dll
+ System.Net.HttpListener.dll
+ System.Net.Mail.dll
+ System.Net.NameResolution.dll
+ System.Net.NetworkInformation.dll
+ System.Net.Ping.dll
+ System.Net.Primitives.dll
+ System.Net.Quic.dll
+ System.Net.Requests.dll
+ System.Net.Security.dll
+ System.Net.ServerSentEvents.dll
+ System.Net.ServicePoint.dll
+ System.Net.Sockets.dll
+ System.Net.WebClient.dll
+ System.Net.WebHeaderCollection.dll
+ System.Net.WebProxy.dll
+ System.Net.WebSockets.Client.dll
+ System.Net.WebSockets.dll
+ System.Numerics.dll
+ System.Numerics.Vectors.dll
+ System.ObjectModel.dll
+ System.Reflection.DispatchProxy.dll
+ System.Reflection.dll
+ System.Reflection.Emit.dll
+ System.Reflection.Emit.ILGeneration.dll
+ System.Reflection.Emit.Lightweight.dll
+ System.Reflection.Extensions.dll
+ System.Reflection.Metadata.dll
+ System.Reflection.Primitives.dll
+ System.Reflection.TypeExtensions.dll
+ System.Resources.Reader.dll
+ System.Resources.ResourceManager.dll
+ System.Resources.Writer.dll
+ System.Runtime.CompilerServices.Unsafe.dll
+ System.Runtime.CompilerServices.VisualC.dll
+ System.Runtime.dll
+ System.Runtime.Extensions.dll
+ System.Runtime.Handles.dll
+ System.Runtime.InteropServices.dll
+ System.Runtime.InteropServices.JavaScript.dll
+ System.Runtime.InteropServices.RuntimeInformation.dll
+ System.Runtime.Intrinsics.dll
+ System.Runtime.Loader.dll
+ System.Runtime.Numerics.dll
+ System.Runtime.Serialization.dll
+ System.Runtime.Serialization.Formatters.dll
+ System.Runtime.Serialization.Json.dll
+ System.Runtime.Serialization.Primitives.dll
+ System.Runtime.Serialization.Xml.dll
+ System.Security.AccessControl.dll
+ System.Security.Claims.dll
+ System.Security.Cryptography.Algorithms.dll
+ System.Security.Cryptography.Cng.dll
+ System.Security.Cryptography.Csp.dll
+ System.Security.Cryptography.dll
+ System.Security.Cryptography.Encoding.dll
+ System.Security.Cryptography.OpenSsl.dll
+ System.Security.Cryptography.Primitives.dll
+ System.Security.Cryptography.X509Certificates.dll
+ System.Security.dll
+ System.Security.Principal.dll
+ System.Security.Principal.Windows.dll
+ System.Security.SecureString.dll
+ System.ServiceModel.Web.dll
+ System.ServiceProcess.dll
+ System.Text.Encoding.CodePages.dll
+ System.Text.Encoding.dll
+ System.Text.Encoding.Extensions.dll
+ System.Text.Encodings.Web.dll
+ System.Text.Json.dll
+ System.Text.RegularExpressions.dll
+ System.Threading.AccessControl.dll
+ System.Threading.Channels.dll
+ System.Threading.dll
+ System.Threading.Overlapped.dll
+ System.Threading.Tasks.Dataflow.dll
+ System.Threading.Tasks.dll
+ System.Threading.Tasks.Extensions.dll
+ System.Threading.Tasks.Parallel.dll
+ System.Threading.Thread.dll
+ System.Threading.ThreadPool.dll
+ System.Threading.Timer.dll
+ System.Transactions.dll
+ System.Transactions.Local.dll
+ System.ValueTuple.dll
+ System.Web.dll
+ System.Web.HttpUtility.dll
+ System.Windows.dll
+ System.Xml.dll
+ System.Xml.Linq.dll
+ System.Xml.ReaderWriter.dll
+ System.Xml.Serialization.dll
+ System.Xml.XDocument.dll
+ System.Xml.XmlDocument.dll
+ System.Xml.XmlSerializer.dll
+ System.Xml.XPath.dll
+ System.Xml.XPath.XDocument.dll
+ WindowsBase.dll
+<NUGET>/
+ asp.versioning.abstractions/8.1.0/lib/net8.0/Asp.Versioning.Abstractions.dll
+ asp.versioning.http/8.1.0/lib/net8.0/Asp.Versioning.Http.dll
+ asp.versioning.mvc.apiexplorer/8.1.0/lib/net8.0/Asp.Versioning.Mvc.ApiExplorer.dll
+ asp.versioning.mvc/8.1.0/lib/net8.0/Asp.Versioning.Mvc.dll
+ bcrypt.net-next/4.1.0/lib/net10.0/BCrypt.Net-Next.dll
+ bouncycastle.cryptography/2.6.2/lib/net6.0/BouncyCastle.Cryptography.dll
+ csvhelper/33.1.0/lib/net9.0/CsvHelper.dll
+ erroror/2.0.1/lib/net6.0/ErrorOr.dll
+ fido2.models/4.0.1/lib/net8.0/Fido2.Models.dll
+ fido2/4.0.1/lib/net8.0/Fido2.dll
+ firebaseadmin/3.5.0/lib/net6.0/FirebaseAdmin.dll
+ fluentvalidation.dependencyinjectionextensions/12.1.1/lib/net8.0/FluentValidation.DependencyInjectionExtensions.dll
+ fluentvalidation/12.1.1/lib/net8.0/FluentValidation.dll
+ google.api.gax.rest/4.13.1/lib/netstandard2.0/Google.Api.Gax.Rest.dll
+ google.api.gax/4.13.1/lib/netstandard2.0/Google.Api.Gax.dll
+ google.apis.auth/1.73.0/lib/net6.0/Google.Apis.Auth.dll
+ google.apis.core/1.73.0/lib/net6.0/Google.Apis.Core.dll
+ google.apis.storage.v1/1.67.0.3365/lib/net6.0/Google.Apis.Storage.v1.dll
+ google.apis/1.73.0/lib/net6.0/Google.Apis.dll
+ google.cloud.storage.v1/4.10.0/lib/netstandard2.0/Google.Cloud.Storage.V1.dll
+ itext.bouncy-castle-adapter/9.5.0/lib/netstandard2.0/itext.bouncy-castle-adapter.dll
+ itext.commons/9.5.0/lib/netstandard2.0/itext.commons.dll
+ itext/9.5.0/lib/netstandard2.0/
+  itext.barcodes.dll
+  itext.bouncy-castle-connector.dll
+  itext.forms.dll
+  itext.io.dll
+  itext.kernel.dll
+  itext.layout.dll
+  itext.pdfa.dll
+  itext.pdfua.dll
+  itext.sign.dll
+  itext.styledxmlparser.dll
+  itext.svg.dll
+ mediatr.contracts/2.0.1/lib/netstandard2.0/MediatR.Contracts.dll
+ mediatr/14.1.0/lib/net10.0/MediatR.dll
+ microsoft.aspnetcore.authentication.jwtbearer/10.0.3/lib/net10.0/Microsoft.AspNetCore.Authentication.JwtBearer.dll
+ microsoft.aspnetcore.dataprotection.entityframeworkcore/10.0.3/lib/net10.0/Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.dll
+ microsoft.bcl.asyncinterfaces/6.0.0/lib/netstandard2.1/Microsoft.Bcl.AsyncInterfaces.dll
+ microsoft.bcl.memory/9.0.14/lib/net9.0/Microsoft.Bcl.Memory.dll
+ microsoft.dotnet.platformabstractions/1.1.0/lib/netstandard1.3/Microsoft.DotNet.PlatformAbstractions.dll
+ microsoft.entityframeworkcore.abstractions/10.0.3/lib/net10.0/Microsoft.EntityFrameworkCore.Abstractions.dll
+ microsoft.entityframeworkcore.relational/10.0.3/lib/net10.0/Microsoft.EntityFrameworkCore.Relational.dll
+ microsoft.entityframeworkcore/10.0.3/lib/net10.0/Microsoft.EntityFrameworkCore.dll
+ microsoft.extensions.dependencymodel/10.0.3/lib/net10.0/Microsoft.Extensions.DependencyModel.dll
+ microsoft.identitymodel.abstractions/8.14.0/lib/net9.0/Microsoft.IdentityModel.Abstractions.dll
+ microsoft.identitymodel.jsonwebtokens/8.14.0/lib/net9.0/Microsoft.IdentityModel.JsonWebTokens.dll
+ microsoft.identitymodel.logging/8.14.0/lib/net9.0/Microsoft.IdentityModel.Logging.dll
+ microsoft.identitymodel.protocols.openidconnect/8.0.1/lib/net9.0/Microsoft.IdentityModel.Protocols.OpenIdConnect.dll
+ microsoft.identitymodel.protocols/8.0.1/lib/net9.0/Microsoft.IdentityModel.Protocols.dll
+ microsoft.identitymodel.tokens/8.14.0/lib/net9.0/Microsoft.IdentityModel.Tokens.dll
+ microsoft.openapi/1.6.14/lib/netstandard2.0/Microsoft.OpenApi.dll
+ newtonsoft.json/13.0.4/lib/net6.0/Newtonsoft.Json.dll
+ npgsql.entityframeworkcore.postgresql/10.0.0/lib/net10.0/Npgsql.EntityFrameworkCore.PostgreSQL.dll
+ npgsql/10.0.0/lib/net10.0/Npgsql.dll
+ nsec.cryptography/25.4.0/lib/net8.0/NSec.Cryptography.dll
+ serilog.aspnetcore/10.0.0/lib/net10.0/Serilog.AspNetCore.dll
+ serilog.extensions.hosting/10.0.0/lib/net10.0/Serilog.Extensions.Hosting.dll
+ serilog.extensions.logging/10.0.0/lib/net10.0/Serilog.Extensions.Logging.dll
+ serilog.formatting.compact/3.0.0/lib/net8.0/Serilog.Formatting.Compact.dll
+ serilog.settings.configuration/10.0.0/lib/net10.0/Serilog.Settings.Configuration.dll
+ serilog.sinks.console/6.1.1/lib/net8.0/Serilog.Sinks.Console.dll
+ serilog.sinks.debug/3.0.0/lib/net8.0/Serilog.Sinks.Debug.dll
+ serilog.sinks.file/7.0.0/lib/net9.0/Serilog.Sinks.File.dll
+ serilog/4.3.0/lib/net9.0/Serilog.dll
+ sixlabors.imagesharp/3.1.12/lib/net6.0/SixLabors.ImageSharp.dll
+ swashbuckle.aspnetcore.annotations/6.9.0/lib/net8.0/Swashbuckle.AspNetCore.Annotations.dll
+ swashbuckle.aspnetcore.swagger/6.9.0/lib/net8.0/Swashbuckle.AspNetCore.Swagger.dll
+ swashbuckle.aspnetcore.swaggergen/6.9.0/lib/net8.0/Swashbuckle.AspNetCore.SwaggerGen.dll
+ swashbuckle.aspnetcore.swaggerui/6.9.0/lib/net8.0/Swashbuckle.AspNetCore.SwaggerUI.dll
+ system.codedom/7.0.0/lib/net7.0/System.CodeDom.dll
+ system.identitymodel.tokens.jwt/8.0.1/lib/net9.0/System.IdentityModel.Tokens.Jwt.dll
+ system.management/7.0.2/lib/net7.0/System.Management.dll
+
+[analyzerReferences]
+<DOTNET>/packs/Microsoft.AspNetCore.App.Ref/10.0.8/analyzers/dotnet/cs/
+ Microsoft.AspNetCore.App.Analyzers.dll
+ Microsoft.AspNetCore.App.CodeFixes.dll
+ Microsoft.AspNetCore.App.SourceGenerators.dll
+ Microsoft.AspNetCore.Components.Analyzers.dll
+ Microsoft.Extensions.Logging.Generators.dll
+ Microsoft.Extensions.Options.SourceGeneration.dll
+ Microsoft.Extensions.Validation.ValidationsGenerator.dll
+<DOTNET>/packs/Microsoft.NETCore.App.Ref/10.0.8/analyzers/dotnet/cs/
+ Microsoft.Interop.ComInterfaceGenerator.dll
+ Microsoft.Interop.JavaScript.JSImportGenerator.dll
+ Microsoft.Interop.LibraryImportGenerator.dll
+ Microsoft.Interop.SourceGeneration.dll
+ System.Text.Json.SourceGeneration.dll
+ System.Text.RegularExpressions.Generator.dll
+<DOTNET>/sdk/10.0.300/Sdks/Microsoft.NET.Sdk.Razor/source-generators/
+ Microsoft.AspNetCore.Razor.Utilities.Shared.dll
+ Microsoft.CodeAnalysis.Razor.Compiler.dll
+ Microsoft.Extensions.ObjectPool.dll
+<DOTNET>/sdk/10.0.300/Sdks/Microsoft.NET.Sdk.Web/analyzers/cs/
+ Microsoft.AspNetCore.Analyzers.dll
+ Microsoft.AspNetCore.Mvc.Analyzers.dll
+<DOTNET>/sdk/10.0.300/Sdks/Microsoft.NET.Sdk/analyzers/
+ Microsoft.CodeAnalysis.CSharp.NetAnalyzers.dll
+ Microsoft.CodeAnalysis.NetAnalyzers.dll
+<NUGET>/microsoft.codeanalysis.analyzers/3.11.0/analyzers/dotnet/cs/
+ Microsoft.CodeAnalysis.Analyzers.dll
+ Microsoft.CodeAnalysis.CSharp.Analyzers.dll
+<NUGET>/microsoft.entityframeworkcore.analyzers/10.0.3/analyzers/dotnet/cs/Microsoft.EntityFrameworkCore.Analyzers.dll
+
+[analyzerConfigFiles]
+<DOTNET>/sdk/10.0.300/Sdks/Microsoft.NET.Sdk/analyzers/build/config/analysislevel_10_default.globalconfig
+obj/Debug/net10.0/ShopInventory.GeneratedMSBuildEditorConfig.editorconfig

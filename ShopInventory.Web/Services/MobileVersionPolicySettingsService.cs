@@ -73,7 +73,9 @@ public class MobileVersionPolicySettingsService : IMobileVersionPolicySettingsSe
             return new MobileVersionPolicySettingsUpdateResult
             {
                 Success = false,
-                Message = $"Error: {ex.Message}"
+                Message = ApiErrorResponse.GetFriendlyMessage(
+                    ex,
+                    "We couldn't update the mobile version policy right now. Please try again.")
             };
         }
     }

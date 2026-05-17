@@ -807,19 +807,12 @@
 
                             <div class="step-label"><span class="step-num">3</span> Save Backup Codes</div>
                             <p style="color: #6b7280; font-size: .84rem; margin: 0 0 .5rem;">
-                                Store these securely — use if you lose your phone.
+                                After the verification step succeeds, we'll show a one-time set of backup codes. Save them before closing that confirmation.
                             </p>
-                            <div class="backup-grid">
-                                @foreach (var bc in setupData.BackupCodes)
-                                {
-                                    <span
-                                    style="font-family: 'Courier New', monospace; font-size: .88rem; color: #374151;">@bc</span>
-                                }
+                            <div class="sec-info info" style="margin-bottom: 0;">
+                                <i class="bi bi-key-fill"></i>
+                                <span>Backup codes are only revealed after activation and won't be shown again from this setup screen.</span>
                             </div>
-                            <button class="btn-sec-outline btn-sec-sm" style="margin-top: .5rem;"
-                                    @onclick="CopyBackupCodesToClipboard">
-                                <i class="bi bi-clipboard"></i> Copy Codes
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -1320,54 +1313,61 @@
                                     <h5><i class="bi bi-key-fill"></i> Regenerate Backup Codes</h5>
                                     <button class="sec-modal-close" @onclick="() => showRegenerateModal = false"><i
                                         class="bi bi-x-lg"></i></button>
+                                </div>
+                                <div class="sec-modal-body">
+                                    <div class="sec-info info" style="margin-bottom: .85rem;">
+                                        <i class="bi bi-info-circle-fill"></i>
+                                        <span>This will invalidate all existing backup codes and generate new ones.</span>
                                     </div>
-                                    <div class="sec-modal-body">
-                                        @if (newBackupCodes == null)
-                                        {
-                                            <div class="sec-info info" style="margin-bottom: .85rem;">
-                                                <i class="bi bi-info-circle-fill"></i>
-                                                <span>This will invalidate all existing backup codes and generate new ones.</span>
-                                            </div>
-                                            <div>
-                                                <label class="sec-label">Enter Authenticator Code to Confirm</label>
-                                                <input type="text" class="sec-input mono" maxlength="6" placeholder="000000" @bind="regenerateCode" />
-                                            </div>
-                                        }
-                                        else
-                                        {
-                                            <p style="color: #6b7280; font-size: .88rem; margin: 0 0 .75rem;">Your new backup codes:</p>
-                                            <div class="backup-grid">
-                                                @foreach (var bc in newBackupCodes)
-                                                {
-                                                    <span style="font-family: 'Courier New', monospace; font-size: .88rem; color: #374151;">@bc</span>
-                                                }
-                                            </div>
-                                        }
+                                    <div>
+                                        <label class="sec-label">Enter Authenticator Code to Confirm</label>
+                                        <input type="text" class="sec-input mono" maxlength="6" placeholder="000000" @bind="regenerateCode" />
                                     </div>
-                                    <div class="sec-modal-footer">
-                                        @if (newBackupCodes == null)
+                                </div>
+                                <div class="sec-modal-footer">
+                                    <button class="btn-sec-outline" @onclick="CloseRegenerateModal">Cancel</button>
+                                    <button class="btn-sec-gradient" @onclick="RegenerateBackupCodes"
+                                            disabled="@(string.IsNullOrEmpty(regenerateCode) || isRegenerating)">
+                                        @if (isRegenerating)
                                         {
-                                            <button class="btn-sec-outline" @onclick="() => showRegenerateModal = false">Cancel</button>
-                                            <button class="btn-sec-gradient" @onclick="RegenerateBackupCodes"
-                                                    disabled="@(string.IsNullOrEmpty(regenerateCode) || isRegenerating)">
-                                                @if (isRegenerating)
-                                                {
-                                                    <span class="spinner-border spinner-border-sm"></span>
-                                                }
-                                                Regenerate
-                                            </button>
+                                            <span class="spinner-border spinner-border-sm"></span>
                                         }
-                                        else
+                                        Regenerate
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    @if (showBackupCodesModal)
+                    {
+                        <div class="sec-overlay" @onclick="CloseBackupCodesModal">
+                            <div class="sec-modal" @onclick:stopPropagation="true">
+                                <div class="sec-modal-header">
+                                    <h5><i class="bi bi-key-fill"></i> @backupCodesModalTitle</h5>
+                                    <button class="sec-modal-close" @onclick="CloseBackupCodesModal"><i class="bi bi-x-lg"></i></button>
+                                </div>
+                                <div class="sec-modal-body">
+                                    <div class="sec-info warning" style="margin-bottom: .85rem;">
+                                        <i class="bi bi-exclamation-triangle-fill"></i>
+                                        <span>@backupCodesModalDescription</span>
+                                    </div>
+                                    <div class="backup-grid">
+                                        @foreach (var backupCode in displayedBackupCodes)
                                         {
-                                            <button class="btn-sec-outline btn-sec-sm" @onclick="CopyNewBackupCodesToClipboard">
-                                                <i class="bi bi-clipboard"></i> Copy Codes
-                                            </button>
-                                            <button class="btn-sec-gradient" @onclick="CloseRegenerateModal">Done</button>
+                                            <span style="font-family: 'Courier New', monospace; font-size: .88rem; color: #374151;">@backupCode</span>
                                         }
                                     </div>
                                 </div>
+                                <div class="sec-modal-footer">
+                                    <button class="btn-sec-outline btn-sec-sm" @onclick="CopyDisplayedBackupCodesToClipboard">
+                                        <i class="bi bi-clipboard"></i> Copy Codes
+                                    </button>
+                                    <button class="btn-sec-gradient" @onclick="CloseBackupCodesModal">Done</button>
+                                </div>
                             </div>
-                        }
+                        </div>
+                    }
 
 @code {
     private bool isLoading = true;
@@ -1391,7 +1391,10 @@
     private bool showRegenerateModal = false;
     private string regenerateCode = "";
     private bool isRegenerating = false;
-    private List<string>? newBackupCodes;
+    private bool showBackupCodesModal = false;
+    private string backupCodesModalTitle = string.Empty;
+    private string backupCodesModalDescription = string.Empty;
+    private List<string> displayedBackupCodes = new();
 
     // Password change state
     private string currentPassword = "";
@@ -1620,6 +1623,7 @@
     {
         isLoading = true;
         errorMessage = null;
+        CloseBackupCodesModal();
         try
         {
             setupData = await TwoFactorService.InitiateSetupAsync();
@@ -1656,14 +1660,18 @@
         errorMessage = null;
         try
         {
-            var (success, message) = await TwoFactorService.EnableTwoFactorAsync(verificationCode);
+            var (success, message, backupCodes) = await TwoFactorService.EnableTwoFactorAsync(verificationCode);
             if (success)
             {
-                successMessage = "Two-factor authentication has been enabled successfully!";
+                successMessage = message;
                 isSettingUp = false;
                 setupData = null;
                 verificationCode = "";
                 await LoadAllData();
+                ShowBackupCodes(
+                    "Save Backup Codes",
+                    "These backup codes are shown once. Store them securely before closing this dialog.",
+                    backupCodes);
                 await AuditService.LogAsync("Enable2FA", "Security", "Two-factor authentication enabled");
             }
             else
@@ -1723,7 +1731,6 @@
     private void ShowRegenerateBackupCodes()
     {
         regenerateCode = "";
-        newBackupCodes = null;
         showRegenerateModal = true;
     }
 
@@ -1734,14 +1741,21 @@
         errorMessage = null;
         try
         {
-            newBackupCodes = await TwoFactorService.RegenerateBackupCodesAsync(regenerateCode);
-            if (newBackupCodes == null)
+            var (success, message, backupCodes) = await TwoFactorService.RegenerateBackupCodesAsync(regenerateCode);
+            if (!success)
             {
-                errorMessage = "Failed to regenerate backup codes. Please check your code and try again.";
+                errorMessage = message;
             }
             else
             {
+                successMessage = message;
+                showRegenerateModal = false;
+                regenerateCode = "";
                 await LoadAllData();
+                ShowBackupCodes(
+                    "New Backup Codes",
+                    "Your previous backup codes are now invalid. Save these replacement codes before closing this dialog.",
+                    backupCodes);
                 await AuditService.LogAsync("RegenerateBackupCodes", "Security", "Backup codes regenerated");
             }
         }
@@ -1759,7 +1773,27 @@
     {
         showRegenerateModal = false;
         regenerateCode = "";
-        newBackupCodes = null;
+    }
+
+    private void ShowBackupCodes(string title, string description, List<string>? backupCodes)
+    {
+        displayedBackupCodes = backupCodes ?? new List<string>();
+        if (displayedBackupCodes.Count == 0)
+        {
+            return;
+        }
+
+        backupCodesModalTitle = title;
+        backupCodesModalDescription = description;
+        showBackupCodesModal = true;
+    }
+
+    private void CloseBackupCodesModal()
+    {
+        showBackupCodesModal = false;
+        backupCodesModalTitle = string.Empty;
+        backupCodesModalDescription = string.Empty;
+        displayedBackupCodes = new List<string>();
     }
 
     // ── Credentials Update ─────────────────────────────
@@ -1871,19 +1905,11 @@ confirmPassword);
         catch { }
     }
 
-    private async Task CopyBackupCodesToClipboard()
+    private async Task CopyDisplayedBackupCodesToClipboard()
     {
-        if (setupData?.BackupCodes != null)
+        if (displayedBackupCodes.Count > 0)
         {
-            await CopyToClipboard(string.Join("\n", setupData.BackupCodes));
-        }
-    }
-
-    private async Task CopyNewBackupCodesToClipboard()
-    {
-        if (newBackupCodes != null)
-        {
-            await CopyToClipboard(string.Join("\n", newBackupCodes));
+            await CopyToClipboard(string.Join("\n", displayedBackupCodes));
         }
     }
 }

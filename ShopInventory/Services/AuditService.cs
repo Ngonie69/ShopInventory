@@ -19,6 +19,8 @@ public interface IAuditService
 
 public class AuditService : IAuditService
 {
+    private static readonly Lazy<TimeZoneInfo> CatTimeZone = new(ResolveCatTimeZone);
+
     private readonly ApplicationDbContext _db;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<AuditService> _logger;
@@ -31,6 +33,18 @@ public class AuditService : IAuditService
         _db = db;
         _httpContextAccessor = httpContextAccessor;
         _logger = logger;
+    }
+
+    public static DateTime ToCAT(DateTime utcDateTime)
+    {
+        var normalizedUtc = utcDateTime.Kind switch
+        {
+            DateTimeKind.Utc => utcDateTime,
+            DateTimeKind.Local => utcDateTime.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(utcDateTime, DateTimeKind.Utc)
+        };
+
+        return TimeZoneInfo.ConvertTimeFromUtc(normalizedUtc, CatTimeZone.Value);
     }
 
     public async Task LogAsync(string action, string username, string userRole, string? entityType = null,
@@ -170,5 +184,24 @@ public class AuditService : IAuditService
         }
 
         return httpContext.Connection.RemoteIpAddress?.ToString();
+    }
+
+    private static TimeZoneInfo ResolveCatTimeZone()
+    {
+        foreach (var timeZoneId in new[] { "South Africa Standard Time", "Africa/Harare", "Africa/Blantyre", "Africa/Lusaka" })
+        {
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            }
+            catch (TimeZoneNotFoundException)
+            {
+            }
+            catch (InvalidTimeZoneException)
+            {
+            }
+        }
+
+        return TimeZoneInfo.Utc;
     }
 }

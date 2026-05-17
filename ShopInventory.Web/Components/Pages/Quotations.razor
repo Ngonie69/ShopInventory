@@ -9,6 +9,7 @@
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject IJSRuntime JS
 @inject ILogger<Quotations> Logger
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
@@ -386,6 +387,12 @@
                                 <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small"
                                                Variant="Variant.Outlined" Color="Color.Primary" aria-label="View Details"
                                                OnClick="() => ViewQuotation(context)" />
+                                @if (CanRepriceQuotation(context))
+                                {
+                                    <MudIconButton Icon="@Icons.Material.Filled.EditNote" Size="Size.Small"
+                                                   Variant="Variant.Outlined" Color="Color.Warning" aria-label="Edit or Reprice"
+                                                   OnClick="() => OpenRepriceModal(context)" />
+                                }
                                 @if ((context.Status == QuotationStatus.Approved || context.Status == QuotationStatus.Accepted) && context.SalesOrderId == null)
                                 {
                                     <MudIconButton
@@ -501,6 +508,13 @@
                 </div>
             </div>
 
+            @if (dataSource == "local" && !selectedQuotation.IsSynced)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Style="margin-bottom:1rem;">
+                    This quotation has local changes that have not been pushed back to SAP.
+                </MudAlert>
+            }
+
             @if (!string.IsNullOrEmpty(selectedQuotation.Comments))
             {
                 <div style="margin-bottom:1rem;">
@@ -528,6 +542,7 @@
                         <th style="text-align:right">Qty</th>
                         <th style="text-align:right">Price</th>
                         <th style="text-align:right">Disc %</th>
+                        <th style="text-align:right">VAT %</th>
                         <th style="text-align:right">Total</th>
                     </tr>
                 </thead>
@@ -541,34 +556,32 @@
                             <td style="text-align:right">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
                             <td style="text-align:right">@line.UnitPrice.ToString("N2")</td>
                             <td style="text-align:right">@(line.DiscountPercent > 0 ? line.DiscountPercent.ToString("N1") + "%" : "—")</td>
+                            <td style="text-align:right">@(line.TaxPercent > 0 ? line.TaxPercent.ToString("N1") + "%" : "—")</td>
                             <td style="text-align:right;font-weight:600;">@line.LineTotal.ToString("N2")</td>
                         </tr>
                     }
                 </tbody>
                 <tfoot>
                     <tr style="border-top:2px solid #e5e7eb;">
-                        <td colspan="5"></td>
+                        <td colspan="6"></td>
                         <td style="text-align:right;font-weight:600;color:#6b7280;">Subtotal</td>
                         <td style="text-align:right;font-weight:700;">@selectedQuotation.SubTotal.ToString("N2")</td>
                     </tr>
                     @if (selectedQuotation.DiscountAmount > 0)
                     {
                         <tr>
-                            <td colspan="5"></td>
+                            <td colspan="6"></td>
                             <td style="text-align:right;font-weight:600;color:#dc2626;">Discount</td>
                             <td style="text-align:right;font-weight:700;color:#dc2626;">-@selectedQuotation.DiscountAmount.ToString("N2")</td>
                         </tr>
                     }
-                    @if (selectedQuotation.TaxAmount > 0)
-                    {
-                        <tr>
-                            <td colspan="5"></td>
-                            <td style="text-align:right;font-weight:600;color:#6b7280;">Tax</td>
-                            <td style="text-align:right;font-weight:700;">@selectedQuotation.TaxAmount.ToString("N2")</td>
-                        </tr>
-                    }
                     <tr>
-                        <td colspan="5"></td>
+                        <td colspan="6"></td>
+                        <td style="text-align:right;font-weight:600;color:#6b7280;">VAT</td>
+                        <td style="text-align:right;font-weight:700;">@selectedQuotation.TaxAmount.ToString("N2")</td>
+                    </tr>
+                    <tr>
+                        <td colspan="6"></td>
                         <td style="text-align:right;font-weight:700;font-size:.95rem;">Total</td>
                         <td style="text-align:right;font-weight:700;font-size:.95rem;color:#d97706;">@selectedQuotation.DocTotal.ToString("N2")</td>
                     </tr>
@@ -577,8 +590,29 @@
             </div>
         </div>
         <div class="drawer-footer">
-            @if ((selectedQuotation.Status == QuotationStatus.Approved || selectedQuotation.Status == QuotationStatus.Accepted) && selectedQuotation.SalesOrderId == null)
+            @if (CanRepriceSelectedQuotation)
             {
+                <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="() => OpenRepriceModal(selectedQuotation)">
+                    <i class="bi bi-pencil-square me-1"></i> Edit / Reprice
+                </MudButton>
+            }
+            @if (CanApplyStandardVat)
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="ApplyStandardVat" Disabled="@isApplyingStandardVat">
+                    <i class="bi bi-percent me-1"></i> Apply 15.5% VAT
+                </MudButton>
+            }
+            @if (CanDownloadQuotationPdf)
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="DownloadQuotationPdf" Disabled="@isPdfLoading">
+                    <i class="bi bi-download me-1"></i> Download PDF
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="PrintQuotationPdf" Disabled="@isPdfLoading">
+                    <i class="bi bi-printer me-1"></i> Print
+                </MudButton>
+            }
+            @if ((selectedQuotation.Status == QuotationStatus.Approved || selectedQuotation.Status == QuotationStatus.Accepted) && selectedQuotation.SalesOrderId == null)
+                    {
                 <MudButton Variant="Variant.Filled" Color="Color.Info" OnClick="() => ConvertToSalesOrder(selectedQuotation)">
                     <i class="bi bi-cart-check"></i>&nbsp; Convert to Sales Order
                 </MudButton>
@@ -594,8 +628,11 @@
     <div class="create-modal-overlay">
         <div class="create-modal">
             <div class="create-modal-header">
-                <h5><i class="bi bi-file-earmark-plus"></i> New Quotation</h5>
-                <button class="btn-close-modal" @onclick="() => showCreateModal = false"><i class="bi bi-x-lg"></i></button>
+                <h5>
+                    <i class="bi @(isEditMode ? "bi-pencil-square" : "bi-file-earmark-plus")"></i>
+                    @(isEditMode ? "Edit / Reprice Quotation" : "New Quotation")
+                </h5>
+                <button class="btn-close-modal" @onclick="CloseCreateModal"><i class="bi bi-x-lg"></i></button>
             </div>
             <div class="create-modal-body">
                 @if (isLoadingMasterData)
@@ -607,24 +644,39 @@
                 }
                 else
                 {
+                    @if (isEditMode)
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Style="margin-bottom:1rem;">
+                            Reprice mode keeps the customer, currency, and line items locked. Only local quotation pricing fields are updated here.
+                        </MudAlert>
+                    }
+
                     <div class="form-grid">
                         <!-- Customer -->
                         <div class="form-field" style="position:relative;">
                             <label>Customer *</label>
-                            <input type="text" @bind="bpSearchTerm" @bind:event="oninput"
-                                   @onfocus="() => showBPDropdown = true"
-                                   placeholder="Search customer..." />
-                            @if (showBPDropdown && filteredBusinessPartners.Any())
+                            @if (isEditMode)
                             {
-                                <div class="bp-dropdown">
-                                    @foreach (var bp in filteredBusinessPartners.Take(20))
-                                    {
-                                        <div class="bp-dropdown-item" @onclick="() => SelectBusinessPartner(bp)">
-                                            <div class="bp-name">@bp.CardName</div>
-                                            <div class="bp-code">@bp.CardCode</div>
-                                        </div>
-                                    }
-                                </div>
+                                <input type="text" value="@bpSearchTerm" readonly
+                                       style="width:100%;padding:.5rem .75rem;border:1px solid #d1d5db;border-radius:8px;font-size:.88rem;color:#374151;background:#f9fafb;" />
+                            }
+                            else
+                            {
+                                <input type="text" @bind="bpSearchTerm" @bind:event="oninput"
+                                       @onfocus="() => showBPDropdown = true"
+                                       placeholder="Search customer..." />
+                                @if (showBPDropdown && filteredBusinessPartners.Any())
+                                {
+                                    <div class="bp-dropdown">
+                                        @foreach (var bp in filteredBusinessPartners.Take(20))
+                                        {
+                                            <div class="bp-dropdown-item" @onclick="() => SelectBusinessPartner(bp)">
+                                                <div class="bp-name">@bp.CardName</div>
+                                                <div class="bp-code">@bp.CardCode</div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
                             }
                         </div>
 
@@ -644,7 +696,8 @@
                         <!-- Currency -->
                         <div class="form-field">
                             <label>Currency</label>
-                            <select @bind="newQuotation.Currency">
+                            <select @bind="newQuotation.Currency" disabled="@isEditMode">
+                                <option value="">Select currency</option>
                                 <option value="USD">USD</option>
                                 <option value="ZIG">ZIG</option>
                                 <option value="ZAR">ZAR</option>
@@ -685,9 +738,12 @@
                             <span style="font-weight:600;font-size:.9rem;color:#1a1a2e;">
                                 <i class="bi bi-list-ul"></i> Line Items
                             </span>
-                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" OnClick="AddLineItem">
-                                <i class="bi bi-plus"></i> Add Line
-                            </MudButton>
+                            @if (!isEditMode)
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" OnClick="AddLineItem">
+                                    <i class="bi bi-plus"></i> Add Line
+                                </MudButton>
+                            }
                         </div>
 
                         @if (newQuotation.Lines.Count == 0)
@@ -700,11 +756,12 @@
                             <table class="lines-table" style="margin-bottom:.5rem;">
                                 <thead>
                                     <tr>
-                                        <th style="width:25%">Item</th>
+                                        <th style="width:22%">Item</th>
                                         <th>Description</th>
                                         <th style="width:10%">Qty</th>
                                         <th style="width:12%">Price</th>
                                         <th style="width:8%">Disc %</th>
+                                        <th style="width:8%">VAT %</th>
                                         <th style="width:10%;text-align:right">Total</th>
                                         <th style="width:5%"></th>
                                     </tr>
@@ -716,10 +773,10 @@
                                         var line = newQuotation.Lines[lineIndex];
                                         <tr>
                                             <td>
-                                                <input type="text" @bind="line.ItemCode" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;" placeholder="Item code" />
+                                                <input type="text" @bind="line.ItemCode" readonly="@isEditMode" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;" placeholder="Item code" />
                                             </td>
                                             <td>
-                                                <input type="text" @bind="line.ItemDescription" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;" placeholder="Description" />
+                                                <input type="text" @bind="line.ItemDescription" readonly="@isEditMode" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;" placeholder="Description" />
                                             </td>
                                             <td>
                                                 <input type="number" @bind="line.Quantity" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;" min="0.0001" step="1" />
@@ -730,12 +787,18 @@
                                             <td>
                                                 <input type="number" @bind="line.DiscountPercent" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;" min="0" max="100" step="0.1" />
                                             </td>
+                                            <td>
+                                                <input type="number" @bind="line.TaxPercent" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;" min="0" max="100" step="0.1" />
+                                            </td>
                                             <td style="text-align:right;font-weight:600;font-size:.85rem;">
                                                 @((line.Quantity * line.UnitPrice * (1 - line.DiscountPercent / 100)).ToString("N2"))
                                             </td>
                                             <td>
-                                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
-                                                               Color="Color.Error" OnClick="() => RemoveLineItem(lineIndex)" />
+                                                @if (!isEditMode)
+                                                {
+                                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                                                   Color="Color.Error" OnClick="() => RemoveLineItem(lineIndex)" />
+                                                }
                                             </td>
                                         </tr>
                                     }
@@ -743,23 +806,41 @@
                             </table>
                             </div>
 
-                            <div style="text-align:right;padding:.5rem .75rem;">
-                                <span style="font-weight:700;font-size:.95rem;color:#d97706;">
-                                    Total: @CalculateTotal().ToString("N2")
-                                </span>
+                            <div style="display:flex;justify-content:flex-end;padding:.5rem .75rem;">
+                                <div style="min-width:240px;display:grid;gap:.2rem;">
+                                    <div style="display:flex;justify-content:space-between;gap:1rem;font-size:.84rem;color:#6b7280;">
+                                        <span>Subtotal</span>
+                                        <span>@CalculateSubTotal().ToString("N2")</span>
+                                    </div>
+                                    @if (newQuotation.DiscountPercent > 0)
+                                    {
+                                        <div style="display:flex;justify-content:space-between;gap:1rem;font-size:.84rem;color:#dc2626;">
+                                            <span>Header Discount</span>
+                                            <span>-@CalculateHeaderDiscount().ToString("N2")</span>
+                                        </div>
+                                    }
+                                    <div style="display:flex;justify-content:space-between;gap:1rem;font-size:.84rem;color:#6b7280;">
+                                        <span>VAT</span>
+                                        <span>@CalculateTaxTotal().ToString("N2")</span>
+                                    </div>
+                                    <div style="display:flex;justify-content:space-between;gap:1rem;font-weight:700;font-size:.95rem;color:#d97706;border-top:1px solid #e5e7eb;padding-top:.35rem;">
+                                        <span>Total</span>
+                                        <span>@CalculateTotal().ToString("N2")</span>
+                                    </div>
+                                </div>
                             </div>
                         }
                     </div>
                 }
             </div>
             <div class="create-modal-footer">
-                <MudButton Class="btn-secondary-action" OnClick="() => showCreateModal = false">Cancel</MudButton>
-                <MudButton Class="btn-create" OnClick="CreateQuotation" Disabled="@(isCreating || newQuotation.Lines.Count == 0)">
+                <MudButton Class="btn-secondary-action" OnClick="CloseCreateModal">Cancel</MudButton>
+                <MudButton Class="btn-create" OnClick="SaveQuotation" Disabled="@(isCreating || newQuotation.Lines.Count == 0 || string.IsNullOrWhiteSpace(newQuotation.Currency))">
                     @if (isCreating)
                     {
                         <span class="spinner-border spinner-border-sm"></span>
                     }
-                    <span>Create Quotation</span>
+                    <span>@(isEditMode ? "Save Changes" : "Create Quotation")</span>
                 </MudButton>
             </div>
         </div>
@@ -767,15 +848,31 @@
 }
 
 @code {
+    private const decimal DefaultVatPercent = 15.5m;
+
     private MudTable<QuotationDto> _table = null!;
     private int _pageSize = 10;
     private List<QuotationDto>? quotations;
     private QuotationDto? selectedQuotation;
     private bool isLoading = true;
     private bool isCreating = false;
+    private bool isPdfLoading = false;
+    private bool isApplyingStandardVat = false;
     private bool showCreateModal = false;
+    private bool isEditMode = false;
     private string? errorMessage;
     private int? convertingQuotationId;
+    private int? editingQuotationId;
+
+    private bool CanDownloadQuotationPdf => selectedQuotation is not null &&
+        (dataSource == "local" || selectedQuotation.SAPDocEntry.HasValue);
+
+    private bool CanRepriceSelectedQuotation => CanRepriceQuotation(selectedQuotation);
+
+    private bool CanApplyStandardVat => dataSource == "local"
+        && selectedQuotation is not null
+        && CanRepriceQuotation(selectedQuotation)
+        && selectedQuotation.Lines.Any(line => line.TaxPercent <= 0);
 
     // Data source toggle: "sap" or "local"
     private string dataSource = "sap";
@@ -915,6 +1012,116 @@
         selectedQuotation = quotation;
     }
 
+    private async Task DownloadQuotationPdf()
+    {
+        if (selectedQuotation == null || isPdfLoading || !CanDownloadQuotationPdf)
+        {
+            return;
+        }
+
+        isPdfLoading = true;
+        try
+        {
+            var pdfBytes = dataSource == "sap"
+                ? await QuotationService.GetQuotationPdfFromSAPAsync(selectedQuotation.SAPDocEntry ?? selectedQuotation.Id)
+                : await QuotationService.GetQuotationPdfAsync(selectedQuotation.Id);
+
+            if (pdfBytes == null || pdfBytes.Length == 0)
+            {
+                errorMessage = "Failed to retrieve quotation PDF.";
+                return;
+            }
+
+            var base64 = Convert.ToBase64String(pdfBytes);
+            var fileName = $"Quotation_{selectedQuotation.QuotationNumber}.pdf";
+            await JS.InvokeVoidAsync("downloadPdfFromBase64", base64, fileName);
+            await AuditService.LogAsync(AuditActions.DownloadQuotationPdf, "Quotation", selectedQuotation.QuotationNumber);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Download failed: {ex.Message}";
+        }
+        finally
+        {
+            isPdfLoading = false;
+        }
+    }
+
+    private async Task PrintQuotationPdf()
+    {
+        if (selectedQuotation == null || isPdfLoading || !CanDownloadQuotationPdf)
+        {
+            return;
+        }
+
+        isPdfLoading = true;
+        try
+        {
+            var pdfBytes = dataSource == "sap"
+                ? await QuotationService.GetQuotationPdfFromSAPAsync(selectedQuotation.SAPDocEntry ?? selectedQuotation.Id)
+                : await QuotationService.GetQuotationPdfAsync(selectedQuotation.Id);
+
+            if (pdfBytes == null || pdfBytes.Length == 0)
+            {
+                errorMessage = "Failed to retrieve quotation PDF for printing.";
+                return;
+            }
+
+            var base64 = Convert.ToBase64String(pdfBytes);
+            await JS.InvokeVoidAsync("printPdfFromBase64", base64, 1);
+            await AuditService.LogAsync(AuditActions.PrintQuotationPdf, "Quotation", selectedQuotation.QuotationNumber);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Print failed: {ex.Message}";
+        }
+        finally
+        {
+            isPdfLoading = false;
+        }
+    }
+
+    private async Task ApplyStandardVat()
+    {
+        if (selectedQuotation == null || isApplyingStandardVat || !CanApplyStandardVat)
+        {
+            return;
+        }
+
+        isApplyingStandardVat = true;
+        try
+        {
+            var updatedQuotation = await QuotationService.ApplyStandardVatAsync(selectedQuotation.Id);
+            if (updatedQuotation == null)
+            {
+                errorMessage = "Failed to apply standard VAT to quotation.";
+                return;
+            }
+
+            selectedQuotation = updatedQuotation;
+
+            if (quotations is not null)
+            {
+                var quotationIndex = quotations.FindIndex(quotation => quotation.Id == updatedQuotation.Id);
+                if (quotationIndex >= 0)
+                {
+                    quotations[quotationIndex] = updatedQuotation;
+                }
+            }
+
+            Snackbar.Add("Applied 15.5% VAT to quotation lines that were missing VAT.", Severity.Success);
+            await AuditService.LogAsync(AuditActions.ApplyQuotationVat, "Quotation", updatedQuotation.QuotationNumber, "Applied standard VAT of 15.5% to zero-VAT lines.");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to apply VAT: {ex.Message}";
+        }
+        finally
+        {
+            isApplyingStandardVat = false;
+        }
+    }
+
     private async Task ApproveQuotation(int id)
     {
         var result = await QuotationService.ApproveAsync(id);
@@ -997,8 +1204,10 @@
     private async Task OpenCreateModal()
     {
         showCreateModal = true;
+        isEditMode = false;
+        editingQuotationId = null;
         newQuotation = new CreateQuotationRequest();
-        validUntilDate = DateTime.Now.AddDays(30);
+        validUntilDate = DateTime.UtcNow.AddDays(30);
         selectedBusinessPartner = null;
         bpSearchTerm = null;
         showBPDropdown = false;
@@ -1011,6 +1220,61 @@
         {
             isLoadingMasterData = false;
         }
+    }
+
+    private void OpenRepriceModal(QuotationDto quotation)
+    {
+        if (!CanRepriceQuotation(quotation))
+        {
+            return;
+        }
+
+        isEditMode = true;
+        editingQuotationId = quotation.Id;
+        showCreateModal = true;
+        isLoadingMasterData = false;
+        selectedBusinessPartner = null;
+        showBPDropdown = false;
+        bpSearchTerm = string.IsNullOrWhiteSpace(quotation.CardName)
+            ? quotation.CardCode
+            : $"{quotation.CardCode} - {quotation.CardName}";
+        validUntilDate = quotation.ValidUntil;
+        newQuotation = new CreateQuotationRequest
+        {
+            CardCode = quotation.CardCode,
+            CardName = quotation.CardName,
+            CustomerRefNo = quotation.CustomerRefNo,
+            ContactPerson = quotation.ContactPerson,
+            Comments = quotation.Comments,
+            TermsAndConditions = quotation.TermsAndConditions,
+            Currency = quotation.Currency,
+            DiscountPercent = quotation.DiscountPercent,
+            ShipToAddress = quotation.ShipToAddress,
+            BillToAddress = quotation.BillToAddress,
+            WarehouseCode = quotation.WarehouseCode,
+            Lines = quotation.Lines
+                .OrderBy(line => line.LineNum)
+                .Select(line => new CreateQuotationLineRequest
+                {
+                    ItemCode = line.ItemCode,
+                    ItemDescription = line.ItemDescription,
+                    Quantity = line.Quantity,
+                    UnitPrice = line.UnitPrice,
+                    DiscountPercent = line.DiscountPercent,
+                    TaxPercent = line.TaxPercent,
+                    WarehouseCode = line.WarehouseCode,
+                    UoMCode = line.UoMCode
+                })
+                .ToList()
+        };
+    }
+
+    private void CloseCreateModal()
+    {
+        showCreateModal = false;
+        isEditMode = false;
+        editingQuotationId = null;
+        showBPDropdown = false;
     }
 
     private async Task LoadMasterDataForCreate()
@@ -1047,7 +1311,8 @@
         newQuotation.Lines.Add(new CreateQuotationLineRequest
         {
             Quantity = 1,
-            UnitPrice = 0
+            UnitPrice = 0,
+            TaxPercent = DefaultVatPercent
         });
     }
 
@@ -1059,15 +1324,27 @@
         }
     }
 
-    private decimal CalculateTotal()
+    private decimal CalculateSubTotal()
     {
-        var subTotal = newQuotation.Lines.Sum(l => l.Quantity * l.UnitPrice * (1 - l.DiscountPercent / 100));
-        var discount = subTotal * newQuotation.DiscountPercent / 100;
-        var tax = newQuotation.Lines.Sum(l => l.Quantity * l.UnitPrice * (1 - l.DiscountPercent / 100) * l.TaxPercent / 100);
-        return subTotal - discount + tax;
+        return newQuotation.Lines.Sum(l => l.Quantity * l.UnitPrice * (1 - l.DiscountPercent / 100));
     }
 
-    private async Task CreateQuotation()
+    private decimal CalculateHeaderDiscount()
+    {
+        return CalculateSubTotal() * newQuotation.DiscountPercent / 100;
+    }
+
+    private decimal CalculateTaxTotal()
+    {
+        return newQuotation.Lines.Sum(l => l.Quantity * l.UnitPrice * (1 - l.DiscountPercent / 100) * l.TaxPercent / 100);
+    }
+
+    private decimal CalculateTotal()
+    {
+        return CalculateSubTotal() - CalculateHeaderDiscount() + CalculateTaxTotal();
+    }
+
+    private async Task SaveQuotation()
     {
         if (string.IsNullOrEmpty(newQuotation.CardCode))
         {
@@ -1081,20 +1358,52 @@
             return;
         }
 
+        if (string.IsNullOrWhiteSpace(newQuotation.Currency))
+        {
+            Snackbar.Add("Please select a currency.", Severity.Warning);
+            return;
+        }
+
         isCreating = true;
         try
         {
             newQuotation.ValidUntil = validUntilDate;
-            var created = await QuotationService.CreateQuotationAsync(newQuotation);
-            if (created != null)
+
+            if (isEditMode)
             {
-                Snackbar.Add($"Quotation {created.QuotationNumber} created successfully!", Severity.Success);
-                showCreateModal = false;
-                await LoadQuotations();
+                if (!editingQuotationId.HasValue)
+                {
+                    Snackbar.Add("No quotation selected for repricing.", Severity.Error);
+                    return;
+                }
+
+                var updated = await QuotationService.RepriceQuotationAsync(editingQuotationId.Value, newQuotation);
+                if (updated != null)
+                {
+                    ReplaceQuotation(updated);
+                    selectedQuotation = selectedQuotation?.Id == updated.Id ? updated : selectedQuotation;
+                    CloseCreateModal();
+                    Snackbar.Add($"Quotation {updated.QuotationNumber} updated locally. SAP review is still required.", Severity.Warning);
+                    await AuditService.LogAsync(AuditActions.UpdateQuotation, "Quotation", updated.QuotationNumber, "Repriced local quotation; SAP review pending.");
+                }
+                else
+                {
+                    Snackbar.Add("Failed to update quotation.", Severity.Error);
+                }
             }
             else
             {
-                Snackbar.Add("Failed to create quotation.", Severity.Error);
+                var created = await QuotationService.CreateQuotationAsync(newQuotation);
+                if (created != null)
+                {
+                    Snackbar.Add($"Quotation {created.QuotationNumber} created successfully!", Severity.Success);
+                    CloseCreateModal();
+                    await LoadQuotations();
+                }
+                else
+                {
+                    Snackbar.Add("Failed to create quotation.", Severity.Error);
+                }
             }
         }
         catch (Exception ex)
@@ -1105,6 +1414,30 @@
         {
             isCreating = false;
         }
+    }
+
+    private void ReplaceQuotation(QuotationDto updatedQuotation)
+    {
+        if (quotations is null)
+        {
+            return;
+        }
+
+        var quotationIndex = quotations.FindIndex(quotation => quotation.Id == updatedQuotation.Id);
+        if (quotationIndex >= 0)
+        {
+            quotations[quotationIndex] = updatedQuotation;
+        }
+    }
+
+    private bool CanRepriceQuotation(QuotationDto? quotation)
+    {
+        return dataSource == "local"
+            && quotation is not null
+            && !quotation.SalesOrderId.HasValue
+            && quotation.Status != QuotationStatus.Accepted
+            && quotation.Status != QuotationStatus.Converted
+            && quotation.Status != QuotationStatus.Cancelled;
     }
 
     private string GetStatusCssClass(QuotationStatus status) => status switch

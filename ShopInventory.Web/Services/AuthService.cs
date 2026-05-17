@@ -93,7 +93,9 @@ public class AuthService : IAuthService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception during login for user: {Username}", username);
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't sign you in right now. Please try again."), null);
         }
     }
 
@@ -143,7 +145,9 @@ public class AuthService : IAuthService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception during 2FA challenge completion");
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't complete sign-in right now. Please try again."), null);
         }
     }
 
@@ -186,7 +190,9 @@ public class AuthService : IAuthService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception during passkey login ceremony start");
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't start passkey sign-in right now. Please try again."), null);
         }
     }
 
@@ -235,7 +241,9 @@ public class AuthService : IAuthService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception during passkey login completion");
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't complete passkey sign-in right now. Please try again."), null);
         }
     }
 
@@ -286,7 +294,9 @@ public class AuthService : IAuthService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception during user registration for: {Username}", request.Username);
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't register this user right now. Please try again."), null);
         }
     }
 }

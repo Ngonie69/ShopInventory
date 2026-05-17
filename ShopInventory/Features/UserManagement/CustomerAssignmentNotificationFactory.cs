@@ -46,14 +46,15 @@ internal static class CustomerAssignmentNotificationFactory
             return null;
         }
 
-        var isDriver = string.Equals(role, "Driver", StringComparison.OrdinalIgnoreCase);
+        var usesShopLanguage = string.Equals(role, "Driver", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "PodOperator", StringComparison.OrdinalIgnoreCase);
         var isSingleCustomer = orderedCustomerCodes.Count == 1;
         var previewCustomerLabels = string.Join(", ", orderedCustomerCodes.Take(3).Select(code => GetCustomerLabel(code, customerNamesByCode)));
         var suffix = orderedCustomerCodes.Count > 3 ? ", ..." : string.Empty;
-        var listLabel = isDriver ? "available shop list" : "customer list";
+        var listLabel = usesShopLanguage ? "available shop list" : "customer list";
         var changeVerb = isRemoval ? "removed from" : "assigned to";
 
-        var title = isDriver
+        var title = usesShopLanguage
             ? isRemoval
                 ? isSingleCustomer ? "Shop removed" : "Shops removed"
                 : isSingleCustomer ? "Shop assigned" : "Shops assigned"
@@ -63,7 +64,7 @@ internal static class CustomerAssignmentNotificationFactory
 
         var message = isSingleCustomer
             ? $"{GetCustomerLabel(orderedCustomerCodes[0], customerNamesByCode)} was {changeVerb} your {listLabel}."
-            : $"{orderedCustomerCodes.Count} {(isDriver ? "shops" : "customers")} were {changeVerb} your {listLabel}: {previewCustomerLabels}{suffix}";
+            : $"{orderedCustomerCodes.Count} {(usesShopLanguage ? "shops" : "customers")} were {changeVerb} your {listLabel}: {previewCustomerLabels}{suffix}";
 
         var payload = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -107,10 +108,10 @@ internal static class CustomerAssignmentNotificationFactory
             Title = title,
             Message = message,
             Type = isRemoval ? "Warning" : "Info",
-            Category = isDriver ? "Security" : "Customer",
+            Category = usesShopLanguage ? "Security" : "Customer",
             EntityType = "BusinessPartner",
             EntityId = isSingleCustomer ? orderedCustomerCodes[0] : null,
-            ActionUrl = isDriver ? null : "/customers",
+            ActionUrl = usesShopLanguage ? null : "/customers",
             TargetUserId = targetUserId,
             TargetUsername = targetUsername,
             TargetRole = targetRole,

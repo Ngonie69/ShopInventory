@@ -90,7 +90,8 @@ public class CreateSalesOrderRequest
     public string? Comments { get; set; }
     public int? SalesPersonCode { get; set; }
     public string? SalesPersonName { get; set; }
-    public string? Currency { get; set; } = "USD";
+    [Required(ErrorMessage = "Currency is required")]
+    public string? Currency { get; set; }
     public decimal DiscountPercent { get; set; }
     public string? ShipToAddress { get; set; }
     public string? BillToAddress { get; set; }

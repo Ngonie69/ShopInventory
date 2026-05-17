@@ -10,6 +10,18 @@ public class SAPSettings
     public bool SkipCertificateValidation { get; set; }
 
     /// <summary>
+    /// Optional SAP B1 A/R Invoice numbering series. Configure this when the SAP default
+    /// invoice series is tied to a period indicator that does not match the posting date.
+    /// </summary>
+    public int? InvoiceSeries { get; set; }
+
+    /// <summary>
+    /// Optional SAP B1 A/R Invoice numbering series name, for example "New1".
+    /// Used only when InvoiceSeries is not configured.
+    /// </summary>
+    public string? InvoiceSeriesName { get; set; }
+
+    /// <summary>
     /// Optional allowlist of trusted SAP Service Layer certificate thumbprints.
     /// Use this in production when SAP is fronted by a self-signed or privately issued certificate.
     /// </summary>

@@ -259,18 +259,25 @@ public class InventoryTransferService : IInventoryTransferService
             }
             catch
             {
-                return (false, $"Failed to create inventory transfer (HTTP {(int)response.StatusCode}): {errorContent}", null);
+                return (false, ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode,
+                    errorContent,
+                    "We couldn't create this inventory transfer right now. Please try again."), null);
             }
         }
         catch (HttpRequestException httpEx)
         {
             _logger.LogError(httpEx, "HTTP error creating inventory transfer");
-            return (false, $"Network error: {httpEx.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                httpEx,
+                "We couldn't create this inventory transfer right now. Please try again."), null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error creating inventory transfer");
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't create this inventory transfer right now. Please try again."), null);
         }
     }
 
@@ -317,18 +324,25 @@ public class InventoryTransferService : IInventoryTransferService
             }
             catch
             {
-                return (false, $"Failed to create transfer request: {response.StatusCode} - {errorContent}", null);
+                return (false, ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode,
+                    errorContent,
+                    "We couldn't create this transfer request right now. Please try again."), null);
             }
         }
         catch (HttpRequestException httpEx)
         {
             _logger.LogError(httpEx, "HTTP error creating transfer request");
-            return (false, $"Network error: {httpEx.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                httpEx,
+                "We couldn't create this transfer request right now. Please try again."), null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error creating transfer request");
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't create this transfer request right now. Please try again."), null);
         }
     }
 
@@ -444,18 +458,25 @@ public class InventoryTransferService : IInventoryTransferService
             }
             catch
             {
-                return (false, $"Failed to convert transfer request: {response.StatusCode} - {errorContent}", null);
+                return (false, ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode,
+                    errorContent,
+                    "We couldn't convert this transfer request right now. Please try again."), null);
             }
         }
         catch (HttpRequestException httpEx)
         {
             _logger.LogError(httpEx, "HTTP error converting transfer request");
-            return (false, $"Network error: {httpEx.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                httpEx,
+                "We couldn't convert this transfer request right now. Please try again."), null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error converting transfer request");
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't convert this transfer request right now. Please try again."), null);
         }
     }
 
@@ -472,12 +493,17 @@ public class InventoryTransferService : IInventoryTransferService
 
             var errorContent = await response.Content.ReadAsStringAsync();
             _logger.LogError("Failed to close transfer request {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
-            return (false, $"Failed to close transfer request: {errorContent}");
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                response.StatusCode,
+                errorContent,
+                "We couldn't close this transfer request right now. Please try again."));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error closing transfer request {DocEntry}", docEntry);
-            return (false, $"Error: {ex.Message}");
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't close this transfer request right now. Please try again."));
         }
     }
 

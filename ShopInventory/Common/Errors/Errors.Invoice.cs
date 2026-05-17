@@ -21,6 +21,9 @@ public static partial class Errors
         public static Error ValidationFailed(string message) =>
             Error.Validation("Invoice.ValidationFailed", message);
 
+        public static Error PostingPeriodInvalid(string message) =>
+            Error.Validation("Invoice.PostingPeriodInvalid", message);
+
         public static Error BatchValidationFailed(string message) =>
             Error.Validation("Invoice.BatchValidationFailed", message);
 

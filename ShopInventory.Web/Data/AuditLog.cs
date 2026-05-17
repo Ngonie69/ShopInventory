@@ -124,7 +124,9 @@ public static class AuditActions
     // Quotation actions
     public const string ViewQuotations = "ViewQuotations";
     public const string CreateQuotation = "CreateQuotation";
+    public const string UpdateQuotation = "UpdateQuotation";
     public const string ApproveQuotation = "ApproveQuotation";
+    public const string ApplyQuotationVat = "ApplyQuotationVat";
     public const string ConvertQuotationToOrder = "ConvertQuotationToOrder";
     public const string DeleteQuotation = "DeleteQuotation";
 
@@ -197,6 +199,9 @@ public static class AuditActions
     // Document actions
     public const string DownloadInvoicePdf = "DownloadInvoicePdf";
     public const string PrintInvoicePdf = "PrintInvoicePdf";
+    public const string DownloadQuotationPdf = "DownloadQuotationPdf";
+    public const string PrintQuotationPdf = "PrintQuotationPdf";
+    public const string PrintSalesOrderPdf = "PrintSalesOrderPdf";
 
     // Settings actions
     public const string ViewSettings = "ViewSettings";

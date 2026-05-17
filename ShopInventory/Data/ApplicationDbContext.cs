@@ -910,6 +910,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.HasKey(e => e.Id);
 
       entity.HasIndex(e => e.QuotationNumber).IsUnique();
+      entity.HasIndex(e => e.ClientRequestId).IsUnique();
       entity.HasIndex(e => e.CardCode);
       entity.HasIndex(e => e.Status);
       entity.HasIndex(e => e.QuotationDate);

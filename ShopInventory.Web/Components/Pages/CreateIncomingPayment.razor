@@ -2055,7 +2055,9 @@ VoucherNum = creditVoucherNum
         catch (HttpRequestException httpEx)
         {
             Logger.LogError(httpEx, "HTTP error creating incoming payment");
-            errorMessage = $"Network error: {httpEx.Message}. Please check if the API is running.";
+            errorMessage = ShopInventory.Web.Services.ApiErrorResponse.GetFriendlyMessage(
+                httpEx,
+                "We couldn't create this incoming payment right now. Please try again.");
         }
         catch (TaskCanceledException tcEx) when (tcEx.InnerException is TimeoutException)
         {
@@ -2065,7 +2067,9 @@ VoucherNum = creditVoucherNum
         catch (Exception ex)
         {
             Logger.LogError(ex, "Unexpected error creating incoming payment");
-            errorMessage = $"Error creating payment: {ex.Message}";
+            errorMessage = ShopInventory.Web.Services.ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't create this incoming payment right now. Please try again.");
         }
         finally
         {

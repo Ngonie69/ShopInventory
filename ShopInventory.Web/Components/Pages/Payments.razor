@@ -1008,46 +1008,25 @@
         }
         catch (HttpRequestException ex)
         {
-            Logger.LogError(ex, "Payments page: HTTP error loading payments");
-            if (ex.Message.Contains("502") || ex.Message.Contains("503") || ex.Message.Contains("504") ||
-            ex.Message.Contains("Gateway"))
-            {
-                errorMessage = "Gateway error - the API or SAP server is not responding. Please try again in a moment.";
-                isTimeoutError = true;
-            }
-            else if (ex.Message.Contains("Connection refused") || ex.Message.Contains("No connection"))
-            {
-                errorMessage = "Cannot connect to the API server. Please check if the service is running.";
-            }
-            else
-            {
-                errorMessage = $"Network error: {ex.Message}";
-            }
+            Logger.LogError(ex, "Payments page: HTTP error loading payments. Status: {StatusCode}", ex.StatusCode);
+            errorMessage = ShopInventory.Web.Services.ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't load payments right now. Please try again.");
+            isTimeoutError = errorMessage.Contains("timed out", StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Payments page: Error loading payments");
-            if (ex.Message.Contains("504") || ex.Message.Contains("Gateway") || ex.Message.Contains("timeout",
-            StringComparison.OrdinalIgnoreCase))
-            {
-                errorMessage = "Gateway timeout - the server took too long to respond. Please try again.";
-                isTimeoutError = true;
-            }
-            else
-            {
-                errorMessage = $"Error: {ex.Message}";
-            }
+            errorMessage = ShopInventory.Web.Services.ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't load payments right now. Please try again.");
+            isTimeoutError = errorMessage.Contains("timed out", StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
             isLoading = false;
             Logger.LogDebug("Payments page: LoadPayments completed");
         }
-    }
-
-    private async Task RetryLoad()
-    {
-        await LoadPayments();
     }
 
     private async Task ApplyFilter()
@@ -1097,18 +1076,21 @@
             errorMessage = "The request timed out. SAP may be responding slowly.";
             isTimeoutError = true;
         }
+        catch (HttpRequestException ex)
+        {
+            Logger.LogError(ex, "Payments page: HTTP error filtering payments. Status: {StatusCode}", ex.StatusCode);
+            errorMessage = ShopInventory.Web.Services.ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't load payments right now. Please try again.");
+            isTimeoutError = errorMessage.Contains("timed out", StringComparison.OrdinalIgnoreCase);
+        }
         catch (Exception ex)
         {
-            if (ex.Message.Contains("504") || ex.Message.Contains("Gateway") || ex.Message.Contains("timeout",
-            StringComparison.OrdinalIgnoreCase))
-            {
-                errorMessage = "Gateway timeout - the server took too long to respond. Please try again.";
-                isTimeoutError = true;
-            }
-            else
-            {
-                errorMessage = $"Error: {ex.Message}";
-            }
+            Logger.LogError(ex, "Payments page: Error filtering payments");
+            errorMessage = ShopInventory.Web.Services.ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't load payments right now. Please try again.");
+            isTimeoutError = errorMessage.Contains("timed out", StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -1156,6 +1138,20 @@
             return date.ToString("dd MMM yyyy");
 
         return dateStr;
+    }
+
+    private async Task RetryLoad()
+    {
+        if (docNum.HasValue
+            || !string.IsNullOrWhiteSpace(customerCode)
+            || fromDate.HasValue
+            || toDate.HasValue)
+        {
+            await ApplyFilter();
+            return;
+        }
+
+        await LoadPayments();
     }
 
     private async Task PreviousPage()

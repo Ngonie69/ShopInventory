@@ -106,6 +106,11 @@ public class User
     public string? TwoFactorBackupCodes { get; set; }
 
     /// <summary>
+    /// Last accepted TOTP time step to prevent code reuse within the verification window.
+    /// </summary>
+    public long? TwoFactorLastUsedTimeStep { get; set; }
+
+    /// <summary>
     /// Phone number for SMS 2FA (future use)
     /// </summary>
     [MaxLength(20)]

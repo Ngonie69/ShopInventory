@@ -89,6 +89,9 @@ public class QuotationEntity
     [MaxLength(50)]
     public string? WarehouseCode { get; set; }
 
+    [MaxLength(100)]
+    public string? ClientRequestId { get; set; }
+
     public Guid? CreatedByUserId { get; set; }
 
     public Guid? ApprovedByUserId { get; set; }

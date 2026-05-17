@@ -19,6 +19,7 @@ using ShopInventory.Features.Invoices.Queries.GetPodDashboard;
 using ShopInventory.Features.Invoices.Queries.GetPodUploadStatus;
 using ShopInventory.Features.Invoices.Queries.ValidateInvoice;
 using ShopInventory.Features.Invoices.Queries.ValidateBulkPods;
+using System.Security.Claims;
 
 namespace ShopInventory.Controllers;
 
@@ -92,14 +93,14 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("by-docnum/{docNum:int}")]
-    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager,Driver")]
+    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager,Driver,PodOperator")]
     [ProducesResponseType(typeof(InvoiceDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetInvoiceByDocNum(
         int docNum,
         CancellationToken cancellationToken = default)
     {
-        var restrictToAssignedCustomers = User.IsInRole("Driver");
+        var restrictToAssignedCustomers = User.IsInRole("Driver") || User.IsInRole("PodOperator");
         var result = await mediator.Send(
             new GetInvoiceByDocNumQuery(
                 docNum,
@@ -127,16 +128,17 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DownloadInvoicePdf(
         int docEntry,
+        [FromQuery] string? fiscalQrCode = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new DownloadInvoicePdfQuery(docEntry), cancellationToken);
+        var result = await mediator.Send(new DownloadInvoicePdfQuery(docEntry, fiscalQrCode), cancellationToken);
         return result.Match(
             pdf => File(pdf.PdfBytes, "application/pdf", pdf.FileName),
             Problem);
     }
 
     [HttpGet("customer/{cardCode}")]
-    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager,Driver")]
+    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager,Driver,PodOperator")]
     [ProducesResponseType(typeof(InvoiceDateResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetInvoicesByCustomer(
@@ -147,7 +149,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null)
     {
-        var restrictToAssignedCustomers = User.IsInRole("Driver");
+        var restrictToAssignedCustomers = User.IsInRole("Driver") || User.IsInRole("PodOperator");
         var result = await mediator.Send(
             new GetInvoicesByCustomerQuery(
                 cardCode,
@@ -200,6 +202,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         IFormFile file,
         [FromForm] string? description = null,
         [FromForm] string? uploadedByUsername = null,
+        [FromForm] string? externalReference = null,
         CancellationToken cancellationToken = default)
     {
         if (file == null || file.Length == 0)
@@ -209,9 +212,13 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         if (!allowedTypes.Contains(file.ContentType, StringComparer.OrdinalIgnoreCase))
             return BadRequest(new ErrorResponseDto { Message = "Invalid file type. Only JPEG, PNG, WebP images and PDF files are allowed." });
 
+        var effectiveUploadedByUsername = string.IsNullOrWhiteSpace(uploadedByUsername)
+            ? User.FindFirstValue(ClaimTypes.Name) ?? User.Identity?.Name
+            : uploadedByUsername.Trim();
+
         using var stream = file.OpenReadStream();
         var result = await mediator.Send(
-            new UploadPodCommand(docEntry, stream, file.FileName, file.ContentType, description, uploadedByUsername, GetUserId()),
+            new UploadPodCommand(docEntry, stream, file.FileName, file.ContentType, description, effectiveUploadedByUsername, externalReference, GetUserId()),
             cancellationToken);
 
         return result.Match(
@@ -229,6 +236,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null,
         [FromQuery] string? search = null,
+        [FromQuery] string? uploadedByUsername = null,
         [FromQuery] string? uploadedFromLocation = null,
         CancellationToken cancellationToken = default)
     {
@@ -239,7 +247,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         Guid? uploadedByUserId = User.IsInRole("Driver") ? userId : null;
 
         var result = await mediator.Send(
-            new GetAllPodsQuery(page, pageSize, cardCode, fromDate, toDate, search, uploadedFromLocation, uploadedByUserId, userId.Value),
+            new GetAllPodsQuery(page, pageSize, cardCode, fromDate, toDate, search, uploadedByUsername, uploadedFromLocation, uploadedByUserId, userId.Value),
             cancellationToken);
 
         return result.Match(Ok, Problem);

@@ -88,9 +88,9 @@ public sealed class CreateUserHandler(
             return Errors.UserManagement.CreationFailed("At least one assigned customer code is required for Merchandiser role");
         }
 
-        if (request.Role == "Driver" && string.IsNullOrWhiteSpace(request.AssignedSection))
+        if ((request.Role == "Driver" || request.Role == "PodOperator") && string.IsNullOrWhiteSpace(request.AssignedSection))
         {
-            return Errors.UserManagement.CreationFailed("An assigned section is required for Driver role");
+            return Errors.UserManagement.CreationFailed("An assigned section is required for Driver and PodOperator roles");
         }
 
         List<string> permissions;
@@ -131,12 +131,12 @@ public sealed class CreateUserHandler(
             user.SetWarehouseCodes(request.AssignedWarehouseCodes);
         }
 
-        if (request.Role == "Merchandiser" || request.Role == "Driver")
+        if (request.Role == "Merchandiser" || request.Role == "Driver" || request.Role == "PodOperator")
         {
             user.SetCustomerCodes(request.AssignedCustomerCodes);
         }
 
-        if (request.Role == "Driver")
+        if (request.Role == "Driver" || request.Role == "PodOperator")
         {
             user.AssignedSection = request.AssignedSection;
         }

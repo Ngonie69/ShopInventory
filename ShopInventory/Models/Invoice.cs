@@ -146,6 +146,11 @@ public class CreateInvoiceRequest
     public string? DocDueDate { get; set; }
 
     /// <summary>
+    /// Optional SAP B1 A/R Invoice numbering series. If omitted, the API uses SAP:InvoiceSeries when configured.
+    /// </summary>
+    public int? Series { get; set; }
+
+    /// <summary>
     /// Customer reference number (required)
     /// </summary>
     [Required(ErrorMessage = "NumAtCard (customer reference) is required")]
@@ -153,6 +158,7 @@ public class CreateInvoiceRequest
 
     public string? Comments { get; set; }
 
+    [Required(ErrorMessage = "Currency is required")]
     public string? DocCurrency { get; set; }
 
     public int? SalesPersonCode { get; set; }
@@ -206,6 +212,12 @@ public class CreateInvoiceLineRequest
     /// G/L Account code for the line
     /// </summary>
     public string? AccountCode { get; set; }
+
+    /// <summary>
+    /// SAP dimension 1 cost centre code for the line.
+    /// Mapped to the document line CostingCode field in SAP Service Layer.
+    /// </summary>
+    public string? CostCentreCode { get; set; }
 
     /// <summary>
     /// Batch numbers for batch-managed items.

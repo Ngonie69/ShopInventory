@@ -102,6 +102,11 @@ public class FiscalizationResult
     /// Whether fiscalization was skipped (e.g., REVMax not configured).
     /// </summary>
     public bool Skipped { get; set; }
+
+    /// <summary>
+    /// Whether fiscalization was accepted for background processing.
+    /// </summary>
+    public bool Queued { get; set; }
 }
 
 /// <summary>

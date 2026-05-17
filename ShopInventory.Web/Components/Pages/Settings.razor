@@ -10,6 +10,7 @@
 @inject IBackupService BackupService
 @inject IPrinterService PrinterService
 @inject IDbContextFactory<WebAppDbContext> DbContextFactory
+@inject ILogger<Settings> Logger
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IAppSettingsProvider AppSettingsProvider
 @inject IJSRuntime JS
@@ -395,6 +396,20 @@
                                             <div class="setting-control" style="min-width: 350px;">
                                                 <MudTextField @bind-Value="sapCompanyDB" Label="Company Database" Variant="Variant.Outlined"
                                                               Margin="Margin.Dense" Placeholder="COMPANY_DB" FullWidth="true" />
+                                            </div>
+                                        </div>
+
+                                        <!-- A/R Invoice Series -->
+                                        <div class="setting-item">
+                                            <div class="setting-info">
+                                                <label class="setting-label">
+                                                    <i class="bi bi-receipt me-1"></i>A/R Invoice Series
+                                                </label>
+                                                <span class="setting-desc">The SAP A/R Invoice numbering series name for this company database.</span>
+                                            </div>
+                                            <div class="setting-control" style="min-width: 350px;">
+                                                <MudTextField @bind-Value="sapInvoiceSeriesName" Label="A/R Invoice Series" Variant="Variant.Outlined"
+                                                              Margin="Margin.Dense" Placeholder="New1" FullWidth="true" />
                                             </div>
                                         </div>
 
@@ -1350,6 +1365,7 @@
     // SAP settings fields
     private string sapServiceLayerUrl = string.Empty;
     private string sapCompanyDB = string.Empty;
+    private string sapInvoiceSeriesName = string.Empty;
     private string sapUsername = string.Empty;
     private string sapPassword = string.Empty;
     private bool showSAPPassword = false;
@@ -2058,6 +2074,7 @@
             {
                 sapServiceLayerUrl = settings.ServiceLayerUrl ?? string.Empty;
                 sapCompanyDB = settings.CompanyDB ?? string.Empty;
+                sapInvoiceSeriesName = settings.InvoiceSeriesName ?? string.Empty;
                 sapUsername = settings.UserName ?? string.Empty;
                 sapPassword = string.Empty; // Never pre-fill password
             }
@@ -2084,6 +2101,7 @@
             {
                 ServiceLayerUrl = sapServiceLayerUrl.Trim(),
                 CompanyDB = sapCompanyDB.Trim(),
+                InvoiceSeriesName = sapInvoiceSeriesName.Trim(),
                 UserName = sapUsername.Trim(),
                 Password = sapPassword,
                 TestConnection = sapTestOnSave
@@ -2401,17 +2419,7 @@ cancellationToken)
             if (success)
             {
                 // Clear cached master data from web database so stale test data doesn't persist
-                await using var dbContext = await DbContextFactory.CreateDbContextAsync();
-                await dbContext.CachedProducts.ExecuteDeleteAsync();
-                await dbContext.CachedPrices.ExecuteDeleteAsync();
-                await dbContext.CachedBusinessPartners.ExecuteDeleteAsync();
-                await dbContext.CachedWarehouses.ExecuteDeleteAsync();
-                await dbContext.CachedWarehouseStocks.ExecuteDeleteAsync();
-                await dbContext.CachedGLAccounts.ExecuteDeleteAsync();
-                await dbContext.CachedCostCentres.ExecuteDeleteAsync();
-                await dbContext.CachedIncomingPayments.ExecuteDeleteAsync();
-                await dbContext.CachedInventoryTransfers.ExecuteDeleteAsync();
-                await dbContext.CacheSyncInfo.ExecuteDeleteAsync();
+                await ClearWebCachesAfterDatabaseResetAsync();
 
                 // Invalidate in-memory caches so fresh data is fetched on next access
                 CacheService.InvalidateCache();
@@ -2429,6 +2437,38 @@ cancellationToken)
             isResettingDatabase = false;
             resetConfirmationText = string.Empty;
             StateHasChanged();
+        }
+    }
+
+    private async Task ClearWebCachesAfterDatabaseResetAsync()
+    {
+        await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+
+        await ExecuteDeleteIfTableExistsAsync(dbContext.CachedProducts, "CachedProducts");
+        await ExecuteDeleteIfTableExistsAsync(dbContext.CachedPrices, "CachedPrices");
+        await ExecuteDeleteIfTableExistsAsync(dbContext.CachedBusinessPartners, "CachedBusinessPartners");
+        await ExecuteDeleteIfTableExistsAsync(dbContext.CachedWarehouses, "CachedWarehouses");
+        await ExecuteDeleteIfTableExistsAsync(dbContext.CachedWarehouseStocks, "CachedWarehouseStocks");
+        await ExecuteDeleteIfTableExistsAsync(dbContext.CachedGLAccounts, "CachedGLAccounts");
+        await ExecuteDeleteIfTableExistsAsync(dbContext.CachedCostCentres, "CachedCostCentres");
+        await ExecuteDeleteIfTableExistsAsync(dbContext.CachedIncomingPayments, "CachedIncomingPayments");
+        await ExecuteDeleteIfTableExistsAsync(dbContext.CachedInventoryTransfers, "CachedInventoryTransfers");
+        await ExecuteDeleteIfTableExistsAsync(dbContext.CacheSyncInfo, "CacheSyncInfo");
+    }
+
+    private async Task ExecuteDeleteIfTableExistsAsync<TEntity>(IQueryable<TEntity> query, string tableName)
+        where TEntity : class
+    {
+        try
+        {
+            await query.ExecuteDeleteAsync();
+        }
+        catch (Npgsql.PostgresException ex) when (ex.SqlState == Npgsql.PostgresErrorCodes.UndefinedTable)
+        {
+            Logger.LogWarning(
+                ex,
+                "Skipped cache clear for missing web table {TableName} during database reset",
+                tableName);
         }
     }
 }

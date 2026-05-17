@@ -3,7 +3,9 @@
 @attribute [Authorize(Roles = "Admin,Cashier")]
 @inject ICreditNoteService CreditNoteService
 @inject IMasterDataCacheService CacheService
+@inject IBusinessPartnerPricingService BusinessPartnerPricingService
 @inject NavigationManager NavigationManager
+@inject ILogger<CreditNotes> Logger
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
 @implements IDisposable
@@ -1199,7 +1201,7 @@
                                                            Size="Size.Small" />
                                         }
                                         @if (context.Status == CreditNoteStatus.Draft || context.Status ==
-                                                                                                                                                                                                                                                                                                                    CreditNoteStatus.Cancelled)
+                                                                                                                                                                                                                                                                                                                                                            CreditNoteStatus.Cancelled)
                                         {
                                             <MudIconButton Icon="@Icons.Material.Filled.Delete"
                                                            OnClick="() => DeleteCreditNote(context.Id)" title="Delete" Class="action-btn delete"
@@ -1509,7 +1511,7 @@
                                                                     @if (!string.IsNullOrEmpty(line.ItemDescription))
                                                                     {
                                                                         <span style="font-size:.82rem;color:#374151;">@TruncateText(line.ItemDescription,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                25)</span>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            25)</span>
                                                                         }
                                                             else
                                                                         {
@@ -1614,6 +1616,8 @@
 
     // Business partner autocomplete
     private BusinessPartnerDto? selectedBusinessPartner;
+    private Dictionary<string, decimal> customerPriceListPrices = new();
+    private int? customerPriceListNum;
     private string? bpSearchTerm;
     private bool showBPDropdown = false;
 
@@ -1779,13 +1783,21 @@
         showBPDropdown = true;
     }
 
-    private void SelectBusinessPartner(BusinessPartnerDto bp)
+    private async Task SelectBusinessPartnerAsync(BusinessPartnerDto bp)
     {
         selectedBusinessPartner = bp;
         newCreditNote.CardCode = bp.CardCode ?? string.Empty;
         newCreditNote.CardName = bp.CardName;
         bpSearchTerm = null;
         showBPDropdown = false;
+
+        await LoadBusinessPartnerPricesAsync(bp);
+        UpdateExistingLinePrices();
+    }
+
+    private void SelectBusinessPartner(BusinessPartnerDto bp)
+    {
+        _ = SelectBusinessPartnerAsync(bp);
     }
 
     private void ClearSelectedBP()
@@ -1794,6 +1806,9 @@
         newCreditNote.CardCode = string.Empty;
         newCreditNote.CardName = null;
         bpSearchTerm = null;
+        customerPriceListPrices.Clear();
+        customerPriceListNum = null;
+        UpdateExistingLinePrices();
     }
 
     private async Task OnBPSearchBlur()
@@ -1808,6 +1823,48 @@
         if (!cnLineStates.ContainsKey(index))
             cnLineStates[index] = new CnLineState();
         return cnLineStates[index];
+    }
+
+    private void UpdateExistingLinePrices()
+    {
+        foreach (var line in newCreditNote.Lines)
+        {
+            if (!string.IsNullOrWhiteSpace(line.ItemCode))
+            {
+                var product = cachedProducts.FirstOrDefault(p =>
+                    string.Equals(p.ItemCode, line.ItemCode, StringComparison.OrdinalIgnoreCase));
+                var defaultPrice = product?.Price ?? line.UnitPrice;
+                line.UnitPrice = GetPriceForItem(line.ItemCode, defaultPrice);
+            }
+        }
+    }
+
+    private async Task LoadBusinessPartnerPricesAsync(BusinessPartnerDto bp)
+    {
+        try
+        {
+            var lookup = await BusinessPartnerPricingService.LoadPriceLookupAsync(bp);
+            customerPriceListPrices = lookup.Prices;
+            customerPriceListNum = lookup.PriceListNum;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading credit note prices for {CardCode}", bp.CardCode);
+            customerPriceListPrices.Clear();
+            customerPriceListNum = null;
+        }
+    }
+
+    private decimal GetPriceForItem(string? itemCode, decimal defaultPrice)
+    {
+        if (string.IsNullOrEmpty(itemCode))
+        {
+            return defaultPrice;
+        }
+
+        return customerPriceListPrices.TryGetValue(itemCode, out var customerPrice)
+            ? customerPrice
+            : defaultPrice;
     }
 
     private void OnCnItemCodeInput(int index, string? value)
@@ -1854,12 +1911,31 @@
         state.ShowDropdown = false;
     }
 
-    private void SelectCnProduct(int index, ProductDto product)
+    private async Task SelectCnProduct(int index, ProductDto product)
     {
         var line = newCreditNote.Lines[index];
         line.ItemCode = product.ItemCode ?? string.Empty;
         line.ItemDescription = product.ItemName;
-        line.UnitPrice = product.Price;
+        line.UnitPrice = GetPriceForItem(product.ItemCode, product.Price);
+
+        if (!string.IsNullOrEmpty(product.ItemCode))
+        {
+            try
+            {
+                line.UnitPrice = await BusinessPartnerPricingService.ResolveUnitPriceAsync(
+                    product.ItemCode,
+                    selectedBusinessPartner?.Currency ?? AppSettings.DefaultCurrency,
+                    product.Price,
+                    newCreditNote.CardCode,
+                    customerPriceListNum,
+                    customerPriceListPrices);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to resolve BP-aware credit note price for item {ItemCode}", product.ItemCode);
+            }
+        }
+
         if (string.IsNullOrEmpty(line.WarehouseCode))
             line.WarehouseCode = product.DefaultWarehouse;
 

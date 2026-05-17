@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Mobile;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
@@ -42,8 +43,14 @@ public sealed class GetInvoicesByCustomerHandler(
             if (user is null)
                 return Errors.Auth.UserNotFound;
 
-            var hasAssignedCustomer = user.GetCustomerCodes()
-                .Any(code => string.Equals(code, request.CardCode, StringComparison.OrdinalIgnoreCase));
+            var customerCodes = await MobileAssignedCustomerScope.GetEffectiveCustomerCodesAsync(
+                db,
+                user,
+                logger,
+                cancellationToken);
+
+            var hasAssignedCustomer = customerCodes
+            .Any(code => string.Equals(code, request.CardCode, StringComparison.OrdinalIgnoreCase));
 
             if (!hasAssignedCustomer)
             {
@@ -55,7 +62,7 @@ public sealed class GetInvoicesByCustomerHandler(
                         request.CardCode,
                         $"Blocked invoice lookup for unassigned customer {request.CardCode}.",
                         false,
-                        "Customer is not assigned to the current driver.");
+                            "Customer is not assigned to the current mobile user.");
                 }
                 catch
                 {

@@ -1,5 +1,6 @@
 using ShopInventory.DTOs;
 using ShopInventory.Models;
+using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Services;
 
@@ -313,7 +314,9 @@ public interface ISAPServiceLayerClient
     Task<List<SAPQuotation>> GetQuotationsFromSAPAsync(CancellationToken cancellationToken = default);
     Task<List<SAPQuotation>> GetPagedQuotationsFromSAPAsync(int page, int pageSize, CancellationToken cancellationToken = default);
     Task<SAPQuotation?> GetQuotationByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
+    Task<SAPQuotation?> GetQuotationByOrderNumberAsync(string orderNumber, CancellationToken cancellationToken = default);
     Task<List<SAPQuotation>> GetQuotationsByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<SAPQuotation>> GetQuotationsByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<int> GetQuotationsCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+    Task<SAPQuotation> CreateQuotationAsync(ShopInventory.Models.Entities.QuotationEntity quotation, string externalOrderNumber, CancellationToken cancellationToken = default);
 }

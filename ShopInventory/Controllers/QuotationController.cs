@@ -5,9 +5,11 @@ using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Authentication;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Quotations.Commands.ApproveQuotation;
+using ShopInventory.Features.Quotations.Commands.ApplyStandardVat;
 using ShopInventory.Features.Quotations.Commands.ConvertToSalesOrder;
 using ShopInventory.Features.Quotations.Commands.CreateQuotation;
 using ShopInventory.Features.Quotations.Commands.DeleteQuotation;
+using ShopInventory.Features.Quotations.Commands.RepriceQuotation;
 using ShopInventory.Features.Quotations.Commands.UpdateQuotation;
 using ShopInventory.Features.Quotations.Commands.UpdateQuotationStatus;
 using ShopInventory.Features.Quotations.Queries.GetAllQuotations;
@@ -15,6 +17,8 @@ using ShopInventory.Features.Quotations.Queries.GetQuotationById;
 using ShopInventory.Features.Quotations.Queries.GetQuotationByNumber;
 using ShopInventory.Features.Quotations.Queries.GetQuotationFromSAPByDocEntry;
 using ShopInventory.Features.Quotations.Queries.GetQuotationsFromSAP;
+using ShopInventory.Features.Quotations.Queries.DownloadSapQuotationPdf;
+using ShopInventory.Features.Quotations.Queries.DownloadQuotationPdf;
 using ShopInventory.Models.Entities;
 using System.Security.Claims;
 
@@ -62,6 +66,16 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    [HttpGet("sap/{docEntry:int}/pdf")]
+    [RequirePermission(Permission.ViewInvoices)]
+    public async Task<IActionResult> DownloadSapQuotationPdf(int docEntry, CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new DownloadSapQuotationPdfQuery(docEntry), cancellationToken);
+        return result.Match(
+            pdf => File(pdf.PdfBytes, "application/pdf", pdf.FileName),
+            errors => Problem(errors));
+    }
+
     [HttpGet("{id}")]
     [RequirePermission(Permission.ViewInvoices)]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
@@ -78,10 +92,25 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    [HttpGet("{id:int}/pdf")]
+    [RequirePermission(Permission.ViewInvoices)]
+    public async Task<IActionResult> DownloadQuotationPdf(int id, CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new DownloadQuotationPdfQuery(id), cancellationToken);
+        return result.Match(
+            pdf => File(pdf.PdfBytes, "application/pdf", pdf.FileName),
+            errors => Problem(errors));
+    }
+
     [HttpPost]
     [RequirePermission(Permission.CreateInvoices)]
     public async Task<IActionResult> Create([FromBody] CreateQuotationRequest request, CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(request.ClientRequestId) && Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyValues))
+        {
+            request.ClientRequestId = idempotencyValues.FirstOrDefault();
+        }
+
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (!Guid.TryParse(userIdClaim, out var userId))
             return Unauthorized();
@@ -119,6 +148,22 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
             return Unauthorized();
 
         var result = await mediator.Send(new ApproveQuotationCommand(id, userId), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpPost("{id}/apply-standard-vat")]
+    [RequirePermission(Permission.EditInvoices)]
+    public async Task<IActionResult> ApplyStandardVat(int id, CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new ApplyStandardVatCommand(id), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpPut("{id}/reprice")]
+    [RequirePermission(Permission.EditInvoices)]
+    public async Task<IActionResult> Reprice(int id, [FromBody] CreateQuotationRequest request, CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new RepriceQuotationCommand(id, request), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

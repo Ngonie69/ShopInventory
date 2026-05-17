@@ -1474,12 +1474,17 @@
             else
             {
                 var errorContent = await response.Content.ReadAsStringAsync();
-                errorMessage = $"Failed to generate statement: {response.StatusCode} - {errorContent}";
+                errorMessage = ShopInventory.Web.Services.ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode,
+                    errorContent,
+                    "We couldn't generate this statement right now. Please try again.");
             }
         }
         catch (Exception ex)
         {
-            errorMessage = $"Error generating statement: {ex.Message}";
+            errorMessage = ShopInventory.Web.Services.ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't generate this statement right now. Please try again.");
         }
         finally
         {

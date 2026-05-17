@@ -221,7 +221,10 @@ public class CustomerStatementService : ICustomerStatementService
             var errorContent = await response.Content.ReadAsStringAsync();
             _logger.LogError("Failed to generate PDF. Status: {StatusCode}, Error: {Error}",
                 response.StatusCode, errorContent);
-            throw new InvalidOperationException($"Failed to generate statement PDF: {response.StatusCode} - {errorContent}");
+            throw new InvalidOperationException(ApiErrorResponse.GetFriendlyMessage(
+                response.StatusCode,
+                errorContent,
+                "We couldn't generate this statement PDF right now. Please try again."));
         }
         catch (Exception ex)
         {

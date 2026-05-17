@@ -6,6 +6,7 @@
 @inject IBusinessPartnerService BusinessPartnerService
 @inject IMasterDataCacheService CacheService
 @inject IPriceService PriceService
+@inject IBusinessPartnerPricingService BusinessPartnerPricingService
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
@@ -1408,6 +1409,10 @@
                                         }
                                     </MudButton>
                                 }
+                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="PrintSalesOrderPdf"
+                                           Disabled="@isPdfLoading">
+                                    <i class="bi bi-printer me-1"></i> Print
+                                </MudButton>
                                 <MudButton Class="btn-secondary-action" OnClick="() => selectedOrder = null">Close</MudButton>
                             </div>
                         </div>
@@ -1569,9 +1574,14 @@
                                         <div class="form-field">
                                             <label>Currency</label>
                                             <select @bind="newOrder.Currency">
+                                                <option value="">Select currency</option>
                                                 <option value="USD">USD — US Dollar</option>
                                                 <option value="ZIG">ZIG — Zimbabwe Gold</option>
                                             </select>
+                                            @if (createValidationErrors.ContainsKey("Currency"))
+                                            {
+                                                <div style="color:#ef4444; font-size:.78rem; margin-top:.2rem;">@createValidationErrors["Currency"]</div>
+                                            }
                                         </div>
                                         <div class="form-field">
                                             <label>Customer Reference</label>
@@ -1826,6 +1836,7 @@
     private List<SalesOrderDto>? orders;
     private SalesOrderDto? selectedOrder;
     private bool isLoading = true;
+    private bool isPdfLoading = false;
     private bool isCreating = false;
     private bool isRejecting = false;
     private bool showCreateModal = false;
@@ -2083,6 +2094,38 @@
     private void NavigateToEdit(int id)
     {
         NavigationManager.NavigateTo($"/sales-orders/edit/{id}");
+    }
+
+    private async Task PrintSalesOrderPdf()
+    {
+        if (selectedOrder == null || isPdfLoading)
+            return;
+
+        isPdfLoading = true;
+        try
+        {
+            var useLocal = !selectedOrder.IsSynced || !selectedOrder.SAPDocEntry.HasValue;
+            var pdfId = useLocal ? selectedOrder.Id : selectedOrder.SAPDocEntry!.Value;
+            var pdfBytes = await SalesOrderService.GetSalesOrderPdfAsync(pdfId, useLocal);
+
+            if (pdfBytes == null || pdfBytes.Length == 0)
+            {
+                errorMessage = "Failed to retrieve sales order PDF for printing.";
+                return;
+            }
+
+            var base64 = Convert.ToBase64String(pdfBytes);
+            await JSRuntime.InvokeVoidAsync("printPdfFromBase64", base64, 1);
+            await AuditService.LogAsync(AuditActions.PrintSalesOrderPdf, "SalesOrder", selectedOrder.OrderNumber);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Print failed: {ex.Message}";
+        }
+        finally
+        {
+            isPdfLoading = false;
+        }
     }
 
     private bool TryBeginOrderAction(int id, OrderActionType action)
@@ -2463,22 +2506,16 @@
         bpSearchTerm = bp.DisplayName;
         showBPDropdown = false;
 
-        if (!string.IsNullOrEmpty(bp.Currency))
+        if (!string.IsNullOrWhiteSpace(bp.Currency))
         {
-            newOrder.Currency = bp.Currency;
+            newOrder.Currency = bp.Currency.Trim().ToUpperInvariant();
         }
 
         createValidationErrors.Remove("Customer");
+        createValidationErrors.Remove("Currency");
 
-        if (bp.PriceListNum.HasValue && bp.PriceListNum.Value > 0)
-        {
-            await LoadCustomerPriceList(bp.PriceListNum.Value);
-        }
-        else
-        {
-            customerPriceListPrices.Clear();
-            customerPriceListNum = null;
-        }
+        await LoadBusinessPartnerPricesAsync(bp);
+        UpdateExistingLinePrices();
     }
 
     private void SelectBusinessPartner(BusinessPartnerDto bp)
@@ -2494,37 +2531,37 @@
         bpSearchTerm = null;
         customerPriceListPrices.Clear();
         customerPriceListNum = null;
+        UpdateExistingLinePrices();
     }
 
-    private async Task LoadCustomerPriceList(int priceListNum)
+    private void UpdateExistingLinePrices()
+    {
+        foreach (var line in newOrder.Lines)
+        {
+            if (!string.IsNullOrWhiteSpace(line.ItemCode))
+            {
+                var product = cachedProducts.FirstOrDefault(p =>
+                    string.Equals(p.ItemCode, line.ItemCode, StringComparison.OrdinalIgnoreCase));
+                var defaultPrice = product?.Price ?? line.UnitPrice;
+                line.UnitPrice = GetPriceForItem(line.ItemCode, defaultPrice);
+            }
+        }
+    }
+
+    private async Task LoadBusinessPartnerPricesAsync(BusinessPartnerDto bp)
     {
         isLoadingCustomerPrices = true;
         StateHasChanged();
 
         try
         {
-            var response = await PriceService.GetPricesByPriceListAsync(priceListNum);
-            if (response?.Prices != null && response.Prices.Any())
-            {
-                customerPriceListPrices.Clear();
-                foreach (var price in response.Prices)
-                {
-                    if (!string.IsNullOrEmpty(price.ItemCode))
-                    {
-                        customerPriceListPrices[price.ItemCode] = price.Price;
-                    }
-                }
-                customerPriceListNum = priceListNum;
-            }
-            else
-            {
-                customerPriceListPrices.Clear();
-                customerPriceListNum = null;
-            }
+            var lookup = await BusinessPartnerPricingService.LoadPriceLookupAsync(bp);
+            customerPriceListPrices = lookup.Prices;
+            customerPriceListNum = lookup.PriceListNum;
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error loading customer price list {PriceListNum}", priceListNum);
+            Logger.LogError(ex, "Error loading customer prices for {CardCode}", bp.CardCode);
             customerPriceListPrices.Clear();
             customerPriceListNum = null;
         }
@@ -2706,23 +2743,21 @@
         line.ItemDescription = product.ItemName ?? string.Empty;
         line.UnitPrice = GetPriceForItem(product.ItemCode, product.Price);
 
-        // If price is still 0, fetch from the price API
-        if (line.UnitPrice == 0 && !string.IsNullOrEmpty(product.ItemCode))
+        if (!string.IsNullOrEmpty(product.ItemCode))
         {
             try
             {
-                var priceInfo = await PriceService.GetPriceByItemCodeAsync(product.ItemCode);
-                if (priceInfo != null)
-                {
-                    var currency = newOrder.Currency ?? "USD";
-                    line.UnitPrice = currency.Equals("USD", StringComparison.OrdinalIgnoreCase)
-                    ? priceInfo.UsdPrice ?? 0
-                    : priceInfo.ZigPrice ?? priceInfo.UsdPrice ?? 0;
-                }
+                line.UnitPrice = await BusinessPartnerPricingService.ResolveUnitPriceAsync(
+                    product.ItemCode,
+                    newOrder.Currency,
+                    product.Price,
+                    newOrder.CardCode,
+                    customerPriceListNum,
+                    customerPriceListPrices);
             }
             catch (Exception ex)
             {
-                Logger.LogWarning(ex, "Failed to fetch price for item {ItemCode}", product.ItemCode);
+                Logger.LogWarning(ex, "Failed to resolve BP-aware price for item {ItemCode}", product.ItemCode);
             }
         }
 
@@ -2786,6 +2821,9 @@
 
         if (selectedBusinessPartner == null || string.IsNullOrEmpty(newOrder.CardCode))
             createValidationErrors["Customer"] = "Please select a customer";
+
+        if (string.IsNullOrWhiteSpace(newOrder.Currency))
+            createValidationErrors["Currency"] = "Please select a currency";
 
         if (!newOrder.Lines.Any())
             createValidationErrors["Lines"] = "At least one line item is required";

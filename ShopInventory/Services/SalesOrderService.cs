@@ -457,7 +457,7 @@ public class SalesOrderService : ISalesOrderService
                     Comments = request.Comments,
                     SalesPersonCode = request.SalesPersonCode,
                     SalesPersonName = request.SalesPersonName,
-                    Currency = request.Currency ?? "USD",
+                    Currency = request.Currency!,
                     DiscountPercent = request.DiscountPercent,
                     ShipToAddress = request.ShipToAddress,
                     BillToAddress = request.BillToAddress,
@@ -864,7 +864,7 @@ public class SalesOrderService : ISalesOrderService
         order.Comments = request.Comments;
         order.SalesPersonCode = request.SalesPersonCode;
         order.SalesPersonName = request.SalesPersonName;
-        order.Currency = request.Currency ?? order.Currency;
+        order.Currency = request.Currency!;
         order.DiscountPercent = request.DiscountPercent;
         order.ShipToAddress = request.ShipToAddress;
         order.BillToAddress = request.BillToAddress;
@@ -1393,6 +1393,16 @@ public class SalesOrderService : ISalesOrderService
     private async Task ValidateAndNormalizeSalesOrderRequestAsync(CreateSalesOrderRequest request, CancellationToken cancellationToken)
     {
         var validationErrors = RecursiveDataAnnotationsValidator.Validate(request);
+
+        if (string.IsNullOrWhiteSpace(request.Currency))
+        {
+            validationErrors.Add("Currency is required");
+        }
+        else
+        {
+            request.Currency = request.Currency.Trim().ToUpperInvariant();
+        }
+
         var lineUomLookup = await ResolveSalesOrderLineUomLookupAsync(
             request.Lines.Select(line => (ItemCode: (string?)line.ItemCode, line.UoMCode)),
             cancellationToken);

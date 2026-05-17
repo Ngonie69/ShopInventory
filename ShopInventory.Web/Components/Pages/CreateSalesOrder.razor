@@ -6,6 +6,7 @@
 @inject IBusinessPartnerService BusinessPartnerService
 @inject IMasterDataCacheService CacheService
 @inject IPriceService PriceService
+@inject IBusinessPartnerPricingService BusinessPartnerPricingService
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
 @using ShopInventory.Web.Data
@@ -451,9 +452,15 @@
                     <div class="form-field">
                         <label>Currency</label>
                         <select @bind="newOrder.Currency">
+                            <option value="">Select currency</option>
                             <option value="USD">USD — US Dollar</option>
                             <option value="ZIG">ZIG — Zimbabwe Gold</option>
                         </select>
+                        @if (createValidationErrors.ContainsKey("Currency"))
+                        {
+                            <div style="color:#ef4444; font-size:.78rem; margin-top:.2rem;">@createValidationErrors["Currency"]
+                            </div>
+                        }
                     </div>
                     <div class="form-field">
                         <label>Customer Reference</label>
@@ -504,7 +511,7 @@
                                 <div class="d-flex align-items-center gap-2">
                                     <span
                                         style="background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:.75rem;">@(index
-                                                                                                            + 1)</span>
+                                                                                                                                                                                            + 1)</span>
                     @if (!string.IsNullOrEmpty(line.ItemDescription))
                     {
                         <span style="font-weight:600; font-size:.85rem; color:#1a1a2e;">@line.ItemCode</span>
@@ -553,7 +560,7 @@
                                                     <div style="font-weight:600; font-size:.82rem;">@product.ItemCode</div>
                                                     <small
                                                         style="@(isSelected ? "color:rgba(255,255,255,.7);" : "color:#6b7280;")">@TruncateName(product.ItemName,
-                                                                                                                                                                25)</small>
+                                                                                                                                                                                                                                                                                25)</small>
                                                     </div>
                                                     <span
                                                         style="font-size:.75rem; font-weight:600; padding:.1rem .4rem; border-radius:4px; @(isSelected ? "background:rgba(255,255,255,.2); color:#fff;" : "background:#dbeafe; color:#1e40af;")">
@@ -697,7 +704,10 @@
     </div>
 
 @code {
-    private CreateSalesOrderRequest newOrder = new();
+    private CreateSalesOrderRequest newOrder = new()
+    {
+        Currency = string.Empty
+    };
     private bool isCreating = false;
 
     // Business Partner autocomplete state
@@ -804,22 +814,16 @@
         bpSearchTerm = bp.DisplayName;
         showBPDropdown = false;
 
-        if (!string.IsNullOrEmpty(bp.Currency))
+        if (!string.IsNullOrWhiteSpace(bp.Currency))
         {
-            newOrder.Currency = bp.Currency;
+            newOrder.Currency = bp.Currency.Trim().ToUpperInvariant();
         }
 
         createValidationErrors.Remove("Customer");
+        createValidationErrors.Remove("Currency");
 
-        if (bp.PriceListNum.HasValue && bp.PriceListNum.Value > 0)
-        {
-            await LoadCustomerPriceList(bp.PriceListNum.Value);
-        }
-        else
-        {
-            customerPriceListPrices.Clear();
-            customerPriceListNum = null;
-        }
+        await LoadBusinessPartnerPricesAsync(bp);
+        UpdateExistingLinePrices();
     }
 
     private void SelectBusinessPartner(BusinessPartnerDto bp)
@@ -835,37 +839,37 @@
         bpSearchTerm = null;
         customerPriceListPrices.Clear();
         customerPriceListNum = null;
+        UpdateExistingLinePrices();
     }
 
-    private async Task LoadCustomerPriceList(int priceListNum)
+    private void UpdateExistingLinePrices()
+    {
+        foreach (var line in newOrder.Lines)
+        {
+            if (!string.IsNullOrWhiteSpace(line.ItemCode))
+            {
+                var product = cachedProducts.FirstOrDefault(p =>
+                    string.Equals(p.ItemCode, line.ItemCode, StringComparison.OrdinalIgnoreCase));
+                var defaultPrice = product?.Price ?? line.UnitPrice;
+                line.UnitPrice = GetPriceForItem(line.ItemCode, defaultPrice);
+            }
+        }
+    }
+
+    private async Task LoadBusinessPartnerPricesAsync(BusinessPartnerDto bp)
     {
         isLoadingCustomerPrices = true;
         StateHasChanged();
 
         try
         {
-            var response = await PriceService.GetPricesByPriceListAsync(priceListNum);
-            if (response?.Prices != null && response.Prices.Any())
-            {
-                customerPriceListPrices.Clear();
-                foreach (var price in response.Prices)
-                {
-                    if (!string.IsNullOrEmpty(price.ItemCode))
-                    {
-                        customerPriceListPrices[price.ItemCode] = price.Price;
-                    }
-                }
-                customerPriceListNum = priceListNum;
-            }
-            else
-            {
-                customerPriceListPrices.Clear();
-                customerPriceListNum = null;
-            }
+            var lookup = await BusinessPartnerPricingService.LoadPriceLookupAsync(bp);
+            customerPriceListPrices = lookup.Prices;
+            customerPriceListNum = lookup.PriceListNum;
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error loading customer price list {PriceListNum}", priceListNum);
+            Logger.LogError(ex, "Error loading customer prices for {CardCode}", bp.CardCode);
             customerPriceListPrices.Clear();
             customerPriceListNum = null;
         }
@@ -1046,22 +1050,21 @@ state.FilteredProducts.Count;
         line.ItemDescription = product.ItemName ?? string.Empty;
         line.UnitPrice = GetPriceForItem(product.ItemCode, product.Price);
 
-        if (line.UnitPrice == 0 && !string.IsNullOrEmpty(product.ItemCode))
+        if (!string.IsNullOrEmpty(product.ItemCode))
         {
             try
             {
-                var priceInfo = await PriceService.GetPriceByItemCodeAsync(product.ItemCode);
-                if (priceInfo != null)
-                {
-                    var currency = newOrder.Currency ?? "USD";
-                    line.UnitPrice = currency.Equals("USD", StringComparison.OrdinalIgnoreCase)
-                        ? priceInfo.UsdPrice ?? 0
-                        : priceInfo.ZigPrice ?? priceInfo.UsdPrice ?? 0;
-                }
+                line.UnitPrice = await BusinessPartnerPricingService.ResolveUnitPriceAsync(
+                    product.ItemCode,
+                    newOrder.Currency,
+                    product.Price,
+                    newOrder.CardCode,
+                    customerPriceListNum,
+                    customerPriceListPrices);
             }
             catch (Exception ex)
             {
-                Logger.LogWarning(ex, "Failed to fetch price for item {ItemCode}", product.ItemCode);
+                Logger.LogWarning(ex, "Failed to resolve BP-aware price for item {ItemCode}", product.ItemCode);
             }
         }
 
@@ -1125,6 +1128,9 @@ state.FilteredProducts.Count;
 
         if (selectedBusinessPartner == null || string.IsNullOrEmpty(newOrder.CardCode))
             createValidationErrors["Customer"] = "Please select a customer";
+
+        if (string.IsNullOrWhiteSpace(newOrder.Currency))
+            createValidationErrors["Currency"] = "Please select a currency";
 
         if (!newOrder.Lines.Any())
             createValidationErrors["Lines"] = "At least one line item is required";

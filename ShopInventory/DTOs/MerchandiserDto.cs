@@ -132,6 +132,9 @@ public class MerchandiserOrderRequest
 
     public DateTime? DeliveryDate { get; set; }
 
+    [Required(ErrorMessage = "Currency is required")]
+    public string? Currency { get; set; }
+
     [Required(ErrorMessage = "At least one item is required")]
     [MinLength(1, ErrorMessage = "At least one item is required")]
     public List<MerchandiserOrderLineRequest> Items { get; set; } = new();

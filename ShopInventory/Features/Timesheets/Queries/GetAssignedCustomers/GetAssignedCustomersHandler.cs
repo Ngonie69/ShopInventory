@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Mobile;
 using ShopInventory.Data;
 using ShopInventory.Models;
 using ShopInventory.Services;
@@ -25,7 +26,12 @@ public sealed class GetAssignedCustomersHandler(
         if (user is null)
             return Common.Errors.Errors.Auth.UserNotFound;
 
-        var customerCodes = user.GetCustomerCodes();
+        var customerCodes = await MobileAssignedCustomerScope.GetEffectiveCustomerCodesAsync(
+            db,
+            user,
+            logger,
+            cancellationToken);
+
         if (customerCodes.Count == 0)
         {
             try

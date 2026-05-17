@@ -11,10 +11,15 @@ public interface ITwoFactorPendingStore
     string CreateChallenge(Guid userId);
 
     /// <summary>
-    /// Validates and atomically consumes the challenge token.
-    /// Returns the associated userId if valid, otherwise returns null.
+    /// Reads the associated userId for a valid challenge token without consuming it.
+    /// Returns null when the token is invalid or expired.
     /// </summary>
-    Guid? ConsumeChallenge(string token);
+    Guid? GetChallengeUserId(string token);
+
+    /// <summary>
+    /// Consumes a valid challenge token after successful second-factor verification.
+    /// </summary>
+    void ConsumeChallenge(string token);
 }
 
 public sealed class TwoFactorPendingStore : ITwoFactorPendingStore
@@ -40,15 +45,23 @@ public sealed class TwoFactorPendingStore : ITwoFactorPendingStore
         return token;
     }
 
-    public Guid? ConsumeChallenge(string token)
+    public Guid? GetChallengeUserId(string token)
     {
-        if (!_store.TryRemove(token, out var challenge))
+        if (!_store.TryGetValue(token, out var challenge))
             return null;
 
         if (challenge.ExpiresAt < DateTime.UtcNow)
+        {
+            _store.TryRemove(token, out _);
             return null;
+        }
 
         return challenge.UserId;
+    }
+
+    public void ConsumeChallenge(string token)
+    {
+        _store.TryRemove(token, out _);
     }
 
     private static string GenerateToken()

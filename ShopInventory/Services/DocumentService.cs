@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using ShopInventory.Common.Pods;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -49,12 +50,13 @@ public interface IDocumentService
 
     // Document Attachments
     Task<DocumentAttachmentDto> UploadAttachmentAsync(UploadAttachmentRequest request, Stream fileStream, string fileName, string mimeType, Guid? userId, CancellationToken cancellationToken = default);
+    Task<DocumentAttachmentDto?> GetAttachmentByExternalReferenceAsync(string entityType, int entityId, string externalReference, CancellationToken cancellationToken = default);
     Task<DocumentAttachmentListResponseDto> GetAttachmentsAsync(string entityType, int entityId, CancellationToken cancellationToken = default);
     Task<(Stream? stream, string? fileName, string? mimeType)> DownloadAttachmentAsync(int id, CancellationToken cancellationToken = default);
     Task<bool> DeleteAttachmentAsync(int id, CancellationToken cancellationToken = default);
 
     // POD (Proof of Delivery)
-    Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null, string? assignedSection = null, string? uploadedFromLocation = null);
+    Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null, string? uploadedByUsername = null, string? assignedSection = null, string? uploadedFromLocation = null);
     Task<List<int>> GetScopedPodInvoiceDocEntriesAsync(IEnumerable<int> candidateDocEntries, string assignedSection, CancellationToken cancellationToken = default);
     Task EnsureInvoiceCachedAsync(int sapDocEntry, int sapDocNum, string cardCode, string? cardName, CancellationToken cancellationToken = default);
     Task<Dictionary<int, PodStatusInfo>> GetPodStatusByDocEntriesAsync(List<int> docEntries, CancellationToken cancellationToken = default);
@@ -461,6 +463,7 @@ public class DocumentService : IDocumentService
 
     public async Task<DocumentAttachmentDto> UploadAttachmentAsync(UploadAttachmentRequest request, Stream fileStream, string fileName, string mimeType, Guid? userId, CancellationToken cancellationToken = default)
     {
+        var normalizedExternalReference = NormalizeExternalReference(request.ExternalReference);
         var isCompressibleImage = CompressibleImageTypes.Contains(mimeType);
 
         // Compressed images are always saved as JPEG
@@ -494,7 +497,7 @@ public class DocumentService : IDocumentService
         {
             EntityType = request.EntityType,
             EntityId = request.EntityId,
-            ExternalReference = request.ExternalReference,
+            ExternalReference = normalizedExternalReference,
             FileName = fileName,
             StoredFileName = fullPath,
             MimeType = mimeType,
@@ -506,9 +509,49 @@ public class DocumentService : IDocumentService
         };
 
         _context.Set<DocumentAttachmentEntity>().Add(attachment);
-        await _context.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (!string.IsNullOrWhiteSpace(normalizedExternalReference) && IsExternalReferenceUniqueViolation(ex))
+        {
+            _context.Entry(attachment).State = EntityState.Detached;
+            TryDeleteStoredFile(fullPath);
+
+            var existingAttachment = await FindAttachmentByExternalReferenceQuery(
+                    request.EntityType,
+                    request.EntityId,
+                    normalizedExternalReference)
+                .AsNoTracking()
+                .Include(a => a.UploadedByUser)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (existingAttachment is not null)
+            {
+                return MapToDto(existingAttachment);
+            }
+
+            throw;
+        }
 
         return MapToDto(attachment);
+    }
+
+    public async Task<DocumentAttachmentDto?> GetAttachmentByExternalReferenceAsync(string entityType, int entityId, string externalReference, CancellationToken cancellationToken = default)
+    {
+        var normalizedExternalReference = NormalizeExternalReference(externalReference);
+        if (normalizedExternalReference is null)
+        {
+            return null;
+        }
+
+        var attachment = await FindAttachmentByExternalReferenceQuery(entityType, entityId, normalizedExternalReference)
+            .AsNoTracking()
+            .Include(a => a.UploadedByUser)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return attachment is null ? null : MapToDto(attachment);
     }
 
     private async Task CompressAndSaveImageAsync(Stream sourceStream, string outputPath, CancellationToken cancellationToken)
@@ -584,7 +627,7 @@ public class DocumentService : IDocumentService
         return true;
     }
 
-    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null, string? assignedSection = null, string? uploadedFromLocation = null)
+    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null, string? uploadedByUsername = null, string? assignedSection = null, string? uploadedFromLocation = null)
     {
         var excludedCardCodes = PodExclusions.ExcludedCardCodes.ToArray();
 
@@ -608,6 +651,15 @@ public class DocumentService : IDocumentService
         if (uploadedByUserId.HasValue)
         {
             query = query.Where(a => a.UploadedByUserId == uploadedByUserId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(uploadedByUsername))
+        {
+            var uploadedByPattern = $"%{uploadedByUsername.Trim()}%";
+            query = query.Where(a =>
+                a.UploadedByUser != null &&
+                a.UploadedByUser.Username != null &&
+                EF.Functions.ILike(a.UploadedByUser.Username, uploadedByPattern));
         }
 
         if (!string.IsNullOrWhiteSpace(uploadedFromLocation))
@@ -644,7 +696,7 @@ public class DocumentService : IDocumentService
             query = query.Where(a => invoiceDocEntries.Contains(a.EntityId));
         }
 
-        // Free-text search across invoice number, customer name, and customer code
+        // Free-text search across invoice number, customer name, customer code, and uploader username
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim();
@@ -657,7 +709,13 @@ public class DocumentService : IDocumentService
                 ))
                 .Select(i => i.SAPDocEntry!.Value);
 
-            query = query.Where(a => matchingDocEntries.Contains(a.EntityId));
+            var matchingUploaderIds = _context.Users
+                .Where(u => u.Username != null && EF.Functions.ILike(u.Username, pattern))
+                .Select(u => u.Id);
+
+            query = query.Where(a =>
+                matchingDocEntries.Contains(a.EntityId) ||
+                (a.UploadedByUserId.HasValue && matchingUploaderIds.Contains(a.UploadedByUserId.Value)));
         }
 
         if (!string.IsNullOrWhiteSpace(assignedSection))
@@ -1202,6 +1260,41 @@ public class DocumentService : IDocumentService
             UploadedByUserName = entity.UploadedByUser?.Username,
             DownloadUrl = $"/api/document/attachments/{entity.Id}/download"
         };
+    }
+
+    private IQueryable<DocumentAttachmentEntity> FindAttachmentByExternalReferenceQuery(string entityType, int entityId, string externalReference)
+    {
+        return _context.Set<DocumentAttachmentEntity>()
+            .Where(a => a.EntityType == entityType
+                && a.EntityId == entityId
+                && a.ExternalReference == externalReference);
+    }
+
+    private static string? NormalizeExternalReference(string? externalReference)
+    {
+        return string.IsNullOrWhiteSpace(externalReference)
+            ? null
+            : externalReference.Trim();
+    }
+
+    private static bool IsExternalReferenceUniqueViolation(DbUpdateException exception)
+    {
+        return exception.InnerException is PostgresException postgresException
+            && postgresException.SqlState == PostgresErrorCodes.UniqueViolation;
+    }
+
+    private static void TryDeleteStoredFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+        }
     }
 
     private DocumentHistoryDto MapToDto(DocumentHistoryEntity entity)

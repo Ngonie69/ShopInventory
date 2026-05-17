@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -91,6 +92,7 @@ public class DocumentTemplateEntity
 /// <summary>
 /// Document attachment entity for storing files attached to orders, invoices, etc.
 /// </summary>
+[Index(nameof(EntityType), nameof(EntityId), nameof(ExternalReference), IsUnique = true)]
 [Table("DocumentAttachments")]
 public class DocumentAttachmentEntity
 {

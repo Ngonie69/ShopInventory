@@ -1,0 +1,951 @@
+version=1
+
+# This file caches language service data to improve the performance of C# Dev Kit.
+# It is not intended for manual editing. It can safely be deleted and will be
+# regenerated automatically. For more information, see https://aka.ms/lscache
+#
+# To control where cache files are stored, use the following VS Code setting:
+#   "dotnet.projectsystem.cacheInProjectFolder": true
+
+[project]
+language=C#
+primary
+lastDtbSucceeded
+
+[properties]
+AssemblyName=ShopInventory.Web
+CommandLineArgsForDesignTimeEvaluation=-langversion:14.0 -define:TRACE
+CompilerGeneratedFilesOutputPath=
+MaxSupportedLangVersion=14.0
+ProjectAssetsFile=<PATH>obj/project.assets.json
+RootNamespace=ShopInventory.Web
+RunAnalyzers=
+RunAnalyzersDuringLiveAnalysis=
+SolutionPath=<PATH>../ShopInventory.sln
+TargetFrameworkIdentifier=.NETCoreApp
+TargetPath=<PATH>bin/Debug/net10.0/ShopInventory.Web.dll
+TargetRefPath=<PATH>obj/Debug/net10.0/ref/ShopInventory.Web.dll
+TemporaryDependencyNodeTargetIdentifier=net10.0
+
+[commandLineArguments]
+/noconfig
+/unsafe-
+/checked-
+/nowarn:1701,1702,1701,1702,8002
+/fullpaths
+/nostdlib+
+/errorreport:prompt
+/warn:10
+/define:TRACE;DEBUG;NET;NET10_0;NETCOREAPP;NET5_0_OR_GREATER;NET6_0_OR_GREATER;NET7_0_OR_GREATER;NET8_0_OR_GREATER;NET9_0_OR_GREATER;NET10_0_OR_GREATER;NETCOREAPP1_0_OR_GREATER;NETCOREAPP1_1_OR_GREATER;NETCOREAPP2_0_OR_GREATER;NETCOREAPP2_1_OR_GREATER;NETCOREAPP2_2_OR_GREATER;NETCOREAPP3_0_OR_GREATER;NETCOREAPP3_1_OR_GREATER
+/highentropyva+
+/nullable:enable
+/features:"InterceptorsNamespaces=;Microsoft.Extensions.Validation.Generated"
+/debug+
+/debug:portable
+/filealign:512
+/optimize-
+/out:obj\Debug\net10.0\ShopInventory.Web.dll
+/refout:obj\Debug\net10.0\refint\ShopInventory.Web.dll
+/target:exe
+/warnaserror-
+/utf8output
+/deterministic+
+/langversion:14.0
+/features:use-roslyn-tokenizer=true
+/warnaserror+:NU1605,SYSLIB0011
+
+[sourceFiles]
+Behaviors/
+ LoggingBehavior.cs
+ ValidationBehavior.cs
+Common/
+ AssignedSectionOptions.cs
+ Errors/
+  Errors.Batch.cs
+  Errors.ExceptionCenter.cs
+  Errors.GoodsReceiptPurchaseOrder.cs
+  Errors.Merchandiser.cs
+  Errors.PurchaseInvoice.cs
+  Errors.PurchaseQuotation.cs
+  Errors.PurchaseRequest.cs
+  Errors.Report.cs
+  Errors.UserManagement.cs
+Components/Pages/
+ CreateGoodsReceiptPurchaseOrder.razor.cs
+ CreateMerchandiserAccount.razor.cs
+ CreatePurchaseInvoice.razor.cs
+ CreatePurchaseQuotation.razor.cs
+ CreatePurchaseRequest.razor.cs
+ DriverBusinessPartners.razor.cs
+ ExceptionCenter.razor.cs
+ GoodsReceiptPurchaseOrders.razor.cs
+ LabBatchStatus.razor.cs
+ LabBatchStatusHistory.razor.cs
+ MerchandiserProducts.razor.cs
+ MerchandiserPurchaseOrderReport.razor.cs
+ PurchaseInvoices.razor.cs
+ PurchaseQuotations.razor.cs
+ PurchaseRequests.razor.cs
+Configuration/
+ PostgresConnectionPolicyOptions.cs
+ PostgresConnectionStringValidator.cs
+Data/
+ AppSetting.cs
+ AuditLog.cs
+ CachedProduct.cs
+ CustomerPortalEntities.cs
+ DatabaseInitializer.cs
+ UserRoles.cs
+ WebAppDbContext.cs
+Features/Batches/Commands/UpdateBatchStatus/
+ UpdateBatchStatusCommand.cs
+ UpdateBatchStatusHandler.cs
+ UpdateBatchStatusValidator.cs
+Features/Batches/Queries/GetBatchStatusHistory/
+ GetBatchStatusHistoryHandler.cs
+ GetBatchStatusHistoryQuery.cs
+ GetBatchStatusHistoryValidator.cs
+Features/Batches/Queries/SearchBatches/
+ SearchBatchesHandler.cs
+ SearchBatchesQuery.cs
+ SearchBatchesValidator.cs
+Features/ExceptionCenter/Commands/AcknowledgeExceptionCenterItem/
+ AcknowledgeExceptionCenterItemCommand.cs
+ AcknowledgeExceptionCenterItemHandler.cs
+Features/ExceptionCenter/Commands/AssignExceptionCenterItem/
+ AssignExceptionCenterItemCommand.cs
+ AssignExceptionCenterItemHandler.cs
+Features/ExceptionCenter/Commands/RetryExceptionCenterItem/
+ RetryExceptionCenterItemCommand.cs
+ RetryExceptionCenterItemHandler.cs
+Features/ExceptionCenter/Queries/GetExceptionCenter/
+ GetExceptionCenterHandler.cs
+ GetExceptionCenterQuery.cs
+Features/GoodsReceiptPurchaseOrders/Commands/CreateGoodsReceiptPurchaseOrder/
+ CreateGoodsReceiptPurchaseOrderCommand.cs
+ CreateGoodsReceiptPurchaseOrderHandler.cs
+Features/GoodsReceiptPurchaseOrders/Queries/GetGoodsReceiptPurchaseOrders/
+ GetGoodsReceiptPurchaseOrdersHandler.cs
+ GetGoodsReceiptPurchaseOrdersQuery.cs
+Features/Merchandiser/Commands/BackfillProductDetails/
+ BackfillProductDetailsCommand.cs
+ BackfillProductDetailsHandler.cs
+Features/Merchandiser/Queries/GetGlobalProducts/
+ GetGlobalProductsHandler.cs
+ GetGlobalProductsQuery.cs
+Features/PurchaseInvoices/Commands/CreatePurchaseInvoice/
+ CreatePurchaseInvoiceCommand.cs
+ CreatePurchaseInvoiceHandler.cs
+Features/PurchaseInvoices/Queries/GetPurchaseInvoices/
+ GetPurchaseInvoicesHandler.cs
+ GetPurchaseInvoicesQuery.cs
+Features/PurchaseQuotations/Commands/CreatePurchaseQuotation/
+ CreatePurchaseQuotationCommand.cs
+ CreatePurchaseQuotationHandler.cs
+Features/PurchaseQuotations/Queries/GetPurchaseQuotations/
+ GetPurchaseQuotationsHandler.cs
+ GetPurchaseQuotationsQuery.cs
+Features/PurchaseRequests/Commands/CreatePurchaseRequest/
+ CreatePurchaseRequestCommand.cs
+ CreatePurchaseRequestHandler.cs
+Features/PurchaseRequests/Queries/GetPurchaseRequests/
+ GetPurchaseRequestsHandler.cs
+ GetPurchaseRequestsQuery.cs
+Features/Reports/Queries/GetMerchandiserPurchaseOrderReport/
+ GetMerchandiserPurchaseOrderReportHandler.cs
+ GetMerchandiserPurchaseOrderReportQuery.cs
+ GetMerchandiserPurchaseOrderReportResult.cs
+ MerchandiserPurchaseOrderReportAttachmentModel.cs
+ MerchandiserPurchaseOrderReportLineModel.cs
+ MerchandiserPurchaseOrderReportMerchandiserModel.cs
+ MerchandiserPurchaseOrderReportOrderModel.cs
+Features/UserManagement/Commands/CreateMerchandiserAccount/
+ CreateMerchandiserAccountCommand.cs
+ CreateMerchandiserAccountHandler.cs
+ CreateMerchandiserAccountValidator.cs
+Features/UserManagement/Commands/RefreshDriverBusinessPartnerAccess/
+ RefreshDriverBusinessPartnerAccessCommand.cs
+ RefreshDriverBusinessPartnerAccessHandler.cs
+Features/UserManagement/Commands/UpdateDriverBusinessPartnerAccess/
+ UpdateDriverBusinessPartnerAccessCommand.cs
+ UpdateDriverBusinessPartnerAccessHandler.cs
+Features/UserManagement/Commands/UpdateMerchandiserAssignedCustomers/
+ UpdateMerchandiserAssignedCustomersCommand.cs
+ UpdateMerchandiserAssignedCustomersHandler.cs
+ UpdateMerchandiserAssignedCustomersValidator.cs
+Features/UserManagement/Queries/GetDriverBusinessPartnerAccess/
+ GetDriverBusinessPartnerAccessHandler.cs
+ GetDriverBusinessPartnerAccessQuery.cs
+ GetDriverBusinessPartnerAccessResult.cs
+Features/UserManagement/Queries/GetManagedMerchandiserAccounts/
+ GetManagedMerchandiserAccountsHandler.cs
+ GetManagedMerchandiserAccountsQuery.cs
+ GetManagedMerchandiserAccountsResult.cs
+Health/
+ ApiDependencyHealthCheck.cs
+ StartupReadinessHealthCheck.cs
+ StartupReadinessSignal.cs
+ WebAppDbHealthCheck.cs
+ WebAppSchemaHealthCheck.cs
+Middleware/
+ ApiProxyMiddleware.cs
+ SecurityMiddleware.cs
+ SwaggerProxyMiddleware.cs
+Migrations/
+ 20260104055937_InitialCreate.cs
+ 20260104055937_InitialCreate.Designer.cs
+ 20260106102439_SeedDefaultWarehouses.cs
+ 20260106102439_SeedDefaultWarehouses.Designer.cs
+ 20260106110424_AddCachedWarehouseStock.cs
+ 20260106110424_AddCachedWarehouseStock.Designer.cs
+ 20260106112608_AddPaymentAndTransferCache.cs
+ 20260106112608_AddPaymentAndTransferCache.Designer.cs
+ 20260107074754_AddCostCentres.cs
+ 20260107074754_AddCostCentres.Designer.cs
+ 20260113071132_AddCustomerPortalEntities.cs
+ 20260113071132_AddCustomerPortalEntities.Designer.cs
+ 20260127151036_AddMissingTables.cs
+ 20260127151036_AddMissingTables.Designer.cs
+ 20260128081212_AddUserPreferences.cs
+ 20260128081212_AddUserPreferences.Designer.cs
+ 20260128081246_AddOrderTracking.cs
+ 20260128081246_AddOrderTracking.Designer.cs
+ 20260128081319_UpdateCustomerFields.cs
+ 20260128081319_UpdateCustomerFields.Designer.cs
+ 20260211092712_AddCustomerLinkedAccounts.cs
+ 20260211092712_AddCustomerLinkedAccounts.Designer.cs
+ 20260311084836_AddPriceListNumToBusinessPartner.cs
+ 20260311084836_AddPriceListNumToBusinessPartner.Designer.cs
+ 20260505130203_AddDataProtectionKeyRing.cs
+ 20260505130203_AddDataProtectionKeyRing.Designer.cs
+ 20260505215504_ExpandAppSettingValueToText.cs
+ 20260505215504_ExpandAppSettingValueToText.Designer.cs
+ 20260506045530_AddAuditLogMobileFields.cs
+ 20260506045530_AddAuditLogMobileFields.Designer.cs
+ 20260507091827_AddChannelToCachedBusinessPartners.cs
+ 20260507091827_AddChannelToCachedBusinessPartners.Designer.cs
+ WebAppDbContextModelSnapshot.cs
+Models/
+ AuthModels.cs
+ BatchSearchItem.cs
+ BatchSearchResponse.cs
+ BatchStatusHistoryAuditRow.cs
+ BatchStatusHistoryItem.cs
+ BatchStatusHistoryResponse.cs
+ BulkPodValidationRequest.cs
+ BulkPodValidationResponse.cs
+ BulkPodValidationResult.cs
+ BusinessPartnerModels.cs
+ CreateMerchandiserAccountFormModel.cs
+ CreditNoteModels.cs
+ CustomerPortalModels.cs
+ CustomerPortalSession.cs
+ DocumentModels.cs
+ ExceptionCenterModels.cs
+ GoodsReceiptPurchaseOrderModels.cs
+ InventoryTransferModels.cs
+ InvoiceModels.cs
+ ManagedMerchandiserAccountModel.cs
+ MasterDataModels.cs
+ MerchandiserModels.cs
+ PaymentModels.cs
+ PriceModels.cs
+ ProductModels.cs
+ PurchaseInvoiceModels.cs
+ PurchaseOrderModels.cs
+ PurchaseQuotationModels.cs
+ PurchaseRequestModels.cs
+ QuotationModels.cs
+ ReportModels.cs
+ SalesOrderModels.cs
+ SyncModels.cs
+ SystemModels.cs
+ TimesheetModels.cs
+ UpdateBatchStatusApiRequest.cs
+obj/Debug/net10.0/
+ .NETCoreApp,Version=v10.0.AssemblyAttributes.cs
+ EmbeddedAttribute.cs
+ ShopInventory.Web.AssemblyInfo.cs
+ ShopInventory.Web.GlobalUsings.g.cs
+ ValidatableTypeAttribute.cs
+Program.cs
+QuantityDisplay.cs
+Services/
+ AIService.cs
+ ApiBearerAuthenticationHandler.cs
+ ApiErrorResponse.cs
+ AppSettingsProvider.cs
+ AppSettingsService.cs
+ AuditService.cs
+ AuthenticatedDownloadProxy.cs
+ AuthService.cs
+ BackupWebService.cs
+ BlazorServerAuthHandler.cs
+ BusinessPartnerPricingService.cs
+ BusinessPartnerService.cs
+ CachePreloadService.cs
+ CreditNoteService.cs
+ CustomAuthStateProvider.cs
+ CustomerAuthService.cs
+ CustomerLinkedAccountService.cs
+ CustomerPortalSessionService.cs
+ CustomerStatementService.cs
+ DesktopIntegrationService.cs
+ EmailService.cs
+ ExceptionCenterService.cs
+ ExchangeRateService.cs
+ GlobalSearchService.cs
+ GoodsReceiptPurchaseOrderService.cs
+ ICustomerPortalSessionService.cs
+ IncomingPaymentCacheService.cs
+ InventoryTransferCacheService.cs
+ InventoryTransferService.cs
+ InvoiceService.cs
+ KeyboardShortcutService.cs
+ LocalizationService.cs
+ MasterDataCacheService.cs
+ MerchandiserService.cs
+ MobileVersionPolicySettingsService.cs
+ NotificationHubService.cs
+ NotificationService.cs
+ PaymentService.cs
+ PodService.cs
+ PriceService.cs
+ PrinterService.cs
+ ProductService.cs
+ PurchaseInvoiceService.cs
+ PurchaseOrderService.cs
+ PurchaseQuotationService.cs
+ PurchaseRequestService.cs
+ PushNotificationClientService.cs
+ QuotationService.cs
+ ReportExportService.cs
+ ReportService.cs
+ RevmaxService.cs
+ SalesOrderService.cs
+ SAPSettingsService.cs
+ StatementEmailScheduler.cs
+ SystemHealthService.cs
+ ThemeService.cs
+ TimesheetService.cs
+ TwoFactorWebService.cs
+ UserManagementService.cs
+ WarehouseStockCacheService.cs
+ WebhookWebService.cs
+
+[metadataReferences]
+<DOTNET>/packs/Microsoft.AspNetCore.App.Ref/10.0.8/ref/net10.0/
+ Microsoft.AspNetCore.Antiforgery.dll
+ Microsoft.AspNetCore.Authentication.Abstractions.dll
+ Microsoft.AspNetCore.Authentication.BearerToken.dll
+ Microsoft.AspNetCore.Authentication.Cookies.dll
+ Microsoft.AspNetCore.Authentication.Core.dll
+ Microsoft.AspNetCore.Authentication.dll
+ Microsoft.AspNetCore.Authentication.OAuth.dll
+ Microsoft.AspNetCore.Authorization.dll
+ Microsoft.AspNetCore.Authorization.Policy.dll
+ Microsoft.AspNetCore.Components.Authorization.dll
+ Microsoft.AspNetCore.Components.dll
+ Microsoft.AspNetCore.Components.Endpoints.dll
+ Microsoft.AspNetCore.Components.Forms.dll
+ Microsoft.AspNetCore.Components.Server.dll
+ Microsoft.AspNetCore.Components.Web.dll
+ Microsoft.AspNetCore.Connections.Abstractions.dll
+ Microsoft.AspNetCore.CookiePolicy.dll
+ Microsoft.AspNetCore.Cors.dll
+ Microsoft.AspNetCore.Cryptography.Internal.dll
+ Microsoft.AspNetCore.Cryptography.KeyDerivation.dll
+ Microsoft.AspNetCore.DataProtection.Abstractions.dll
+ Microsoft.AspNetCore.DataProtection.dll
+ Microsoft.AspNetCore.DataProtection.Extensions.dll
+ Microsoft.AspNetCore.Diagnostics.Abstractions.dll
+ Microsoft.AspNetCore.Diagnostics.dll
+ Microsoft.AspNetCore.Diagnostics.HealthChecks.dll
+ Microsoft.AspNetCore.dll
+ Microsoft.AspNetCore.HostFiltering.dll
+ Microsoft.AspNetCore.Hosting.Abstractions.dll
+ Microsoft.AspNetCore.Hosting.dll
+ Microsoft.AspNetCore.Hosting.Server.Abstractions.dll
+ Microsoft.AspNetCore.Html.Abstractions.dll
+ Microsoft.AspNetCore.Http.Abstractions.dll
+ Microsoft.AspNetCore.Http.Connections.Common.dll
+ Microsoft.AspNetCore.Http.Connections.dll
+ Microsoft.AspNetCore.Http.dll
+ Microsoft.AspNetCore.Http.Extensions.dll
+ Microsoft.AspNetCore.Http.Features.dll
+ Microsoft.AspNetCore.Http.Results.dll
+ Microsoft.AspNetCore.HttpLogging.dll
+ Microsoft.AspNetCore.HttpOverrides.dll
+ Microsoft.AspNetCore.HttpsPolicy.dll
+ Microsoft.AspNetCore.Identity.dll
+ Microsoft.AspNetCore.Localization.dll
+ Microsoft.AspNetCore.Localization.Routing.dll
+ Microsoft.AspNetCore.Metadata.dll
+ Microsoft.AspNetCore.Mvc.Abstractions.dll
+ Microsoft.AspNetCore.Mvc.ApiExplorer.dll
+ Microsoft.AspNetCore.Mvc.Core.dll
+ Microsoft.AspNetCore.Mvc.Cors.dll
+ Microsoft.AspNetCore.Mvc.DataAnnotations.dll
+ Microsoft.AspNetCore.Mvc.dll
+ Microsoft.AspNetCore.Mvc.Formatters.Json.dll
+ Microsoft.AspNetCore.Mvc.Formatters.Xml.dll
+ Microsoft.AspNetCore.Mvc.Localization.dll
+ Microsoft.AspNetCore.Mvc.Razor.dll
+ Microsoft.AspNetCore.Mvc.RazorPages.dll
+ Microsoft.AspNetCore.Mvc.TagHelpers.dll
+ Microsoft.AspNetCore.Mvc.ViewFeatures.dll
+ Microsoft.AspNetCore.OutputCaching.dll
+ Microsoft.AspNetCore.RateLimiting.dll
+ Microsoft.AspNetCore.Razor.dll
+ Microsoft.AspNetCore.Razor.Runtime.dll
+ Microsoft.AspNetCore.RequestDecompression.dll
+ Microsoft.AspNetCore.ResponseCaching.Abstractions.dll
+ Microsoft.AspNetCore.ResponseCaching.dll
+ Microsoft.AspNetCore.ResponseCompression.dll
+ Microsoft.AspNetCore.Rewrite.dll
+ Microsoft.AspNetCore.Routing.Abstractions.dll
+ Microsoft.AspNetCore.Routing.dll
+ Microsoft.AspNetCore.Server.HttpSys.dll
+ Microsoft.AspNetCore.Server.IIS.dll
+ Microsoft.AspNetCore.Server.IISIntegration.dll
+ Microsoft.AspNetCore.Server.Kestrel.Core.dll
+ Microsoft.AspNetCore.Server.Kestrel.dll
+ Microsoft.AspNetCore.Server.Kestrel.Transport.NamedPipes.dll
+ Microsoft.AspNetCore.Server.Kestrel.Transport.Quic.dll
+ Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets.dll
+ Microsoft.AspNetCore.Session.dll
+ Microsoft.AspNetCore.SignalR.Common.dll
+ Microsoft.AspNetCore.SignalR.Core.dll
+ Microsoft.AspNetCore.SignalR.dll
+ Microsoft.AspNetCore.SignalR.Protocols.Json.dll
+ Microsoft.AspNetCore.StaticAssets.dll
+ Microsoft.AspNetCore.StaticFiles.dll
+ Microsoft.AspNetCore.WebSockets.dll
+ Microsoft.AspNetCore.WebUtilities.dll
+ Microsoft.Extensions.Caching.Abstractions.dll
+ Microsoft.Extensions.Caching.Memory.dll
+ Microsoft.Extensions.Configuration.Abstractions.dll
+ Microsoft.Extensions.Configuration.Binder.dll
+ Microsoft.Extensions.Configuration.CommandLine.dll
+ Microsoft.Extensions.Configuration.dll
+ Microsoft.Extensions.Configuration.EnvironmentVariables.dll
+ Microsoft.Extensions.Configuration.FileExtensions.dll
+ Microsoft.Extensions.Configuration.Ini.dll
+ Microsoft.Extensions.Configuration.Json.dll
+ Microsoft.Extensions.Configuration.KeyPerFile.dll
+ Microsoft.Extensions.Configuration.UserSecrets.dll
+ Microsoft.Extensions.Configuration.Xml.dll
+ Microsoft.Extensions.DependencyInjection.Abstractions.dll
+ Microsoft.Extensions.DependencyInjection.dll
+ Microsoft.Extensions.Diagnostics.Abstractions.dll
+ Microsoft.Extensions.Diagnostics.dll
+ Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions.dll
+ Microsoft.Extensions.Diagnostics.HealthChecks.dll
+ Microsoft.Extensions.Features.dll
+ Microsoft.Extensions.FileProviders.Abstractions.dll
+ Microsoft.Extensions.FileProviders.Composite.dll
+ Microsoft.Extensions.FileProviders.Embedded.dll
+ Microsoft.Extensions.FileProviders.Physical.dll
+ Microsoft.Extensions.FileSystemGlobbing.dll
+ Microsoft.Extensions.Hosting.Abstractions.dll
+ Microsoft.Extensions.Hosting.dll
+ Microsoft.Extensions.Http.dll
+ Microsoft.Extensions.Identity.Core.dll
+ Microsoft.Extensions.Identity.Stores.dll
+ Microsoft.Extensions.Localization.Abstractions.dll
+ Microsoft.Extensions.Localization.dll
+ Microsoft.Extensions.Logging.Abstractions.dll
+ Microsoft.Extensions.Logging.Configuration.dll
+ Microsoft.Extensions.Logging.Console.dll
+ Microsoft.Extensions.Logging.Debug.dll
+ Microsoft.Extensions.Logging.dll
+ Microsoft.Extensions.Logging.EventLog.dll
+ Microsoft.Extensions.Logging.EventSource.dll
+ Microsoft.Extensions.Logging.TraceSource.dll
+ Microsoft.Extensions.ObjectPool.dll
+ Microsoft.Extensions.Options.ConfigurationExtensions.dll
+ Microsoft.Extensions.Options.DataAnnotations.dll
+ Microsoft.Extensions.Options.dll
+ Microsoft.Extensions.Primitives.dll
+ Microsoft.Extensions.Validation.dll
+ Microsoft.Extensions.WebEncoders.dll
+ Microsoft.JSInterop.dll
+ Microsoft.Net.Http.Headers.dll
+ System.Diagnostics.EventLog.dll
+ System.Formats.Cbor.dll
+ System.Security.Cryptography.Xml.dll
+ System.Threading.RateLimiting.dll
+<DOTNET>/packs/Microsoft.NETCore.App.Ref/10.0.8/ref/net10.0/
+ Microsoft.CSharp.dll
+ Microsoft.VisualBasic.Core.dll
+ Microsoft.VisualBasic.dll
+ Microsoft.Win32.Primitives.dll
+ Microsoft.Win32.Registry.dll
+ mscorlib.dll
+ netstandard.dll
+ System.AppContext.dll
+ System.Buffers.dll
+ System.Collections.Concurrent.dll
+ System.Collections.dll
+ System.Collections.Immutable.dll
+ System.Collections.NonGeneric.dll
+ System.Collections.Specialized.dll
+ System.ComponentModel.Annotations.dll
+ System.ComponentModel.DataAnnotations.dll
+ System.ComponentModel.dll
+ System.ComponentModel.EventBasedAsync.dll
+ System.ComponentModel.Primitives.dll
+ System.ComponentModel.TypeConverter.dll
+ System.Configuration.dll
+ System.Console.dll
+ System.Core.dll
+ System.Data.Common.dll
+ System.Data.DataSetExtensions.dll
+ System.Data.dll
+ System.Diagnostics.Contracts.dll
+ System.Diagnostics.Debug.dll
+ System.Diagnostics.DiagnosticSource.dll
+ System.Diagnostics.FileVersionInfo.dll
+ System.Diagnostics.Process.dll
+ System.Diagnostics.StackTrace.dll
+ System.Diagnostics.TextWriterTraceListener.dll
+ System.Diagnostics.Tools.dll
+ System.Diagnostics.TraceSource.dll
+ System.Diagnostics.Tracing.dll
+ System.dll
+ System.Drawing.dll
+ System.Drawing.Primitives.dll
+ System.Dynamic.Runtime.dll
+ System.Formats.Asn1.dll
+ System.Formats.Tar.dll
+ System.Globalization.Calendars.dll
+ System.Globalization.dll
+ System.Globalization.Extensions.dll
+ System.IO.Compression.Brotli.dll
+ System.IO.Compression.dll
+ System.IO.Compression.FileSystem.dll
+ System.IO.Compression.ZipFile.dll
+ System.IO.dll
+ System.IO.FileSystem.AccessControl.dll
+ System.IO.FileSystem.dll
+ System.IO.FileSystem.DriveInfo.dll
+ System.IO.FileSystem.Primitives.dll
+ System.IO.FileSystem.Watcher.dll
+ System.IO.IsolatedStorage.dll
+ System.IO.MemoryMappedFiles.dll
+ System.IO.Pipelines.dll
+ System.IO.Pipes.AccessControl.dll
+ System.IO.Pipes.dll
+ System.IO.UnmanagedMemoryStream.dll
+ System.Linq.AsyncEnumerable.dll
+ System.Linq.dll
+ System.Linq.Expressions.dll
+ System.Linq.Parallel.dll
+ System.Linq.Queryable.dll
+ System.Memory.dll
+ System.Net.dll
+ System.Net.Http.dll
+ System.Net.Http.Json.dll
+ System.Net.HttpListener.dll
+ System.Net.Mail.dll
+ System.Net.NameResolution.dll
+ System.Net.NetworkInformation.dll
+ System.Net.Ping.dll
+ System.Net.Primitives.dll
+ System.Net.Quic.dll
+ System.Net.Requests.dll
+ System.Net.Security.dll
+ System.Net.ServerSentEvents.dll
+ System.Net.ServicePoint.dll
+ System.Net.Sockets.dll
+ System.Net.WebClient.dll
+ System.Net.WebHeaderCollection.dll
+ System.Net.WebProxy.dll
+ System.Net.WebSockets.Client.dll
+ System.Net.WebSockets.dll
+ System.Numerics.dll
+ System.Numerics.Vectors.dll
+ System.ObjectModel.dll
+ System.Reflection.DispatchProxy.dll
+ System.Reflection.dll
+ System.Reflection.Emit.dll
+ System.Reflection.Emit.ILGeneration.dll
+ System.Reflection.Emit.Lightweight.dll
+ System.Reflection.Extensions.dll
+ System.Reflection.Metadata.dll
+ System.Reflection.Primitives.dll
+ System.Reflection.TypeExtensions.dll
+ System.Resources.Reader.dll
+ System.Resources.ResourceManager.dll
+ System.Resources.Writer.dll
+ System.Runtime.CompilerServices.Unsafe.dll
+ System.Runtime.CompilerServices.VisualC.dll
+ System.Runtime.dll
+ System.Runtime.Extensions.dll
+ System.Runtime.Handles.dll
+ System.Runtime.InteropServices.dll
+ System.Runtime.InteropServices.JavaScript.dll
+ System.Runtime.InteropServices.RuntimeInformation.dll
+ System.Runtime.Intrinsics.dll
+ System.Runtime.Loader.dll
+ System.Runtime.Numerics.dll
+ System.Runtime.Serialization.dll
+ System.Runtime.Serialization.Formatters.dll
+ System.Runtime.Serialization.Json.dll
+ System.Runtime.Serialization.Primitives.dll
+ System.Runtime.Serialization.Xml.dll
+ System.Security.AccessControl.dll
+ System.Security.Claims.dll
+ System.Security.Cryptography.Algorithms.dll
+ System.Security.Cryptography.Cng.dll
+ System.Security.Cryptography.Csp.dll
+ System.Security.Cryptography.dll
+ System.Security.Cryptography.Encoding.dll
+ System.Security.Cryptography.OpenSsl.dll
+ System.Security.Cryptography.Primitives.dll
+ System.Security.Cryptography.X509Certificates.dll
+ System.Security.dll
+ System.Security.Principal.dll
+ System.Security.Principal.Windows.dll
+ System.Security.SecureString.dll
+ System.ServiceModel.Web.dll
+ System.ServiceProcess.dll
+ System.Text.Encoding.CodePages.dll
+ System.Text.Encoding.dll
+ System.Text.Encoding.Extensions.dll
+ System.Text.Encodings.Web.dll
+ System.Text.Json.dll
+ System.Text.RegularExpressions.dll
+ System.Threading.AccessControl.dll
+ System.Threading.Channels.dll
+ System.Threading.dll
+ System.Threading.Overlapped.dll
+ System.Threading.Tasks.Dataflow.dll
+ System.Threading.Tasks.dll
+ System.Threading.Tasks.Extensions.dll
+ System.Threading.Tasks.Parallel.dll
+ System.Threading.Thread.dll
+ System.Threading.ThreadPool.dll
+ System.Threading.Timer.dll
+ System.Transactions.dll
+ System.Transactions.Local.dll
+ System.ValueTuple.dll
+ System.Web.dll
+ System.Web.HttpUtility.dll
+ System.Windows.dll
+ System.Xml.dll
+ System.Xml.Linq.dll
+ System.Xml.ReaderWriter.dll
+ System.Xml.Serialization.dll
+ System.Xml.XDocument.dll
+ System.Xml.XmlDocument.dll
+ System.Xml.XmlSerializer.dll
+ System.Xml.XPath.dll
+ System.Xml.XPath.XDocument.dll
+ WindowsBase.dll
+<NUGET>/
+ bcrypt.net-next/4.1.0/lib/net10.0/BCrypt.Net-Next.dll
+ blazored.localstorage/4.3.0/lib/net7.0/Blazored.LocalStorage.dll
+ bouncycastle.cryptography/2.6.2/lib/net6.0/BouncyCastle.Cryptography.dll
+ closedxml.parser/2.0.0/lib/netstandard2.1/ClosedXML.Parser.dll
+ closedxml/0.105.0/lib/netstandard2.1/ClosedXML.dll
+ documentformat.openxml.framework/3.1.1/lib/net8.0/DocumentFormat.OpenXml.Framework.dll
+ documentformat.openxml/3.1.1/lib/net8.0/DocumentFormat.OpenXml.dll
+ erroror/2.0.1/lib/net6.0/ErrorOr.dll
+ excelnumberformat/1.1.0/lib/netstandard2.0/ExcelNumberFormat.dll
+ fluentvalidation.dependencyinjectionextensions/12.1.1/lib/net8.0/FluentValidation.DependencyInjectionExtensions.dll
+ fluentvalidation/12.1.1/lib/net8.0/FluentValidation.dll
+ mailkit/4.16.0/lib/net10.0/MailKit.dll
+ mediatr.contracts/2.0.1/lib/netstandard2.0/MediatR.Contracts.dll
+ mediatr/14.1.0/lib/net10.0/MediatR.dll
+ microsoft.aspnetcore.authentication.jwtbearer/10.0.3/lib/net10.0/Microsoft.AspNetCore.Authentication.JwtBearer.dll
+ microsoft.aspnetcore.dataprotection.entityframeworkcore/10.0.3/lib/net10.0/Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.dll
+ microsoft.aspnetcore.http.connections.client/10.0.5/lib/net10.0/Microsoft.AspNetCore.Http.Connections.Client.dll
+ microsoft.aspnetcore.signalr.client.core/10.0.5/lib/net10.0/Microsoft.AspNetCore.SignalR.Client.Core.dll
+ microsoft.aspnetcore.signalr.client/10.0.5/lib/net10.0/Microsoft.AspNetCore.SignalR.Client.dll
+ microsoft.entityframeworkcore.abstractions/10.0.3/lib/net10.0/Microsoft.EntityFrameworkCore.Abstractions.dll
+ microsoft.entityframeworkcore.relational/10.0.3/lib/net10.0/Microsoft.EntityFrameworkCore.Relational.dll
+ microsoft.entityframeworkcore/10.0.3/lib/net10.0/Microsoft.EntityFrameworkCore.dll
+ microsoft.extensions.dependencymodel/10.0.3/lib/net10.0/Microsoft.Extensions.DependencyModel.dll
+ microsoft.identitymodel.abstractions/8.14.0/lib/net9.0/Microsoft.IdentityModel.Abstractions.dll
+ microsoft.identitymodel.jsonwebtokens/8.14.0/lib/net9.0/Microsoft.IdentityModel.JsonWebTokens.dll
+ microsoft.identitymodel.logging/8.14.0/lib/net9.0/Microsoft.IdentityModel.Logging.dll
+ microsoft.identitymodel.protocols.openidconnect/8.0.1/lib/net9.0/Microsoft.IdentityModel.Protocols.OpenIdConnect.dll
+ microsoft.identitymodel.protocols/8.0.1/lib/net9.0/Microsoft.IdentityModel.Protocols.dll
+ microsoft.identitymodel.tokens/8.14.0/lib/net9.0/Microsoft.IdentityModel.Tokens.dll
+ microsoft.win32.systemevents/10.0.5/lib/net10.0/Microsoft.Win32.SystemEvents.dll
+ mimekit/4.16.0/lib/net10.0/MimeKit.dll
+ mudblazor/9.1.0/lib/net10.0/MudBlazor.dll
+ npgsql.entityframeworkcore.postgresql/10.0.0/lib/net10.0/Npgsql.EntityFrameworkCore.PostgreSQL.dll
+ npgsql/10.0.0/lib/net10.0/Npgsql.dll
+ rbush.signed/4.0.0/lib/net8.0/RBush.dll
+ serilog.aspnetcore/10.0.0/lib/net10.0/Serilog.AspNetCore.dll
+ serilog.extensions.hosting/10.0.0/lib/net10.0/Serilog.Extensions.Hosting.dll
+ serilog.extensions.logging/10.0.0/lib/net10.0/Serilog.Extensions.Logging.dll
+ serilog.formatting.compact/3.0.0/lib/net8.0/Serilog.Formatting.Compact.dll
+ serilog.settings.configuration/10.0.0/lib/net10.0/Serilog.Settings.Configuration.dll
+ serilog.sinks.console/6.1.1/lib/net8.0/Serilog.Sinks.Console.dll
+ serilog.sinks.debug/3.0.0/lib/net8.0/Serilog.Sinks.Debug.dll
+ serilog.sinks.file/7.0.0/lib/net9.0/Serilog.Sinks.File.dll
+ serilog/4.3.0/lib/net9.0/Serilog.dll
+ sixlabors.fonts/1.0.0/lib/netcoreapp3.1/SixLabors.Fonts.dll
+ system.codedom/10.0.0/lib/net10.0/System.CodeDom.dll
+ system.drawing.common/10.0.5/lib/net10.0/
+  System.Drawing.Common.dll
+  System.Private.Windows.Core.dll
+  System.Private.Windows.GdiPlus.dll
+ system.identitymodel.tokens.jwt/8.0.1/lib/net9.0/System.IdentityModel.Tokens.Jwt.dll
+ system.io.packaging/8.0.1/lib/net8.0/System.IO.Packaging.dll
+ system.management/10.0.0/lib/net10.0/System.Management.dll
+ system.security.cryptography.pkcs/10.0.0/lib/net10.0/System.Security.Cryptography.Pkcs.dll
+
+[analyzerReferences]
+<DOTNET>/packs/Microsoft.AspNetCore.App.Ref/10.0.8/analyzers/dotnet/cs/
+ Microsoft.AspNetCore.App.Analyzers.dll
+ Microsoft.AspNetCore.App.CodeFixes.dll
+ Microsoft.AspNetCore.App.SourceGenerators.dll
+ Microsoft.AspNetCore.Components.Analyzers.dll
+ Microsoft.Extensions.Logging.Generators.dll
+ Microsoft.Extensions.Options.SourceGeneration.dll
+ Microsoft.Extensions.Validation.ValidationsGenerator.dll
+<DOTNET>/packs/Microsoft.NETCore.App.Ref/10.0.8/analyzers/dotnet/cs/
+ Microsoft.Interop.ComInterfaceGenerator.dll
+ Microsoft.Interop.JavaScript.JSImportGenerator.dll
+ Microsoft.Interop.LibraryImportGenerator.dll
+ Microsoft.Interop.SourceGeneration.dll
+ System.Text.Json.SourceGeneration.dll
+ System.Text.RegularExpressions.Generator.dll
+<DOTNET>/sdk/10.0.300/Sdks/Microsoft.NET.Sdk.Razor/source-generators/
+ Microsoft.AspNetCore.Razor.Utilities.Shared.dll
+ Microsoft.CodeAnalysis.Razor.Compiler.dll
+ Microsoft.Extensions.ObjectPool.dll
+<DOTNET>/sdk/10.0.300/Sdks/Microsoft.NET.Sdk.Web/analyzers/cs/
+ Microsoft.AspNetCore.Analyzers.dll
+ Microsoft.AspNetCore.Mvc.Analyzers.dll
+<DOTNET>/sdk/10.0.300/Sdks/Microsoft.NET.Sdk/analyzers/
+ Microsoft.CodeAnalysis.CSharp.NetAnalyzers.dll
+ Microsoft.CodeAnalysis.NetAnalyzers.dll
+<NUGET>/microsoft.codeanalysis.analyzers/3.11.0/analyzers/dotnet/cs/
+ Microsoft.CodeAnalysis.Analyzers.dll
+ Microsoft.CodeAnalysis.CSharp.Analyzers.dll
+<NUGET>/
+ microsoft.entityframeworkcore.analyzers/10.0.3/analyzers/dotnet/cs/Microsoft.EntityFrameworkCore.Analyzers.dll
+ mudblazor/9.1.0/analyzers/dotnet/cs/
+  MudBlazor.Analyzers.CodeFixes.dll
+  MudBlazor.Analyzers.dll
+
+[analyzerConfigFiles]
+<DOTNET>/sdk/10.0.300/Sdks/Microsoft.NET.Sdk/analyzers/build/config/analysislevel_10_default.globalconfig
+obj/Debug/net10.0/ShopInventory.Web.GeneratedMSBuildEditorConfig.editorconfig
+
+[additionalFiles]
+Components/
+ App.razor
+ FlexibleDatePicker.razor
+ GlobalSearch.razor
+ KeyboardShortcutsHelp.razor
+ LabRestrictedAuthorizeRouteView.razor
+ LanguageSelector.razor
+ Layout/
+  CustomerPortalLayout.razor
+  EmptyLayout.razor
+  MainLayout.razor
+  NavMenu.razor
+  ReconnectModal.razor
+ Pages/
+  AIAssistant.razor
+  ApiExplorer.razor
+  AuditTrail.razor
+  Backups.razor
+  CreateCreditNote.razor
+  CreateGoodsReceiptPurchaseOrder.razor
+  CreateIncomingPayment.razor
+  CreateInventoryTransfer.razor
+  CreateInvoice.razor
+  CreateMerchandiserAccount.razor
+  CreatePurchaseInvoice.razor
+  CreatePurchaseOrder.razor
+  CreatePurchaseQuotation.razor
+  CreatePurchaseRequest.razor
+  CreateQuotation.razor
+  CreateSalesOrder.razor
+  CreateTransferRequest.razor
+  CreditNotes.razor
+  CustomerPortal/
+   CustomerActivityLog.razor
+   CustomerDashboard.razor
+   CustomerInvoices.razor
+   CustomerItemSummary.razor
+   CustomerLogin.razor
+   CustomerPayments.razor
+   CustomerPods.razor
+   CustomerPrivacy.razor
+   CustomerProfile.razor
+   CustomerRegister.razor
+   CustomerStatements.razor
+   CustomerSupport.razor
+   CustomerTerms.razor
+  CustomerPortalManagement.razor
+  Customers.razor
+  DesktopSales.razor
+  DesktopTransactions.razor
+  DocumentManager.razor
+  DocumentTemplates.razor
+  DriverBusinessPartners.razor
+  Error.razor
+  ExceptionCenter.razor
+  ExchangeRates.razor
+  FiscalizedSalesReport.razor
+  GLAccounts.razor
+  GoodsReceiptPurchaseOrders.razor
+  Home.razor
+  InventoryTransfers.razor
+  Invoices.razor
+  LabBatchStatus.razor
+  LabBatchStatusHistory.razor
+  LocalStock.razor
+  Login.razor
+  MerchandiserProducts.razor
+  MerchandiserPurchaseOrderReport.razor
+  MobileDrafts.razor
+  MobilePush.razor
+  NotFound.razor
+  Notifications.razor
+  Payments.razor
+  PodDashboard.razor
+  PodUploadReport.razor
+  Prices.razor
+  PrivacyPolicy.razor
+  Products.razor
+  ProofOfDelivery.razor
+  PurchaseInvoices.razor
+  PurchaseOrders.razor
+  PurchaseQuotations.razor
+  PurchaseRequests.razor
+  Quotations.razor
+  Reports.razor
+  RevmaxFiscal.razor
+  SalesOrderEdit.razor
+  SalesOrders.razor
+  SalesRepDashboard.razor
+  Security.razor
+  Settings.razor
+  Stock.razor
+  Swagger.razor
+  SyncStatus.razor
+  TimesheetReport.razor
+  Timesheets.razor
+  UserActivity.razor
+  UserManagement.razor
+  Webhooks.razor
+ RedirectToLogin.razor
+ Routes.razor
+ SystemHealthBanner.razor
+ ThemeToggle.razor
+ _Imports.razor
+
+[dynamicFiles]
+Components/
+ App.razor
+ FlexibleDatePicker.razor
+ GlobalSearch.razor
+ KeyboardShortcutsHelp.razor
+ LabRestrictedAuthorizeRouteView.razor
+ LanguageSelector.razor
+ Layout/
+  CustomerPortalLayout.razor
+  EmptyLayout.razor
+  MainLayout.razor
+  NavMenu.razor
+  ReconnectModal.razor
+ Pages/
+  AIAssistant.razor
+  ApiExplorer.razor
+  AuditTrail.razor
+  Backups.razor
+  CreateCreditNote.razor
+  CreateGoodsReceiptPurchaseOrder.razor
+  CreateIncomingPayment.razor
+  CreateInventoryTransfer.razor
+  CreateInvoice.razor
+  CreateMerchandiserAccount.razor
+  CreatePurchaseInvoice.razor
+  CreatePurchaseOrder.razor
+  CreatePurchaseQuotation.razor
+  CreatePurchaseRequest.razor
+  CreateQuotation.razor
+  CreateSalesOrder.razor
+  CreateTransferRequest.razor
+  CreditNotes.razor
+  CustomerPortal/
+   CustomerActivityLog.razor
+   CustomerDashboard.razor
+   CustomerInvoices.razor
+   CustomerItemSummary.razor
+   CustomerLogin.razor
+   CustomerPayments.razor
+   CustomerPods.razor
+   CustomerPrivacy.razor
+   CustomerProfile.razor
+   CustomerRegister.razor
+   CustomerStatements.razor
+   CustomerSupport.razor
+   CustomerTerms.razor
+  CustomerPortalManagement.razor
+  Customers.razor
+  DesktopSales.razor
+  DesktopTransactions.razor
+  DocumentManager.razor
+  DocumentTemplates.razor
+  DriverBusinessPartners.razor
+  Error.razor
+  ExceptionCenter.razor
+  ExchangeRates.razor
+  FiscalizedSalesReport.razor
+  GLAccounts.razor
+  GoodsReceiptPurchaseOrders.razor
+  Home.razor
+  InventoryTransfers.razor
+  Invoices.razor
+  LabBatchStatus.razor
+  LabBatchStatusHistory.razor
+  LocalStock.razor
+  Login.razor
+  MerchandiserProducts.razor
+  MerchandiserPurchaseOrderReport.razor
+  MobileDrafts.razor
+  MobilePush.razor
+  NotFound.razor
+  Notifications.razor
+  Payments.razor
+  PodDashboard.razor
+  PodUploadReport.razor
+  Prices.razor
+  PrivacyPolicy.razor
+  Products.razor
+  ProofOfDelivery.razor
+  PurchaseInvoices.razor
+  PurchaseOrders.razor
+  PurchaseQuotations.razor
+  PurchaseRequests.razor
+  Quotations.razor
+  Reports.razor
+  RevmaxFiscal.razor
+  SalesOrderEdit.razor
+  SalesOrders.razor
+  SalesRepDashboard.razor
+  Security.razor
+  Settings.razor
+  Stock.razor
+  Swagger.razor
+  SyncStatus.razor
+  TimesheetReport.razor
+  Timesheets.razor
+  UserActivity.razor
+  UserManagement.razor
+  Webhooks.razor
+ RedirectToLogin.razor
+ Routes.razor
+ SystemHealthBanner.razor
+ ThemeToggle.razor
+ _Imports.razor

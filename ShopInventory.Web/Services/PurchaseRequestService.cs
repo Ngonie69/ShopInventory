@@ -89,7 +89,10 @@ public class PurchaseRequestService(HttpClient httpClient, ILogger<PurchaseReque
             }
 
             logger.LogWarning("Failed to create purchase request: {StatusCode} - {Content}", response.StatusCode, content);
-            throw new HttpRequestException($"API returned {(int)response.StatusCode}: {content}");
+            throw ApiErrorResponse.CreateHttpRequestException(
+                response.StatusCode,
+                content,
+                "We couldn't create this purchase request right now. Please try again.");
         }
         catch (HttpRequestException)
         {

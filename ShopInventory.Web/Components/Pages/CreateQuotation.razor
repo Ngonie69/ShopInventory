@@ -6,6 +6,7 @@
 @inject IBusinessPartnerService BusinessPartnerService
 @inject IMasterDataCacheService CacheService
 @inject IPriceService PriceService
+@inject IBusinessPartnerPricingService BusinessPartnerPricingService
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
 @using ShopInventory.Web.Data
@@ -181,40 +182,57 @@
         box-shadow: 0 0 0 3px rgba(245, 158, 11, .15);
     }
 
-    /* ── Line Items ──────────────────────────────────── */
-    .line-items-section {
-        margin-top: 1.25rem;
-        padding: 1rem;
-        background: #f9fafb;
-        border-radius: 12px;
+    /* ── Customer Selection ───────────────────────────── */
+    .dropdown-autocomplete {
+        position: absolute;
+        z-index: 100;
+        background: #fff;
         border: 1px solid #e5e7eb;
-    }
-
-    .lines-table {
+        border-radius: 10px;
+        max-height: 250px;
+        overflow-y: auto;
         width: 100%;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, .12);
+        margin-top: 2px;
+    }
+
+    .dropdown-item {
+        padding: .5rem .75rem;
+        cursor: pointer;
         font-size: .85rem;
-        border-collapse: separate;
-        border-spacing: 0;
-    }
-
-    .lines-table th {
-        background: #f8fafc;
-        font-size: .72rem;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #6b7280;
-        font-weight: 600;
-        padding: .6rem .75rem;
-        border-bottom: 2px solid #e5e7eb;
-    }
-
-    .lines-table td {
-        padding: .55rem .75rem;
         border-bottom: 1px solid #f3f4f6;
-        color: #374151;
+        transition: background .12s;
+    }
+
+    .dropdown-item:hover,
+    .dropdown-item.selected {
+        background: #fff7ed;
     }
 
     /* ── Buttons ─────────────────────────────────────── */
+    .btn-cq-gradient {
+        background: linear-gradient(135deg, #f59e0b, #d97706);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        text-decoration: none;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        box-shadow: 0 2px 8px rgba(245, 158, 11, .25);
+        cursor: pointer;
+    }
+
+    .btn-cq-gradient:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(245, 158, 11, .4);
+        color: #fff;
+    }
+
     .btn-create {
         background: linear-gradient(135deg, #f59e0b, #d97706);
         border: none;
@@ -251,46 +269,12 @@
         font-size: .88rem;
         cursor: pointer;
         transition: all .15s;
+        text-decoration: none;
     }
 
     .btn-secondary-action:hover {
         background: #f9fafb;
         border-color: #9ca3af;
-    }
-
-    /* ── Customer Dropdown ────────────────────────────── */
-    .bp-dropdown {
-        position: absolute;
-        z-index: 100;
-        background: #fff;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        max-height: 200px;
-        overflow-y: auto;
-        width: 100%;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, .1);
-        margin-top: 2px;
-    }
-
-    .bp-dropdown-item {
-        padding: .5rem .75rem;
-        cursor: pointer;
-        font-size: .85rem;
-        border-bottom: 1px solid #f3f4f6;
-    }
-
-    .bp-dropdown-item:hover {
-        background: #fef3c7;
-    }
-
-    .bp-dropdown-item .bp-name {
-        font-weight: 600;
-        color: #1a1a2e;
-    }
-
-    .bp-dropdown-item .bp-code {
-        font-size: .78rem;
-        color: #9ca3af;
     }
 
     /* ── Footer ──────────────────────────────────────── */
@@ -325,20 +309,18 @@
 <div class="cq-page">
     <div class="container-fluid">
 
-        <!-- Breadcrumb -->
         <div class="cq-breadcrumb">
             <a href="/quotations">Quotations</a>
             <span class="sep">/</span>
             <span>Create New</span>
         </div>
 
-        <!-- Header -->
         <div class="cq-header">
             <div class="cq-header-left">
                 <div class="cq-header-icon"><i class="bi bi-file-earmark-text"></i></div>
                 <div>
                     <h2>Create Quotation</h2>
-                    <p>Create a new customer quotation</p>
+                    <p>Create a new customer quotation with detailed line items</p>
                 </div>
             </div>
             <div class="cq-header-actions">
@@ -355,46 +337,101 @@
         }
         else
         {
-            <!-- Customer & Details -->
             <div class="form-card">
-                <div class="form-card-title"><i class="bi bi-person-badge"></i> Customer & Details</div>
-                <div class="form-grid">
-                    <!-- Customer -->
-                    <div class="form-field" style="position:relative;">
-                        <label>Customer *</label>
-                        <input type="text" @bind="bpSearchTerm" @bind:event="oninput" @onfocus="() => showBPDropdown = true"
-                               placeholder="Search customer..." />
-                        @if (showBPDropdown && filteredBusinessPartners.Any())
-                        {
-                            <div class="bp-dropdown">
-                                @foreach (var bp in filteredBusinessPartners.Take(20))
-                                {
-                                    <div class="bp-dropdown-item" @onclick="() => SelectBusinessPartner(bp)">
-                                        <div class="bp-name">@bp.CardName</div>
-                                        <div class="bp-code">@bp.CardCode</div>
+                <div class="form-card-title"><i class="bi bi-person-badge"></i> Customer</div>
+                <div style="margin-bottom:1rem;">
+                    <label style="display:block; font-size:.72rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">
+                        Customer <span style="color:#ef4444;">*</span>
+                    </label>
+                    @if (selectedBusinessPartner != null)
+                    {
+                        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:.75rem 1rem;">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <div style="font-weight:700; color:#065f46;">
+                                        <i class="bi bi-check-circle-fill me-1" style="color:#059669;"></i>
+                                        @selectedBusinessPartner.CardCode
                                     </div>
-                                }
+                                    <div style="font-size:.85rem; color:#065f46; opacity:.8;">@selectedBusinessPartner.CardName</div>
+                                    @if (!string.IsNullOrWhiteSpace(selectedBusinessPartner.Phone1))
+                                    {
+                                        <div style="font-size:.82rem; color:#065f46; opacity:.7; margin-top:.25rem;">
+                                            <i class="bi bi-telephone me-1"></i>@selectedBusinessPartner.Phone1
+                                        </div>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(selectedBusinessPartner.Address))
+                                    {
+                                        <div style="font-size:.82rem; color:#065f46; opacity:.7; margin-top:.25rem;">
+                                            <i class="bi bi-geo-alt me-1"></i>@TruncateName(selectedBusinessPartner.Address, 60)
+                                        </div>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(selectedBusinessPartner.Currency))
+                                    {
+                                        <div style="font-size:.82rem; color:#065f46; opacity:.7; margin-top:.25rem;">
+                                            <i class="bi bi-cash-coin me-1"></i>@selectedBusinessPartner.Currency
+                                        </div>
+                                    }
+                                </div>
+                                <button type="button"
+                                        style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; width:28px; height:28px; border-radius:7px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:.8rem;"
+                                        @onclick="ClearSelectedBP">
+                                    <i class="bi bi-x"></i>
+                                </button>
                             </div>
-                        }
-                    </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="position-relative">
+                            <input type="text"
+                                   style="width:100%; padding:.5rem .75rem; border:1px solid #d1d5db; border-radius:8px; font-size:.88rem; color:#374151;"
+                                   @bind="bpSearchTerm" @bind:event="oninput" @onfocus="() => showBPDropdown = true"
+                                   @onblur="OnBPSearchBlur" placeholder="Search by code or name..." autocomplete="off" />
+                            @if (showBPDropdown && filteredBusinessPartners.Any())
+                            {
+                                <div class="dropdown-autocomplete" @onmousedown:preventDefault>
+                                    @foreach (var bp in filteredBusinessPartners.Take(15))
+                                    {
+                                        <div class="dropdown-item" @onmousedown="() => SelectBusinessPartner(bp)">
+                                            <strong>@bp.CardCode</strong> - <span style="color:var(--text-secondary);">@bp.CardName</span>
+                                        </div>
+                                    }
+                                    @if (filteredBusinessPartners.Count() > 15)
+                                    {
+                                        <div class="dropdown-item" style="color:#9ca3af; text-align:center; font-size:.82rem;">
+                                            <i class="bi bi-info-circle me-1"></i>
+                                            @filteredBusinessPartners.Count() total - type more to filter
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else if (showBPDropdown && !string.IsNullOrWhiteSpace(bpSearchTerm) && !filteredBusinessPartners.Any())
+                            {
+                                <div class="dropdown-autocomplete" style="padding:1rem; text-align:center; color:#9ca3af;">
+                                    <i class="bi bi-search me-1"></i>No customers found
+                                </div>
+                            }
+                        </div>
+                    }
+                    @if (createValidationErrors.ContainsKey("Customer"))
+                    {
+                        <div style="color:#ef4444; font-size:.78rem; margin-top:.2rem;">@createValidationErrors["Customer"]</div>
+                    }
+                </div>
+            </div>
 
-                    <!-- Contact Person -->
-                    <div class="form-field">
-                        <label>Contact Person</label>
-                        <input type="text" @bind="newQuotation.ContactPerson" placeholder="Contact name" />
-                    </div>
-
-                    <!-- Valid Until -->
+            <div class="form-card">
+                <div class="form-card-title"><i class="bi bi-info-circle"></i> Quotation Details</div>
+                <div class="form-grid">
                     <div class="form-field">
                         <label>Valid Until</label>
                         <MudDatePicker @bind-Date="validUntilDate" Variant="Variant.Outlined" Margin="Margin.Dense"
                                        DateFormat="@AppSettings.DateFormat" Editable="true" />
                     </div>
-
-                    <!-- Currency -->
                     <div class="form-field">
                         <label>Currency</label>
                         <select @bind="newQuotation.Currency">
+                            <option value="">Select currency</option>
                             <option value="USD">USD</option>
                             <option value="ZIG">ZIG</option>
                             <option value="ZAR">ZAR</option>
@@ -402,122 +439,236 @@
                             <option value="EUR">EUR</option>
                             <option value="GBP">GBP</option>
                         </select>
+                        @if (createValidationErrors.ContainsKey("Currency"))
+                        {
+                            <div style="color:#ef4444; font-size:.78rem; margin-top:.2rem;">@createValidationErrors["Currency"]</div>
+                        }
                     </div>
-
-                    <!-- Customer Reference -->
+                    <div class="form-field">
+                        <label>Contact Person</label>
+                        <input type="text" @bind="newQuotation.ContactPerson" placeholder="Contact name" />
+                    </div>
                     <div class="form-field">
                         <label>Customer Reference</label>
                         <input type="text" @bind="newQuotation.CustomerRefNo" placeholder="Reference number" />
                     </div>
-
-                    <!-- Discount -->
                     <div class="form-field">
                         <label>Discount %</label>
                         <input type="number" @bind="newQuotation.DiscountPercent" min="0" max="100" step="0.1" />
                     </div>
-
-                    <!-- Comments -->
+                    <div class="form-field">
+                        <label>Ship / Bill Address</label>
+                        <input type="text" value="@GetSelectedAddress()" placeholder="Select a customer to populate" readonly />
+                    </div>
                     <div class="form-field full">
                         <label>Comments</label>
-                        <textarea rows="2" @bind="newQuotation.Comments" placeholder="Additional notes..."></textarea>
+                        <textarea rows="2" @bind="newQuotation.Comments" placeholder="Additional notes"></textarea>
                     </div>
-
-                    <!-- Terms and Conditions -->
                     <div class="form-field full">
                         <label>Terms &amp; Conditions</label>
-                        <textarea rows="2" @bind="newQuotation.TermsAndConditions"
-                                  placeholder="Payment terms, delivery terms..."></textarea>
+                        <textarea rows="2" @bind="newQuotation.TermsAndConditions" placeholder="Payment terms, delivery terms..."></textarea>
                     </div>
                 </div>
             </div>
 
-            <!-- Line Items -->
             <div class="form-card">
-                <div class="line-items-section">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;">
-                        <span style="font-weight:600;font-size:.9rem;color:#1a1a2e;">
-                            <i class="bi bi-list-ul"></i> Line Items
-                        </span>
-                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" OnClick="AddLineItem">
-                            <i class="bi bi-plus"></i> Add Line
-                        </MudButton>
-                    </div>
+                <div class="d-flex justify-content-between align-items-center" style="margin-bottom:.75rem;">
+                    <span style="font-weight:600; font-size:.92rem; color:var(--text-primary);">
+                        <i class="bi bi-list-ul me-1" style="color:#d97706;"></i>Line Items
+                    </span>
+                    <button type="button" class="btn-cq-gradient" style="padding:.35rem .85rem; font-size:.8rem;"
+                            @onclick="AddLineItem">
+                        <i class="bi bi-plus-lg"></i> Add Line
+                    </button>
+                </div>
 
-                    @if (newQuotation.Lines.Count == 0)
+                @if (newQuotation.Lines.Any())
+                {
+                    @for (int i = 0; i < newQuotation.Lines.Count; i++)
                     {
-                        <p style="text-align:center;color:#9ca3af;font-size:.85rem;padding:1rem;">No line items added yet</p>
-                    }
-                    else
-                    {
-                        <table class="lines-table" style="margin-bottom:.5rem;">
-                            <thead>
-                                <tr>
-                                    <th style="width:25%">Item</th>
-                                    <th>Description</th>
-                                    <th style="width:10%">Qty</th>
-                                    <th style="width:12%">Price</th>
-                                    <th style="width:8%">Disc %</th>
-                                    <th style="width:10%;text-align:right">Total</th>
-                                    <th style="width:5%"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @for (int i = 0; i < newQuotation.Lines.Count; i++)
-                                {
-                                    var lineIndex = i;
-                                    var line = newQuotation.Lines[lineIndex];
-                                    <tr>
-                                        <td>
-                                            <input type="text" @bind="line.ItemCode"
-                                                   style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;"
-                                                   placeholder="Item code" />
-                                        </td>
-                                        <td>
-                                            <input type="text" @bind="line.ItemDescription"
-                                                   style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;"
-                                                   placeholder="Description" />
-                                        </td>
-                                        <td>
-                                            <input type="number" @bind="line.Quantity"
-                                                   style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;"
-                                                   min="0.0001" step="1" />
-                                        </td>
-                                        <td>
-                                            <input type="number" @bind="line.UnitPrice"
-                                                   style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;"
-                                                   min="0" step="0.01" />
-                                        </td>
-                                        <td>
-                                            <input type="number" @bind="line.DiscountPercent"
-                                                   style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;"
-                                                   min="0" max="100" step="0.1" />
-                                        </td>
-                                        <td style="text-align:right;font-weight:600;font-size:.85rem;">
-                                            @((line.Quantity * line.UnitPrice * (1 - line.DiscountPercent / 100)).ToString("N2"))
-                                        </td>
-                                        <td>
-                                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
-                                                           Color="Color.Error" OnClick="() => RemoveLineItem(lineIndex)" />
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
+                        var index = i;
+                        var line = newQuotation.Lines[index];
+                        var lineState = GetLineState(index);
+                        var lineErrors = GetLineValidationErrors(index);
 
-                        <div style="text-align:right;padding:.5rem .75rem;">
-                            <span style="font-weight:700;font-size:.95rem;color:#d97706;">
-                                Total: @CalculateTotal().ToString("N2")
-                            </span>
+                        <div style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.85rem; margin-bottom:.65rem; position:relative;">
+                            <div class="d-flex justify-content-between align-items-center" style="margin-bottom:.6rem;">
+                                <div class="d-flex align-items-center gap-2">
+                                    <span style="background:linear-gradient(135deg,#f59e0b,#d97706); color:#fff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:.75rem;">@(index + 1)</span>
+                                    @if (!string.IsNullOrWhiteSpace(line.ItemCode) || !string.IsNullOrWhiteSpace(line.ItemDescription))
+                                    {
+                                        <span style="font-weight:600; font-size:.85rem; color:var(--text-primary);">@line.ItemCode</span>
+                                        @if (!string.IsNullOrWhiteSpace(line.ItemDescription))
+                                        {
+                                            <span style="color:#d1d5db;">-</span>
+                                            <span style="color:var(--text-secondary); font-size:.82rem;">@TruncateName(line.ItemDescription, 30)</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span style="color:#9ca3af; font-size:.82rem;">New Line Item</span>
+                                    }
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span style="font-weight:700; color:#d97706; font-size:.92rem;">@CalculateLineTotal(line).ToString("N2")</span>
+                                    <button type="button"
+                                            style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:.75rem;"
+                                            @onclick="() => RemoveLineItem(index)">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="row g-2 mb-2">
+                                <div class="col-5">
+                                    <label style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Item Code <span style="color:#ef4444;">*</span></label>
+                                    <div class="position-relative">
+                                        <input type="text"
+                                               style="width:100%; padding:.4rem .6rem; border:1px solid @(lineErrors.ContainsKey("ItemCode") ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
+                                               value="@line.ItemCode" @oninput="(e) => OnItemCodeInput(index, e.Value?.ToString())"
+                                               @onkeydown="(e) => OnItemCodeKeyDown(index, e)" @onfocus="() => OnItemCodeFocus(index)"
+                                               @onblur="() => OnItemCodeBlur(index)" placeholder="Search item..." autocomplete="off" />
+                                        @if (lineState.ShowProductDropdown && lineState.FilteredProducts.Any())
+                                        {
+                                            <div class="dropdown-autocomplete" @onmousedown:preventDefault>
+                                                @foreach (var product in lineState.FilteredProducts.Take(10))
+                                                {
+                                                    var isSelected = lineState.SuggestedProduct?.ItemCode == product.ItemCode;
+                                                    <div class="dropdown-item @(isSelected ? "selected" : string.Empty)"
+                                                         @onmousedown="async () => await SelectProduct(index, product)">
+                                                        <div class="d-flex justify-content-between align-items-center">
+                                                            <div>
+                                                                <div style="font-weight:600; font-size:.82rem;">@product.ItemCode</div>
+                                                                <small style="@(isSelected ? "color:rgba(255,255,255,.75);" : "color:#6b7280;")">@TruncateName(product.ItemName, 25)</small>
+                                                            </div>
+                                                            <span style="font-size:.75rem; font-weight:600; padding:.1rem .4rem; border-radius:4px; @(isSelected ? "background:rgba(255,255,255,.2); color:#fff;" : "background:#ffedd5; color:#9a3412;")">
+                                                                @GetDisplayPrice(product).ToString("N2")
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                }
+                                                @if (lineState.FilteredProducts.Count > 10)
+                                                {
+                                                    <div class="dropdown-item" style="color:#9ca3af; text-align:center; font-size:.78rem;">
+                                                        +@(lineState.FilteredProducts.Count - 10) more...
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                    @if (lineErrors.ContainsKey("ItemCode"))
+                                    {
+                                        <div style="color:#ef4444; font-size:.75rem; margin-top:.2rem;">@lineErrors["ItemCode"]</div>
+                                    }
+                                </div>
+                                <div class="col-7">
+                                    <label style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Description</label>
+                                    @if (!string.IsNullOrEmpty(line.ItemDescription))
+                                    {
+                                        <div style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:7px; padding:.4rem .6rem; font-size:.82rem; color:#0c4a6e; min-height:34px; display:flex; align-items:center;">
+                                            <i class="bi bi-box-seam me-1" style="color:#d97706;"></i>@TruncateName(line.ItemDescription, 35)
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <input type="text"
+                                               style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem; background:#f3f4f6; cursor:default;"
+                                               placeholder="Select an item" readonly />
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="row g-2">
+                                <div class="col-6 col-lg-2">
+                                    <label style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Qty <span style="color:#ef4444;">*</span></label>
+                                    <input type="number"
+                                           style="width:100%; padding:.4rem .6rem; border:1px solid @(lineErrors.ContainsKey("Quantity") ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
+                                           value="@line.Quantity" @onchange="(e) => OnQuantityChange(index, e.Value?.ToString())" min="0.0001" step="1" />
+                                    @if (lineErrors.ContainsKey("Quantity"))
+                                    {
+                                        <div style="color:#ef4444; font-size:.75rem; margin-top:.2rem;">@lineErrors["Quantity"]</div>
+                                    }
+                                </div>
+                                <div class="col-6 col-lg-2">
+                                    <label style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Unit Price <span style="color:#ef4444;">*</span></label>
+                                    <input type="number"
+                                           style="width:100%; padding:.4rem .6rem; border:1px solid @(lineErrors.ContainsKey("UnitPrice") ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
+                                           value="@line.UnitPrice" @onchange="(e) => OnUnitPriceChange(index, e.Value?.ToString())" min="0" step="0.01" />
+                                    @if (lineErrors.ContainsKey("UnitPrice"))
+                                    {
+                                        <div style="color:#ef4444; font-size:.75rem; margin-top:.2rem;">@lineErrors["UnitPrice"]</div>
+                                    }
+                                </div>
+                                <div class="col-6 col-lg-2">
+                                    <label style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Discount %</label>
+                                    <input type="number"
+                                           style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
+                                           @bind="line.DiscountPercent" min="0" max="100" step="0.1" />
+                                </div>
+                                <div class="col-6 col-lg-2">
+                                    <label style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">VAT %</label>
+                                    <input type="number"
+                                           style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
+                                           @bind="line.TaxPercent" min="0" max="100" step="0.1" />
+                                </div>
+                                <div class="col-12 col-lg-4">
+                                    <label style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Line Total</label>
+                                    <input type="text"
+                                           style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem; background:#f3f4f6; cursor:default;"
+                                           value="@CalculateLineTotal(line).ToString("N2")" readonly />
+                                </div>
+                            </div>
                         </div>
                     }
-                </div>
+
+                    <div style="text-align:center; margin-top:.5rem;">
+                        <button type="button"
+                                style="background:none; border:1px dashed #d1d5db; color:#6b7280; padding:.4rem 1rem; border-radius:8px; font-size:.82rem; cursor:pointer;"
+                                @onclick="AddLineItem">
+                            <i class="bi bi-plus-lg me-1"></i>Add Another Line
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div style="text-align:center; padding:2rem 1rem; background:#f9fafb; border-radius:10px; border:2px dashed #e5e7eb;">
+                        <div style="font-size:1.5rem; color:#9ca3af; margin-bottom:.5rem;"><i class="bi bi-inbox"></i></div>
+                        <p style="color:#6b7280; font-size:.85rem; margin-bottom:.25rem;">No quotation lines yet</p>
+                        <p style="color:#9ca3af; font-size:.78rem; margin-bottom:.75rem;">Add products to build the quotation</p>
+                        <button type="button" class="btn-cq-gradient" style="padding:.4rem 1rem; font-size:.82rem;"
+                                @onclick="AddLineItem">
+                            <i class="bi bi-plus-lg"></i> Add First Line
+                        </button>
+                    </div>
+                }
+
+                @if (createValidationErrors.ContainsKey("Lines"))
+                {
+                    <div style="color:#ef4444; font-size:.78rem; margin-top:.4rem;">@createValidationErrors["Lines"]</div>
+                }
+
+                @if (newQuotation.Lines.Any())
+                {
+                    <div style="background:linear-gradient(135deg,#f59e0b,#d97706); border-radius:10px; padding:.85rem 1.15rem; margin-top:1rem; color:#fff;">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div style="font-size:.78rem; opacity:.8;">@newQuotation.Lines.Count line(s) · @(string.IsNullOrWhiteSpace(newQuotation.Currency) ? "No currency" : newQuotation.Currency)</div>
+                                <div style="font-size:.85rem; font-weight:500;">Header discount @newQuotation.DiscountPercent.ToString("N1")%</div>
+                                <div style="font-size:.85rem; font-weight:500;">VAT @CalculateVatAmount().ToString("N2")</div>
+                            </div>
+                            <div style="text-align:end;">
+                                <div style="font-size:.78rem; opacity:.8;">Grand Total</div>
+                                <div style="font-size:1.3rem; font-weight:700;">@CalculateTotal().ToString("N2")</div>
+                            </div>
+                        </div>
+                    </div>
+                }
             </div>
 
-            <!-- Footer Actions -->
             <div class="form-footer">
                 <a href="/quotations" class="btn-secondary-action">Cancel</a>
                 <MudButton Class="btn-create" OnClick="CreateQuotationAsync"
-                           Disabled="@(isCreating || newQuotation.Lines.Count == 0)">
+                           Disabled="@(isCreating || !newQuotation.Lines.Any() || string.IsNullOrWhiteSpace(newQuotation.Currency))">
                     @if (isCreating)
                     {
                         <span class="spinner-border spinner-border-sm"></span>
@@ -530,23 +681,45 @@
 </div>
 
 @code {
-    private CreateQuotationRequest newQuotation = new();
+    private const decimal DefaultVatPercent = 15.5m;
+
+    private CreateQuotationRequest newQuotation = new()
+    {
+        Currency = string.Empty
+    };
     private DateTime? validUntilDate;
     private bool isCreating = false;
     private bool isLoadingMasterData = true;
 
-    // Business Partner autocomplete state
     private List<BusinessPartnerDto> allBusinessPartners = new();
+    private List<ProductDto> cachedProducts = new();
     private BusinessPartnerDto? selectedBusinessPartner;
+    private Dictionary<string, decimal> customerPriceListPrices = new();
+    private int? customerPriceListNum;
     private string? bpSearchTerm;
     private bool showBPDropdown = false;
+
+    private Dictionary<int, LineState> lineStates = new();
+    private Dictionary<string, string> createValidationErrors = new();
+    private Dictionary<int, Dictionary<string, string>> lineValidationErrors = new();
+
+    private sealed class LineState
+    {
+        public string SearchTerm { get; set; } = string.Empty;
+        public bool ShowProductDropdown { get; set; }
+        public List<ProductDto> FilteredProducts { get; set; } = new();
+        public ProductDto? SuggestedProduct { get; set; }
+        public string SuggestionSuffix { get; set; } = string.Empty;
+    }
 
     private IEnumerable<BusinessPartnerDto> filteredBusinessPartners
     {
         get
         {
             if (string.IsNullOrWhiteSpace(bpSearchTerm))
+            {
                 return allBusinessPartners.Take(50);
+            }
 
             var search = bpSearchTerm.ToLowerInvariant();
             return allBusinessPartners.Where(bp =>
@@ -557,17 +730,19 @@
 
     protected override async Task OnInitializedAsync()
     {
-        validUntilDate = DateTime.Now.AddDays(30);
+        validUntilDate = DateTime.UtcNow.AddDays(30);
         await LoadMasterData();
     }
 
     private async Task LoadMasterData()
     {
         isLoadingMasterData = true;
+
         try
         {
             var response = await BusinessPartnerService.GetBusinessPartnersAsync();
             allBusinessPartners = response?.BusinessPartners?.Where(bp => bp.CardType == "cCustomer").ToList() ?? new();
+            cachedProducts = await CacheService.GetProductsAsync();
         }
         catch (Exception ex)
         {
@@ -579,14 +754,49 @@
         }
     }
 
-    private void SelectBusinessPartner(BusinessPartnerDto bp)
+    private async Task SelectBusinessPartnerAsync(BusinessPartnerDto bp)
     {
         selectedBusinessPartner = bp;
-        newQuotation.CardCode = bp.CardCode ?? "";
+        newQuotation.CardCode = bp.CardCode ?? string.Empty;
         newQuotation.CardName = bp.CardName;
         newQuotation.ShipToAddress = bp.Address;
         newQuotation.BillToAddress = bp.Address;
         bpSearchTerm = $"{bp.CardCode} - {bp.CardName}";
+        showBPDropdown = false;
+
+        createValidationErrors.Remove("Customer");
+
+        if (!string.IsNullOrWhiteSpace(bp.Currency))
+        {
+            newQuotation.Currency = bp.Currency.Trim().ToUpperInvariant();
+            createValidationErrors.Remove("Currency");
+        }
+
+        await LoadBusinessPartnerPricesAsync(bp);
+        UpdateExistingLinePrices();
+    }
+
+    private void SelectBusinessPartner(BusinessPartnerDto bp)
+    {
+        _ = SelectBusinessPartnerAsync(bp);
+    }
+
+    private void ClearSelectedBP()
+    {
+        selectedBusinessPartner = null;
+        newQuotation.CardCode = string.Empty;
+        newQuotation.CardName = null;
+        newQuotation.ShipToAddress = null;
+        newQuotation.BillToAddress = null;
+        bpSearchTerm = null;
+        customerPriceListPrices.Clear();
+        customerPriceListNum = null;
+        UpdateExistingLinePrices();
+    }
+
+    private async Task OnBPSearchBlur()
+    {
+        await Task.Delay(200);
         showBPDropdown = false;
     }
 
@@ -595,45 +805,405 @@
         newQuotation.Lines.Add(new CreateQuotationLineRequest
         {
             Quantity = 1,
-            UnitPrice = 0
+            UnitPrice = 0,
+            TaxPercent = DefaultVatPercent
         });
+        createValidationErrors.Remove("Lines");
     }
 
     private void RemoveLineItem(int index)
     {
-        if (index >= 0 && index < newQuotation.Lines.Count)
+        if (index < 0 || index >= newQuotation.Lines.Count)
         {
-            newQuotation.Lines.RemoveAt(index);
+            return;
         }
+
+        newQuotation.Lines.RemoveAt(index);
+        lineStates.Remove(index);
+        lineValidationErrors.Remove(index);
+
+        var oldStates = new Dictionary<int, LineState>(lineStates);
+        var oldErrors = new Dictionary<int, Dictionary<string, string>>(lineValidationErrors);
+        lineStates.Clear();
+        lineValidationErrors.Clear();
+
+        for (int i = 0; i < newQuotation.Lines.Count; i++)
+        {
+            var oldIndex = i >= index ? i + 1 : i;
+            if (oldStates.TryGetValue(oldIndex, out var state))
+            {
+                lineStates[i] = state;
+            }
+            if (oldErrors.TryGetValue(oldIndex, out var errors))
+            {
+                lineValidationErrors[i] = errors;
+            }
+        }
+    }
+
+    private LineState GetLineState(int index)
+    {
+        if (!lineStates.ContainsKey(index))
+        {
+            lineStates[index] = new LineState();
+        }
+
+        return lineStates[index];
+    }
+
+    private Dictionary<string, string> GetLineValidationErrors(int index)
+    {
+        return lineValidationErrors.TryGetValue(index, out var errors)
+            ? errors
+            : new Dictionary<string, string>();
+    }
+
+    private void UpdateExistingLinePrices()
+    {
+        foreach (var line in newQuotation.Lines)
+        {
+            if (!string.IsNullOrWhiteSpace(line.ItemCode))
+            {
+                var product = cachedProducts.FirstOrDefault(p =>
+                    string.Equals(p.ItemCode, line.ItemCode, StringComparison.OrdinalIgnoreCase));
+                var defaultPrice = product?.Price ?? line.UnitPrice;
+                line.UnitPrice = GetPriceForItem(line.ItemCode, defaultPrice);
+            }
+        }
+    }
+
+    private async Task LoadBusinessPartnerPricesAsync(BusinessPartnerDto bp)
+    {
+        try
+        {
+            var lookup = await BusinessPartnerPricingService.LoadPriceLookupAsync(bp);
+            customerPriceListPrices = lookup.Prices;
+            customerPriceListNum = lookup.PriceListNum;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading quotation prices for {CardCode}", bp.CardCode);
+            customerPriceListPrices.Clear();
+            customerPriceListNum = null;
+        }
+    }
+
+    private decimal GetPriceForItem(string? itemCode, decimal defaultPrice)
+    {
+        if (string.IsNullOrEmpty(itemCode))
+        {
+            return defaultPrice;
+        }
+
+        return customerPriceListPrices.TryGetValue(itemCode, out var customerPrice)
+            ? customerPrice
+            : defaultPrice;
+    }
+
+    private void OnItemCodeInput(int index, string? value)
+    {
+        var line = newQuotation.Lines[index];
+        line.ItemCode = value ?? string.Empty;
+
+        var state = GetLineState(index);
+        state.SearchTerm = value ?? string.Empty;
+        state.SuggestedProduct = null;
+        state.SuggestionSuffix = string.Empty;
+
+        if (lineValidationErrors.TryGetValue(index, out var errors))
+        {
+            errors.Remove("ItemCode");
+        }
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            line.ItemDescription = string.Empty;
+            state.FilteredProducts = new List<ProductDto>();
+            state.ShowProductDropdown = false;
+            return;
+        }
+
+        var searchLower = value.ToLowerInvariant();
+        var searchUpper = value.ToUpperInvariant();
+
+        state.FilteredProducts = cachedProducts.Where(product =>
+            (product.ItemCode?.ToUpperInvariant().StartsWith(searchUpper) ?? false) ||
+            (product.ItemCode?.ToLowerInvariant().Contains(searchLower) ?? false) ||
+            (product.ItemName?.ToLowerInvariant().Contains(searchLower) ?? false) ||
+            (product.BarCode?.ToLowerInvariant().Contains(searchLower) ?? false))
+            .OrderByDescending(product => product.ItemCode?.ToUpperInvariant().StartsWith(searchUpper) ?? false)
+            .ThenBy(product => product.ItemCode)
+            .ToList();
+
+        var exactMatch = state.FilteredProducts.FirstOrDefault(product =>
+            product.ItemCode?.ToUpperInvariant().StartsWith(searchUpper) ?? false);
+
+        if (exactMatch != null && !string.IsNullOrEmpty(exactMatch.ItemCode))
+        {
+            state.SuggestedProduct = exactMatch;
+            state.SuggestionSuffix = exactMatch.ItemCode.Substring(value.Length);
+        }
+
+        state.ShowProductDropdown = state.FilteredProducts.Any();
+        StateHasChanged();
+    }
+
+    private async Task OnItemCodeKeyDown(int index, KeyboardEventArgs e)
+    {
+        var state = GetLineState(index);
+
+        if ((e.Key == "Tab" || e.Key == "ArrowRight") && state.SuggestedProduct != null)
+        {
+            if (e.Key == "Tab" || !string.IsNullOrEmpty(state.SuggestionSuffix))
+            {
+                await SelectProduct(index, state.SuggestedProduct);
+            }
+        }
+        else if (e.Key == "ArrowDown" && state.ShowProductDropdown && state.FilteredProducts.Any())
+        {
+            var currentIndex = state.SuggestedProduct != null ? state.FilteredProducts.IndexOf(state.SuggestedProduct) : -1;
+            var nextIndex = Math.Min(currentIndex + 1, state.FilteredProducts.Count - 1);
+            state.SuggestedProduct = state.FilteredProducts[nextIndex];
+            StateHasChanged();
+        }
+        else if (e.Key == "ArrowUp" && state.ShowProductDropdown && state.FilteredProducts.Any())
+        {
+            var currentIndex = state.SuggestedProduct != null ? state.FilteredProducts.IndexOf(state.SuggestedProduct) : state.FilteredProducts.Count;
+            var previousIndex = Math.Max(currentIndex - 1, 0);
+            state.SuggestedProduct = state.FilteredProducts[previousIndex];
+            StateHasChanged();
+        }
+        else if (e.Key == "Enter" && state.SuggestedProduct != null)
+        {
+            await SelectProduct(index, state.SuggestedProduct);
+        }
+        else if (e.Key == "Escape")
+        {
+            state.ShowProductDropdown = false;
+            state.SuggestedProduct = null;
+            state.SuggestionSuffix = string.Empty;
+            StateHasChanged();
+        }
+    }
+
+    private void OnItemCodeFocus(int index)
+    {
+        var state = GetLineState(index);
+        if (!string.IsNullOrEmpty(state.SearchTerm) || cachedProducts.Any())
+        {
+            state.ShowProductDropdown = true;
+            if (string.IsNullOrEmpty(state.SearchTerm))
+            {
+                state.FilteredProducts = cachedProducts.Take(15).ToList();
+            }
+        }
+    }
+
+    private async Task OnItemCodeBlur(int index)
+    {
+        await Task.Delay(200);
+        var state = GetLineState(index);
+        state.ShowProductDropdown = false;
+        state.SuggestionSuffix = string.Empty;
+        StateHasChanged();
+    }
+
+    private async Task SelectProduct(int index, ProductDto product)
+    {
+        var line = newQuotation.Lines[index];
+        line.ItemCode = product.ItemCode ?? string.Empty;
+        line.ItemDescription = product.ItemName ?? string.Empty;
+        line.UoMCode = product.UoM;
+        line.UnitPrice = GetPriceForItem(product.ItemCode, product.Price);
+
+        if (!string.IsNullOrEmpty(product.ItemCode))
+        {
+            try
+            {
+                line.UnitPrice = await BusinessPartnerPricingService.ResolveUnitPriceAsync(
+                    product.ItemCode,
+                    newQuotation.Currency,
+                    product.Price,
+                    newQuotation.CardCode,
+                    customerPriceListNum,
+                    customerPriceListPrices);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to resolve BP-aware quotation price for item {ItemCode}", product.ItemCode);
+            }
+        }
+
+        var state = GetLineState(index);
+        state.ShowProductDropdown = false;
+        state.SearchTerm = product.ItemCode ?? string.Empty;
+        state.SuggestedProduct = null;
+        state.SuggestionSuffix = string.Empty;
+
+        if (lineValidationErrors.TryGetValue(index, out var errors))
+        {
+            errors.Remove("ItemCode");
+            if (line.UnitPrice > 0)
+            {
+                errors.Remove("UnitPrice");
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    private void OnQuantityChange(int index, string? value)
+    {
+        var line = newQuotation.Lines[index];
+        if (decimal.TryParse(value, out var quantity))
+        {
+            line.Quantity = quantity < 0 ? 0 : quantity;
+        }
+        else
+        {
+            line.Quantity = 0;
+        }
+
+        if (lineValidationErrors.TryGetValue(index, out var errors))
+        {
+            errors.Remove("Quantity");
+        }
+
+        StateHasChanged();
+    }
+
+    private void OnUnitPriceChange(int index, string? value)
+    {
+        var line = newQuotation.Lines[index];
+        if (decimal.TryParse(value, out var unitPrice))
+        {
+            line.UnitPrice = unitPrice < 0 ? 0 : unitPrice;
+        }
+        else
+        {
+            line.UnitPrice = 0;
+        }
+
+        if (lineValidationErrors.TryGetValue(index, out var errors) && line.UnitPrice > 0)
+        {
+            errors.Remove("UnitPrice");
+        }
+
+        StateHasChanged();
+    }
+
+    private decimal GetDisplayPrice(ProductDto product)
+    {
+        return GetPriceForItem(product.ItemCode, product.Price);
+    }
+
+    private decimal CalculateLineTotal(CreateQuotationLineRequest line)
+    {
+        var subtotal = line.Quantity * line.UnitPrice;
+        return line.DiscountPercent > 0 ? subtotal * (1 - line.DiscountPercent / 100) : subtotal;
+    }
+
+    private decimal CalculateSubTotal()
+    {
+        return newQuotation.Lines.Sum(CalculateLineTotal);
+    }
+
+    private decimal CalculateVatAmount()
+    {
+        return newQuotation.Lines.Sum(line => CalculateLineTotal(line) * line.TaxPercent / 100);
+    }
+
+    private decimal CalculateHeaderDiscountAmount()
+    {
+        return CalculateSubTotal() * newQuotation.DiscountPercent / 100;
     }
 
     private decimal CalculateTotal()
     {
-        var subTotal = newQuotation.Lines.Sum(l => l.Quantity * l.UnitPrice * (1 - l.DiscountPercent / 100));
-        var discount = subTotal * newQuotation.DiscountPercent / 100;
-        var tax = newQuotation.Lines.Sum(l => l.Quantity * l.UnitPrice * (1 - l.DiscountPercent / 100) * l.TaxPercent / 100);
-        return subTotal - discount + tax;
+        return CalculateSubTotal() - CalculateHeaderDiscountAmount() + CalculateVatAmount();
+    }
+
+    private string GetSelectedAddress()
+    {
+        return !string.IsNullOrWhiteSpace(selectedBusinessPartner?.Address)
+            ? selectedBusinessPartner.Address
+            : string.Empty;
+    }
+
+    private string TruncateName(string? name, int maxLength)
+    {
+        return name?.Length > maxLength ? name[..maxLength] + "..." : name ?? string.Empty;
+    }
+
+    private bool ValidateCreateForm()
+    {
+        createValidationErrors.Clear();
+        lineValidationErrors.Clear();
+
+        if (selectedBusinessPartner == null || string.IsNullOrEmpty(newQuotation.CardCode))
+        {
+            createValidationErrors["Customer"] = "Please select a customer";
+        }
+
+        if (string.IsNullOrWhiteSpace(newQuotation.Currency))
+        {
+            createValidationErrors["Currency"] = "Please select a currency";
+        }
+
+        if (!newQuotation.Lines.Any())
+        {
+            createValidationErrors["Lines"] = "At least one line item is required";
+        }
+
+        var hasMissingPrice = false;
+
+        for (int i = 0; i < newQuotation.Lines.Count; i++)
+        {
+            var line = newQuotation.Lines[i];
+            var errors = new Dictionary<string, string>();
+
+            if (string.IsNullOrWhiteSpace(line.ItemCode))
+            {
+                errors["ItemCode"] = "Item code is required";
+            }
+            if (line.Quantity <= 0)
+            {
+                errors["Quantity"] = "Quantity must be greater than 0";
+            }
+            if (line.UnitPrice <= 0)
+            {
+                errors["UnitPrice"] = "Unit price must be greater than 0";
+                hasMissingPrice = true;
+            }
+
+            if (errors.Any())
+            {
+                lineValidationErrors[i] = errors;
+            }
+        }
+
+        if (hasMissingPrice)
+        {
+            Snackbar.Add("One or more line items still have no price. Select an item with a valid price or enter one manually.", Severity.Warning);
+        }
+
+        return !createValidationErrors.Any() && !lineValidationErrors.Any();
     }
 
     private async Task CreateQuotationAsync()
     {
-        if (string.IsNullOrEmpty(newQuotation.CardCode))
+        if (!ValidateCreateForm())
         {
-            Snackbar.Add("Please select a customer.", Severity.Warning);
-            return;
-        }
-
-        if (newQuotation.Lines.Count == 0)
-        {
-            Snackbar.Add("Please add at least one line item.", Severity.Warning);
             return;
         }
 
         isCreating = true;
+
         try
         {
             newQuotation.ValidUntil = validUntilDate;
             var created = await QuotationService.CreateQuotationAsync(newQuotation);
+
             if (created != null)
             {
                 Snackbar.Add($"Quotation {created.QuotationNumber} created successfully!", Severity.Success);
@@ -645,6 +1215,10 @@
                 Snackbar.Add("Failed to create quotation.", Severity.Error);
                 await AuditService.LogAsync(AuditActions.CreateQuotation, "Quotation", newQuotation.CardCode, null, false, "Failed to create quotation");
             }
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add($"Failed to create quotation: {ex.Message}", Severity.Error);
         }
         catch (Exception ex)
         {

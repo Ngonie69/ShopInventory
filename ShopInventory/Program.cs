@@ -153,14 +153,14 @@ try
     builder.Services.AddSingleton<BackgroundWorkerLeaderElector>();
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("Process is running."), tags: ["live"])
-        .AddCheck<StartupReadinessHealthCheck>("startup", tags: ["ready"])
-        .AddCheck<ApplicationDbHealthCheck>("database", tags: ["ready", "dependencies"])
-        .AddCheck<DatabaseConnectionLatencyHealthCheck>("db-latency", tags: ["ready", "dependencies"])
-        .AddCheck<ApplicationSchemaHealthCheck>("schema", tags: ["ready", "dependencies"])
+        .AddCheck<StartupReadinessHealthCheck>("startup", tags: ["ready", "deploy-ready"])
+        .AddCheck<ApplicationDbHealthCheck>("database", tags: ["ready", "deploy-ready", "dependencies"])
+        .AddCheck<DatabaseConnectionLatencyHealthCheck>("db-latency", tags: ["ready", "deploy-ready", "dependencies"])
+        .AddCheck<ApplicationSchemaHealthCheck>("schema", tags: ["ready", "deploy-ready", "dependencies"])
         .AddCheck<OperationalSyncHealthCheck>("operations", tags: ["ready", "dependencies"])
         .AddCheck<BackgroundWorkersHealthCheck>("workers", tags: ["ready", "dependencies"])
         .AddCheck<QueuePressureHealthCheck>("queues", tags: ["dependencies"])
-        .AddCheck<ThreadPoolPressureHealthCheck>("thread-pool", tags: ["ready", "dependencies"])
+        .AddCheck<ThreadPoolPressureHealthCheck>("thread-pool", tags: ["ready", "deploy-ready", "dependencies"])
         .AddCheck<SapDependencyHealthCheck>("sap", tags: ["dependencies"]);
 
     // Configure Swagger with version-aware API metadata.
@@ -434,6 +434,8 @@ try
     // Register statement service for PDF generation
     builder.Services.AddScoped<IStatementService, StatementService>();
     builder.Services.AddScoped<IInvoicePdfService, InvoicePdfService>();
+    builder.Services.AddScoped<IQuotationPdfService, QuotationPdfService>();
+    builder.Services.AddScoped<ISalesOrderPdfService, SalesOrderPdfService>();
     builder.Services.AddScoped<IIncomingPaymentService, IncomingPaymentService>();
     builder.Services.AddScoped<IInvoiceService, InvoiceService>();
     builder.Services.AddScoped<IPaymentService, PaymentService>();
@@ -466,6 +468,7 @@ try
 
     // Register invoice queue service for batch posting to SAP
     builder.Services.AddScoped<IInvoiceQueueService, InvoiceQueueService>();
+    builder.Services.AddSingleton<IInvoiceFiscalizationQueue, InvoiceFiscalizationQueue>();
 
     // Register inventory transfer queue service for batch posting to SAP
     builder.Services.AddScoped<IInventoryTransferQueueService, InventoryTransferQueueService>();
@@ -484,6 +487,9 @@ try
 
     // Register background service for processing queued invoices
     builder.Services.AddHostedService<InvoicePostingBackgroundService>();
+
+    // Register background service for fiscalizing newly posted SAP invoices
+    builder.Services.AddHostedService<InvoiceFiscalizationBackgroundService>();
 
     // Register background service for processing queued inventory transfers
     builder.Services.AddHostedService<InventoryTransferPostingBackgroundService>();
@@ -686,6 +692,7 @@ try
             endpoints = new
             {
                 live = "/health/live",
+                deployReady = "/health/deploy-ready",
                 ready = "/health/ready",
                 dependencies = "/health/dependencies"
             }
@@ -695,6 +702,11 @@ try
     app.MapHealthChecks("/health/live", new HealthCheckOptions
     {
         Predicate = registration => registration.Tags.Contains("live")
+    }).AllowAnonymous();
+
+    app.MapHealthChecks("/health/deploy-ready", new HealthCheckOptions
+    {
+        Predicate = registration => registration.Tags.Contains("deploy-ready")
     }).AllowAnonymous();
 
     app.MapHealthChecks("/health/ready", new HealthCheckOptions

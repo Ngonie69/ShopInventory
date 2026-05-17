@@ -130,6 +130,7 @@ function Get-BlueGreenDeploymentDefinitions {
             PublicAppPoolName    = $ApiPool
             PublicPort           = 5106
             LegacyPath           = $ApiPath
+            WarmupPath           = '/health/deploy-ready'
             ReadyPath            = '/health/ready'
             WarmupTimeoutSeconds = 180
             Slots                = @(
@@ -155,6 +156,7 @@ function Get-BlueGreenDeploymentDefinitions {
             PublicAppPoolName    = $WebPool
             PublicPort           = 5107
             LegacyPath           = $WebPath
+            WarmupPath           = '/health/deploy-ready'
             ReadyPath            = '/health/ready'
             WarmupTimeoutSeconds = 240
             Slots                = @(
@@ -845,6 +847,7 @@ try {
                 Name                 = $definition.Name
                 PublicSiteName       = $definition.PublicSiteName
                 PublicPort           = [int]$definition.PublicPort
+                WarmupPath           = $definition.WarmupPath
                 ReadyPath            = $definition.ReadyPath
                 WarmupTimeoutSeconds = [int]$definition.WarmupTimeoutSeconds
                 ActiveSlot           = $activeSlot
@@ -856,7 +859,7 @@ try {
                 TargetAppPoolName    = $targetConfig.AppPoolName
                 TargetSiteName       = $targetConfig.SiteName
                 TargetPort           = [int]$targetConfig.Port
-                TargetReadyUrl       = "http://localhost:$($targetConfig.Port)$($definition.ReadyPath)"
+                TargetWarmupUrl      = "http://localhost:$($targetConfig.Port)$($definition.WarmupPath)"
                 PublicReadyUrl       = "http://localhost:$($definition.PublicPort)$($definition.ReadyPath)"
             }
         }
@@ -1347,7 +1350,7 @@ try {
                     Start-Website -Name $Plan.TargetSiteName -ErrorAction SilentlyContinue | Out-Null
                 }
 
-                $slotWarmup = Wait-ForHealthyEndpoint -Url $Plan.TargetReadyUrl -TimeoutSeconds $Plan.WarmupTimeoutSeconds -AppName $Plan.Name -Phase 'slot' -AppPath $Plan.TargetPath
+                $slotWarmup = Wait-ForHealthyEndpoint -Url $Plan.TargetWarmupUrl -TimeoutSeconds $Plan.WarmupTimeoutSeconds -AppName $Plan.Name -Phase 'slot' -AppPath $Plan.TargetPath
                 if (-not $slotWarmup.Success) {
                     $stdoutLogTail = Get-LatestStdoutLogTail -AppPath $Plan.TargetPath
                     if ([string]::IsNullOrWhiteSpace($stdoutLogTail)) {

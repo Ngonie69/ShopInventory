@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using ShopInventory.Common.Validation;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -8,12 +9,18 @@ namespace ShopInventory.Services;
 
 public class QuotationService : IQuotationService
 {
+    private const int MaxCommentsLength = 2000;
+    private const int MaxCreateQuotationAttempts = 5;
+    private const string DefaultQuotationOrigin = "Web";
+
     private readonly ApplicationDbContext _context;
+    private readonly ISAPServiceLayerClient _sapClient;
     private readonly ILogger<QuotationService> _logger;
 
-    public QuotationService(ApplicationDbContext context, ILogger<QuotationService> logger)
+    public QuotationService(ApplicationDbContext context, ISAPServiceLayerClient sapClient, ILogger<QuotationService> logger)
     {
         _context = context;
+        _sapClient = sapClient;
         _logger = logger;
     }
 
@@ -84,71 +91,176 @@ public class QuotationService : IQuotationService
     {
         await ValidateAndNormalizeQuotationRequestAsync(request, cancellationToken);
 
-        var quotationNumber = await GenerateQuotationNumberAsync(cancellationToken);
-
-        var quotation = new QuotationEntity
+        var clientRequestId = NormalizeClientRequestId(request.ClientRequestId);
+        if (!string.IsNullOrWhiteSpace(clientRequestId))
         {
-            QuotationNumber = quotationNumber,
-            QuotationDate = DateTime.UtcNow,
-            ValidUntil = request.ValidUntil.HasValue
-                ? DateTime.SpecifyKind(request.ValidUntil.Value, DateTimeKind.Utc)
-                : DateTime.UtcNow.AddDays(30),
-            CardCode = request.CardCode,
-            CardName = request.CardName,
-            CustomerRefNo = request.CustomerRefNo,
-            ContactPerson = request.ContactPerson,
-            Comments = request.Comments,
-            TermsAndConditions = request.TermsAndConditions,
-            SalesPersonCode = request.SalesPersonCode,
-            SalesPersonName = request.SalesPersonName,
-            Currency = request.Currency ?? "USD",
-            DiscountPercent = request.DiscountPercent,
-            ShipToAddress = request.ShipToAddress,
-            BillToAddress = request.BillToAddress,
-            WarehouseCode = request.WarehouseCode,
-            CreatedByUserId = userId,
-            Status = QuotationStatus.Draft
-        };
+            var existingQuotation = await _context.Quotations
+                .AsNoTracking()
+                .Include(q => q.Lines)
+                .Include(q => q.CreatedByUser)
+                .Include(q => q.ApprovedByUser)
+                .FirstOrDefaultAsync(q => q.ClientRequestId == clientRequestId, cancellationToken);
 
-        decimal subTotal = 0;
-        decimal taxAmount = 0;
-        int lineNum = 0;
-
-        foreach (var lineRequest in request.Lines)
-        {
-            var lineTotal = lineRequest.Quantity * lineRequest.UnitPrice * (1 - lineRequest.DiscountPercent / 100);
-            var lineTax = lineTotal * lineRequest.TaxPercent / 100;
-
-            var line = new QuotationLineEntity
+            if (existingQuotation != null)
             {
-                LineNum = lineNum++,
-                ItemCode = lineRequest.ItemCode,
-                ItemDescription = lineRequest.ItemDescription,
-                Quantity = lineRequest.Quantity,
-                UnitPrice = lineRequest.UnitPrice,
-                DiscountPercent = lineRequest.DiscountPercent,
-                TaxPercent = lineRequest.TaxPercent,
-                LineTotal = lineTotal,
-                WarehouseCode = lineRequest.WarehouseCode ?? request.WarehouseCode,
-                UoMCode = lineRequest.UoMCode
-            };
-
-            quotation.Lines.Add(line);
-            subTotal += lineTotal;
-            taxAmount += lineTax;
+                return MapToDto(existingQuotation);
+            }
         }
 
-        quotation.SubTotal = subTotal;
-        quotation.TaxAmount = taxAmount;
-        quotation.DiscountAmount = subTotal * request.DiscountPercent / 100;
-        quotation.DocTotal = subTotal - quotation.DiscountAmount + taxAmount;
+        var creator = await _context.Users
+            .AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new { u.FirstName, u.LastName, u.Username })
+            .FirstOrDefaultAsync(cancellationToken);
 
-        _context.Quotations.Add(quotation);
-        await _context.SaveChangesAsync(cancellationToken);
+        var creatorName = ResolveUserDisplayName(creator?.FirstName, creator?.LastName, creator?.Username);
+        var quotationOrigin = NormalizeQuotationOrigin(request.Source);
+        var createdAtUtc = DateTime.UtcNow;
+        var createdAtCat = AuditService.ToCAT(createdAtUtc);
+        var externalOrderNumber = string.IsNullOrWhiteSpace(clientRequestId) ? null : clientRequestId;
 
-        _logger.LogInformation("Created quotation {QuotationNumber} for customer {CardCode}", quotationNumber, request.CardCode);
+        for (var attempt = 1; attempt <= MaxCreateQuotationAttempts; attempt++)
+        {
+            var quotationNumber = await GenerateQuotationNumberAsync(cancellationToken);
+            await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
 
-        return MapToDto(quotation);
+            try
+            {
+                var createRemark = $"Created by {creatorName} on {createdAtCat:dd MMM yyyy HH:mm} CAT. Origin: {quotationOrigin}.";
+                var (comments, commentsWereTrimmed) = AppendCommentWithinLimit(request.Comments, createRemark);
+                if (commentsWereTrimmed)
+                {
+                    _logger.LogWarning(
+                        "Trimmed quotation {QuotationNumber} comments during create to stay within the {MaxCommentsLength}-character limit.",
+                        quotationNumber,
+                        MaxCommentsLength);
+                }
+
+                var quotation = new QuotationEntity
+                {
+                    QuotationNumber = quotationNumber,
+                    QuotationDate = createdAtUtc,
+                    ValidUntil = request.ValidUntil.HasValue
+                        ? DateTime.SpecifyKind(request.ValidUntil.Value, DateTimeKind.Utc)
+                        : createdAtUtc.AddDays(30),
+                    CardCode = request.CardCode,
+                    CardName = request.CardName,
+                    CustomerRefNo = request.CustomerRefNo,
+                    ContactPerson = request.ContactPerson,
+                    Comments = comments,
+                    TermsAndConditions = request.TermsAndConditions,
+                    SalesPersonCode = request.SalesPersonCode,
+                    SalesPersonName = request.SalesPersonName,
+                    Currency = request.Currency!,
+                    DiscountPercent = request.DiscountPercent,
+                    ShipToAddress = request.ShipToAddress,
+                    BillToAddress = request.BillToAddress,
+                    WarehouseCode = request.WarehouseCode,
+                    ClientRequestId = clientRequestId,
+                    CreatedByUserId = userId,
+                    ApprovedByUserId = userId,
+                    ApprovedDate = createdAtUtc,
+                    CreatedAt = createdAtUtc,
+                    UpdatedAt = createdAtUtc,
+                    Status = QuotationStatus.Approved
+                };
+
+                decimal subTotal = 0;
+                decimal taxAmount = 0;
+                int lineNum = 0;
+
+                foreach (var lineRequest in request.Lines)
+                {
+                    var lineTotal = lineRequest.Quantity * lineRequest.UnitPrice * (1 - lineRequest.DiscountPercent / 100);
+                    var lineTax = lineTotal * lineRequest.TaxPercent / 100;
+
+                    var line = new QuotationLineEntity
+                    {
+                        LineNum = lineNum++,
+                        ItemCode = lineRequest.ItemCode,
+                        ItemDescription = lineRequest.ItemDescription,
+                        Quantity = lineRequest.Quantity,
+                        UnitPrice = lineRequest.UnitPrice,
+                        DiscountPercent = lineRequest.DiscountPercent,
+                        TaxPercent = lineRequest.TaxPercent,
+                        LineTotal = lineTotal,
+                        WarehouseCode = lineRequest.WarehouseCode ?? request.WarehouseCode,
+                        UoMCode = lineRequest.UoMCode
+                    };
+
+                    quotation.Lines.Add(line);
+                    subTotal += lineTotal;
+                    taxAmount += lineTax;
+                }
+
+                quotation.SubTotal = subTotal;
+                quotation.TaxAmount = taxAmount;
+                quotation.DiscountAmount = subTotal * request.DiscountPercent / 100;
+                quotation.DocTotal = subTotal - quotation.DiscountAmount + taxAmount;
+
+                _context.Quotations.Add(quotation);
+                await _context.SaveChangesAsync(cancellationToken);
+
+                var sapQuotation = await _sapClient.CreateQuotationAsync(
+                    quotation,
+                    externalOrderNumber ?? quotationNumber,
+                    cancellationToken);
+
+                quotation.SAPDocEntry = sapQuotation.DocEntry;
+                quotation.SAPDocNum = sapQuotation.DocNum;
+                quotation.IsSynced = true;
+                quotation.SyncError = null;
+                quotation.UpdatedAt = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+
+                _logger.LogInformation(
+                    "Created quotation {QuotationNumber} for customer {CardCode} and posted to SAP as DocEntry={DocEntry}, DocNum={DocNum}",
+                    quotationNumber,
+                    request.CardCode,
+                    quotation.SAPDocEntry,
+                    quotation.SAPDocNum);
+
+                return MapToDto(quotation);
+            }
+            catch (DbUpdateException ex) when (IsDuplicateClientRequestId(ex) && !string.IsNullOrWhiteSpace(clientRequestId))
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                _context.ChangeTracker.Clear();
+
+                var existingQuotation = await _context.Quotations
+                    .AsNoTracking()
+                    .Include(q => q.Lines)
+                    .Include(q => q.CreatedByUser)
+                    .Include(q => q.ApprovedByUser)
+                    .FirstOrDefaultAsync(q => q.ClientRequestId == clientRequestId, CancellationToken.None);
+
+                if (existingQuotation != null)
+                    return MapToDto(existingQuotation);
+
+                throw;
+            }
+            catch (DbUpdateException ex) when (IsDuplicateQuotationNumber(ex) && attempt < MaxCreateQuotationAttempts)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                _context.ChangeTracker.Clear();
+
+                _logger.LogWarning(
+                    ex,
+                    "Quotation number collision while creating quotation for customer {CardCode}. Retrying attempt {Attempt} of {MaxAttempts}.",
+                    request.CardCode,
+                    attempt,
+                    MaxCreateQuotationAttempts);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                throw;
+            }
+        }
+
+        throw new InvalidOperationException("Failed to create quotation after retrying quotation number generation.");
     }
 
     public async Task<QuotationDto> UpdateAsync(int id, CreateQuotationRequest request, CancellationToken cancellationToken = default)
@@ -176,7 +288,7 @@ public class QuotationService : IQuotationService
         quotation.TermsAndConditions = request.TermsAndConditions;
         quotation.SalesPersonCode = request.SalesPersonCode;
         quotation.SalesPersonName = request.SalesPersonName;
-        quotation.Currency = request.Currency ?? quotation.Currency;
+        quotation.Currency = request.Currency!;
         quotation.DiscountPercent = request.DiscountPercent;
         quotation.ShipToAddress = request.ShipToAddress;
         quotation.BillToAddress = request.BillToAddress;
@@ -408,9 +520,73 @@ public class QuotationService : IQuotationService
         return $"{prefix}{sequence:D4}";
     }
 
+    private static bool IsDuplicateQuotationNumber(DbUpdateException exception)
+        => exception.InnerException is PostgresException postgresException
+           && postgresException.SqlState == PostgresErrorCodes.UniqueViolation
+           && postgresException.ConstraintName?.Contains("QuotationNumber", StringComparison.OrdinalIgnoreCase) == true;
+
+    private static bool IsDuplicateClientRequestId(DbUpdateException exception)
+        => exception.InnerException is PostgresException postgresException
+           && postgresException.SqlState == PostgresErrorCodes.UniqueViolation
+           && postgresException.ConstraintName?.Contains("ClientRequestId", StringComparison.OrdinalIgnoreCase) == true;
+
+    private static string? NormalizeClientRequestId(string? clientRequestId)
+        => string.IsNullOrWhiteSpace(clientRequestId) ? null : clientRequestId.Trim();
+
+    private static string NormalizeQuotationOrigin(string? source)
+        => string.IsNullOrWhiteSpace(source) ? DefaultQuotationOrigin : source.Trim();
+
+    private static string ResolveUserDisplayName(string? firstName, string? lastName, string? username)
+    {
+        var fullName = $"{firstName} {lastName}".Trim();
+        if (!string.IsNullOrWhiteSpace(fullName))
+            return fullName;
+
+        return !string.IsNullOrWhiteSpace(username) ? username : "Unknown";
+    }
+
+    private static (string Comments, bool Trimmed) AppendCommentWithinLimit(string? existingComments, string newComment)
+    {
+        if (newComment.Length >= MaxCommentsLength)
+            return (newComment[^MaxCommentsLength..], true);
+
+        if (string.IsNullOrWhiteSpace(existingComments))
+            return (newComment, false);
+
+        const string separator = "\n";
+        var combined = $"{existingComments}{separator}{newComment}";
+        if (combined.Length <= MaxCommentsLength)
+            return (combined, false);
+
+        const string ellipsis = "...";
+        var availableExistingLength = MaxCommentsLength - newComment.Length - separator.Length;
+        if (availableExistingLength <= ellipsis.Length)
+            return (newComment, true);
+
+        var retainedExistingLength = availableExistingLength - ellipsis.Length;
+        var retainedExisting = existingComments.Length > retainedExistingLength
+            ? $"{ellipsis}{existingComments[^retainedExistingLength..]}"
+            : existingComments;
+
+        return ($"{retainedExisting}{separator}{newComment}", true);
+    }
+
     private async Task ValidateAndNormalizeQuotationRequestAsync(CreateQuotationRequest request, CancellationToken cancellationToken)
     {
         var validationErrors = RecursiveDataAnnotationsValidator.Validate(request);
+
+        request.ClientRequestId = NormalizeClientRequestId(request.ClientRequestId);
+        request.Source = NormalizeQuotationOrigin(request.Source);
+
+        if (string.IsNullOrWhiteSpace(request.Currency))
+        {
+            validationErrors.Add("Currency is required");
+        }
+        else
+        {
+            request.Currency = request.Currency.Trim().ToUpperInvariant();
+        }
+
         validationErrors.AddRange(await UomQuantityValidation.ValidateAndNormalizeLineQuantitiesAsync(
             _context,
             request.Lines,
@@ -458,6 +634,7 @@ public class QuotationService : IQuotationService
             ShipToAddress = entity.ShipToAddress,
             BillToAddress = entity.BillToAddress,
             WarehouseCode = entity.WarehouseCode,
+            ClientRequestId = entity.ClientRequestId,
             CreatedByUserId = entity.CreatedByUserId,
             CreatedByUserName = entity.CreatedByUser?.Username,
             ApprovedByUserId = entity.ApprovedByUserId,

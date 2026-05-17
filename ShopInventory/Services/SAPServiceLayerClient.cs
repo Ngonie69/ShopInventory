@@ -1,7 +1,7 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
-using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -21,6 +21,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 {
     private readonly HttpClient _httpClient;
     private readonly SAPSettings _settings;
+    private readonly IHostEnvironment _hostEnvironment;
     private readonly ILogger<SAPServiceLayerClient> _logger;
     private readonly IMemoryCache _memoryCache;
     private readonly CacheSyncStateRecorder _cacheSyncStateRecorder;
@@ -80,12 +81,14 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public SAPServiceLayerClient(
         HttpClient httpClient,
         IOptions<SAPSettings> settings,
+        IHostEnvironment hostEnvironment,
         ILogger<SAPServiceLayerClient> logger,
         IMemoryCache memoryCache,
         CacheSyncStateRecorder cacheSyncStateRecorder)
     {
         _httpClient = httpClient;
         _settings = settings.Value;
+        _hostEnvironment = hostEnvironment;
         _logger = logger;
         _memoryCache = memoryCache;
         _cacheSyncStateRecorder = cacheSyncStateRecorder;
@@ -568,17 +571,49 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var currentSession = _sessionId;
 
         // Build the invoice payload for SAP
-        // Note: DocCurrency should only be sent if explicitly specified and valid in SAP
-        // If null, empty, or "USD" (which may not be configured), omit it to use local currency
-        var docCurrency = !string.IsNullOrWhiteSpace(request.DocCurrency) && request.DocCurrency != "USD"
-            ? request.DocCurrency
-            : null;
+        var docCurrency = NormalizeSapDocumentCurrency(request.DocCurrency);
+        if (!string.Equals(request.DocCurrency, docCurrency, StringComparison.Ordinal))
+        {
+            _logger.LogInformation(
+                "Normalized invoice currency from {RequestedCurrency} to SAP document currency {SapCurrency}",
+                request.DocCurrency,
+                docCurrency ?? "<company default>");
+        }
+
+        var currentBusinessDate = GetCurrentSapBusinessDate();
+        var docDate = ResolveSapDocumentDate(request.DocDate, nameof(request.DocDate), currentBusinessDate);
+        var docDueDate = ResolveSapDocumentDate(request.DocDueDate, nameof(request.DocDueDate), docDate);
+        var invoiceSeries = await ResolveConfiguredInvoiceSeriesAsync(request.Series, cancellationToken);
+        var formattedDocDate = FormatSapDocumentDate(docDate);
+        var formattedDocDueDate = FormatSapDocumentDate(docDueDate);
+        var formattedTaxDate = formattedDocDate;
+        var formattedSeries = invoiceSeries?.ToString(CultureInfo.InvariantCulture) ?? "<default>";
+        var sapCompanyDb = string.IsNullOrWhiteSpace(_settings.CompanyDB) ? "<unknown>" : _settings.CompanyDB;
+
+        if (invoiceSeries.HasValue)
+        {
+            _logger.LogInformation(
+                "Using SAP A/R invoice series {Series} for posting date {DocDate} in SAP company {CompanyDb}",
+                invoiceSeries.Value,
+                formattedDocDate,
+                sapCompanyDb);
+        }
+
+        _logger.LogInformation(
+            "Prepared SAP invoice payload for company {CompanyDb}: DocDate={DocDate}, TaxDate={TaxDate}, DocDueDate={DocDueDate}, Series={Series}",
+            sapCompanyDb,
+            formattedDocDate,
+            formattedTaxDate,
+            formattedDocDueDate,
+            formattedSeries);
 
         var invoicePayload = new
         {
             CardCode = request.CardCode,
-            DocDate = request.DocDate ?? DateTime.Now.ToString("yyyy-MM-dd"),
-            DocDueDate = request.DocDueDate ?? DateTime.Now.ToString("yyyy-MM-dd"),
+            DocDate = formattedDocDate,
+            DocDueDate = formattedDocDueDate,
+            TaxDate = formattedTaxDate,
+            Series = invoiceSeries,
             NumAtCard = request.NumAtCard,
             Comments = request.Comments,
             DocCurrency = docCurrency,
@@ -595,6 +630,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                 DiscountPercent = line.DiscountPercent,
                 UoMCode = line.UoMCode,
                 AccountCode = line.AccountCode,
+                CostingCode = line.CostCentreCode,
                 BatchNumbers = line.BatchNumbers?.Select(b => new
                 {
                     BatchNumber = b.BatchNumber,
@@ -632,9 +668,34 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         if (!response.IsSuccessStatusCode)
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            var sapError = ExtractSAPErrorMessage(errorContent);
+
+            if (IsPostingPeriodDateError(errorContent, sapError))
+            {
+                var postingPeriodMessage = BuildPostingPeriodErrorMessage(
+                    sapCompanyDb,
+                    formattedDocDate,
+                    formattedTaxDate,
+                    formattedDocDueDate,
+                    formattedSeries,
+                    sapError ?? errorContent);
+                _logger.LogWarning(
+                    "SAP company {CompanyDb} rejected invoice dates DocDate={DocDate}, TaxDate={TaxDate}, DocDueDate={DocDueDate}, Series={Series}: {SapError}",
+                    sapCompanyDb,
+                    formattedDocDate,
+                    formattedTaxDate,
+                    formattedDocDueDate,
+                    formattedSeries,
+                    sapError ?? errorContent);
+
+                throw new SapPostingPeriodException(
+                    postingPeriodMessage,
+                    formattedDocDate,
+                    sapError ?? errorContent);
+            }
+
             _logger.LogError("Failed to create invoice: {StatusCode} - {Error}", response.StatusCode, errorContent);
 
-            var sapError = ExtractSAPErrorMessage(errorContent);
             if (IsBusinessPartnerDataError(errorContent))
             {
                 throw new Exception($"Failed to create invoice: Customer '{request.CardCode}' has corrupted or invalid data in SAP (e.g., broken Discount Group, Payment Terms, addresses, or contacts). " +
@@ -658,6 +719,20 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         if (string.IsNullOrWhiteSpace(request.CardCode))
         {
             errors.Add("Customer code (CardCode) is required");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.DocCurrency))
+        {
+            errors.Add("Currency is required");
+        }
+        else
+        {
+            request.DocCurrency = request.DocCurrency.Trim().ToUpperInvariant();
+        }
+
+        if (request.Series.HasValue && request.Series.Value <= 0)
+        {
+            errors.Add("SAP invoice series must be greater than zero");
         }
 
         if (request.Lines == null || request.Lines.Count == 0)
@@ -696,6 +771,371 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             throw new ArgumentException(string.Join("; ", errors));
         }
+    }
+
+    private static string? NormalizeSapDocumentCurrency(string? currency)
+    {
+        if (string.IsNullOrWhiteSpace(currency))
+        {
+            return null;
+        }
+
+        var normalized = currency.Trim();
+        return normalized.ToUpperInvariant() switch
+        {
+            "USD" => null,
+            "ZIG" => "ZW$",
+            "ZWG" => "ZW$",
+            _ => normalized
+        };
+    }
+
+    private static DateOnly GetCurrentSapBusinessDate()
+    {
+        return DateOnly.FromDateTime(AuditService.ToCAT(DateTime.UtcNow));
+    }
+
+    private static DateOnly ResolveSapDocumentDate(string? requestedDate, string fieldName, DateOnly defaultDate)
+    {
+        if (string.IsNullOrWhiteSpace(requestedDate))
+        {
+            return defaultDate;
+        }
+
+        var trimmedDate = requestedDate.Trim();
+        if (DateOnly.TryParseExact(trimmedDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dateOnly))
+        {
+            return dateOnly;
+        }
+
+        if (DateTimeOffset.TryParse(trimmedDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dateTimeOffset))
+        {
+            return DateOnly.FromDateTime(dateTimeOffset.DateTime);
+        }
+
+        if (DateTime.TryParse(trimmedDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dateTime))
+        {
+            return DateOnly.FromDateTime(dateTime);
+        }
+
+        throw new ArgumentException($"{fieldName} must be a valid date in yyyy-MM-dd format.");
+    }
+
+    private static string FormatSapDocumentDate(DateOnly date)
+    {
+        return date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    }
+
+    private async Task<int?> ResolveConfiguredInvoiceSeriesAsync(
+        int? requestSeries,
+        CancellationToken cancellationToken)
+    {
+        if (requestSeries.HasValue)
+        {
+            return requestSeries.Value;
+        }
+
+        if (_settings.InvoiceSeries > 0)
+        {
+            return _settings.InvoiceSeries;
+        }
+
+        var configuredSeriesName = _settings.InvoiceSeriesName?.Trim();
+        if (string.IsNullOrWhiteSpace(configuredSeriesName))
+        {
+            return null;
+        }
+
+        var cacheKey = $"SAP_InvoiceSeriesName_{configuredSeriesName}";
+        if (_memoryCache.TryGetValue<int>(cacheKey, out var cachedSeries))
+        {
+            return cachedSeries;
+        }
+
+        var resolvedSeries = await ResolveInvoiceSeriesByNameAsync(configuredSeriesName, cancellationToken);
+        _memoryCache.Set(cacheKey, resolvedSeries, TimeSpan.FromHours(6));
+        return resolvedSeries;
+    }
+
+    private async Task<int> ResolveInvoiceSeriesByNameAsync(
+        string seriesName,
+        CancellationToken cancellationToken)
+    {
+        var normalizedSeriesName = seriesName.Trim();
+        var rows = await GetDocumentSeriesRowsAsync("13", "--", cancellationToken);
+
+        var exactMatches = rows
+            .Select(x => new { Row = x, Name = GetSeriesLookupName(x) })
+            .Where(x => !string.IsNullOrWhiteSpace(x.Name))
+            .Where(x => string.Equals(x.Name, normalizedSeriesName, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(x => GetRequiredInt32(x.Row, "Series"))
+            .ToList();
+
+        var matchedRow = exactMatches.FirstOrDefault();
+        var matchedSeriesName = matchedRow?.Name;
+        var row = matchedRow?.Row;
+
+        if (row is null)
+        {
+            var normalizedLookupKey = NormalizeSeriesLookupKey(normalizedSeriesName);
+            var normalizedMatches = rows
+                .Select(x => new { Row = x, Name = GetSeriesLookupName(x) })
+                .Where(x => !string.IsNullOrWhiteSpace(x.Name))
+                .Where(x => string.Equals(
+                    NormalizeSeriesLookupKey(x.Name!),
+                    normalizedLookupKey,
+                    StringComparison.OrdinalIgnoreCase))
+                .OrderBy(x => GetRequiredInt32(x.Row, "Series"))
+                .ToList();
+
+            if (normalizedMatches.Count == 1)
+            {
+                matchedRow = normalizedMatches[0];
+                matchedSeriesName = matchedRow.Name;
+                row = matchedRow.Row;
+
+                _logger.LogWarning(
+                    "Configured SAP A/R invoice series name {ConfiguredSeriesName} did not match exactly; using unique normalized match {ResolvedSeriesName}",
+                    normalizedSeriesName,
+                    matchedSeriesName);
+            }
+        }
+
+        if (row is null)
+        {
+            var availableSeriesNames = rows
+                .Select(GetSeriesLookupName)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var availableSeriesMessage = availableSeriesNames.Count > 0
+                ? $" Available series: {string.Join(", ", availableSeriesNames)}."
+                : string.Empty;
+
+            throw new ArgumentException(
+                $"SAP A/R Invoice series '{seriesName}' was not found. Check Administration > System Initialization > Document Numbering > A/R Invoices.{availableSeriesMessage}");
+        }
+
+        var series = GetRequiredInt32(row, "Series");
+        var locked = GetOptionalString(row, "Locked");
+        if (IsSapTruthy(locked))
+        {
+            throw new ArgumentException($"SAP A/R Invoice series '{seriesName}' is locked.");
+        }
+
+        _logger.LogInformation(
+            "Resolved SAP A/R invoice series name {SeriesName} to internal series {Series} using SAP series label {ResolvedSeriesName}",
+            seriesName,
+            series,
+            matchedSeriesName ?? normalizedSeriesName);
+
+        return series;
+    }
+
+    private static string? GetSeriesLookupName(Dictionary<string, object?> row)
+    {
+        return GetOptionalString(row, "Name")?.Trim()
+            ?? GetOptionalString(row, "SeriesName")?.Trim();
+    }
+
+    private static string NormalizeSeriesLookupKey(string value)
+    {
+        var trimmed = value.Trim();
+        var endIndex = trimmed.Length;
+
+        while (endIndex > 0 && char.IsDigit(trimmed[endIndex - 1]))
+        {
+            endIndex--;
+        }
+
+        return trimmed[..endIndex].Trim();
+    }
+
+    private async Task<List<Dictionary<string, object?>>> GetDocumentSeriesRowsAsync(
+        string document,
+        string documentSubType,
+        CancellationToken cancellationToken)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var payload = new
+        {
+            DocumentTypeParams = new
+            {
+                Document = document,
+                DocumentSubType = documentSubType
+            }
+        };
+
+        var json = JsonSerializer.Serialize(payload);
+
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, "SeriesService_GetDocumentSeries")
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+        httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            httpRequest = new HttpRequestMessage(HttpMethod.Post, "SeriesService_GetDocumentSeries")
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            var sapError = ExtractSAPErrorMessage(errorContent) ?? errorContent;
+            _logger.LogError(
+                "Failed to get document series for SAP document {Document}/{DocumentSubType}: {StatusCode} - {Error}",
+                document,
+                documentSubType,
+                response.StatusCode,
+                sapError);
+            throw new Exception($"Failed to get document series: {sapError}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var rows = ParseServiceLayerRows(content);
+
+        _logger.LogInformation(
+            "Fetched {Count} SAP document series rows for document {Document}/{DocumentSubType}",
+            rows.Count,
+            document,
+            documentSubType);
+
+        return rows;
+    }
+
+    private static List<Dictionary<string, object?>> ParseServiceLayerRows(string content)
+    {
+        using var doc = JsonDocument.Parse(content);
+
+        JsonElement rowsElement;
+        if (doc.RootElement.ValueKind == JsonValueKind.Array)
+        {
+            rowsElement = doc.RootElement;
+        }
+        else if (doc.RootElement.TryGetProperty("value", out var valueArray) && valueArray.ValueKind == JsonValueKind.Array)
+        {
+            rowsElement = valueArray;
+        }
+        else
+        {
+            var firstArrayProperty = doc.RootElement.ValueKind == JsonValueKind.Object
+                ? doc.RootElement.EnumerateObject().FirstOrDefault(x => x.Value.ValueKind == JsonValueKind.Array)
+                : default;
+
+            if (firstArrayProperty.Value.ValueKind != JsonValueKind.Array)
+            {
+                return new List<Dictionary<string, object?>>();
+            }
+
+            rowsElement = firstArrayProperty.Value;
+        }
+
+        var rows = new List<Dictionary<string, object?>>();
+        foreach (var row in rowsElement.EnumerateArray())
+        {
+            if (row.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var prop in row.EnumerateObject())
+            {
+                dict[prop.Name] = prop.Value.ValueKind switch
+                {
+                    JsonValueKind.String => prop.Value.GetString(),
+                    JsonValueKind.Number => prop.Value.TryGetInt64(out var longValue) ? longValue : prop.Value.GetDecimal(),
+                    JsonValueKind.True => true,
+                    JsonValueKind.False => false,
+                    JsonValueKind.Null => null,
+                    _ => prop.Value.GetRawText()
+                };
+            }
+
+            rows.Add(dict);
+        }
+
+        return rows;
+    }
+
+    private static int GetRequiredInt32(Dictionary<string, object?> row, string key)
+    {
+        if (!row.TryGetValue(key, out var rawValue) || rawValue is null)
+        {
+            throw new ArgumentException($"SAP SQL result did not include required column '{key}'.");
+        }
+
+        return rawValue switch
+        {
+            int intValue => intValue,
+            long longValue => checked((int)longValue),
+            decimal decimalValue => decimal.ToInt32(decimalValue),
+            string stringValue when int.TryParse(stringValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedValue) => parsedValue,
+            JsonElement jsonElement when jsonElement.ValueKind == JsonValueKind.Number && jsonElement.TryGetInt32(out var jsonValue) => jsonValue,
+            _ => throw new ArgumentException($"SAP SQL column '{key}' was not a valid integer.")
+        };
+    }
+
+    private static string? GetOptionalString(Dictionary<string, object?> row, string key)
+    {
+        if (!row.TryGetValue(key, out var rawValue) || rawValue is null)
+        {
+            return null;
+        }
+
+        return rawValue switch
+        {
+            string stringValue => stringValue,
+            JsonElement jsonElement when jsonElement.ValueKind == JsonValueKind.String => jsonElement.GetString(),
+            _ => Convert.ToString(rawValue, CultureInfo.InvariantCulture)
+        };
+    }
+
+    private static bool IsSapTruthy(string? value)
+    {
+        return string.Equals(value, "Y", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "tYES", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "Yes", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "True", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "1", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPostingPeriodDateError(string errorContent, string? sapError)
+    {
+        var message = string.Concat(errorContent, " ", sapError);
+        return message.Contains("Posting Date deviates", StringComparison.OrdinalIgnoreCase)
+            || (message.Contains("posting period", StringComparison.OrdinalIgnoreCase)
+                && message.Contains("Posting Date", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string BuildPostingPeriodErrorMessage(
+        string companyDb,
+        string docDate,
+        string taxDate,
+        string docDueDate,
+        string series,
+        string sapError)
+    {
+        return $"SAP company {companyDb} rejected invoice dates DocDate={docDate}, TaxDate={taxDate}, DocDueDate={docDueDate}, Series={series} because at least one document date is outside the configured posting period. " +
+            "If that period is already unlocked, check that the default A/R Invoice numbering series is assigned to the same period indicator, " +
+            "or configure SAP:InvoiceSeries/SAP:InvoiceSeriesName/pass Series for a valid A/R Invoice series. " +
+            $"SAP error: {sapError}";
     }
 
     public async Task<SAPPurchaseInvoice> CreatePurchaseInvoiceAsync(
@@ -5556,12 +5996,21 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         foreach (var warehouseGroup in linesByWarehouse)
         {
             var warehouseCode = warehouseGroup.Key;
+            var requestedItemCodes = warehouseGroup
+                .Select(item => item.Line.ItemCode)
+                .Where(itemCode => !string.IsNullOrWhiteSpace(itemCode))
+                .Cast<string>()
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
-            // Get stock quantities for this warehouse
+            // Only fetch the invoice item codes for this warehouse; full-warehouse SQL queries can time out on large SAP datasets.
             List<StockQuantityDto> stockQuantities;
             try
             {
-                stockQuantities = await GetStockQuantitiesInWarehouseAsync(warehouseCode, cancellationToken);
+                stockQuantities = await GetStockQuantitiesForItemsInWarehouseAsync(
+                    warehouseCode,
+                    requestedItemCodes,
+                    cancellationToken);
             }
             catch (Exception ex)
             {
@@ -9146,9 +9595,12 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
             }
         }
 
-        var docCurrency = !string.IsNullOrWhiteSpace(order.Currency) && order.Currency != "USD"
-            ? order.Currency
-            : (string?)null;
+        if (string.IsNullOrWhiteSpace(order.Currency))
+        {
+            throw new Exception($"Sales order {order.OrderNumber} is missing a currency selection.");
+        }
+
+        var docCurrency = order.Currency.Trim().ToUpperInvariant();
 
         var lineSapUomLookup = await ResolveSalesOrderLineSapUomsAsync(
             order.Lines.Select(line => (ItemCode: (string?)line.ItemCode, RequestedUomCode: line.UoMCode)),
@@ -10360,12 +10812,16 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                 .Where(v => !string.IsNullOrWhiteSpace(v) && !v.StartsWith("${", StringComparison.Ordinal))
                 .Select(v => v.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant())
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var allowDevelopmentCertificateBypass = _settings.SkipCertificateValidation && _hostEnvironment.IsDevelopment();
 
             using var testClient = new HttpClient(new HttpClientHandler
             {
                 ServerCertificateCustomValidationCallback = (_, certificate, _, errors) =>
                 {
                     if (errors == System.Net.Security.SslPolicyErrors.None)
+                        return true;
+
+                    if (allowDevelopmentCertificateBypass)
                         return true;
 
                     var cert2 = certificate as System.Security.Cryptography.X509Certificates.X509Certificate2
@@ -11070,6 +11526,184 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
         return JsonSerializer.Deserialize<SAPQuotation>(content);
+    }
+
+    public async Task<SAPQuotation?> GetQuotationByOrderNumberAsync(string orderNumber, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var safeValue = SanitizeODataValue(orderNumber);
+        var url = $"Quotations?$filter=U_OrderNumber eq '{safeValue}'&$top=1&$select=DocEntry,DocNum,CardCode,CardName,DocDate,DocDueDate,DocTotal,VatSum,DocCurrency,U_OrderNumber";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to check quotation by U_OrderNumber '{OrderNumber}': {StatusCode} - {Error}", orderNumber, response.StatusCode, errorContent);
+            throw new Exception($"Failed to check quotation by U_OrderNumber: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var result = JsonSerializer.Deserialize<SAPResponse<SAPQuotation>>(content);
+        return result?.Value?.FirstOrDefault();
+    }
+
+    public async Task<SAPQuotation> CreateQuotationAsync(ShopInventory.Models.Entities.QuotationEntity quotation, string externalOrderNumber, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var normalizedOrderNumber = string.IsNullOrWhiteSpace(externalOrderNumber)
+            ? quotation.QuotationNumber
+            : externalOrderNumber.Trim();
+
+        if (!string.IsNullOrWhiteSpace(normalizedOrderNumber))
+        {
+            var existingQuotation = await GetQuotationByOrderNumberAsync(normalizedOrderNumber, cancellationToken);
+            if (existingQuotation != null)
+            {
+                _logger.LogWarning(
+                    "Skipping SAP quotation create for {OrderNumber} because U_OrderNumber already exists in SAP as DocEntry={DocEntry}, DocNum={DocNum}",
+                    normalizedOrderNumber,
+                    existingQuotation.DocEntry,
+                    existingQuotation.DocNum);
+
+                return existingQuotation;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(quotation.Currency))
+        {
+            throw new Exception($"Quotation {quotation.QuotationNumber} is missing a currency selection.");
+        }
+
+        var docCurrency = quotation.Currency.Trim().ToUpperInvariant();
+
+        var lineSapUomLookup = await ResolveSalesOrderLineSapUomsAsync(
+            quotation.Lines.Select(line => (ItemCode: (string?)line.ItemCode, RequestedUomCode: line.UoMCode)),
+            cancellationToken);
+
+        var documentLines = new List<object>();
+        foreach (var (line, index) in quotation.Lines.OrderBy(item => item.LineNum).Select((line, index) => (line, index)))
+        {
+            var normalizedItemCode = NormalizeSapUomIdentifier(line.ItemCode);
+            var normalizedRequestedUomCode = NormalizeSapUomIdentifier(line.UoMCode);
+            (string? resolvedUomCode, int? resolvedUomEntry) = (normalizedRequestedUomCode, null);
+
+            if (!string.IsNullOrWhiteSpace(normalizedItemCode)
+                && lineSapUomLookup.TryGetValue(normalizedItemCode, out var resolvedSapUom))
+            {
+                (resolvedUomCode, resolvedUomEntry) = resolvedSapUom;
+            }
+
+            if (!resolvedUomEntry.HasValue)
+            {
+                throw new Exception(
+                    $"Quotation {quotation.QuotationNumber} line {index + 1} (item {line.ItemCode ?? "unknown"}) has no SAP UoMEntry. Requested UoM: '{line.UoMCode ?? "<blank>"}', resolved UoMCode: '{resolvedUomCode ?? "<blank>"}'.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(resolvedUomCode)
+                && !string.Equals(line.UoMCode, resolvedUomCode, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation(
+                    "Normalizing quotation line UoM for item {ItemCode} from '{CurrentUoMCode}' to canonical SAP UoM '{ResolvedUoMCode}' (Entry {ResolvedUoMEntry}) before posting quotation {QuotationNumber}",
+                    line.ItemCode,
+                    line.UoMCode,
+                    resolvedUomCode,
+                    resolvedUomEntry,
+                    quotation.QuotationNumber);
+
+                line.UoMCode = resolvedUomCode;
+            }
+
+            documentLines.Add(new
+            {
+                LineNum = index,
+                ItemCode = line.ItemCode,
+                Quantity = line.Quantity,
+                UnitPrice = line.UnitPrice,
+                WarehouseCode = line.WarehouseCode ?? quotation.WarehouseCode,
+                DiscountPercent = line.DiscountPercent,
+                UoMEntry = resolvedUomEntry
+            });
+        }
+
+        var payload = new
+        {
+            CardCode = quotation.CardCode,
+            DocDate = quotation.QuotationDate.ToString("yyyy-MM-dd"),
+            DocDueDate = (quotation.ValidUntil ?? quotation.QuotationDate.AddDays(30)).ToString("yyyy-MM-dd"),
+            NumAtCard = quotation.CustomerRefNo,
+            Comments = quotation.Comments,
+            DocCurrency = docCurrency,
+            SalesPersonCode = quotation.SalesPersonCode,
+            DiscountPercent = quotation.DiscountPercent,
+            Address = quotation.ShipToAddress,
+            Address2 = quotation.BillToAddress,
+            U_OrderNumber = normalizedOrderNumber,
+            DocumentLines = documentLines
+        };
+
+        var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
+        {
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        });
+
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, "Quotations")
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+        httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            httpRequest = new HttpRequestMessage(HttpMethod.Post, "Quotations")
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to create quotation in SAP: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            var sapError = ExtractSAPErrorMessage(errorContent);
+            throw new Exception(sapError ?? $"Failed to create quotation: {response.StatusCode} - {errorContent}");
+        }
+
+        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+        var sapQuotation = JsonSerializer.Deserialize<SAPQuotation>(responseContent);
+
+        _logger.LogInformation(
+            "Quotation created in SAP with DocEntry: {DocEntry}, DocNum: {DocNum}",
+            sapQuotation?.DocEntry,
+            sapQuotation?.DocNum);
+
+        return sapQuotation ?? throw new Exception("Failed to deserialize created quotation from SAP");
     }
 
     public async Task<List<SAPQuotation>> GetQuotationsByCustomerAsync(string cardCode, CancellationToken cancellationToken = default)

@@ -161,4 +161,5 @@ public class FiscalizationResult
     public string? ErrorDetails { get; set; }
     public string? InvoiceNumber { get; set; }
     public bool Skipped { get; set; }
+    public bool Queued { get; set; }
 }

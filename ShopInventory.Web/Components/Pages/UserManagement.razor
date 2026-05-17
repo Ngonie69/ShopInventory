@@ -3772,6 +3772,7 @@ new();
                 AllowedPaymentMethods = new List<string>(user.AllowedPaymentMethods),
                 DefaultGLAccount = user.DefaultGLAccount,
                 AllowedPaymentBusinessPartners = new List<string>(user.AllowedPaymentBusinessPartners),
+                AssignedSection = user.AssignedSection,
                 AssignedCustomerCodes = new List<string>(user.AssignedCustomerCodes)
             };
             await UserService.UpdateUserAsync(user.Id, form);

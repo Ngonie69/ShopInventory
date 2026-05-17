@@ -12,6 +12,7 @@ using ShopInventory.Features.SalesOrders.Commands.PostToSAP;
 using ShopInventory.Features.SalesOrders.Commands.UpdateSalesOrder;
 using ShopInventory.Features.SalesOrders.Commands.UpdateSalesOrderStatus;
 using ShopInventory.Features.SalesOrders.Queries.GetAllSalesOrders;
+using ShopInventory.Features.SalesOrders.Queries.DownloadSalesOrderPdf;
 using ShopInventory.Features.SalesOrders.Queries.GetLocalSalesOrderById;
 using ShopInventory.Features.SalesOrders.Queries.GetSalesOrderById;
 using ShopInventory.Features.SalesOrders.Queries.GetSalesOrderByNumber;
@@ -89,6 +90,32 @@ public class SalesOrderController(IMediator mediator) : ApiControllerBase
     {
         var result = await mediator.Send(new GetSalesOrderByNumberQuery(orderNumber), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Download sales order as PDF
+    /// </summary>
+    [HttpGet("{id:int}/pdf")]
+    [RequirePermission(Permission.ViewSalesOrders)]
+    public async Task<IActionResult> DownloadPdf(int id, CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new DownloadSalesOrderPdfQuery(id), cancellationToken);
+        return result.Match(
+            pdf => File(pdf.PdfBytes, "application/pdf", pdf.FileName),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Download locally persisted sales order as PDF
+    /// </summary>
+    [HttpGet("local/{id:int}/pdf")]
+    [RequirePermission(Permission.ViewSalesOrders)]
+    public async Task<IActionResult> DownloadLocalPdf(int id, CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new DownloadSalesOrderPdfQuery(id, true), cancellationToken);
+        return result.Match(
+            pdf => File(pdf.PdfBytes, "application/pdf", pdf.FileName),
+            errors => Problem(errors));
     }
 
     /// <summary>

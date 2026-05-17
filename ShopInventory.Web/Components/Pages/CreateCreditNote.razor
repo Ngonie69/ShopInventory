@@ -3,6 +3,7 @@
 @attribute [Authorize(Roles = "Admin,Cashier")]
 @inject ICreditNoteService CreditNoteService
 @inject IMasterDataCacheService CacheService
+@inject IBusinessPartnerPricingService BusinessPartnerPricingService
 @inject NavigationManager NavigationManager
 @inject IAppSettingsProvider AppSettings
 @using ShopInventory.Web.Data
@@ -15,14 +16,14 @@
 <PageTitle>Create Credit Note - Shop Inventory</PageTitle>
 
 <style>
-    /* ── Page ────────────────────────────────────────── */
+    /* Page */
     .ccn-page {
         background: #f0f2f5;
         min-height: 100vh;
         padding: 1.5rem;
     }
 
-    /* ── Breadcrumb ──────────────────────────────────── */
+    /* Breadcrumb */
     .ccn-breadcrumb {
         display: flex;
         align-items: center;
@@ -46,7 +47,7 @@
         color: #d1d5db;
     }
 
-    /* ── Header ──────────────────────────────────────── */
+    /* Header */
     .ccn-header {
         display: flex;
         justify-content: space-between;
@@ -115,7 +116,7 @@
         color: #374151;
     }
 
-    /* ── Form Card ───────────────────────────────────── */
+    /* Form Card */
     .form-card {
         background: #fff;
         border: 1px solid #e5e7eb;
@@ -178,48 +179,10 @@
         box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
     }
 
-    .form-field .checkbox-row {
-        display: flex;
-        align-items: center;
-        gap: .5rem;
-        padding: .5rem 0;
-    }
-
-    /* ── Customer Dropdown ────────────────────────────── */
-    .cn-selected-customer {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        border-radius: 8px;
-        padding: .5rem .75rem;
-    }
-
-    .cn-bp-clear {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #dc2626;
-        width: 26px;
-        height: 26px;
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all .15s;
-        font-size: .8rem;
-    }
-
-    .cn-bp-clear:hover {
-        background: #dc2626;
-        color: #fff;
-        border-color: #dc2626;
-    }
-
-    .cn-dropdown {
+    /* Customer Selection */
+    .dropdown-autocomplete {
         position: absolute;
-        z-index: 10001;
+        z-index: 100;
         background: #fff;
         border: 1px solid #e5e7eb;
         border-radius: 10px;
@@ -230,175 +193,67 @@
         margin-top: 2px;
     }
 
-    .cn-dropdown-item {
-        padding: .45rem .75rem;
+    .dropdown-item {
+        padding: .5rem .75rem;
         cursor: pointer;
-        transition: background .12s;
         font-size: .85rem;
-        border-bottom: 1px solid #f9fafb;
+        border-bottom: 1px solid #f3f4f6;
+        transition: background .12s;
     }
 
-    .cn-dropdown-item:hover {
-        background: #f0fdf4;
-    }
-
-    /* ── Line Items Section ───────────────────────── */
-    .line-items-section {
-        margin-top: 1rem;
-    }
-
-    .line-items-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: .5rem;
-    }
-
-    .line-items-header label {
-        font-size: .75rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .4px;
-    }
-
-    .btn-add-line {
+    .dropdown-item:hover,
+    .dropdown-item.selected {
         background: #f0f4ff;
-        border: 1px dashed #667eea;
-        color: #667eea;
-        padding: .3rem .75rem;
-        border-radius: 6px;
-        font-size: .78rem;
+    }
+
+    .ccn-checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        padding: .5rem 0;
+        color: #374151;
+    }
+
+    .ccn-checkbox-input {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        accent-color: #667eea;
+    }
+
+    .ccn-checkbox-label {
+        font-size: .88rem;
         font-weight: 600;
-        cursor: pointer;
-        transition: all .15s;
+        text-transform: none;
+        letter-spacing: 0;
+        margin-bottom: 0;
+        color: inherit;
+    }
+
+    /* Buttons */
+    .btn-so-gradient {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        text-decoration: none;
+        transition: all .2s;
         display: inline-flex;
         align-items: center;
-        gap: .3rem;
-    }
-
-    .btn-add-line:hover {
-        background: #e0e7ff;
-    }
-
-    .line-items-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: .82rem;
-    }
-
-    .line-items-table thead th {
-        background: #f9fafb;
-        padding: .45rem .5rem;
-        text-align: left;
-        font-weight: 600;
-        color: #6b7280;
-        font-size: .72rem;
-        text-transform: uppercase;
-        letter-spacing: .3px;
-        border-bottom: 1px solid #e5e7eb;
-    }
-
-    .line-items-table tbody td {
-        padding: .35rem .35rem;
-        border-bottom: 1px solid #f3f4f6;
-        vertical-align: middle;
-    }
-
-    .line-items-table input {
-        width: 100%;
-        padding: .35rem .5rem;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: .82rem;
-        color: #374151;
-        transition: border-color .15s;
-    }
-
-    .line-items-table input:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 2px rgba(102, 126, 234, .12);
-    }
-
-    .line-items-table input[type="number"] {
-        text-align: right;
-    }
-
-    .line-items-table select {
-        width: 100%;
-        padding: .35rem .4rem;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: .82rem;
-        color: #374151;
-        background: #fff;
-    }
-
-    .line-items-table select:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 2px rgba(102, 126, 234, .12);
-    }
-
-    .btn-remove-line {
-        background: none;
-        border: none;
-        color: #ef4444;
+        gap: .4rem;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
         cursor: pointer;
-        padding: .2rem;
-        border-radius: 4px;
-        font-size: .9rem;
-        transition: background .15s;
     }
 
-    .btn-remove-line:hover {
-        background: #fef2f2;
+    .btn-so-gradient:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(102, 126, 234, .4);
+        color: #fff;
     }
 
-    .line-total-cell {
-        font-weight: 600;
-        color: #374151;
-        text-align: right;
-        padding-right: .5rem;
-        white-space: nowrap;
-    }
-
-    .line-items-empty {
-        text-align: center;
-        padding: 1rem;
-        color: #9ca3af;
-        font-size: .85rem;
-    }
-
-    .line-items-summary {
-        display: flex;
-        justify-content: flex-end;
-        margin-top: .5rem;
-        padding-top: .5rem;
-        border-top: 2px solid #e5e7eb;
-    }
-
-    .line-items-summary .summary-label {
-        font-weight: 600;
-        color: #374151;
-        font-size: .88rem;
-        margin-right: .75rem;
-    }
-
-    .line-items-summary .summary-value {
-        font-weight: 700;
-        color: #1a1a2e;
-        font-size: .92rem;
-    }
-
-    .validation-hint {
-        color: #ef4444;
-        font-size: .75rem;
-        margin-top: .25rem;
-    }
-
-    /* ── Buttons ─────────────────────────────────────── */
     .btn-create {
         background: linear-gradient(135deg, #667eea, #764ba2);
         border: none;
@@ -443,7 +298,7 @@
         border-color: #9ca3af;
     }
 
-    /* ── Footer ──────────────────────────────────────── */
+    /* Footer */
     .form-footer {
         display: flex;
         gap: .5rem;
@@ -451,7 +306,7 @@
         padding-top: 1rem;
     }
 
-    /* ── Loading ─────────────────────────────────────── */
+    /* Loading */
     .loading-state {
         text-align: center;
         padding: 3rem;
@@ -470,95 +325,16 @@
             grid-column: span 1;
         }
 
-        .line-items-header {
+        .form-footer {
             flex-direction: column;
-            align-items: stretch;
-            gap: .5rem;
         }
 
-        .btn-add-line,
+        .btn-so-gradient,
         .btn-create,
         .btn-secondary-action {
             width: 100%;
             justify-content: center;
             text-align: center;
-        }
-
-        .line-items-table thead {
-            display: none;
-        }
-
-        .line-items-table,
-        .line-items-table tbody,
-        .line-items-table tr,
-        .line-items-table td {
-            display: block;
-            width: 100%;
-        }
-
-        .line-items-table tbody {
-            display: grid;
-            gap: .85rem;
-        }
-
-        .line-items-table tbody tr {
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            padding: .45rem .75rem 0;
-            background: #fff;
-        }
-
-        .line-items-table tbody td {
-            display: grid;
-            grid-template-columns: minmax(92px, 108px) minmax(0, 1fr);
-            gap: .6rem;
-            padding: .45rem 0 .55rem;
-        }
-
-        .line-items-table tbody td::before {
-            content: attr(data-label);
-            font-size: .68rem;
-            font-weight: 700;
-            color: #6b7280;
-            text-transform: uppercase;
-            letter-spacing: .08em;
-            padding-top: .15rem;
-        }
-
-        .line-items-table input,
-        .line-items-table select {
-            min-height: 42px;
-        }
-
-        .line-total-cell {
-            text-align: left;
-            padding-right: 0;
-        }
-
-        .line-items-summary,
-        .form-footer {
-            flex-direction: column;
-            align-items: stretch;
-        }
-
-        .line-items-summary .summary-label {
-            margin-right: 0;
-        }
-
-        .cn-dropdown {
-            min-width: min(260px, calc(100vw - 4rem)) !important;
-            max-width: calc(100vw - 4rem);
-        }
-    }
-
-    @@media (max-width: 480px) {
-        .line-items-table tbody tr {
-            padding: .35rem .65rem 0;
-        }
-
-        .line-items-table tbody td {
-            grid-template-columns: 1fr;
-            gap: .35rem;
         }
     }
 </style>
@@ -566,20 +342,18 @@
 <div class="ccn-page">
     <div class="container-fluid">
 
-        <!-- Breadcrumb -->
         <div class="ccn-breadcrumb">
             <a href="/credit-notes">Credit Notes</a>
             <span class="sep">/</span>
             <span>Create New</span>
         </div>
 
-        <!-- Header -->
         <div class="ccn-header">
             <div class="ccn-header-left">
                 <div class="ccn-header-icon"><i class="bi bi-file-earmark-minus"></i></div>
                 <div>
                     <h2>Create Credit Note</h2>
-                    <p>Create a new customer credit note</p>
+                    <p>Create a new customer credit note with line items</p>
                 </div>
             </div>
             <div class="ccn-header-actions">
@@ -596,222 +370,361 @@
         }
         else
         {
-            <!-- Customer & Details -->
             <div class="form-card">
-                <div class="form-card-title"><i class="bi bi-person-badge"></i> Customer & Details</div>
-                <div class="form-grid">
-                    <div class="form-field full">
-                        <label>Customer *</label>
-                        @if (selectedBusinessPartner != null)
-                        {
-                            <div class="cn-selected-customer">
+                <div class="form-card-title"><i class="bi bi-person-badge"></i> Customer</div>
+                <div style="margin-bottom:1rem;">
+                    <label
+                        style="display:block; font-size:.72rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">
+                        Customer <span style="color:#ef4444;">*</span>
+                    </label>
+                    @if (selectedBusinessPartner != null)
+                    {
+                        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:.75rem 1rem;">
+                            <div class="d-flex justify-content-between align-items-start">
                                 <div>
-                                    <span style="font-weight:700;color:#065f46;"><i class="bi bi-check-circle-fill"
-                                                                                        style="color:#059669;margin-right:.3rem;"></i>@selectedBusinessPartner.CardCode</span>
-                                        <span style="color:#6b7280;margin-left:.5rem;">@selectedBusinessPartner.CardName</span>
+                                    <div style="font-weight:700; color:#065f46;">
+                                        <i class="bi bi-check-circle-fill me-1" style="color:#059669;"></i>
+                                        @selectedBusinessPartner.CardCode
                                     </div>
-                                    <button type="button" class="cn-bp-clear" @onclick="ClearSelectedBP"><i
-                                        class="bi bi-x"></i></button>
+                                    <div style="font-size:.85rem; color:#065f46; opacity:.8;">@selectedBusinessPartner.CardName
                                     </div>
-                                }
-                        else
-                                {
-                                    <div style="position:relative;">
-                                        <input type="text" value="@bpSearchTerm" @oninput="OnBPSearchInput"
-                                               @onfocus="() => showBPDropdown = true" @onblur="OnBPSearchBlur"
-                                               placeholder="Search by code or name…" autocomplete="off" />
-                                        @if (showBPDropdown && filteredBusinessPartners.Any())
-                                        {
-                                            <div class="cn-dropdown" @onmousedown:preventDefault>
-                                                @foreach (var bp in filteredBusinessPartners.Take(15))
-                                                {
-                                                    <div class="cn-dropdown-item" @onmousedown="() => SelectBusinessPartner(bp)">
-                                                        <strong>@bp.CardCode</strong> — <span style="color:#6b7280;">@bp.CardName</span>
-                                                    </div>
-                                                }
-                                                @if (filteredBusinessPartners.Count() > 15)
-                                                {
-                                                    <div class="cn-dropdown-item" style="color:#9ca3af;text-align:center;font-size:.82rem;">
-                                                        @filteredBusinessPartners.Count() total — type more to filter
-                                                    </div>
-                                                }
-                                            </div>
-                                        }
-                                    </div>
-                                }
-                            </div>
-                            <div class="form-field">
-                                <label>Type</label>
-                                <select @bind="newCreditNote.Type">
-                                    @foreach (CreditNoteType type in Enum.GetValues(typeof(CreditNoteType)))
+                                    @if (!string.IsNullOrEmpty(selectedBusinessPartner.Phone1))
                                     {
-                                        <option value="@type">@type</option>
+                                        <div style="font-size:.82rem; color:#065f46; opacity:.7; margin-top:.25rem;">
+                                            <i class="bi bi-telephone me-1"></i>@selectedBusinessPartner.Phone1
+                                        </div>
                                     }
-                                </select>
-                            </div>
-                            <div class="form-field">
-                                <label>Currency</label>
-                                <select @bind="newCreditNote.Currency">
-                                    <option value="USD">USD</option>
-                                    <option value="ZIG">ZIG</option>
-                                </select>
-                            </div>
-                            <div class="form-field full">
-                                <label>Reason *</label>
-                                <textarea @bind="newCreditNote.Reason" rows="2" placeholder="Reason for credit note"></textarea>
-                            </div>
-                            <div class="form-field">
-                                <label>Options</label>
-                                <div class="checkbox-row">
-                                    <input type="checkbox" @bind="newCreditNote.RestockItems" id="restockCheck" />
-                                    <label for="restockCheck" style="text-transform:none;font-size:.88rem;color:#374151;">Restock
-                                        Items</label>
-                                    </div>
+                                    @if (customerPriceListNum.HasValue)
+                                    {
+                                        <div style="font-size:.82rem; color:#065f46; opacity:.7; margin-top:.25rem;">
+                                            <i class="bi bi-tags me-1"></i>Price List #@customerPriceListNum
+                                            @if (isLoadingCustomerPrices)
+                                            {
+                                                <span class="spinner-border spinner-border-sm ms-1"></span>
+                                            }
+                                            else
+                                            {
+                                                <span
+                                                    style="background:#d1fae5; color:#065f46; font-size:.7rem; padding:.1rem .4rem; border-radius:4px; font-weight:600; margin-left:.25rem;">
+                                                    @customerPriceListPrices.Count items
+                                                </span>
+                                            }
+                                        </div>
+                                    }
                                 </div>
-                                <div class="form-field">
-                                    <label>Restock Warehouse</label>
-                                    <select @bind="newCreditNote.RestockWarehouseCode">
-                                        <option value="">— Select —</option>
-                                        @foreach (var wh in cachedWarehouses)
-                                        {
-                                            <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                                        }
-                                    </select>
-                                </div>
+                                <button type="button"
+                                        style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; width:28px; height:28px; border-radius:7px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:.8rem;"
+                                        @onclick="ClearSelectedBP">
+                                    <i class="bi bi-x"></i>
+                                </button>
                             </div>
                         </div>
-
-                        <!-- Line Items -->
-                        <div class="form-card">
-                            <div class="line-items-section">
-                                <div class="line-items-header">
-                                    <label>Line Items *</label>
-                                    <button type="button" class="btn-add-line" @onclick="AddLine">
-                                        <i class="bi bi-plus-lg"></i> Add Item
-                                    </button>
-                                </div>
-                                @if (newCreditNote.Lines.Count > 0)
-                                {
-                                    <div style="overflow-x:auto;">
-                                        <table class="line-items-table">
-                                            <thead>
-                                                <tr>
-                                                    <th style="min-width:120px;">Item Code</th>
-                                                    <th style="min-width:150px;">Description</th>
-                                                    <th style="min-width:75px;">Qty</th>
-                                                    <th style="min-width:90px;">Unit Price</th>
-                                                    <th style="min-width:70px;">Disc %</th>
-                                                    <th style="min-width:70px;">Tax %</th>
-                                                    <th style="min-width:100px;">Warehouse</th>
-                                                    <th style="min-width:80px; text-align:right;">Line Total</th>
-                                                    <th style="width:36px;"></th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                @for (int i = 0; i < newCreditNote.Lines.Count; i++)
-                                                {
-                                                    var idx = i;
-                                                    var line = newCreditNote.Lines[idx];
-                                                    var lineState = GetCnLineState(idx);
-                                                    <tr>
-                                                        <td style="position:relative;" data-label="Item Code">
-                                                            <input type="text" value="@line.ItemCode"
-                                                                   @oninput="(e) => OnCnItemCodeInput(idx, e.Value?.ToString())"
-                                                                   @onfocus="() => OnCnItemCodeFocus(idx)" @onblur="() => OnCnItemCodeBlur(idx)"
-                                                                   placeholder="Search item…" autocomplete="off" />
-                                                            @if (lineState.ShowDropdown && lineState.FilteredProducts.Any())
-                                                            {
-                                                                <div class="cn-dropdown" style="top:100%;left:0;min-width:260px;"
-                                                                     @onmousedown:preventDefault>
-                                                                    @foreach (var product in lineState.FilteredProducts.Take(10))
-                                                                    {
-                                                                        <div class="cn-dropdown-item"
-                                                                             @onmousedown="() => SelectCnProduct(idx, product)">
-                                                                            <div style="font-weight:600;font-size:.82rem;">@product.ItemCode</div>
-                                                                            <small style="color:#6b7280;">@TruncateText(product.ItemName, 30)</small>
-                                                                            <span
-                                                                            style="float:right;font-size:.75rem;font-weight:600;color:#2563eb;">@product.Price.ToString("N2")</span>
-                                                                        </div>
-                                                                    }
-                                                                    @if (lineState.FilteredProducts.Count > 10)
-                                                                    {
-                                                                        <div class="cn-dropdown-item"
-                                                                             style="color:#9ca3af;text-align:center;font-size:.8rem;">
-                                                                            +@(lineState.FilteredProducts.Count - 10) more…
-                                                                        </div>
-                                                                    }
-                                                                </div>
-                                                            }
-                                                        </td>
-                                                        <td data-label="Description">
-                                                            @if (!string.IsNullOrEmpty(line.ItemDescription))
-                                                            {
-                                                                <span style="font-size:.82rem;color:#374151;">@TruncateText(line.ItemDescription,
-                                                                                                            25)</span>
-                                                                }
-                                                else
-                                                                {
-                                                                    <span style="font-size:.8rem;color:#9ca3af;">—</span>
-                                                                }
-                                                            </td>
-                                                            <td data-label="Qty"><input type="number" @bind="line.Quantity" min="0.0001" step="1" /></td>
-                                                            <td data-label="Unit Price"><input type="number" @bind="line.UnitPrice" min="0" step="0.01" /></td>
-                                                            <td data-label="Disc %"><input type="number" @bind="line.DiscountPercent" min="0" max="100" step="0.01" />
-                                                            </td>
-                                                            <td data-label="Tax %"><input type="number" @bind="line.TaxPercent" min="0" max="100" step="0.01" /></td>
-                                                            <td data-label="Warehouse">
-                                                                <select @bind="line.WarehouseCode">
-                                                                    <option value="">—</option>
-                                                                    @foreach (var wh in cachedWarehouses)
-                                                                    {
-                                                                        <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                                                                    }
-                                                                </select>
-                                                            </td>
-                                                            <td class="line-total-cell" data-label="Line Total">@CalculateLineTotal(line).ToString("N2")</td>
-                                                            <td data-label="Remove">
-                                                                <button type="button" class="btn-remove-line" @onclick="() => RemoveLine(idx)">
-                                                                    <i class="bi bi-trash"></i>
-                                                                </button>
-                                                            </td>
-                                                        </tr>
-                                                    }
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                        <div class="line-items-summary">
-                                            <span class="summary-label">Grand Total:</span>
-                                            <span class="summary-value">@CalculateGrandTotal().ToString("N2")</span>
-                                        </div>
-                                    }
+                    }
                     else
+                    {
+                        <div class="position-relative">
+                            <input type="text"
+                                   style="width:100%; padding:.5rem .75rem; border:1px solid #d1d5db; border-radius:8px; font-size:.88rem; color:#374151;"
+                                   @bind="bpSearchTerm" @bind:event="oninput" @onfocus="() => showBPDropdown = true"
+                                   @onblur="OnBPSearchBlur" placeholder="Search by code or name…" autocomplete="off" />
+                            @if (showBPDropdown && filteredBusinessPartners.Any())
+                            {
+                                <div class="dropdown-autocomplete" @onmousedown:preventDefault>
+                                    @foreach (var bp in filteredBusinessPartners.Take(15))
                                     {
-                                        <div class="line-items-empty">
-                                            <i class="bi bi-box"></i> No items added yet. Click <strong>Add Item</strong> to begin.
+                                        <div class="dropdown-item" @onmousedown="() => SelectBusinessPartner(bp)">
+                                            <strong>@bp.CardCode</strong> — <span style="color:#6b7280;">@bp.CardName</span>
                                         </div>
                                     }
-                                    @if (showLineItemsError)
+                                    @if (filteredBusinessPartners.Count() > 15)
                                     {
-                                        <div class="validation-hint">At least one line item with a valid item code and quantity is required.
+                                        <div class="dropdown-item" style="color:#9ca3af; text-align:center; font-size:.82rem;">
+                                            <i class="bi bi-info-circle me-1"></i>
+                                            @filteredBusinessPartners.Count() total — type more to filter
                                         </div>
                                     }
                                 </div>
-                            </div>
+                            }
+                            else if (showBPDropdown && !string.IsNullOrWhiteSpace(bpSearchTerm) &&
+                    !filteredBusinessPartners.Any())
+                            {
+                                <div class="dropdown-autocomplete" style="padding:1rem; text-align:center; color:#9ca3af;">
+                                    <i class="bi bi-search me-1"></i>No customers found
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
 
-                            <!-- Footer Actions -->
-                            <div class="form-footer">
-                                <a href="/credit-notes" class="btn-secondary-action">Cancel</a>
-                                <MudButton Class="btn-create" OnClick="CreateCreditNoteAsync" Disabled="@isCreating">
-                                    @if (isCreating)
+            <div class="form-card">
+                <div class="form-card-title"><i class="bi bi-info-circle"></i> Credit Note Details</div>
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label>Type</label>
+                        <select @bind="newCreditNote.Type">
+                            @foreach (CreditNoteType type in Enum.GetValues(typeof(CreditNoteType)))
+                            {
+                                <option value="@type">@type</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label>Currency</label>
+                        <select @bind="newCreditNote.Currency">
+                            <option value="USD">USD</option>
+                            <option value="ZIG">ZIG</option>
+                        </select>
+                    </div>
+                    <div class="form-field full">
+                        <label>Reason <span style="color:#ef4444;">*</span></label>
+                        <textarea @bind="newCreditNote.Reason" rows="2" placeholder="Reason for credit note"></textarea>
+                    </div>
+                    <div class="form-field">
+                        <label>Options</label>
+                        <div class="ccn-checkbox-row">
+                            <input class="ccn-checkbox-input" type="checkbox" @bind="newCreditNote.RestockItems"
+                                   id="restockCheck" />
+                            <label for="restockCheck" class="ccn-checkbox-label">Restock Items</label>
+                        </div>
+                    </div>
+                    <div class="form-field">
+                        <label>Restock Warehouse</label>
+                        <select @bind="newCreditNote.RestockWarehouseCode">
+                            <option value="">— Select —</option>
+                            @foreach (var wh in cachedWarehouses)
+                            {
+                                <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-card">
+                <div class="d-flex justify-content-between align-items-center" style="margin-bottom:.75rem;">
+                    <span style="font-weight:600; font-size:.92rem; color:#1a1a2e;">
+                        <i class="bi bi-list-ul me-1" style="color:#667eea;"></i>Credit Note Lines
+                    </span>
+                    <button type="button" class="btn-so-gradient" style="padding:.35rem .85rem; font-size:.8rem;"
+                            @onclick="AddLine">
+                        <i class="bi bi-plus-lg"></i> Add Line
+                    </button>
+                </div>
+
+                @if (newCreditNote.Lines.Any())
+                {
+                    @for (int i = 0; i < newCreditNote.Lines.Count; i++)
+                    {
+                        var index = i;
+                        var line = newCreditNote.Lines[index];
+                        var lineState = GetCnLineState(index);
+
+                        <div
+                            style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.85rem; margin-bottom:.65rem; position:relative;">
+                            <div class="d-flex justify-content-between align-items-center" style="margin-bottom:.6rem;">
+                                <div class="d-flex align-items-center gap-2">
+                                    <span
+                                        style="background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:.75rem;">@(index
+                                                                    + 1)</span>
+                    @if (!string.IsNullOrEmpty(line.ItemDescription))
+                    {
+                        <span style="font-weight:600; font-size:.85rem; color:#1a1a2e;">@line.ItemCode</span>
+                        <span style="color:#d1d5db;">—</span>
+                        <span style="color:#6b7280; font-size:.82rem;">@TruncateText(line.ItemDescription, 30)</span>
+                    }
+                    else
+                    {
+                        <span style="color:#9ca3af; font-size:.82rem;">New Line Item</span>
+                    }
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span
+                    style="font-weight:700; color:#059669; font-size:.92rem;">@CalculateLineTotal(line).ToString("N2")</span>
+                    <button type="button"
+                            style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:.75rem;"
+                            @onclick="() => RemoveLine(index)">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="row g-2 mb-2">
+                <div class="col-5">
+                    <label
+                        style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Item
+                        Code <span style="color:#ef4444;">*</span></label>
+                        <div class="position-relative">
+                            <input type="text"
+                                   style="width:100%; padding:.4rem .6rem; border:1px solid @(showLineItemsError && string.IsNullOrWhiteSpace(line.ItemCode) ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
+                                   value="@line.ItemCode" @oninput="(e) => OnCnItemCodeInput(index, e.Value?.ToString())"
+                                   @onfocus="() => OnCnItemCodeFocus(index)" @onblur="() => OnCnItemCodeBlur(index)"
+                                   placeholder="Search item…" autocomplete="off" />
+                            @if (lineState.ShowDropdown && lineState.FilteredProducts.Any())
+                            {
+                                <div class="dropdown-autocomplete" @onmousedown:preventDefault>
+                                    @foreach (var product in lineState.FilteredProducts.Take(10))
                                     {
-                                        <span class="spinner-border spinner-border-sm"></span>
+                                        var displayPrice = GetPriceForItem(product.ItemCode, product.Price);
+                                        <div class="dropdown-item"
+                                             @onmousedown="async () => await SelectCnProduct(index, product)">
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <div>
+                                                    <div style="font-weight:600; font-size:.82rem;">@product.ItemCode</div>
+                                                    <small style="color:#6b7280;">@TruncateText(product.ItemName, 25)</small>
+                                                </div>
+                                                <span
+                                                    style="font-size:.75rem; font-weight:600; padding:.1rem .4rem; border-radius:4px; background:#dbeafe; color:#1e40af;">
+                                                    @displayPrice.ToString("N2")
+                                                </span>
+                                            </div>
+                                        </div>
                                     }
-                                    <span>Create Credit Note</span>
-                                </MudButton>
+                                    @if (lineState.FilteredProducts.Count > 10)
+                                    {
+                                        <div class="dropdown-item" style="color:#9ca3af; text-align:center; font-size:.78rem;">
+                                            +@(lineState.FilteredProducts.Count - 10) more…
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else if (lineState.ShowDropdown && !string.IsNullOrWhiteSpace(lineState.SearchTerm) &&
+                !lineState.FilteredProducts.Any())
+                            {
+                                <div class="dropdown-autocomplete" style="padding:1rem; text-align:center; color:#9ca3af;">
+                                    <i class="bi bi-search me-1"></i>No items found
+                                </div>
+                            }
+                        </div>
+                    </div>
+                    <div class="col-7">
+                        <label
+                        style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Description</label>
+                        @if (!string.IsNullOrEmpty(line.ItemDescription))
+                        {
+                            <div
+                                style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:7px; padding:.4rem .6rem; font-size:.82rem; color:#0c4a6e;">
+                                <i class="bi bi-box-seam me-1"
+                                   style="color:#667eea;"></i>@TruncateText(line.ItemDescription, 35)
                             </div>
+                        }
+                        else
+                        {
+                            <input type="text"
+                                   style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem; background:#f3f4f6; cursor:default;"
+                                   placeholder="Select an item" readonly />
                         }
                     </div>
                 </div>
+
+                <div class="row g-2">
+                    <div class="col-3">
+                        <label
+                            style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Qty
+                            <span style="color:#ef4444;">*</span></label>
+                            <input type="number"
+                                   style="width:100%; padding:.4rem .6rem; border:1px solid @(showLineItemsError && line.Quantity <= 0 ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
+                                   @bind="line.Quantity" min="0.001" step="0.001" placeholder="0" />
+                        </div>
+                        <div class="col-3">
+                            <label
+                                style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Unit
+                                Price</label>
+                                <input type="number"
+                                       style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
+                                       @bind="line.UnitPrice" min="0" step="0.01" />
+                            </div>
+                            <div class="col-3">
+                                <label
+                                    style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Discount
+                                    %</label>
+                                    <input type="number"
+                                           style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
+                                           @bind="line.DiscountPercent" min="0" max="100" step="0.01" />
+                                </div>
+                                <div class="col-3">
+                                    <label
+                                        style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Tax
+                                        %</label>
+                                        <input type="number"
+                                               style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
+                                               @bind="line.TaxPercent" min="0" max="100" step="0.01" />
+                                    </div>
+                                    <div class="col-12">
+                                        <label
+                                        style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Warehouse</label>
+                                        <select
+                                            style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
+                                            @bind="line.WarehouseCode">
+                                            <option value="">Default</option>
+                                            @foreach (var wh in cachedWarehouses)
+                                            {
+                                                <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
+                                            }
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        <div style="text-align:center; margin-top:.5rem;">
+                            <button type="button"
+                                    style="background:none; border:1px dashed #d1d5db; color:#6b7280; padding:.4rem 1rem; border-radius:8px; font-size:.82rem; cursor:pointer;"
+                                    @onclick="AddLine">
+                                <i class="bi bi-plus-lg me-1"></i>Add Another Line
+                            </button>
+                        </div>
+                    }
+                else
+                    {
+                        <div
+                            style="text-align:center; padding:2rem 1rem; background:#f9fafb; border-radius:10px; border:2px dashed #e5e7eb;">
+                            <div style="font-size:1.5rem; color:#9ca3af; margin-bottom:.5rem;"><i class="bi bi-inbox"></i></div>
+                            <p style="color:#6b7280; font-size:.85rem; margin-bottom:.25rem;">No credit note lines yet</p>
+                            <p style="color:#9ca3af; font-size:.78rem; margin-bottom:.75rem;">Add products to build the credit note
+                            </p>
+                            <button type="button" class="btn-so-gradient" style="padding:.4rem 1rem; font-size:.82rem;"
+                                    @onclick="AddLine">
+                                <i class="bi bi-plus-lg"></i> Add First Line
+                            </button>
+                        </div>
+                    }
+
+                    @if (showLineItemsError)
+                    {
+                        <div style="color:#ef4444; font-size:.78rem; margin-top:.4rem;">At least one line item with a valid item
+                            code and quantity is required.</div>
+                        }
+
+                        @if (newCreditNote.Lines.Any())
+                        {
+                            <div
+                                style="background:linear-gradient(135deg,#667eea,#764ba2); border-radius:10px; padding:.85rem 1.15rem; margin-top:1rem; color:#fff;">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <div style="font-size:.78rem; opacity:.8;">@newCreditNote.Lines.Count line(s) ·
+                                            @newCreditNote.Currency</div>
+                                            <div style="font-size:.85rem; font-weight:500;">Grand Total</div>
+                                        </div>
+                                        <div style="font-size:1.3rem; font-weight:700;">@CalculateGrandTotal().ToString("N2")</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <div class="form-footer">
+                            <a href="/credit-notes" class="btn-secondary-action">Cancel</a>
+                            <MudButton Class="btn-create" OnClick="CreateCreditNoteAsync" Disabled="@isCreating">
+                                @if (isCreating)
+                                {
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                }
+                                <span>Create Credit Note</span>
+                            </MudButton>
+                        </div>
+                    }
+                </div>
+            </div>
 
 @code {
     private CreateCreditNoteRequest newCreditNote = new();
@@ -819,17 +732,17 @@
     private bool showLineItemsError = false;
     private bool isMasterDataLoaded = false;
 
-    // Master data caches
     private List<ProductDto> cachedProducts = new();
     private List<WarehouseDto> cachedWarehouses = new();
     private List<BusinessPartnerDto> allBusinessPartners = new();
 
-    // Business partner autocomplete
     private BusinessPartnerDto? selectedBusinessPartner;
+    private Dictionary<string, decimal> customerPriceListPrices = new();
+    private int? customerPriceListNum;
+    private bool isLoadingCustomerPrices = false;
     private string? bpSearchTerm;
     private bool showBPDropdown = false;
 
-    // Line item product autocomplete state
     private Dictionary<int, CnLineState> cnLineStates = new();
 
     private class CnLineState
@@ -843,11 +756,15 @@
     {
         get
         {
-            if (string.IsNullOrWhiteSpace(bpSearchTerm)) return allBusinessPartners.Take(20);
-            var s = bpSearchTerm.ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(bpSearchTerm))
+            {
+                return allBusinessPartners.Take(50);
+            }
+
+            var search = bpSearchTerm.ToLowerInvariant();
             return allBusinessPartners.Where(bp =>
-                (bp.CardCode?.ToLowerInvariant().Contains(s) ?? false) ||
-                (bp.CardName?.ToLowerInvariant().Contains(s) ?? false)).Take(50);
+                (bp.CardCode?.ToLowerInvariant().Contains(search) ?? false) ||
+                (bp.CardName?.ToLowerInvariant().Contains(search) ?? false));
         }
     }
 
@@ -872,24 +789,24 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading master data for credit note creation");
-            isMasterDataLoaded = true; // Still show form
+            isMasterDataLoaded = true;
         }
     }
 
-    // ── Business Partner Selection ──
-    private void OnBPSearchInput(ChangeEventArgs e)
-    {
-        bpSearchTerm = e.Value?.ToString();
-        showBPDropdown = true;
-    }
-
-    private void SelectBusinessPartner(BusinessPartnerDto bp)
+    private async Task SelectBusinessPartnerAsync(BusinessPartnerDto bp)
     {
         selectedBusinessPartner = bp;
         newCreditNote.CardCode = bp.CardCode ?? string.Empty;
         newCreditNote.CardName = bp.CardName;
-        bpSearchTerm = null;
         showBPDropdown = false;
+
+        await LoadBusinessPartnerPricesAsync(bp);
+        UpdateExistingLinePrices();
+    }
+
+    private void SelectBusinessPartner(BusinessPartnerDto bp)
+    {
+        _ = SelectBusinessPartnerAsync(bp);
     }
 
     private void ClearSelectedBP()
@@ -898,20 +815,76 @@
         newCreditNote.CardCode = string.Empty;
         newCreditNote.CardName = null;
         bpSearchTerm = null;
+        showBPDropdown = false;
+        customerPriceListPrices.Clear();
+        customerPriceListNum = null;
+        UpdateExistingLinePrices();
     }
 
     private async Task OnBPSearchBlur()
     {
-        await Task.Delay(150);
+        await Task.Delay(200);
         showBPDropdown = false;
     }
 
-    // ── Line Item Product Autocomplete ──
     private CnLineState GetCnLineState(int index)
     {
         if (!cnLineStates.ContainsKey(index))
+        {
             cnLineStates[index] = new CnLineState();
+        }
+
         return cnLineStates[index];
+    }
+
+    private void UpdateExistingLinePrices()
+    {
+        foreach (var line in newCreditNote.Lines)
+        {
+            if (!string.IsNullOrWhiteSpace(line.ItemCode))
+            {
+                var product = cachedProducts.FirstOrDefault(p =>
+                    string.Equals(p.ItemCode, line.ItemCode, StringComparison.OrdinalIgnoreCase));
+                var defaultPrice = product?.Price ?? line.UnitPrice;
+                line.UnitPrice = GetPriceForItem(line.ItemCode, defaultPrice);
+            }
+        }
+    }
+
+    private async Task LoadBusinessPartnerPricesAsync(BusinessPartnerDto bp)
+    {
+        isLoadingCustomerPrices = true;
+        StateHasChanged();
+
+        try
+        {
+            var lookup = await BusinessPartnerPricingService.LoadPriceLookupAsync(bp);
+            customerPriceListPrices = lookup.Prices;
+            customerPriceListNum = lookup.PriceListNum;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading credit note prices for {CardCode}", bp.CardCode);
+            customerPriceListPrices.Clear();
+            customerPriceListNum = null;
+        }
+        finally
+        {
+            isLoadingCustomerPrices = false;
+            StateHasChanged();
+        }
+    }
+
+    private decimal GetPriceForItem(string? itemCode, decimal defaultPrice)
+    {
+        if (string.IsNullOrEmpty(itemCode))
+        {
+            return defaultPrice;
+        }
+
+        return customerPriceListPrices.TryGetValue(itemCode, out var customerPrice)
+            ? customerPrice
+            : defaultPrice;
     }
 
     private void OnCnItemCodeInput(int index, string? value)
@@ -941,41 +914,71 @@
             .ThenBy(p => p.ItemCode)
             .ToList();
 
-        state.ShowDropdown = state.FilteredProducts.Any();
+        state.ShowDropdown = true;
     }
 
     private void OnCnItemCodeFocus(int index)
     {
         var state = GetCnLineState(index);
-        if (!string.IsNullOrWhiteSpace(state.SearchTerm) && state.FilteredProducts.Any())
-            state.ShowDropdown = true;
+        state.ShowDropdown = true;
+
+        if (string.IsNullOrWhiteSpace(state.SearchTerm))
+        {
+            state.FilteredProducts = cachedProducts.Take(15).ToList();
+        }
     }
 
     private async Task OnCnItemCodeBlur(int index)
     {
-        await Task.Delay(150);
+        await Task.Delay(200);
         var state = GetCnLineState(index);
         state.ShowDropdown = false;
     }
 
-    private void SelectCnProduct(int index, ProductDto product)
+    private async Task SelectCnProduct(int index, ProductDto product)
     {
         var line = newCreditNote.Lines[index];
         line.ItemCode = product.ItemCode ?? string.Empty;
         line.ItemDescription = product.ItemName;
-        line.UnitPrice = product.Price;
+        line.UnitPrice = GetPriceForItem(product.ItemCode, product.Price);
+
+        if (!string.IsNullOrEmpty(product.ItemCode))
+        {
+            try
+            {
+                line.UnitPrice = await BusinessPartnerPricingService.ResolveUnitPriceAsync(
+                    product.ItemCode,
+                    selectedBusinessPartner?.Currency ?? AppSettings.DefaultCurrency,
+                    product.Price,
+                    newCreditNote.CardCode,
+                    customerPriceListNum,
+                    customerPriceListPrices);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to resolve BP-aware credit note price for item {ItemCode}", product.ItemCode);
+            }
+        }
+
         if (string.IsNullOrEmpty(line.WarehouseCode))
-            line.WarehouseCode = product.DefaultWarehouse;
+        {
+            line.WarehouseCode = string.IsNullOrEmpty(newCreditNote.RestockWarehouseCode)
+                ? product.DefaultWarehouse
+                : newCreditNote.RestockWarehouseCode;
+        }
 
         var state = GetCnLineState(index);
         state.SearchTerm = line.ItemCode;
         state.ShowDropdown = false;
     }
 
-    // ── Line Management ──
     private void AddLine()
     {
-        newCreditNote.Lines.Add(new CreateCreditNoteLineRequest());
+        newCreditNote.Lines.Add(new CreateCreditNoteLineRequest
+        {
+            Quantity = 1,
+            WarehouseCode = newCreditNote.RestockWarehouseCode ?? string.Empty
+        });
         showLineItemsError = false;
     }
 
@@ -985,13 +988,18 @@
         {
             newCreditNote.Lines.RemoveAt(index);
             cnLineStates.Remove(index);
-            var newStates = new Dictionary<int, CnLineState>();
-            foreach (var kvp in cnLineStates)
+
+            var oldStates = new Dictionary<int, CnLineState>(cnLineStates);
+            cnLineStates.Clear();
+
+            for (int i = 0; i < newCreditNote.Lines.Count; i++)
             {
-                var newKey = kvp.Key > index ? kvp.Key - 1 : kvp.Key;
-                newStates[newKey] = kvp.Value;
+                var oldIndex = i >= index ? i + 1 : i;
+                if (oldStates.TryGetValue(oldIndex, out var state))
+                {
+                    cnLineStates[i] = state;
+                }
             }
-            cnLineStates = newStates;
         }
     }
 
@@ -1058,7 +1066,11 @@
 
     private string TruncateText(string? text, int maxLength)
     {
-        if (string.IsNullOrEmpty(text)) return "—";
+        if (string.IsNullOrEmpty(text))
+        {
+            return "—";
+        }
+
         return text.Length <= maxLength ? text : text.Substring(0, maxLength) + "...";
     }
 }

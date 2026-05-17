@@ -127,7 +127,7 @@ public sealed class UpdateUserHandler(
 
         if (command.Request.AssignedCustomerCodes != null)
         {
-            if (user.Role == "Merchandiser" || user.Role == "Driver")
+            if (user.Role == "Merchandiser" || user.Role == "Driver" || user.Role == "PodOperator")
             {
                 logger.LogInformation("Setting customer codes for {User}: {Codes}", user.Username, string.Join(",", command.Request.AssignedCustomerCodes));
                 user.SetCustomerCodes(command.Request.AssignedCustomerCodes);
@@ -139,7 +139,7 @@ public sealed class UpdateUserHandler(
             }
         }
 
-        if (user.Role == "Driver")
+        if (user.Role == "Driver" || user.Role == "PodOperator")
             user.AssignedSection = command.Request.AssignedSection;
         else
             user.AssignedSection = null;
@@ -171,14 +171,15 @@ public sealed class UpdateUserHandler(
             return Errors.UserManagement.UpdateFailed("At least one assigned customer code is required for Merchandiser role");
         }
 
-        if (user.Role == "Driver" && string.IsNullOrWhiteSpace(user.AssignedSection))
+        if ((user.Role == "Driver" || user.Role == "PodOperator") && string.IsNullOrWhiteSpace(user.AssignedSection))
         {
-            return Errors.UserManagement.UpdateFailed("An assigned section is required for Driver role");
+            return Errors.UserManagement.UpdateFailed("An assigned section is required for Driver and PodOperator roles");
         }
 
         var shouldNotifyCustomerAssignmentChanges = command.Request.AssignedCustomerCodes != null &&
             (string.Equals(user.Role, "Merchandiser", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(user.Role, "Driver", StringComparison.OrdinalIgnoreCase));
+             string.Equals(user.Role, "Driver", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(user.Role, "PodOperator", StringComparison.OrdinalIgnoreCase));
 
         var updatedAssignedCustomerCodes = user.GetCustomerCodes()
             .Where(code => !string.IsNullOrWhiteSpace(code))

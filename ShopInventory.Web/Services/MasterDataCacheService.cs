@@ -566,7 +566,10 @@ public class MasterDataCacheService : IMasterDataCacheService
         {
             var errorContent = await httpResponse.Content.ReadAsStringAsync();
             _logger.LogError("API call failed with status {Status}: {Error}", httpResponse.StatusCode, errorContent);
-            throw new HttpRequestException($"API returned {httpResponse.StatusCode}: {errorContent}");
+            throw ApiErrorResponse.CreateHttpRequestException(
+                httpResponse.StatusCode,
+                errorContent,
+                "We couldn't load prices from the server right now.");
         }
 
         var response = await httpResponse.Content.ReadFromJsonAsync<ItemPricesResponse>();
@@ -1549,7 +1552,10 @@ public class MasterDataCacheService : IMasterDataCacheService
                 var errorContent = await httpResponse.Content.ReadAsStringAsync();
                 _logger.LogError("API call to costcentre failed with status {StatusCode}: {Error}",
                     httpResponse.StatusCode, errorContent);
-                throw new HttpRequestException($"API returned {httpResponse.StatusCode}: {errorContent}");
+                throw ApiErrorResponse.CreateHttpRequestException(
+                    httpResponse.StatusCode,
+                    errorContent,
+                    "We couldn't load cost centres from the server right now.");
             }
 
             // Log raw response for debugging

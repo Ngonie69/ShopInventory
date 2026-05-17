@@ -148,9 +148,9 @@ try
     builder.Services.AddSingleton<StartupReadinessSignal>();
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("Process is running."), tags: ["live"])
-        .AddCheck<StartupReadinessHealthCheck>("startup", tags: ["ready"])
-        .AddCheck<WebAppDbHealthCheck>("database", tags: ["ready", "dependencies"])
-        .AddCheck<WebAppSchemaHealthCheck>("schema", tags: ["ready", "dependencies"])
+        .AddCheck<StartupReadinessHealthCheck>("startup", tags: ["ready", "deploy-ready"])
+        .AddCheck<WebAppDbHealthCheck>("database", tags: ["ready", "deploy-ready", "dependencies"])
+        .AddCheck<WebAppSchemaHealthCheck>("schema", tags: ["ready", "deploy-ready", "dependencies"])
         .AddCheck<ApiDependencyHealthCheck>("api", tags: ["dependencies"]);
 
     // Add Cascading Authentication State (for Blazor component-level auth)
@@ -229,6 +229,7 @@ try
     builder.Services.AddScoped<IWarehouseStockCacheService, WarehouseStockCacheService>();
     builder.Services.AddScoped<IProductService, ProductService>();
     builder.Services.AddScoped<IPriceService, PriceService>();
+    builder.Services.AddScoped<IBusinessPartnerPricingService, BusinessPartnerPricingService>();
     builder.Services.AddScoped<IBusinessPartnerService, BusinessPartnerService>();
     builder.Services.AddScoped<IMasterDataCacheService, MasterDataCacheService>();
 
@@ -394,6 +395,11 @@ try
     app.MapHealthChecks("/health/live", new HealthCheckOptions
     {
         Predicate = registration => registration.Tags.Contains("live")
+    }).AllowAnonymous();
+
+    app.MapHealthChecks("/health/deploy-ready", new HealthCheckOptions
+    {
+        Predicate = registration => registration.Tags.Contains("deploy-ready")
     }).AllowAnonymous();
 
     app.MapHealthChecks("/health/ready", new HealthCheckOptions

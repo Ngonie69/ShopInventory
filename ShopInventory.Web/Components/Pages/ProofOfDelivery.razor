@@ -464,12 +464,17 @@
                     <div class="col-md-2">
                         <label class="pod-label">Search</label>
                         <input type="text" class="form-control pod-input" @bind="filterSearch" @bind:event="oninput"
-                               @onkeydown="OnFilterKeyDown" placeholder="Invoice #, customer name or code" />
+                               @onkeydown="OnFilterKeyDown" placeholder="Invoice #, customer, code, or uploader" />
                     </div>
                     <div class="col-md-2">
                         <label class="pod-label">Customer Code</label>
                         <input type="text" class="form-control pod-input" @bind="filterCardCode" @bind:event="oninput"
                                @onkeydown="OnFilterKeyDown" placeholder="e.g. C00001" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="pod-label">Uploaded By</label>
+                        <input type="text" class="form-control pod-input" @bind="filterUploadedBy" @bind:event="oninput"
+                               @onkeydown="OnFilterKeyDown" placeholder="username" />
                     </div>
                     <div class="col-md-2">
                         <label class="pod-label">Upload Location</label>
@@ -1289,11 +1294,13 @@
     private const int DefaultPodPageSize = 20;
     private string? filterCardCode;
     private string? filterSearch;
+    private string? filterUploadedBy;
     private string? filterUploadedFromLocation;
     private DateTime? filterFromDate;
     private DateTime? filterToDate;
     private string? activeFilterCardCode;
     private string? activeFilterSearch;
+    private string? activeFilterUploadedBy;
     private string? activeFilterUploadedFromLocation;
     private DateTime? activeFilterFromDate;
     private DateTime? activeFilterToDate;
@@ -1301,6 +1308,7 @@
     private bool HasActiveFilters =>
         !string.IsNullOrEmpty(activeFilterCardCode) ||
         !string.IsNullOrEmpty(activeFilterSearch) ||
+        !string.IsNullOrEmpty(activeFilterUploadedBy) ||
         !string.IsNullOrEmpty(activeFilterUploadedFromLocation) ||
         activeFilterFromDate.HasValue ||
         activeFilterToDate.HasValue;
@@ -1405,7 +1413,7 @@
         {
             var requestedPage = state.Page + 1;
             var requestedPageSize = state.PageSize > 0 ? state.PageSize : DefaultPodPageSize;
-            var response = await PodService.GetAllPodsAsync(requestedPage, requestedPageSize, activeFilterCardCode, activeFilterFromDate, activeFilterToDate, activeFilterSearch, activeFilterUploadedFromLocation, cancellationToken);
+            var response = await PodService.GetAllPodsAsync(requestedPage, requestedPageSize, activeFilterCardCode, activeFilterFromDate, activeFilterToDate, activeFilterSearch, activeFilterUploadedBy, activeFilterUploadedFromLocation, cancellationToken);
             if (response != null)
             {
                 podResponse = response;
@@ -1450,6 +1458,7 @@
     {
         activeFilterCardCode = string.IsNullOrWhiteSpace(filterCardCode) ? null : filterCardCode.Trim();
         activeFilterSearch = string.IsNullOrWhiteSpace(filterSearch) ? null : filterSearch.Trim();
+        activeFilterUploadedBy = string.IsNullOrWhiteSpace(filterUploadedBy) ? null : filterUploadedBy.Trim();
         activeFilterUploadedFromLocation = string.IsNullOrWhiteSpace(filterUploadedFromLocation) ? null : filterUploadedFromLocation.Trim();
         activeFilterFromDate = filterFromDate;
         activeFilterToDate = filterToDate;
@@ -1460,11 +1469,13 @@
     {
         filterCardCode = null;
         filterSearch = null;
+        filterUploadedBy = null;
         filterUploadedFromLocation = null;
         filterFromDate = null;
         filterToDate = null;
         activeFilterCardCode = null;
         activeFilterSearch = null;
+        activeFilterUploadedBy = null;
         activeFilterUploadedFromLocation = null;
         activeFilterFromDate = null;
         activeFilterToDate = null;

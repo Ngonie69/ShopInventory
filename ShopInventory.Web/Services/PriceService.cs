@@ -84,7 +84,10 @@ public class PriceService : IPriceService
                 {
                     IsSuccess = false,
                     StatusCode = (int)response.StatusCode,
-                    ErrorMessage = $"API returned {response.StatusCode}: {errorContent}"
+                    ErrorMessage = ApiErrorResponse.GetFriendlyMessage(
+                        response.StatusCode,
+                        errorContent,
+                        "We couldn't load grouped prices right now.")
                 };
             }
 
@@ -102,7 +105,9 @@ public class PriceService : IPriceService
             return new PriceServiceResult<ItemPricesGroupedResponse>
             {
                 IsSuccess = false,
-                ErrorMessage = $"Exception: {ex.Message}"
+                ErrorMessage = ApiErrorResponse.GetFriendlyMessage(
+                    ex,
+                    "We couldn't load grouped prices right now.")
             };
         }
     }

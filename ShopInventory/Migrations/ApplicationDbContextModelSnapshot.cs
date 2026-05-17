@@ -951,6 +951,9 @@ namespace ShopInventory.Migrations
 
                     b.HasIndex("UploadedByUserId");
 
+                    b.HasIndex("EntityType", "EntityId", "ExternalReference")
+                        .IsUnique();
+
                     b.ToTable("DocumentAttachments");
                 });
 
@@ -2998,6 +3001,10 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("ClientRequestId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("Comments")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
@@ -3095,6 +3102,9 @@ namespace ShopInventory.Migrations
                     b.HasIndex("ApprovedByUserId");
 
                     b.HasIndex("CardCode");
+
+                    b.HasIndex("ClientRequestId")
+                        .IsUnique();
 
                     b.HasIndex("CreatedByUserId");
 
@@ -4624,6 +4634,9 @@ namespace ShopInventory.Migrations
 
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("boolean");
+
+                    b.Property<long?>("TwoFactorLastUsedTimeStep")
+                        .HasColumnType("bigint");
 
                     b.Property<string>("TwoFactorSecret")
                         .HasMaxLength(256)

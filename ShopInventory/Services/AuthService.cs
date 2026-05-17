@@ -340,7 +340,7 @@ public class AuthService : IAuthService
     public async Task<AuthLoginResponse?> CompleteTwoFactorLoginAsync(
         string challengeToken, string code, bool isBackupCode, string ipAddress, CancellationToken cancellationToken)
     {
-        var userId = _pendingStore.ConsumeChallenge(challengeToken);
+        var userId = _pendingStore.GetChallengeUserId(challengeToken);
         if (userId is null)
         {
             _logger.LogWarning("Invalid or expired 2FA challenge token from IP: {IpAddress}", ipAddress);
@@ -353,6 +353,8 @@ public class AuthService : IAuthService
             _logger.LogWarning("Failed 2FA code verification for user {UserId} from IP: {IpAddress}", userId.Value, ipAddress);
             return null;
         }
+
+        _pendingStore.ConsumeChallenge(challengeToken);
 
         var user = await _dbContext.Users.FindAsync([userId.Value], cancellationToken);
         if (user is null || !user.IsActive)

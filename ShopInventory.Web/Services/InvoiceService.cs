@@ -13,7 +13,7 @@ public interface IInvoiceService
     Task<InvoiceDateResponse?> GetInvoicesByDateAsync(DateTime date);
     Task<InvoiceDateResponse?> GetInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate, int? page = null, int? pageSize = null);
     Task<(bool Success, string Message, InvoiceDto? Invoice, FiscalizationResult? Fiscalization)> CreateInvoiceAsync(CreateInvoiceRequest request);
-    Task<byte[]?> GetInvoicePdfAsync(int docEntry);
+    Task<byte[]?> GetInvoicePdfAsync(int docEntry, string? fiscalQrCode = null);
 }
 
 public class InvoiceService : IInvoiceService
@@ -215,18 +215,25 @@ public class InvoiceService : IInvoiceService
             catch (Exception parseEx)
             {
                 _logger.LogWarning(parseEx, "Failed to parse error response");
-                return (false, $"Failed to create invoice: {response.StatusCode} - {errorContent}", null, null);
+                return (false, ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode,
+                    errorContent,
+                    "We couldn't create this invoice right now. Please try again."), null, null);
             }
         }
         catch (HttpRequestException httpEx)
         {
             _logger.LogError(httpEx, "HTTP error creating invoice. Status: {StatusCode}", httpEx.StatusCode);
-            return (false, $"Network error: {httpEx.Message}", null, null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                httpEx,
+                "We couldn't create this invoice right now. Please try again."), null, null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error creating invoice");
-            return (false, $"Error: {ex.Message}", null, null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't create this invoice right now. Please try again."), null, null);
         }
     }
 
@@ -300,11 +307,17 @@ public class InvoiceService : IInvoiceService
         }
     }
 
-    public async Task<byte[]?> GetInvoicePdfAsync(int docEntry)
+    public async Task<byte[]?> GetInvoicePdfAsync(int docEntry, string? fiscalQrCode = null)
     {
         try
         {
-            var response = await _httpClient.GetAsync($"api/invoice/{docEntry}/pdf");
+            var url = $"api/invoice/{docEntry}/pdf";
+            if (!string.IsNullOrWhiteSpace(fiscalQrCode))
+            {
+                url = $"{url}?fiscalQrCode={Uri.EscapeDataString(fiscalQrCode)}";
+            }
+
+            var response = await _httpClient.GetAsync(url);
             if (response.IsSuccessStatusCode)
             {
                 return await response.Content.ReadAsByteArrayAsync();

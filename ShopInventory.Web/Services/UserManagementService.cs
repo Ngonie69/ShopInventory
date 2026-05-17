@@ -48,10 +48,12 @@ public interface IUserManagementService
 /// </summary>
 public class UserManagementService : IUserManagementService
 {
+    private const int AuthTokenReadAttempts = 3;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILocalStorageService _localStorage;
     private readonly IAppSettingsService _appSettingsService;
     private readonly ILogger<UserManagementService> _logger;
+    private string? _cachedAccessToken;
 
     public UserManagementService(
         IHttpClientFactory httpClientFactory,
@@ -67,24 +69,24 @@ public class UserManagementService : IUserManagementService
 
     public async Task<UserListResponse> GetUsersAsync(int page = 1, int pageSize = 20, string? search = null, string? role = null, string? status = null)
     {
-        try
+        var client = await CreateAuthenticatedClientAsync();
+        var url = $"api/usermanagement?page={page}&pageSize={pageSize}";
+        if (!string.IsNullOrEmpty(search)) url += $"&search={Uri.EscapeDataString(search)}";
+        if (!string.IsNullOrEmpty(role)) url += $"&role={role}";
+        if (!string.IsNullOrEmpty(status))
         {
-            var client = await CreateAuthenticatedClientAsync();
-            var url = $"api/usermanagement?page={page}&pageSize={pageSize}";
-            if (!string.IsNullOrEmpty(search)) url += $"&search={Uri.EscapeDataString(search)}";
-            if (!string.IsNullOrEmpty(role)) url += $"&role={role}";
-            if (!string.IsNullOrEmpty(status))
-            {
-                if (status == "active") url += "&isActive=true";
-                else if (status == "inactive") url += "&isActive=false";
-            }
-            return await client.GetFromJsonAsync<UserListResponse>(url) ?? new UserListResponse();
+            if (status == "active") url += "&isActive=true";
+            else if (status == "inactive") url += "&isActive=false";
         }
-        catch (Exception ex)
+
+        var response = await client.GetAsync(url);
+
+        if (!response.IsSuccessStatusCode)
         {
-            _logger.LogError(ex, "Error fetching users");
-            return new UserListResponse();
+            await ThrowApiExceptionAsync(response, "Failed to load users.");
         }
+
+        return await response.Content.ReadFromJsonAsync<UserListResponse>() ?? new UserListResponse();
     }
 
     public async Task<UserModel?> GetUserAsync(Guid id)
@@ -361,7 +363,8 @@ public class UserManagementService : IUserManagementService
 
     private async Task<List<string>> GetDriverAssignedCustomerCodesForRequestAsync(string role, List<string> assignedCustomerCodes)
     {
-        if (!string.Equals(role, "Driver", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(role, "Driver", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(role, "PodOperator", StringComparison.OrdinalIgnoreCase))
         {
             return assignedCustomerCodes;
         }
@@ -452,21 +455,59 @@ public class UserManagementService : IUserManagementService
 
     private async Task<HttpClient> CreateAuthenticatedClientAsync()
     {
-        try
+        var client = _httpClientFactory.CreateClient("ShopInventoryApiUser");
+
+        if (!string.IsNullOrWhiteSpace(_cachedAccessToken))
         {
-            var token = await _localStorage.GetItemAsync<string>("authToken");
-            if (string.IsNullOrWhiteSpace(token))
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _cachedAccessToken);
+        }
+
+        Exception? lastException = null;
+
+        for (var attempt = 1; attempt <= AuthTokenReadAttempts; attempt++)
+        {
+            try
             {
-                _logger.LogWarning("Missing auth token for user management API call");
-                throw new HttpRequestException(
-                    "Authentication failed. Please log out and log in again.",
-                    null,
-                    HttpStatusCode.Unauthorized);
+                var token = await _localStorage.GetItemAsync<string>("authToken");
+                if (string.IsNullOrWhiteSpace(token))
+                {
+                    lastException = new HttpRequestException(
+                        "Authentication failed. Please log out and log in again.",
+                        null,
+                        HttpStatusCode.Unauthorized);
+                }
+                else
+                {
+                    _cachedAccessToken = token;
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                    return client;
+                }
+            }
+            catch (Exception ex) when (ex is not HttpRequestException)
+            {
+                lastException = ex;
+                _logger.LogDebug(ex, "Could not access auth token for user management API call on attempt {Attempt}", attempt);
             }
 
-            var client = _httpClientFactory.CreateClient("ShopInventoryApiUser");
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            if (attempt < AuthTokenReadAttempts)
+            {
+                await Task.Delay(150);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(_cachedAccessToken))
+        {
+            _logger.LogWarning(lastException, "Falling back to cached auth token for user management API call");
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _cachedAccessToken);
             return client;
+        }
+
+        try
+        {
+            throw lastException ?? new HttpRequestException(
+                "Authentication failed. Please log out and log in again.",
+                null,
+                HttpStatusCode.Unauthorized);
         }
         catch (HttpRequestException)
         {

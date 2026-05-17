@@ -10,6 +10,7 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.DownloadInvoicePdf;
 
 public sealed class DownloadInvoicePdfHandler(
     ISAPServiceLayerClient sapClient,
+    IRevmaxClient revmaxClient,
     IInvoicePdfService invoicePdfService,
     IOptions<SAPSettings> sapSettings,
     ILogger<DownloadInvoicePdfHandler> logger
@@ -50,9 +51,33 @@ public sealed class DownloadInvoicePdfHandler(
             }
         }
 
-        var pdfBytes = await invoicePdfService.GenerateInvoicePdfAsync(invoiceDto);
+        var fiscalQrCode = query.FiscalQrCode;
+        if (string.IsNullOrWhiteSpace(fiscalQrCode))
+        {
+            fiscalQrCode = await TryGetFiscalQrCodeAsync(invoiceDto.DocNum, cancellationToken);
+        }
+
+        var pdfBytes = await invoicePdfService.GenerateInvoicePdfAsync(invoiceDto, fiscalQrCode);
         var fileName = $"Invoice_{invoiceDto.DocNum}_{DateTime.Now:yyyyMMdd}.pdf";
 
         return new InvoicePdfResult(pdfBytes, fileName);
+
+        async Task<string?> TryGetFiscalQrCodeAsync(int docNum, CancellationToken token)
+        {
+            try
+            {
+                var fiscalInvoice = await revmaxClient.GetInvoiceAsync(docNum.ToString(), token);
+                return fiscalInvoice?.Success == true && !string.IsNullOrWhiteSpace(fiscalInvoice.QRcode)
+                    ? fiscalInvoice.QRcode
+                    : null;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "Could not load REVMax QR code for desktop invoice {DocNum} while generating PDF",
+                    docNum);
+                return null;
+            }
+        }
     }
 }

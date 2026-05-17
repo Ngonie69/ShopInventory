@@ -873,24 +873,27 @@ new("GET", "/api/revmax/receipt/{receiptId}", "Get fiscal receipt")
 
             var content = await response.Content.ReadAsStringAsync();
 
-            // Try to format JSON
-            try
-            {
-                var jsonDoc = JsonDocument.Parse(content);
-                _responseBody = JsonSerializer.Serialize(jsonDoc, new JsonSerializerOptions { WriteIndented = true });
-            }
-            catch
-            {
-                _responseBody = content;
-            }
-
             if (response.IsSuccessStatusCode)
             {
+                try
+                {
+                    var jsonDoc = JsonDocument.Parse(content);
+                    _responseBody = JsonSerializer.Serialize(jsonDoc, new JsonSerializerOptions { WriteIndented = true });
+                }
+                catch
+                {
+                    _responseBody = content;
+                }
+
                 Snackbar.Add($"Request successful ({_responseStatus})", Severity.Success);
             }
             else
             {
-                Snackbar.Add($"Request failed ({_responseStatus})", Severity.Warning);
+                _responseBody = ShopInventory.Web.Services.ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode,
+                    content,
+                    "Request failed.");
+                Snackbar.Add(_responseBody, Severity.Warning);
             }
         }
         catch (Exception ex)
@@ -898,8 +901,10 @@ new("GET", "/api/revmax/receipt/{receiptId}", "Get fiscal receipt")
             stopwatch.Stop();
             _responseTime = stopwatch.ElapsedMilliseconds;
             _responseStatus = 0;
-            _responseBody = $"Error: {ex.Message}";
-            Snackbar.Add($"Request error: {ex.Message}", Severity.Error);
+            _responseBody = ShopInventory.Web.Services.ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "Request failed.");
+            Snackbar.Add(_responseBody, Severity.Error);
         }
         finally
         {

@@ -6,4 +6,4 @@ namespace ShopInventory.Features.TwoFactor.Commands.EnableTwoFactor;
 public sealed record EnableTwoFactorCommand(
     string Code,
     Guid UserId
-) : IRequest<ErrorOr<string>>;
+) : IRequest<ErrorOr<List<string>>>;

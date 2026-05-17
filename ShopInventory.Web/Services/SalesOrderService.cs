@@ -14,6 +14,7 @@ public interface ISalesOrderService
     Task<SalesOrderDto?> GetLocalSalesOrderByIdAsync(int id);
     Task<SalesOrderDto?> GetSalesOrderByNumberAsync(string orderNumber);
     Task<SalesOrderDto?> GetSalesOrderDetailsAsync(SalesOrderDto order);
+    Task<byte[]?> GetSalesOrderPdfAsync(int id, bool useLocal = false);
     Task<SalesOrderDto?> CreateSalesOrderAsync(CreateSalesOrderRequest request);
     Task<SalesOrderDto?> UpdateSalesOrderAsync(int id, CreateSalesOrderRequest request);
     Task<SalesOrderDto?> UpdateStatusAsync(int id, SalesOrderStatus status, string? comments = null);
@@ -173,6 +174,34 @@ public class SalesOrderService : ISalesOrderService
         return await GetSalesOrderByIdAsync(sapDocEntry);
     }
 
+    public async Task<byte[]?> GetSalesOrderPdfAsync(int id, bool useLocal = false)
+    {
+        try
+        {
+            await EnsureAuthenticationAsync();
+            var url = useLocal
+                ? $"api/salesorder/local/{id}/pdf"
+                : $"api/salesorder/{id}/pdf";
+
+            var response = await _httpClient.GetAsync(url);
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadAsByteArrayAsync();
+            }
+
+            _logger.LogWarning("Failed to download sales order PDF for {Id} (Local={UseLocal}): {StatusCode}",
+                id,
+                useLocal,
+                response.StatusCode);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error downloading sales order PDF for {Id} (Local={UseLocal})", id, useLocal);
+            return null;
+        }
+    }
+
     private static bool ShouldLoadFromLocal(SalesOrderDto order)
     {
         return !order.IsSynced ||
@@ -191,7 +220,10 @@ public class SalesOrderService : ISalesOrderService
 
         var errorBody = await response.Content.ReadAsStringAsync();
         _logger.LogWarning("Failed to create sales order: {StatusCode} - {Error}", response.StatusCode, errorBody);
-        throw new HttpRequestException($"Server returned {(int)response.StatusCode}: {errorBody}");
+        throw ApiErrorResponse.CreateHttpRequestException(
+            response.StatusCode,
+            errorBody,
+            "We couldn't create this sales order right now. Please try again.");
     }
 
     public async Task<SalesOrderDto?> UpdateSalesOrderAsync(int id, CreateSalesOrderRequest request)
@@ -210,7 +242,10 @@ public class SalesOrderService : ISalesOrderService
             }
             var errorBody = await response.Content.ReadAsStringAsync();
             _logger.LogWarning("Failed to update sales order {Id}: {StatusCode} - {Error}", id, response.StatusCode, errorBody);
-            throw new HttpRequestException($"Server returned {(int)response.StatusCode}: {errorBody}");
+            throw ApiErrorResponse.CreateHttpRequestException(
+                response.StatusCode,
+                errorBody,
+                "We couldn't update this sales order right now. Please try again.");
         }
         catch (HttpRequestException)
         {
@@ -425,7 +460,10 @@ public class SalesOrderService : ISalesOrderService
             }
             var errorBody = await response.Content.ReadAsStringAsync();
             _logger.LogWarning("Failed to post sales order to SAP {Id}: {StatusCode} - {Error}", id, response.StatusCode, errorBody);
-            throw new HttpRequestException($"Server returned {(int)response.StatusCode}: {errorBody}");
+            throw ApiErrorResponse.CreateHttpRequestException(
+                response.StatusCode,
+                errorBody,
+                "We couldn't post this sales order to SAP right now. Please try again.");
         }
         catch (HttpRequestException)
         {

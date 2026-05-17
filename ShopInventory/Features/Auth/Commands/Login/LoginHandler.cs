@@ -37,7 +37,11 @@ public sealed class LoginHandler(
             return Errors.Auth.InvalidCredentials;
         }
 
-        try { await auditService.LogAsync(AuditActions.Login, result.User?.Username ?? command.Username, result.User?.Role ?? "Unknown", "User", null, $"User {result.User?.Username ?? command.Username} logged in"); } catch { }
+        if (!result.RequiresTwoFactor)
+        {
+            try { await auditService.LogAsync(AuditActions.Login, result.User?.Username ?? command.Username, result.User?.Role ?? "Unknown", "User", null, $"User {result.User?.Username ?? command.Username} logged in"); } catch { }
+        }
+
         return result;
     }
 }

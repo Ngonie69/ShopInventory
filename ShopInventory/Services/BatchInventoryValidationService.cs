@@ -271,6 +271,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                     LineNumber = lineNumber,
                     ItemCode = line.ItemCode ?? "",
                     WarehouseCode = line.WarehouseCode,
+                    IsBatchManaged = false,
                     OriginalRequestedQuantity = line.Quantity,
                     TotalQuantityAllocated = stockCheck.inventoryQuantity,
                     UoMConversionFactor = stockCheck.conversionFactor,
@@ -298,24 +299,24 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                 return result;
             }
 
-            // Auto-allocate batches using FIFO/FEFO
-            var autoAllocationResult = await AutoAllocateBatchesAsync(
+            var uomInfo = await GetUoMConversionAsync(
                 line.ItemCode ?? "",
-                line.WarehouseCode,
-                line.Quantity,
                 line.UoMCode,
-                strategy,
-                lineNumber,
+                null,
                 cancellationToken);
+            var conversionFactor = uomInfo?.ConversionFactor ?? 1.0m;
 
-            if (autoAllocationResult.error != null)
+            result.AllocatedLine = new AllocatedBatchLine
             {
-                result.Errors.Add(autoAllocationResult.error);
-            }
-            else if (autoAllocationResult.allocatedLine != null)
-            {
-                result.AllocatedLine = autoAllocationResult.allocatedLine;
-            }
+                LineNumber = lineNumber,
+                ItemCode = line.ItemCode ?? "",
+                WarehouseCode = line.WarehouseCode,
+                IsBatchManaged = true,
+                OriginalRequestedQuantity = line.Quantity,
+                TotalQuantityAllocated = line.Quantity * conversionFactor,
+                UoMConversionFactor = conversionFactor,
+                Batches = new List<AllocatedBatch>()
+            };
         }
         else
         {
@@ -397,7 +398,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         CancellationToken cancellationToken)
     {
         var nonBatchGroups = result.AllocatedLines
-            .Where(line => line.Batches.Count == 0)
+            .Where(line => !line.IsBatchManaged)
             .GroupBy(line => BuildStockKey(line.ItemCode, line.WarehouseCode));
 
         foreach (var nonBatchGroup in nonBatchGroups)
@@ -481,7 +482,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         CancellationToken cancellationToken)
     {
         var batchGroups = result.AllocatedLines
-            .Where(line => line.Batches.Count > 0)
+            .Where(line => line.IsBatchManaged)
             .GroupBy(line => BuildStockKey(line.ItemCode, line.WarehouseCode));
 
         foreach (var batchGroup in batchGroups)
@@ -893,6 +894,17 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
         try
         {
+            if (previouslyAllocatedBatches is { Count: > 0 })
+            {
+                response.IsValid = true;
+                response.Message = "Stock validation successful";
+                response.AllocatedBatches = previouslyAllocatedBatches;
+                response.LockToken = lockResult.CombinedLockToken;
+                response.LockTokens = lockResult.LockTokens;
+                response.LockExpiresAt = lockResult.EarliestExpiry;
+                return response;
+            }
+
             // Re-validate stock with locks held
             var validationResult = await ValidateAndAllocateBatchesAsync(
                 request,
@@ -902,6 +914,11 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
             if (!validationResult.IsValid)
             {
+                if (lockResult.LockTokens.Count > 0)
+                {
+                    await _lockService.ReleaseMultipleLocksAsync(lockResult.LockTokens);
+                }
+
                 response.IsValid = false;
                 response.Message = "Stock validation failed during pre-post check";
                 response.Errors = validationResult.ValidationErrors;
@@ -926,6 +943,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             response.Message = "Stock validation successful";
             response.AllocatedBatches = validationResult.AllocatedLines;
             response.LockToken = lockResult.CombinedLockToken;
+            response.LockTokens = lockResult.LockTokens;
             response.LockExpiresAt = lockResult.EarliestExpiry;
 
             // Note: Locks will be held until invoice is posted or lock expires
@@ -1158,6 +1176,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             LineNumber = lineNumber,
             ItemCode = itemCode,
             WarehouseCode = warehouseCode,
+            IsBatchManaged = true,
             OriginalRequestedQuantity = requestedQuantity,
             TotalQuantityAllocated = inventoryQuantityNeeded,
             UoMConversionFactor = conversionFactor,
@@ -1298,6 +1317,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             LineNumber = lineNumber,
             ItemCode = line.ItemCode ?? "",
             WarehouseCode = line.WarehouseCode ?? "",
+            IsBatchManaged = true,
             OriginalRequestedQuantity = line.Quantity,
             TotalQuantityAllocated = expectedInventoryQty,
             UoMConversionFactor = conversionFactor,

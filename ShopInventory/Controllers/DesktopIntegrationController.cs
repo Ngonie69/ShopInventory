@@ -366,9 +366,12 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     }
 
     [HttpGet("invoices/{docEntry:int}/pdf")]
-    public async Task<IActionResult> DownloadInvoicePdf(int docEntry, CancellationToken cancellationToken)
+    public async Task<IActionResult> DownloadInvoicePdf(
+        int docEntry,
+        [FromQuery] string? fiscalQrCode,
+        CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new DownloadInvoicePdfQuery(docEntry), cancellationToken);
+        var result = await mediator.Send(new DownloadInvoicePdfQuery(docEntry, fiscalQrCode), cancellationToken);
         return result.Match(
             value => File(value.PdfBytes, "application/pdf", value.FileName),
             errors => Problem(errors));

@@ -3,6 +3,7 @@ using MediatR;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Invoices.Events;
 using ShopInventory.Mappings;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -15,7 +16,7 @@ public sealed class CreateInvoiceHandler(
     ISAPServiceLayerClient sapClient,
     IBatchInventoryValidationService batchValidation,
     IInventoryLockService lockService,
-    IFiscalizationService fiscalizationService,
+    IInvoiceFiscalizationQueue fiscalizationQueue,
     IAuditService auditService,
     IOptions<SAPSettings> settings,
     ILogger<CreateInvoiceHandler> logger
@@ -102,18 +103,13 @@ public sealed class CreateInvoiceHandler(
             }
 
             if (!string.IsNullOrEmpty(prePostResult.LockToken))
-                acquiredLockTokens = new List<string> { prePostResult.LockToken };
-
-            // Step 7: SAP stock validation (belt and suspenders)
-            var stockValidationErrors = await sapClient.ValidateStockAvailabilityAsync(request, cancellationToken);
-            if (stockValidationErrors.Count > 0)
             {
-                logger.LogWarning("SAP stock validation failed after batch validation. {ErrorCount} items insufficient stock", stockValidationErrors.Count);
-                return Errors.Invoice.StockValidationFailed(
-                    $"SAP stock validation failed - insufficient stock: {string.Join("; ", stockValidationErrors.Select(e => e.Message))}");
+                acquiredLockTokens = prePostResult.LockTokens.Count > 0
+                    ? prePostResult.LockTokens
+                    : new List<string> { prePostResult.LockToken };
             }
 
-            // Step 8: POST to SAP
+            // Step 7: POST to SAP
             var invoice = await sapClient.CreateInvoiceAsync(request, cancellationToken);
 
             logger.LogInformation(
@@ -121,41 +117,17 @@ public sealed class CreateInvoiceHandler(
                 invoice.DocEntry, invoice.DocNum, invoice.CardCode,
                 batchValidationResult.AllocatedLines.Sum(l => l.Batches.Count), command.AllocationStrategy);
 
-            // Step 9: Fiscalize with REVMax
-            FiscalizationResult? fiscalizationResult = null;
-            try
-            {
-                try { await auditService.LogAsync(AuditActions.CreateInvoice, "Invoice", invoice.DocEntry.ToString(), $"Invoice #{invoice.DocNum} created for {invoice.CardCode}", true); } catch { }
+            try { await auditService.LogAsync(AuditActions.CreateInvoice, "Invoice", invoice.DocEntry.ToString(), $"Invoice #{invoice.DocNum} created for {invoice.CardCode}", true); } catch { }
 
-                fiscalizationResult = await fiscalizationService.FiscalizeInvoiceAsync(
-                    invoice.ToDto(),
-                    new CustomerFiscalDetails { CustomerName = invoice.CardName },
-                    cancellationToken);
-
-                if (fiscalizationResult.Success)
-                    logger.LogInformation("Invoice {DocNum} fiscalized successfully. QRCode: {HasQR}, ReceiptGlobalNo: {ReceiptNo}",
-                        invoice.DocNum, !string.IsNullOrEmpty(fiscalizationResult.QRCode), fiscalizationResult.ReceiptGlobalNo);
-                else
-                    logger.LogWarning("Invoice {DocNum} fiscalization failed: {Message}. Invoice was created in SAP but not fiscalized.",
-                        invoice.DocNum, fiscalizationResult.Message);
-            }
-            catch (Exception fiscalEx)
-            {
-                logger.LogError(fiscalEx, "Error during fiscalization of invoice {DocNum}. Invoice was created in SAP but fiscalization failed.", invoice.DocNum);
-                fiscalizationResult = new FiscalizationResult
-                {
-                    Success = false,
-                    Message = "Fiscalization error - invoice created in SAP",
-                    ErrorDetails = fiscalEx.Message
-                };
-            }
+            var invoiceDto = invoice.ToDto();
+            var fiscalizationResult = QueueFiscalization(invoiceDto);
 
             return new InvoiceCreatedResponseDto
             {
-                Message = fiscalizationResult?.Success == true
-                    ? "Invoice created and fiscalized successfully"
+                Message = fiscalizationResult.Queued
+                    ? "Invoice created successfully; fiscalization is running in the background"
                     : "Invoice created successfully (fiscalization pending)",
-                Invoice = invoice.ToDto(),
+                Invoice = invoiceDto,
                 Fiscalization = fiscalizationResult
             };
         }
@@ -164,6 +136,15 @@ public sealed class CreateInvoiceHandler(
             logger.LogWarning(ex, "Validation error creating invoice");
             try { await auditService.LogAsync(AuditActions.CreateInvoice, "Invoice", null, $"Validation error: {ex.Message}", false, ex.Message); } catch { }
             return Errors.Invoice.ValidationFailed(ex.Message);
+        }
+        catch (SapPostingPeriodException ex)
+        {
+            logger.LogWarning(
+                "SAP rejected invoice document dates starting from DocDate {DocDate}: {Message}",
+                ex.DocDate,
+                ex.Message);
+            try { await auditService.LogAsync(AuditActions.CreateInvoice, "Invoice", null, $"Posting period error for invoice dates; DocDate {ex.DocDate}", false, ex.Message); } catch { }
+            return Errors.Invoice.PostingPeriodInvalid(ex.Message);
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {
@@ -195,6 +176,42 @@ public sealed class CreateInvoiceHandler(
                 }
             }
         }
+    }
+
+    private FiscalizationResult QueueFiscalization(InvoiceDto invoice)
+    {
+        var queued = fiscalizationQueue.TryQueue(new InvoiceFiscalizationWorkItem(
+            invoice,
+            new CustomerFiscalDetails { CustomerName = invoice.CardName }));
+
+        if (queued)
+        {
+            logger.LogInformation(
+                "Queued fiscalization for invoice {DocNum} (DocEntry: {DocEntry})",
+                invoice.DocNum,
+                invoice.DocEntry);
+
+            return new FiscalizationResult
+            {
+                Success = true,
+                Queued = true,
+                Message = "Fiscalization queued",
+                InvoiceNumber = invoice.DocNum.ToString()
+            };
+        }
+
+        logger.LogError(
+            "Failed to queue fiscalization for invoice {DocNum} (DocEntry: {DocEntry})",
+            invoice.DocNum,
+            invoice.DocEntry);
+
+        return new FiscalizationResult
+        {
+            Success = false,
+            Message = "Fiscalization could not be queued",
+            ErrorCode = "FISCALIZATION_QUEUE_UNAVAILABLE",
+            InvoiceNumber = invoice.DocNum.ToString()
+        };
     }
 
     private static List<string> ValidateQuantities(CreateInvoiceRequest request)

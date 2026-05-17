@@ -51,12 +51,25 @@ public class SAPSettingsService : ISAPSettingsService
 
             var error = await response.Content.ReadAsStringAsync();
             _logger.LogWarning("Failed to update SAP settings: {StatusCode} - {Error}", response.StatusCode, error);
-            return new SAPUpdateResult { Success = false, Message = $"Failed to update: {response.StatusCode}" };
+            return new SAPUpdateResult
+            {
+                Success = false,
+                Message = ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode,
+                    error,
+                    "We couldn't update SAP settings right now. Please try again.")
+            };
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating SAP settings");
-            return new SAPUpdateResult { Success = false, Message = $"Error: {ex.Message}" };
+            return new SAPUpdateResult
+            {
+                Success = false,
+                Message = ApiErrorResponse.GetFriendlyMessage(
+                    ex,
+                    "We couldn't update SAP settings right now. Please try again.")
+            };
         }
     }
 
@@ -71,12 +84,26 @@ public class SAPSettingsService : ISAPSettingsService
                 return result ?? new SAPTestConnectionResult { Connected = false, Message = "No response" };
             }
 
-            return new SAPTestConnectionResult { Connected = false, Message = $"HTTP {response.StatusCode}" };
+            var error = await response.Content.ReadAsStringAsync();
+            return new SAPTestConnectionResult
+            {
+                Connected = false,
+                Message = ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode,
+                    error,
+                    "We couldn't test the SAP connection right now. Please try again.")
+            };
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error testing SAP connection");
-            return new SAPTestConnectionResult { Connected = false, Message = ex.Message };
+            return new SAPTestConnectionResult
+            {
+                Connected = false,
+                Message = ApiErrorResponse.GetFriendlyMessage(
+                    ex,
+                    "We couldn't test the SAP connection right now. Please try again.")
+            };
         }
     }
 }
@@ -86,6 +113,8 @@ public class SAPSettingsResponse
     public string? ServiceLayerUrl { get; set; }
     public string? CompanyDB { get; set; }
     public string? UserName { get; set; }
+    public int? InvoiceSeries { get; set; }
+    public string? InvoiceSeriesName { get; set; }
     public bool IsConfigured { get; set; }
 }
 
@@ -95,6 +124,8 @@ public class SAPSettingsUpdateRequest
     public string CompanyDB { get; set; } = string.Empty;
     public string UserName { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
+    public int? InvoiceSeries { get; set; }
+    public string? InvoiceSeriesName { get; set; }
     public bool TestConnection { get; set; } = true;
 }
 

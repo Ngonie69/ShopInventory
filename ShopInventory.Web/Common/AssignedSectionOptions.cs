@@ -12,6 +12,8 @@ public static class AssignedSectionOptions
     public static string[] All { get; } =
     [
         "Cheeseman",
+        "Cheeseman DC Richwell",
+        "Cheeseman DC Vic Falls",
         "Factory",
         "Graniteside",
         "Machipisa",

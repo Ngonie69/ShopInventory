@@ -1,3 +1,4 @@
+using iText.Barcodes;
 using iText.Kernel.Pdf;
 using iText.Kernel.Font;
 using iText.IO.Font.Constants;
@@ -14,7 +15,7 @@ namespace ShopInventory.Services;
 
 public interface IInvoicePdfService
 {
-    Task<byte[]> GenerateInvoicePdfAsync(InvoiceDto invoice);
+    Task<byte[]> GenerateInvoicePdfAsync(InvoiceDto invoice, string? fiscalQrCode = null);
 }
 
 public class InvoicePdfService : IInvoicePdfService
@@ -42,7 +43,7 @@ public class InvoicePdfService : IInvoicePdfService
         _regularFont = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
     }
 
-    public async Task<byte[]> GenerateInvoicePdfAsync(InvoiceDto invoice)
+    public async Task<byte[]> GenerateInvoicePdfAsync(InvoiceDto invoice, string? fiscalQrCode = null)
     {
         try
         {
@@ -81,6 +82,9 @@ public class InvoicePdfService : IInvoicePdfService
 
             // 8. "CUSTOMER COPY" label
             AddCustomerCopyLabel(document);
+
+            // 9. REVMax fiscal QR code when available
+            AddFiscalQrCode(document, pdf, invoice.DocEntry, fiscalQrCode);
 
             document.Close();
 
@@ -507,6 +511,30 @@ public class InvoicePdfService : IInvoicePdfService
             .SetFontColor(RedText)
             .SetTextAlignment(TextAlignment.CENTER)
             .SetMarginTop(2));
+    }
+
+    private void AddFiscalQrCode(Document document, PdfDocument pdf, int docEntry, string? fiscalQrCode)
+    {
+        if (string.IsNullOrWhiteSpace(fiscalQrCode))
+        {
+            return;
+        }
+
+        try
+        {
+            var qrCode = new BarcodeQRCode(fiscalQrCode.Trim());
+            var qrImage = new Image(qrCode.CreateFormXObject(pdf))
+                .SetFixedPosition(1, 30, 24, 84)
+                .SetAutoScale(false);
+
+            document.Add(qrImage);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Could not render fiscal QR code on invoice PDF for DocEntry {DocEntry}",
+                docEntry);
+        }
     }
 
     // ════════════════════════════════════════════════════════════════
