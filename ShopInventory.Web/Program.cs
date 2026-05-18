@@ -174,6 +174,16 @@ try
         }
     });
 
+    builder.Services.AddHttpClient("ShopInventoryApiLongRunning", client =>
+    {
+        client.BaseAddress = new Uri(apiBaseUrl);
+        client.Timeout = TimeSpan.FromMinutes(35); // Keep the admin UI waiting longer than the server-side sync window.
+        if (!string.IsNullOrEmpty(apiKey))
+        {
+            client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
+        }
+    });
+
     builder.Services.AddHttpClient("ShopInventoryApiUser", client =>
     {
         client.BaseAddress = new Uri(apiBaseUrl);
@@ -283,6 +293,7 @@ try
     builder.Services.AddScoped<ICustomerPortalSessionService, CustomerPortalSessionService>();
     builder.Services.AddScoped<ICustomerStatementService, CustomerStatementService>();
     builder.Services.AddScoped<IPodService, PodService>();
+    builder.Services.AddScoped<ICrateTrackingService, CrateTrackingService>();
 
     // Add Desktop Integration service (for viewing desktop app transactions)
     builder.Services.AddScoped<IDesktopIntegrationService, DesktopIntegrationService>();

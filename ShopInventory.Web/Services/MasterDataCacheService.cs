@@ -38,6 +38,7 @@ public interface IMasterDataCacheService
 public class MasterDataCacheService : IMasterDataCacheService
 {
     private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<MasterDataCacheService> _logger;
     private readonly IDbContextFactory<WebAppDbContext> _dbContextFactory;
     private readonly ILocalStorageService _localStorage;
@@ -88,12 +89,14 @@ public class MasterDataCacheService : IMasterDataCacheService
 
     public MasterDataCacheService(
         HttpClient httpClient,
+        IHttpClientFactory httpClientFactory,
         ILogger<MasterDataCacheService> logger,
         IDbContextFactory<WebAppDbContext> dbContextFactory,
         ILocalStorageService localStorage,
         IAppSettingsProvider appSettings)
     {
         _httpClient = httpClient;
+        _httpClientFactory = httpClientFactory;
         _logger = logger;
         _dbContextFactory = dbContextFactory;
         _localStorage = localStorage;
@@ -103,23 +106,25 @@ public class MasterDataCacheService : IMasterDataCacheService
     /// <summary>
     /// Ensures the HttpClient has authentication header set from localStorage
     /// </summary>
-    private async Task EnsureAuthenticationAsync()
+    private async Task EnsureAuthenticationAsync(HttpClient? client = null)
     {
+        var targetClient = client ?? _httpClient;
+
         try
         {
             var token = await _localStorage.GetItemAsync<string>("authToken");
-            var currentToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
+            var currentToken = targetClient.DefaultRequestHeaders.Authorization?.Parameter;
 
             if (string.IsNullOrWhiteSpace(token))
             {
-                _httpClient.DefaultRequestHeaders.Authorization = null;
+                targetClient.DefaultRequestHeaders.Authorization = null;
                 _logger.LogWarning("No auth token found in localStorage - API calls may fail");
                 return;
             }
 
             if (!string.Equals(currentToken, token, StringComparison.Ordinal))
             {
-                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                targetClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 _logger.LogDebug("Updated auth header from localStorage for API call");
             }
         }
@@ -540,6 +545,7 @@ public class MasterDataCacheService : IMasterDataCacheService
 
         try
         {
+            await TriggerPriceCatalogSyncAsync();
             return await SyncPricesFromApiInternalAsync();
         }
         finally
@@ -616,6 +622,29 @@ public class MasterDataCacheService : IMasterDataCacheService
 
         _logger.LogInformation("Prices sync completed: {Count} prices saved", uniquePrices.Count);
         return uniquePrices.Count;
+    }
+
+    private async Task TriggerPriceCatalogSyncAsync()
+    {
+        _logger.LogInformation("Triggering API price catalog sync before refreshing Web price cache...");
+
+        var syncClient = _httpClientFactory.CreateClient("ShopInventoryApiLongRunning");
+        await EnsureAuthenticationAsync(syncClient);
+
+        var syncResponse = await syncClient.PostAsync("api/price/sync", null);
+        _logger.LogDebug("Price catalog sync response status: {Status}", syncResponse.StatusCode);
+
+        if (syncResponse.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        var errorContent = await syncResponse.Content.ReadAsStringAsync();
+        _logger.LogError("Price catalog sync failed with status {Status}: {Error}", syncResponse.StatusCode, errorContent);
+        throw ApiErrorResponse.CreateHttpRequestException(
+            syncResponse.StatusCode,
+            errorContent,
+            "We couldn't sync prices from SAP right now.");
     }
 
     public async Task<List<ItemPriceDto>> GetItemPricesAsync(bool forceRefresh = false)

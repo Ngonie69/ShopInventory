@@ -24,6 +24,7 @@ public class SalesOrderService : ISalesOrderService
     private readonly ILogger<SalesOrderService> _logger;
     private readonly INotificationService _notificationService;
     private readonly IBusinessPartnerService _businessPartnerService;
+    private readonly ILocalPriceCatalogService _localPriceCatalogService;
     private readonly decimal _defaultMobileTaxPercent;
 
     public SalesOrderService(
@@ -32,6 +33,7 @@ public class SalesOrderService : ISalesOrderService
         ILogger<SalesOrderService> logger,
         INotificationService notificationService,
         IBusinessPartnerService businessPartnerService,
+        ILocalPriceCatalogService localPriceCatalogService,
         IOptions<RevmaxSettings> revmaxSettings)
     {
         _context = context;
@@ -39,6 +41,7 @@ public class SalesOrderService : ISalesOrderService
         _logger = logger;
         _notificationService = notificationService;
         _businessPartnerService = businessPartnerService;
+        _localPriceCatalogService = localPriceCatalogService;
         _defaultMobileTaxPercent = NormalizeTaxPercent(revmaxSettings.Value.VatRate);
     }
 
@@ -710,16 +713,17 @@ public class SalesOrderService : ISalesOrderService
             return;
         }
 
-        // Single targeted SQL query: joins OCRD (customer price list) + ITM1 (prices)
-        // for only the items on this order — eliminates separate BP lookup + full list fetch
-        var prices = await _sapClient.GetItemPricesForCustomerAsync(order.CardCode, itemCodes, cancellationToken);
+        var pricing = await _localPriceCatalogService.GetBusinessPartnerPricingAsync(order.CardCode, itemCodes, cancellationToken);
+        var prices = pricing?.Prices.Prices;
         if (prices == null || prices.Count == 0)
         {
-            _logger.LogWarning("No prices returned for customer {CardCode} items on mobile order {OrderNumber}", order.CardCode, order.OrderNumber);
+            _logger.LogWarning("No locally stored prices returned for customer {CardCode} items on mobile order {OrderNumber}", order.CardCode, order.OrderNumber);
             return;
         }
 
-        var priceLookup = prices.ToDictionary(p => p.ItemCode ?? "", p => p.Price, StringComparer.OrdinalIgnoreCase);
+        var priceLookup = prices
+            .Where(price => !string.IsNullOrWhiteSpace(price.ItemCode) && price.Price > 0)
+            .ToDictionary(price => price.ItemCode ?? string.Empty, price => price.Price, StringComparer.OrdinalIgnoreCase);
 
         decimal subTotal = 0;
         decimal taxAmount = 0;
@@ -1649,44 +1653,24 @@ public class SalesOrderService : ISalesOrderService
                 return;
 
             _logger.LogInformation(
-                "Populating prices for order {OrderId} using targeted SAP lookup for {ItemCount} items (BP: {CardCode})",
+                "Populating prices for order {OrderId} using the local price catalog for {ItemCount} items (BP: {CardCode})",
                 order.Id,
                 itemCodes.Count,
                 order.CardCode);
 
-            var priceListPrices = await _sapClient.GetItemPricesForCustomerAsync(order.CardCode, itemCodes, pricingCts.Token);
-            var priceMap = priceListPrices
-                .Where(p => p.ItemCode != null)
-                .ToDictionary(p => p.ItemCode!, p => p.Price, StringComparer.OrdinalIgnoreCase);
+            var pricing = await _localPriceCatalogService.GetBusinessPartnerPricingAsync(order.CardCode, itemCodes, pricingCts.Token);
+            var priceMap = pricing?.Prices.Prices?
+                .Where(price => !string.IsNullOrWhiteSpace(price.ItemCode) && price.Price > 0)
+                .ToDictionary(price => price.ItemCode!, price => price.Price, StringComparer.OrdinalIgnoreCase)
+                ?? new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
-            var specialPrices = await _sapClient.GetSpecialPricesForBPAsync(order.CardCode, itemCodes, pricingCts.Token);
-
-            if (specialPrices.Count > 0)
-            {
-                _logger.LogInformation(
-                    "Found {Count} special prices for BP {CardCode}, these will override price list values",
-                    specialPrices.Count, order.CardCode);
-            }
-
-            // Apply prices to each line: special price > price list price
             foreach (var line in order.Lines)
             {
                 line.TaxPercent = ResolveLineTaxPercent(line.TaxPercent, order.Source);
-                decimal unitPrice = 0;
-
-                // Special price takes priority
-                if (specialPrices.TryGetValue(line.ItemCode, out var specialPrice))
-                {
-                    unitPrice = specialPrice;
-                }
-                else if (priceMap.TryGetValue(line.ItemCode, out var listPrice))
-                {
-                    unitPrice = listPrice;
-                }
-                else
+                if (!priceMap.TryGetValue(line.ItemCode, out var unitPrice))
                 {
                     _logger.LogWarning(
-                        "No price found for item {ItemCode} in targeted customer pricing or special prices for BP {CardCode}",
+                        "No locally synced price found for item {ItemCode} in the customer price catalog for BP {CardCode}",
                         line.ItemCode,
                         order.CardCode);
                     continue;
@@ -1721,7 +1705,7 @@ public class SalesOrderService : ISalesOrderService
         {
             _logger.LogWarning(
                 ex,
-                "Timed out populating SAP prices for order {OrderId} (BP: {CardCode}) after {TimeoutSeconds} seconds. Approval will continue with existing prices.",
+                "Timed out populating locally stored prices for order {OrderId} (BP: {CardCode}) after {TimeoutSeconds} seconds. Approval will continue with existing prices.",
                 order.Id,
                 order.CardCode,
                 ApprovalPricingTimeout.TotalSeconds);
@@ -1729,9 +1713,9 @@ public class SalesOrderService : ISalesOrderService
         catch (Exception ex)
         {
             _logger.LogError(ex,
-                "Failed to populate SAP prices for order {OrderId} (BP: {CardCode}). Prices may be incomplete.",
+                "Failed to populate locally stored prices for order {OrderId} (BP: {CardCode}). Prices may be incomplete.",
                 order.Id, order.CardCode);
-            // Don't block approval if SAP pricing fails — order can still be approved
+            // Don't block approval if catalog pricing fails — order can still be approved
             // but prices might need manual correction
         }
     }

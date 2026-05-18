@@ -1,0 +1,196 @@
+@page "/crates/pods"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+@inherits CrateTrackingPageBase
+@rendermode InteractiveServer
+
+<PageTitle>Crate PODs</PageTitle>
+
+<CrateTrackingStyles />
+
+<div class="container-fluid fade-in staff-dashboard staff-shell crt-page">
+    <CratePageHeader Title="Crate PODs"
+                     Subtitle="Upload driver or merchandiser crate PODs against invoice-linked crate transactions and review submitted confirmations."
+                     IsLoading="isLoading" OnRefresh="RefreshAllAsync" TransactionCount="transactions.Count"
+                     PendingPodCount="PendingPodCount" VariancePendingCount="VariancePendingCount" GrvCount="grvs.Count"
+                     StatusMessage="@statusMessage" StatusIsSuccess="statusIsSuccess" />
+
+    <div class="row g-4">
+        <div class="col-xl-5 col-lg-6">
+            <div class="crt-card">
+                <div class="crt-card-header">
+                    <div>
+                        <h3 class="crt-card-title">Upload Crate POD</h3>
+                        <p class="crt-card-note">Each user uploads their own crate confirmation with a supporting
+                            document.</p>
+                        </div>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="crt-label">Transaction</label>
+                            <select class="crt-form-select" @bind="selectedPodTransactionId">
+                                <option value="">Select a crate transaction</option>
+                                @foreach (var transaction in PodEligibleTransactions)
+                                {
+                                    <option value="@transaction.Id">@GetTransactionLabel(transaction)</option>
+                                }
+                            </select>
+                        </div>
+                        @if (canChoosePodRole)
+                        {
+                            <div class="col-12">
+                                <label class="crt-label">Submission Role</label>
+                                <select class="crt-form-select" @bind="selectedPodRole">
+                                    <option value="Driver">Driver</option>
+                                    <option value="Merchandiser">Merchandiser</option>
+                                </select>
+                            </div>
+                        }
+                        <div class="col-md-6">
+                            <label class="crt-label">Quantity</label>
+                            <input type="number" min="0" step="0.01" class="crt-form-control" @bind="podQuantity" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="crt-label">Document</label>
+                            <InputFile @key="podFileKey" OnChange="OnPodFileSelected" class="crt-form-control"
+                                       accept=".jpg,.jpeg,.png,.webp,.pdf" />
+                        </div>
+                        <div class="col-12">
+                            <label class="crt-label">Notes</label>
+                            <textarea class="crt-form-control" rows="2" @bind="podNotes"
+                                      placeholder="Optional POD notes"></textarea>
+                        </div>
+                        <div class="col-12">
+                            <button type="button" class="crt-btn crt-btn-primary w-100" @onclick="SubmitPodAsync"
+                                    disabled="@isSubmittingPod">
+                                @(isSubmittingPod ? "Uploading..." : "Upload Crate POD")
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-xl-7 col-lg-6">
+                <div class="crt-card h-100">
+                    <div class="crt-card-header">
+                        <div>
+                            <h3 class="crt-card-title">Invoice Crate Transactions</h3>
+                            <p class="crt-card-note">Use the register below to select the invoice row you are confirming.
+                            </p>
+                        </div>
+                    </div>
+
+                    @if (!PodEligibleTransactions.Any())
+                    {
+                        <div class="crt-empty">No invoice-linked crate transactions are available yet.</div>
+                    }
+                    else
+                    {
+                        <div class="crt-table-wrap">
+                            <table class="crt-table">
+                                <thead>
+                                    <tr>
+                                        <th>Invoice</th>
+                                        <th>Shop</th>
+                                        <th>Expected</th>
+                                        <th>Driver</th>
+                                        <th>Merch</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var transaction in PodEligibleTransactions)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <div class="fw-semibold">@GetReferenceLabel(transaction)</div>
+                                                <div class="crt-muted">@transaction.EffectiveDate.ToString("dd MMM yyyy")</div>
+                                            </td>
+                                            <td>
+                                                <div class="fw-semibold">@transaction.ShopCardCode</div>
+                                                <div class="crt-muted">@transaction.ShopName</div>
+                                            </td>
+                                            <td>@transaction.ExpectedQuantity.ToString("N2")</td>
+                                            <td>@FormatQuantity(transaction.DriverQuantity)</td>
+                                            <td>@FormatQuantity(transaction.MerchandiserQuantity)</td>
+                                            <td>
+                                                <span
+                                                class="crt-badge @GetStatusClass(transaction.Status)">@GetStatusLabel(transaction.Status)</span>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="crt-table-card">
+            <div class="crt-card-header">
+                <div>
+                    <h3 class="crt-card-title">Crate POD History</h3>
+                    <p class="crt-card-note">Only crate-related POD submissions appear here.</p>
+                </div>
+            </div>
+
+            @if (pods.Count == 0)
+            {
+                <div class="crt-empty">No crate PODs uploaded yet.</div>
+            }
+            else
+            {
+                <div class="crt-table-wrap">
+                    <table class="crt-table">
+                        <thead>
+                            <tr>
+                                <th>Invoice</th>
+                                <th>Role</th>
+                                <th>Quantity</th>
+                                <th>Uploaded By</th>
+                                <th>Documents</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var pod in pods)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="fw-semibold">@GetPodReferenceLabel(pod)</div>
+                                        <div class="crt-muted">@pod.ShopCardCode@if (!string.IsNullOrWhiteSpace(pod.ShopName))
+                                            {
+                                                <span> - @pod.ShopName</span>
+                                            }
+                                        </div>
+                                    </td>
+                                    <td>@pod.SubmissionRole</td>
+                                    <td>@pod.Quantity.ToString("N2")</td>
+                                    <td>
+                                        <div>@pod.SubmittedByUserName</div>
+                                        <div class="crt-muted">@pod.SubmittedAt.ToString("g")</div>
+                                    </td>
+                                    <td>
+                                        @if (pod.Attachments.Count == 0)
+                                        {
+                                            <span class="crt-muted">No documents</span>
+                                        }
+                                        else
+                                        {
+                                            <div class="crt-attachments">
+                                                @foreach (var attachment in pod.Attachments)
+                                                {
+                                                    <button type="button" class="crt-attachment-btn"
+                                                            @onclick="() => DownloadAttachmentAsync(attachment)">@attachment.FileName</button>
+                                                }
+                                            </div>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>

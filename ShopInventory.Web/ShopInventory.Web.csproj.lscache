@@ -71,6 +71,8 @@ Common/
   Errors.Report.cs
   Errors.UserManagement.cs
 Components/Pages/
+ CrateTracking.razor.cs
+ CrateTrackingPageBase.cs
  CreateGoodsReceiptPurchaseOrder.razor.cs
  CreateMerchandiserAccount.razor.cs
  CreatePurchaseInvoice.razor.cs
@@ -236,6 +238,7 @@ Models/
  BulkPodValidationResponse.cs
  BulkPodValidationResult.cs
  BusinessPartnerModels.cs
+ CrateTrackingModels.cs
  CreateMerchandiserAccountFormModel.cs
  CreditNoteModels.cs
  CustomerPortalModels.cs
@@ -284,6 +287,7 @@ Services/
  BusinessPartnerPricingService.cs
  BusinessPartnerService.cs
  CachePreloadService.cs
+ CrateTrackingService.cs
  CreditNoteService.cs
  CustomAuthStateProvider.cs
  CustomerAuthService.cs
@@ -757,6 +761,11 @@ Components/
   ApiExplorer.razor
   AuditTrail.razor
   Backups.razor
+  CrateGrvs.razor
+  CratePageHeader.razor
+  CratePods.razor
+  CrateTracking.razor
+  CrateTrackingStyles.razor
   CreateCreditNote.razor
   CreateGoodsReceiptPurchaseOrder.razor
   CreateIncomingPayment.razor
@@ -863,6 +872,11 @@ Components/
   ApiExplorer.razor
   AuditTrail.razor
   Backups.razor
+  CrateGrvs.razor
+  CratePageHeader.razor
+  CratePods.razor
+  CrateTracking.razor
+  CrateTrackingStyles.razor
   CreateCreditNote.razor
   CreateGoodsReceiptPurchaseOrder.razor
   CreateIncomingPayment.razor

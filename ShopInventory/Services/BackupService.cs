@@ -368,6 +368,8 @@ public class BackupService : IBackupService
             await _context.Products.ExecuteDeleteAsync(cancellationToken);
             await _context.ItemPrices.ExecuteDeleteAsync(cancellationToken);
             await _context.PriceLists.ExecuteDeleteAsync(cancellationToken);
+            await _context.BusinessPartnerPriceProfiles.ExecuteDeleteAsync(cancellationToken);
+            await _context.BusinessPartnerSpecialPrices.ExecuteDeleteAsync(cancellationToken);
 
             // Documents
             await _context.DocumentSignatures.ExecuteDeleteAsync(cancellationToken);

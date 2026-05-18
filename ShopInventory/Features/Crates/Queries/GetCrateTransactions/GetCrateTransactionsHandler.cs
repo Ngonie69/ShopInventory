@@ -1,0 +1,114 @@
+using ErrorOr;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Crates;
+using ShopInventory.Data;
+using ShopInventory.DTOs;
+using ShopInventory.Common.Errors;
+
+namespace ShopInventory.Features.Crates.Queries.GetCrateTransactions;
+
+public sealed class GetCrateTransactionsHandler(
+    ApplicationDbContext context
+) : IRequestHandler<GetCrateTransactionsQuery, ErrorOr<List<CrateTransactionDto>>>
+{
+    public async Task<ErrorOr<List<CrateTransactionDto>>> Handle(
+        GetCrateTransactionsQuery request,
+        CancellationToken cancellationToken)
+    {
+        var currentUser = await context.Users
+            .AsNoTracking()
+            .Where(u => u.Id == request.UserId)
+            .Select(u => new { u.Role, u.IsActive })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (currentUser is null || !currentUser.IsActive)
+        {
+            return Errors.Auth.UserNotFound;
+        }
+
+        var query = context.CrateTransactions
+            .AsNoTracking()
+            .Include(t => t.CreatedByUser)
+            .Include(t => t.PodSubmissions)
+                .ThenInclude(s => s.SubmittedByUser)
+            .Include(t => t.Grv)
+            .AsQueryable();
+
+        if (string.Equals(currentUser.Role, CrateTrackingConstants.SubmissionRoleDriver, StringComparison.OrdinalIgnoreCase))
+        {
+            query = query.Where(t =>
+                string.Equals(t.TransactionType, CrateTrackingConstants.TransactionTypeInvoice, StringComparison.OrdinalIgnoreCase) &&
+                (!t.PodSubmissions.Any(s => s.SubmissionRole == CrateTrackingConstants.SubmissionRoleDriver) ||
+                 t.PodSubmissions.Any(s => s.SubmissionRole == CrateTrackingConstants.SubmissionRoleDriver && s.SubmittedByUserId == request.UserId)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.TransactionType))
+        {
+            var transactionType = request.TransactionType.Trim();
+            query = query.Where(t => t.TransactionType == transactionType);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Search))
+        {
+            var term = request.Search.Trim();
+            var pattern = $"%{term}%";
+            query = query.Where(t =>
+                EF.Functions.ILike(t.ShopCardCode, pattern) ||
+                (t.ShopName != null && EF.Functions.ILike(t.ShopName, pattern)) ||
+                (t.InvoiceDocNum != null && t.InvoiceDocNum.ToString()!.Contains(term)));
+        }
+
+        var transactions = await query
+            .OrderByDescending(t => t.EffectiveDate)
+            .ThenByDescending(t => t.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        var transactionIds = transactions.Select(t => t.Id).ToList();
+        var podSubmissionIds = transactions
+            .SelectMany(t => t.PodSubmissions)
+            .Select(s => s.Id)
+            .ToList();
+
+        var transactionAttachmentCounts = await context.DocumentAttachments
+            .AsNoTracking()
+            .Where(a => a.EntityType == CrateTrackingConstants.AttachmentEntityTypeCrateTransaction && transactionIds.Contains(a.EntityId))
+            .GroupBy(a => a.EntityId)
+            .Select(group => new { group.Key, Count = group.Count() })
+            .ToDictionaryAsync(item => item.Key, item => item.Count, cancellationToken);
+
+        var podAttachmentCounts = await context.DocumentAttachments
+            .AsNoTracking()
+            .Where(a => a.EntityType == CrateTrackingConstants.AttachmentEntityTypeCratePodSubmission && podSubmissionIds.Contains(a.EntityId))
+            .GroupBy(a => a.EntityId)
+            .Select(group => new { group.Key, Count = group.Count() })
+            .ToDictionaryAsync(item => item.Key, item => item.Count, cancellationToken);
+
+        var items = transactions
+            .Select(transaction =>
+            {
+                var driverSubmission = transaction.PodSubmissions
+                    .FirstOrDefault(s => string.Equals(s.SubmissionRole, CrateTrackingConstants.SubmissionRoleDriver, StringComparison.OrdinalIgnoreCase));
+                var merchandiserSubmission = transaction.PodSubmissions
+                    .FirstOrDefault(s => string.Equals(s.SubmissionRole, CrateTrackingConstants.SubmissionRoleMerchandiser, StringComparison.OrdinalIgnoreCase));
+
+                return CrateDtoMapping.MapTransaction(
+                    transaction,
+                    driverSubmission,
+                    merchandiserSubmission,
+                    transactionAttachmentCounts.GetValueOrDefault(transaction.Id),
+                    driverSubmission is null ? 0 : podAttachmentCounts.GetValueOrDefault(driverSubmission.Id),
+                    merchandiserSubmission is null ? 0 : podAttachmentCounts.GetValueOrDefault(merchandiserSubmission.Id));
+            })
+            .ToList();
+
+        if (!string.IsNullOrWhiteSpace(request.Status))
+        {
+            items = items
+                .Where(item => string.Equals(item.Status, request.Status.Trim(), StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
+        return items;
+    }
+}

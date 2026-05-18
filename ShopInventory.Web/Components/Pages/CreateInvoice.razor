@@ -6,6 +6,7 @@
 @inject IInvoiceService InvoiceService
 @inject IProductService ProductService
 @inject IPriceService PriceService
+@inject IBusinessPartnerPricingService BusinessPartnerPricingService
 @inject IBusinessPartnerService BusinessPartnerService
 @inject IEmailService EmailService
 @inject IMasterDataCacheService CacheService
@@ -18,6 +19,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IAuditService AuditService
 @rendermode InteractiveServer
+@implements IDisposable
 
 <PageTitle>Create Invoice - Shop Inventory</PageTitle>
 
@@ -1400,7 +1402,7 @@
                                                 @validationErrors["Customer"]</div>
                                             }
                                         </div>
-                                        <div class="col-md-6">
+                                        <div class="col-md-4">
                                             <label class="field-label">Customer Reference</label>
                                             <input type="text" class="form-control form-control-line" @bind="invoice.NumAtCard"
                                                    placeholder="PO / Reference number" />
@@ -1412,7 +1414,17 @@
                                                 <option value="ZIG">ZIG - Zimbabwe Gold</option>
                                             </select>
                                         </div>
-                                        <div class="col-md-8">
+                                        <div class="col-md-4">
+                                            <label class="field-label">Crates</label>
+                                            <input type="number" min="0" step="0.01" class="form-control form-control-line" @bind="invoice.CrateQuantity"
+                                                   placeholder="Expected crates on invoice" />
+                                            @if (validationErrors.ContainsKey("CrateQuantity"))
+                                            {
+                                                <div style="color:#ef4444; font-size:.78rem; margin-top:.2rem;">
+                                                    @validationErrors["CrateQuantity"]</div>
+                                            }
+                                        </div>
+                                        <div class="col-md-12">
                                             <label class="field-label">Comments</label>
                                             <input type="text" class="form-control form-control-line" @bind="invoice.Comments"
                                                    placeholder="Optional notes" />
@@ -1496,7 +1508,7 @@
                                                                         <span style="color:#d1d5db;">/</span>
                                                                         <span
                                                                             style="color:#6b7280; font-size:.85rem;">@TruncateName(line.ItemDescription,
-                                                                                                                                                                                                                                                                                                                                                            40)</span>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    40)</span>
                                                                         }
                                         else
                                                                         {
@@ -1547,7 +1559,7 @@
                                                                                                     style="font-weight:600; font-size:.85rem;">@context.ItemCode</span>
                                                                                                     <small
                                                                                                         style="color:#6b7280;">@TruncateName(context.ItemName,
-                                                                                                                                                                        30)</small>
+                                                                                                                                                                                                                                                                                                                                                                                        30)</small>
                                                                                                     </div>
                                                                                                     <span
                                                                                                         class="ci-price-chip @(isCustomerPrice ? "customer" : "standard")">
@@ -1977,6 +1989,7 @@
 
     // VAT rate (15.5%)
     private const decimal VatRate = 0.155m;
+    private const string MissingSapPriceMessage = "No price is set for this item in SAP. Please contact the admin.";
 
     // Loading states
 
@@ -2014,6 +2027,8 @@
     private Dictionary<string, decimal> customerPriceListPrices = new();
     private int? customerPriceListNum;
     private bool isLoadingCustomerPrices = false;
+    private CancellationTokenSource? businessPartnerPricingCts;
+    private int businessPartnerPricingRequestVersion;
 
     private bool IsCacheReady => CacheService.IsCacheReady;
 
@@ -2603,6 +2618,15 @@ cancellationToken)
         {
             line.UnitPrice = 0;
         }
+
+        if (line.UnitPrice.GetValueOrDefault() > 0)
+        {
+            ClearUnitPriceError(index);
+        }
+        else
+        {
+            SetMissingSapPriceError(index, line.ItemCode);
+        }
     }
 
     private async Task SelectProduct(int index, ProductDto product)
@@ -2611,26 +2635,23 @@ cancellationToken)
         line.ItemCode = product.ItemCode ?? string.Empty;
         line.ItemDescription = product.ItemName ?? string.Empty;
 
-        // Use price from customer's price list if available, otherwise use default product price
         line.UnitPrice = GetPriceForItem(product.ItemCode, product.Price);
 
-        // If price is still 0, fetch from the price API
-        if (line.UnitPrice == 0 && !string.IsNullOrEmpty(product.ItemCode))
+        if (!string.IsNullOrEmpty(product.ItemCode))
         {
             try
             {
-                var priceInfo = await PriceService.GetPriceByItemCodeAsync(product.ItemCode);
-                if (priceInfo != null)
-                {
-                    var currency = invoice.DocCurrency ?? AppSettings.DefaultCurrency;
-                    line.UnitPrice = currency.Equals("USD", StringComparison.OrdinalIgnoreCase)
-                        ? priceInfo.UsdPrice ?? 0
-                        : priceInfo.ZigPrice ?? priceInfo.UsdPrice ?? 0;
-                }
+                line.UnitPrice = await BusinessPartnerPricingService.ResolveUnitPriceAsync(
+                    product.ItemCode,
+                    invoice.DocCurrency,
+                    product.Price,
+                    invoice.CardCode,
+                    customerPriceListNum,
+                    customerPriceListPrices);
             }
             catch (Exception ex)
             {
-                Logger.LogWarning(ex, "Failed to fetch price for item {ItemCode}", product.ItemCode);
+                Logger.LogWarning(ex, "Failed to resolve BP-aware invoice price for item {ItemCode}", product.ItemCode);
             }
         }
 
@@ -2649,15 +2670,30 @@ AppSettings.DefaultWarehouse);
         state.SuggestedProduct = null;
         state.SuggestionSuffix = string.Empty;
 
+        if (line.UnitPrice.GetValueOrDefault() > 0)
+        {
+            ClearUnitPriceError(index);
+        }
+        else
+        {
+            line.UnitPrice = 0;
+            SetMissingSapPriceError(index, line.ItemCode);
+        }
+
         // Clear validation errors for this line
         if (lineValidationErrors.TryGetValue(index, out var errors))
         {
             errors.Remove("ItemCode");
+            if (errors.Count == 0)
+            {
+                lineValidationErrors.Remove(index);
+            }
         }
     }
 
     private async Task SelectBusinessPartnerAsync(BusinessPartnerDto bp)
     {
+        var requestVersion = BeginBusinessPartnerPricingRequest();
         selectedBusinessPartner = bp;
         invoice.CardCode = bp.CardCode ?? string.Empty;
 
@@ -2669,22 +2705,21 @@ AppSettings.DefaultWarehouse);
         // Clear validation error
         validationErrors.Remove("Customer");
 
-        // Clear old prices immediately before loading new ones
+        // Repaint immediately with the new BP selection while the fresh price lookup is loading.
         customerPriceListPrices.Clear();
-        customerPriceListNum = null;
+        customerPriceListNum = bp.PriceListNum;
+        isLoadingCustomerPrices = true;
+        UpdateExistingLinePrices();
+        await InvokeAsync(StateHasChanged);
 
-        // Load prices using the BP's assigned price list number (available from cached data)
-        if (bp.PriceListNum.HasValue && bp.PriceListNum.Value > 0 && !string.IsNullOrEmpty(bp.CardCode))
+        var pricingLoaded = await LoadBusinessPartnerPricesAsync(
+            bp,
+            requestVersion,
+            businessPartnerPricingCts?.Token ?? CancellationToken.None);
+
+        if (!pricingLoaded)
         {
-            Logger.LogInformation("BP {CardCode} has price list {PriceListNum}, loading directly", bp.CardCode,
-bp.PriceListNum.Value);
-            await LoadBusinessPartnerPrices(bp.CardCode);
-        }
-        else if (!string.IsNullOrEmpty(bp.CardCode))
-        {
-            // PriceListNum not in cached data - look up from SAP via API
-            Logger.LogInformation("BP {CardCode} has no cached PriceListNum, fetching from SAP", bp.CardCode);
-            await LoadBusinessPartnerPrices(bp.CardCode);
+            return;
         }
 
         // Update prices on any existing lines to reflect the customer's price list
@@ -2694,22 +2729,63 @@ bp.PriceListNum.Value);
 
     private void ClearSelectedBP()
     {
+        CancelBusinessPartnerPricingRequest();
         selectedBusinessPartner = null;
         invoice.CardCode = string.Empty;
         customerPriceListPrices.Clear();
         customerPriceListNum = null;
+        isLoadingCustomerPrices = false;
+        UpdateExistingLinePrices();
     }
 
     private void UpdateExistingLinePrices()
     {
-        foreach (var line in invoice.Lines)
+        for (var i = 0; i < invoice.Lines.Count; i++)
         {
+            var line = invoice.Lines[i];
             if (!string.IsNullOrEmpty(line.ItemCode))
             {
                 var product = cachedProducts.FirstOrDefault(p => p.ItemCode == line.ItemCode);
-                var defaultPrice = product?.Price ?? line.UnitPrice ?? 0;
+                var defaultPrice = product?.Price ?? 0m;
                 line.UnitPrice = GetPriceForItem(line.ItemCode, defaultPrice);
+
+                if (line.UnitPrice.GetValueOrDefault() > 0)
+                {
+                    ClearUnitPriceError(i);
+                }
+                else
+                {
+                    line.UnitPrice = 0;
+                    SetMissingSapPriceError(i, line.ItemCode);
+                }
             }
+        }
+    }
+
+    private void SetMissingSapPriceError(int index, string? itemCode)
+    {
+        if (!lineValidationErrors.TryGetValue(index, out var errors))
+        {
+            errors = new Dictionary<string, string>();
+            lineValidationErrors[index] = errors;
+        }
+
+        errors["UnitPrice"] = MissingSapPriceMessage;
+        errorMessage = $"Item {(string.IsNullOrWhiteSpace(itemCode) ? "selected" : itemCode)} has no price set in SAP. Please contact the admin.";
+    }
+
+    private void ClearUnitPriceError(int index)
+    {
+        if (!lineValidationErrors.TryGetValue(index, out var errors))
+        {
+            return;
+        }
+
+        errors.Remove("UnitPrice");
+
+        if (errors.Count == 0)
+        {
+            lineValidationErrors.Remove(index);
         }
     }
 
@@ -2722,18 +2798,6 @@ bp.PriceListNum.Value);
         {
             Logger.LogInformation("Loading prices from customer price list {PriceListNum}", priceListNum);
 
-            // Check in-memory cache first (shared across circuits)
-            var cachedPrices = await CacheService.GetPricesByPriceListAsync(priceListNum);
-            if (cachedPrices.Count > 0)
-            {
-                customerPriceListPrices = new Dictionary<string, decimal>(cachedPrices);
-                customerPriceListNum = priceListNum;
-                Logger.LogInformation("Loaded {Count} prices for price list {PriceListNum} from cache",
-                cachedPrices.Count, priceListNum);
-                return;
-            }
-
-            // Cache miss - fetch from API
             var response = await PriceService.GetPricesByPriceListAsync(priceListNum);
 
             if (response?.Prices != null && response.Prices.Any())
@@ -2748,10 +2812,7 @@ bp.PriceListNum.Value);
                 }
                 customerPriceListNum = priceListNum;
 
-                // Store in cache for next time
-                CacheService.StorePriceListPrices(priceListNum, new Dictionary<string, decimal>(customerPriceListPrices));
-
-                Logger.LogInformation("Loaded {Count} prices from customer price list {PriceListNum} (API) and cached",
+                Logger.LogInformation("Loaded {Count} live prices from customer price list {PriceListNum}",
                 customerPriceListPrices.Count, priceListNum);
             }
             else
@@ -2774,74 +2835,71 @@ bp.PriceListNum.Value);
         }
     }
 
-    private async Task LoadBusinessPartnerPrices(string cardCode)
+    private async Task<bool> LoadBusinessPartnerPricesAsync(
+        BusinessPartnerDto bp,
+        int requestVersion,
+        CancellationToken cancellationToken)
     {
         isLoadingCustomerPrices = true;
         StateHasChanged();
 
         try
         {
-            Logger.LogInformation("Loading prices for business partner {CardCode}", cardCode);
+            var lookup = await BusinessPartnerPricingService.LoadPriceLookupAsync(bp, cancellationToken);
 
-            var response = await PriceService.GetPricesByBusinessPartnerAsync(cardCode);
-
-            if (response?.Prices != null && response.Prices.Any())
+            if (!IsCurrentBusinessPartnerPricingRequest(bp, requestVersion, cancellationToken))
             {
-                customerPriceListPrices.Clear();
-                foreach (var price in response.Prices)
-                {
-                    if (!string.IsNullOrEmpty(price.ItemCode))
-                    {
-                        customerPriceListPrices[price.ItemCode] = price.Price;
-                    }
-                }
-                customerPriceListNum = response.PriceListNum;
-
-                // Store in cache for next time
-                if (response.PriceListNum > 0)
-                {
-                    CacheService.StorePriceListPrices(response.PriceListNum, new Dictionary<string, decimal>(customerPriceListPrices));
-                }
-
-                Logger.LogInformation("Loaded {Count} prices for business partner {CardCode} (price list {PriceListNum})",
-                    customerPriceListPrices.Count, cardCode, response.PriceListNum);
+                return false;
             }
-            else
-            {
-                Logger.LogWarning("No prices returned from API for business partner {CardCode}, trying cached price list", cardCode);
 
-                // Fallback: use PriceListNum from the cached BP data
-                if (selectedBusinessPartner?.PriceListNum is > 0)
-                {
-                    await LoadCustomerPriceListFallback(selectedBusinessPartner.PriceListNum.Value);
-                }
-                else
-                {
-                    customerPriceListPrices.Clear();
-                    customerPriceListNum = null;
-                }
-            }
+            customerPriceListPrices = lookup.Prices;
+            customerPriceListNum = lookup.PriceListNum;
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error loading prices for business partner {CardCode}, trying cached price list", cardCode);
-
-            // Fallback: use PriceListNum from the cached BP data
-            if (selectedBusinessPartner?.PriceListNum is > 0)
-            {
-                await LoadCustomerPriceListFallback(selectedBusinessPartner.PriceListNum.Value);
-            }
-            else
-            {
-                customerPriceListPrices.Clear();
-                customerPriceListNum = null;
-            }
+            Logger.LogError(ex, "Error loading invoice prices for {CardCode}", bp.CardCode);
+            customerPriceListPrices.Clear();
+            customerPriceListNum = null;
+            return IsCurrentBusinessPartnerPricingRequest(bp, requestVersion, cancellationToken);
         }
         finally
         {
-            isLoadingCustomerPrices = false;
-            StateHasChanged();
+            if (requestVersion == businessPartnerPricingRequestVersion)
+            {
+                isLoadingCustomerPrices = false;
+                StateHasChanged();
+            }
         }
+    }
+
+    private int BeginBusinessPartnerPricingRequest()
+    {
+        CancelBusinessPartnerPricingRequest();
+        businessPartnerPricingCts = new CancellationTokenSource();
+        businessPartnerPricingRequestVersion++;
+        return businessPartnerPricingRequestVersion;
+    }
+
+    private void CancelBusinessPartnerPricingRequest()
+    {
+        businessPartnerPricingCts?.Cancel();
+        businessPartnerPricingCts?.Dispose();
+        businessPartnerPricingCts = null;
+    }
+
+    private bool IsCurrentBusinessPartnerPricingRequest(
+        BusinessPartnerDto bp,
+        int requestVersion,
+        CancellationToken cancellationToken)
+    {
+        return !cancellationToken.IsCancellationRequested &&
+            requestVersion == businessPartnerPricingRequestVersion &&
+            string.Equals(selectedBusinessPartner?.CardCode, bp.CardCode, StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task LoadCustomerPriceListFallback(int priceListNum)
@@ -2850,18 +2908,6 @@ bp.PriceListNum.Value);
         {
             Logger.LogInformation("Fallback: loading prices from price list {PriceListNum}", priceListNum);
 
-            // Try in-memory cache first
-            var cachedPrices = await CacheService.GetPricesByPriceListAsync(priceListNum);
-            if (cachedPrices.Count > 0)
-            {
-                customerPriceListPrices = new Dictionary<string, decimal>(cachedPrices);
-                customerPriceListNum = priceListNum;
-                Logger.LogInformation("Fallback: loaded {Count} prices from cache for price list {PriceListNum}", cachedPrices.Count,
-priceListNum);
-                return;
-            }
-
-            // Try API without going through BP endpoint
             var response = await PriceService.GetPricesByPriceListAsync(priceListNum);
             if (response?.Prices != null && response.Prices.Any())
             {
@@ -2874,8 +2920,7 @@ priceListNum);
                     }
                 }
                 customerPriceListNum = priceListNum;
-                CacheService.StorePriceListPrices(priceListNum, new Dictionary<string, decimal>(customerPriceListPrices));
-                Logger.LogInformation("Fallback: loaded {Count} prices from API for price list {PriceListNum}",
+                Logger.LogInformation("Fallback: loaded {Count} live prices for price list {PriceListNum}",
 customerPriceListPrices.Count, priceListNum);
             }
         }
@@ -3027,6 +3072,12 @@ customerPriceListPrices.Count, priceListNum);
             isValid = false;
         }
 
+        if (invoice.CrateQuantity.HasValue && invoice.CrateQuantity.Value < 0)
+        {
+            validationErrors["CrateQuantity"] = "Crate quantity cannot be negative";
+            isValid = false;
+        }
+
         for (int i = 0; i < invoice.Lines.Count; i++)
         {
             var line = invoice.Lines[i];
@@ -3056,7 +3107,7 @@ customerPriceListPrices.Count, priceListNum);
             // Unit price validation - must be greater than zero
             if (!line.UnitPrice.HasValue || line.UnitPrice.Value <= 0)
             {
-                errors["UnitPrice"] = "Unit price must be greater than zero";
+                errors["UnitPrice"] = MissingSapPriceMessage;
                 isValid = false;
             }
 
@@ -3510,5 +3561,10 @@ StringComparer.OrdinalIgnoreCase))
         lineValidationErrors.Clear();
         validationErrors.Clear();
         ClearSelectedBP();
+    }
+
+    public void Dispose()
+    {
+        CancelBusinessPartnerPricingRequest();
     }
 }

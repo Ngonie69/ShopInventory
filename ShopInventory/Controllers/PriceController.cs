@@ -1,7 +1,6 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.OutputCaching;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Prices.Queries.GetCachedPrices;
 using ShopInventory.Features.Prices.Queries.GetAllPrices;
@@ -12,7 +11,7 @@ using ShopInventory.Features.Prices.Queries.GetPriceLists;
 using ShopInventory.Features.Prices.Queries.GetPricesByPriceList;
 using ShopInventory.Features.Prices.Queries.GetItemPriceFromList;
 using ShopInventory.Features.Prices.Queries.GetPricesByBusinessPartner;
-using ShopInventory.Features.Prices.Commands.SyncPriceLists;
+using ShopInventory.Features.Prices.Commands.SyncPriceCatalog;
 using ShopInventory.Features.Prices.Commands.SyncItemPricesForPriceList;
 
 namespace ShopInventory.Controllers;
@@ -57,14 +56,13 @@ public class PriceController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpGet("pricelists")]
-    [OutputCache(PolicyName = "master-data")]
     public async Task<IActionResult> GetPriceLists([FromQuery] bool? forceRefresh = null, CancellationToken cancellationToken = default)
     {
         if (forceRefresh == true)
         {
             return BadRequest(new
             {
-                Message = "Use POST api/price/pricelists/sync to refresh price lists. Normal GET responses are output cached."
+                Message = "Price lists are served from the local database. Use POST api/price/sync to refresh local price data from SAP."
             });
         }
 
@@ -75,7 +73,16 @@ public class PriceController(IMediator mediator) : ApiControllerBase
     [HttpPost("pricelists/sync")]
     public async Task<IActionResult> SyncPriceLists(CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new SyncPriceListsCommand(), cancellationToken);
+        using var syncTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(30));
+        var result = await mediator.Send(new SyncPriceCatalogCommand(), syncTimeout.Token);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpPost("sync")]
+    public async Task<IActionResult> SyncPriceCatalog(CancellationToken cancellationToken)
+    {
+        using var syncTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(30));
+        var result = await mediator.Send(new SyncPriceCatalogCommand(), syncTimeout.Token);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
@@ -89,7 +96,7 @@ public class PriceController(IMediator mediator) : ApiControllerBase
         {
             return BadRequest(new
             {
-                Message = $"Use POST api/price/pricelists/{priceListNum}/sync to refresh item prices. Normal GET responses use the cached sync path."
+                Message = $"Prices are served from the local database. Use POST api/price/pricelists/{priceListNum}/sync or POST api/price/sync to refresh from SAP."
             });
         }
 

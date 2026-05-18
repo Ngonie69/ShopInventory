@@ -1240,9 +1240,13 @@
                         <div class="cn-warning">
                             <i class="bi bi-exclamation-triangle-fill cn-warning-icon"></i>
                             <div class="cn-warning-body">
-                                <strong>@existingCreditNotes.CreditNotes.Count credit note(s)</strong> totaling
-                                <strong>@existingCreditNotes.TotalCreditedAmount.ToString("N2") @selectedInvoice.DocCurrency</strong>
+                                <strong>@GetActiveCreditNoteCount() credit note(s)</strong> totaling
+                                <strong>@GetActiveCreditedAmount().ToString("N2") @selectedInvoice.DocCurrency</strong>
                                 already exist for this invoice.
+                                @if (IsSelectedInvoiceFullyCredited())
+                                {
+                                    <span> This invoice has been fully credited, so new credit notes are disabled.</span>
+                                }
                                 <MudButton Class="cn-view-link" OnClick="ShowExistingCreditNotes">View Details</MudButton>
                             </div>
                         </div>
@@ -1347,8 +1351,9 @@
                     <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="PrintInvoicePdf" Disabled="@isPdfLoading">
                         <i class="bi bi-printer me-1"></i> Print
                     </MudButton>
-                    <MudButton Class="btn-warning-action" OnClick="OpenCreateCreditNoteModal">
-                        <i class="bi bi-file-earmark-minus"></i> Create Credit Note
+                    <MudButton Class="btn-warning-action" OnClick="OpenCreateCreditNoteModal"
+                               Disabled="@IsSelectedInvoiceFullyCredited()">
+                        <i class="bi bi-file-earmark-minus"></i> @(IsSelectedInvoiceFullyCredited() ? "Fully Credited" : "Create Credit Note")
                     </MudButton>
                     <MudButton Class="btn-secondary-action" OnClick="CloseModal"><i class="bi bi-x-lg me-1"></i>Close</MudButton>
                 </div>
@@ -1370,7 +1375,7 @@
                             <div class="alert-banner info-alert" style="margin-bottom:1rem;">
                                 <i class="bi bi-info-circle-fill"></i>
                                 <div class="alert-body">
-                                    <strong>Total Credited:</strong> @existingCreditNotes.TotalCreditedAmount.ToString("N2")
+                                    <strong>Active Total Credited:</strong> @GetActiveCreditedAmount().ToString("N2")
                                     @selectedInvoice?.DocCurrency
                                 </div>
                             </div>
@@ -1453,9 +1458,11 @@
                                     <div class="alert-banner warn-alert" style="margin-bottom:1rem;">
                                         <i class="bi bi-exclamation-triangle-fill"></i>
                                         <div class="alert-body">
-                                            <strong>Warning:</strong> This invoice already has @existingCreditNotes.CreditNotes.Count credit
+                                            <strong>Warning:</strong> This invoice already has @GetActiveCreditNoteCount() active credit
                                             note(s)
-                                            totaling @existingCreditNotes.TotalCreditedAmount.ToString("N2") @selectedInvoice.DocCurrency.
+                                            totaling @GetActiveCreditedAmount().ToString("N2") @selectedInvoice.DocCurrency.
+                                            Remaining creditable amount: @GetRemainingCreditableAmount().ToString("N2")
+                                            @selectedInvoice.DocCurrency.
                                         </div>
                                     </div>
                                 }
@@ -1832,7 +1839,17 @@ toDate);
 
     private void OpenCreateCreditNoteModal()
     {
-        if (selectedInvoice?.Lines == null) return;
+        if (selectedInvoice?.Lines == null)
+        {
+            return;
+        }
+
+        if (IsSelectedInvoiceFullyCredited())
+        {
+            creditNoteSuccess = false;
+            creditNoteMessage = $"Invoice #{selectedInvoice.DocNum} has already been fully credited.";
+            return;
+        }
 
         creditNoteLines = selectedInvoice.Lines.Select(line => new CreditNoteLineSelection
         {
@@ -1875,6 +1892,13 @@ toDate);
     {
         if (selectedInvoice == null || creditNoteLines == null || string.IsNullOrWhiteSpace(creditNoteReason))
             return;
+
+        if (IsSelectedInvoiceFullyCredited())
+        {
+            creditNoteSuccess = false;
+            creditNoteMessage = $"Invoice #{selectedInvoice.DocNum} has already been fully credited.";
+            return;
+        }
 
         isCreatingCreditNote = true;
         creditNoteMessage = null;
@@ -1995,6 +2019,38 @@ toDate);
         CreditNoteStatus.Voided => "",
         _ => ""
     };
+
+    private int GetActiveCreditNoteCount()
+    {
+        return existingCreditNotes?.CreditNotes?.Count(IsActiveCreditNote) ?? 0;
+    }
+
+    private decimal GetActiveCreditedAmount()
+    {
+        return existingCreditNotes?.CreditNotes?
+            .Where(IsActiveCreditNote)
+            .Sum(note => note.DocTotal) ?? 0m;
+    }
+
+    private decimal GetRemainingCreditableAmount()
+    {
+        if (selectedInvoice == null)
+        {
+            return 0m;
+        }
+
+        return Math.Max(0m, selectedInvoice.DocTotal - GetActiveCreditedAmount());
+    }
+
+    private bool IsSelectedInvoiceFullyCredited()
+    {
+        return selectedInvoice != null && GetRemainingCreditableAmount() <= 0.01m;
+    }
+
+    private static bool IsActiveCreditNote(CreditNoteDto creditNote)
+    {
+        return creditNote.Status != CreditNoteStatus.Cancelled && creditNote.Status != CreditNoteStatus.Voided;
+    }
 
     private string TruncateText(string? text, int maxLength)
     {

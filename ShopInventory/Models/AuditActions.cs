@@ -65,6 +65,10 @@ public static class AuditActions
     public const string UploadDocumentAttachment = "UploadDocumentAttachment";
     public const string DeleteDocumentAttachment = "DeleteDocumentAttachment";
     public const string UploadPod = "UploadPod";
+    public const string RegisterInvoiceCrates = "RegisterInvoiceCrates";
+    public const string CreateCrateOpeningBalance = "CreateCrateOpeningBalance";
+    public const string UploadCratePod = "UploadCratePod";
+    public const string CreateCrateGrv = "CreateCrateGrv";
 
     // Inventory Transfer actions
     public const string CreateTransfer = "CreateTransfer";

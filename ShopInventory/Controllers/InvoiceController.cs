@@ -41,7 +41,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new CreateInvoiceCommand(request, autoAllocateBatches, allocationStrategy), cancellationToken);
+            new CreateInvoiceCommand(request, autoAllocateBatches, allocationStrategy, GetUserId()), cancellationToken);
 
         return result.Match(
             invoice => CreatedAtAction(nameof(GetInvoiceByDocEntry), new { docEntry = invoice.Invoice?.DocEntry }, invoice),

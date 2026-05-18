@@ -67,6 +67,7 @@ Common/
  Caching/
   CacheStatusKeys.cs
   CacheSyncStateRecorder.cs
+ Crates/CrateTrackingConstants.cs
  Errors/
   Errors.AppVersion.cs
   Errors.Auth.cs
@@ -74,6 +75,7 @@ Common/
   Errors.Batch.cs
   Errors.BusinessPartner.cs
   Errors.CostCentre.cs
+  Errors.CrateTracking.cs
   Errors.CreditNote.cs
   Errors.CustomerPortal.cs
   Errors.DesktopIntegration.cs
@@ -144,6 +146,7 @@ Controllers/
  BatchController.cs
  BusinessPartnerController.cs
  CostCentreController.cs
+ CratesController.cs
  CreditNoteController.cs
  CustomerPortalController.cs
  DesktopIntegrationController.cs
@@ -199,11 +202,15 @@ DTOs/
  BulkRegistrationRequest.cs
  BulkRegistrationResponse.cs
  BusinessPartnerDto.cs
+ BusinessPartnerSpecialPriceDto.cs
  CommonDto.cs
  ConvertResponse.cs
  ConvertSalesOrderToInvoiceRequest.cs
  ConvertSalesOrderToInvoiceResponseDto.cs
  CostCentreDto.cs
+ CrateGrvDto.cs
+ CratePodSubmissionDto.cs
+ CrateTransactionDto.cs
  CreateDesktopInvoiceLineRequest.cs
  CreateDesktopInvoiceRequest.cs
  CreateDesktopTransferRequestDto.cs
@@ -392,6 +399,26 @@ Features/CostCentres/Queries/GetCostCentres/
 Features/CostCentres/Queries/GetCostCentresByDimension/
  GetCostCentresByDimensionHandler.cs
  GetCostCentresByDimensionQuery.cs
+Features/Crates/Commands/CreateCrateGrv/
+ CreateCrateGrvCommand.cs
+ CreateCrateGrvHandler.cs
+Features/Crates/Commands/CreateCrateOpeningBalance/
+ CreateCrateOpeningBalanceCommand.cs
+ CreateCrateOpeningBalanceHandler.cs
+Features/Crates/Commands/UploadCratePod/
+ UploadCratePodCommand.cs
+ UploadCratePodHandler.cs
+Features/Crates/
+ CrateDtoMapping.cs
+ Queries/GetCrateGrvs/
+  GetCrateGrvsHandler.cs
+  GetCrateGrvsQuery.cs
+ Queries/GetCratePods/
+  GetCratePodsHandler.cs
+  GetCratePodsQuery.cs
+ Queries/GetCrateTransactions/
+  GetCrateTransactionsHandler.cs
+  GetCrateTransactionsQuery.cs
 Features/CreditNotes/Commands/ApproveCreditNote/
  ApproveCreditNoteCommand.cs
  ApproveCreditNoteHandler.cs
@@ -968,6 +995,9 @@ Features/Payments/Queries/GetTransactions/
 Features/Prices/Commands/SyncItemPricesForPriceList/
  SyncItemPricesForPriceListCommand.cs
  SyncItemPricesForPriceListHandler.cs
+Features/Prices/Commands/SyncPriceCatalog/
+ SyncPriceCatalogCommand.cs
+ SyncPriceCatalogHandler.cs
 Features/Prices/Commands/SyncPriceLists/
  SyncPriceListsCommand.cs
  SyncPriceListsHandler.cs
@@ -980,23 +1010,24 @@ Features/Prices/Queries/GetCachedPrices/
 Features/Prices/Queries/GetGroupedPrices/
  GetGroupedPricesHandler.cs
  GetGroupedPricesQuery.cs
-Features/Prices/Queries/
- GetItemPriceFromList/GetItemPriceFromListQuery.cs
- GetPriceByItemCode/
-  GetPriceByItemCodeHandler.cs
-  GetPriceByItemCodeQuery.cs
- GetPriceLists/
-  GetPriceListsHandler.cs
-  GetPriceListsQuery.cs
- GetPricesByBusinessPartner/
-  GetPricesByBusinessPartnerHandler.cs
-  GetPricesByBusinessPartnerQuery.cs
- GetPricesByCurrency/
-  GetPricesByCurrencyHandler.cs
-  GetPricesByCurrencyQuery.cs
- GetPricesByPriceList/
-  GetPricesByPriceListHandler.cs
-  GetPricesByPriceListQuery.cs
+Features/Prices/Queries/GetItemPriceFromList/
+ GetItemPriceFromListHandler.cs
+ GetItemPriceFromListQuery.cs
+Features/Prices/Queries/GetPriceByItemCode/
+ GetPriceByItemCodeHandler.cs
+ GetPriceByItemCodeQuery.cs
+Features/Prices/Queries/GetPriceLists/
+ GetPriceListsHandler.cs
+ GetPriceListsQuery.cs
+Features/Prices/Queries/GetPricesByBusinessPartner/
+ GetPricesByBusinessPartnerHandler.cs
+ GetPricesByBusinessPartnerQuery.cs
+Features/Prices/Queries/GetPricesByCurrency/
+ GetPricesByCurrencyHandler.cs
+ GetPricesByCurrencyQuery.cs
+Features/Prices/Queries/GetPricesByPriceList/
+ GetPricesByPriceListHandler.cs
+ GetPricesByPriceListQuery.cs
 Features/Products/Queries/GetAllProducts/
  GetAllProductsHandler.cs
  GetAllProductsQuery.cs
@@ -1630,6 +1661,12 @@ Migrations/
  20260517081325_AddTwoFactorLastUsedTimeStep.Designer.cs
  20260517084133_AddPodAttachmentExternalReferenceUniqueness.cs
  20260517084133_AddPodAttachmentExternalReferenceUniqueness.Designer.cs
+ 20260517173243_AddPriceCatalogProfilesAndSpecialPrices.cs
+ 20260517173243_AddPriceCatalogProfilesAndSpecialPrices.Designer.cs
+ 20260517200123_WidenPriceListFactorPrecision.cs
+ 20260517200123_WidenPriceListFactorPrecision.Designer.cs
+ 20260518100225_AddCrateTrackingModule.cs
+ 20260518100225_AddCrateTrackingModule.Designer.cs
  ApplicationDbContextModelSnapshot.cs
 Models/
  AuditActions.cs
@@ -1637,7 +1674,12 @@ Models/
  Entities/
   AuditLog.cs
   BackgroundWorkerClusterStateEntity.cs
+  BusinessPartnerPriceProfileEntity.cs
+  BusinessPartnerSpecialPriceEntity.cs
   CacheSyncStateEntity.cs
+  CrateGrvEntity.cs
+  CratePodSubmissionEntity.cs
+  CrateTransactionEntity.cs
   CreditNoteEntity.cs
   DailyStockSnapshotEntity.cs
   DailyStockSnapshotItemEntity.cs
@@ -1715,6 +1757,7 @@ Services/
  ExchangeRateService.cs
  FiscalizationService.cs
  IInvoiceFiscalizationQueue.cs
+ ILocalPriceCatalogService.cs
  IMobileOrderPostProcessingQueue.cs
  IncomingPaymentPostingBackgroundService.cs
  IncomingPaymentQueueService.cs
@@ -1732,6 +1775,8 @@ Services/
  IQuotationPdfService.cs
  IRevmaxClient.cs
  ISAPServiceLayerClient.cs
+ LocalBusinessPartnerPricingResult.cs
+ LocalPriceCatalogService.cs
  MobileOrderPostProcessingBackgroundService.cs
  MobileOrderPostProcessingQueue.cs
  NotificationService.cs
@@ -1740,6 +1785,7 @@ Services/
  PaymentGatewayService.cs
  PaymentService.cs
  PostgresInventoryLockService.cs
+ PriceCatalogSyncBackgroundService.cs
  PurchaseOrderService.cs
  PushNotificationService.cs
  QuotationPdfService.cs

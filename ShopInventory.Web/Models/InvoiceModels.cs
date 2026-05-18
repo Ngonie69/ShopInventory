@@ -65,6 +65,7 @@ public class CreateInvoiceRequest
     public string? NumAtCard { get; set; }
     public string? Comments { get; set; }
     public string? DocCurrency { get; set; }
+    public decimal? CrateQuantity { get; set; }
     public List<CreateInvoiceLineRequest> Lines { get; set; } = new();
 }
 

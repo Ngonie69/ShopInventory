@@ -1865,7 +1865,7 @@
         {
             var count = await CacheService.SyncPricesFromApiAsync();
             refreshSuccess = true;
-            refreshMessage = $"Successfully synced {count} prices from SAP.";
+            refreshMessage = $"Successfully synced {count} prices from SAP into the API catalog and Web cache.";
             pricesLastSync = DateTime.Now;
             await LogAudit(AuditActions.UpdateSettings, $"Refreshed prices cache: {count} items synced");
         }

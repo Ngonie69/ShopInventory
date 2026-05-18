@@ -440,6 +440,7 @@ try
     builder.Services.AddScoped<IInvoiceService, InvoiceService>();
     builder.Services.AddScoped<IPaymentService, PaymentService>();
     builder.Services.AddScoped<IBusinessPartnerService, BusinessPartnerService>();
+    builder.Services.AddScoped<ILocalPriceCatalogService, LocalPriceCatalogService>();
     // Register email queue service for password reset
     builder.Services.AddScoped<IEmailQueueService, EmailQueueService>();
     // Register sales order, purchase order, credit note, and quotation services
@@ -497,6 +498,9 @@ try
     // Register background service for processing queued incoming payments
     builder.Services.AddHostedService<IncomingPaymentPostingBackgroundService>();
 
+    // Register background service for scheduled SAP price catalog synchronization
+    builder.Services.AddHostedService<PriceCatalogSyncBackgroundService>();
+
     // Register system failure email alert background service
     builder.Services.AddHostedService<SystemFailureAlertBackgroundService>();
 
@@ -519,13 +523,65 @@ try
     builder.Services.AddTransient<SAPRequestLoggingHandler>();
     builder.Services.AddSingleton<CacheSyncStateRecorder>();
 
+    // Configure a longer-running SAP client for bulk sync operations.
+    builder.Services.AddHttpClient("SAPServiceLayerLongRunning", (serviceProvider, client) =>
+    {
+        var sapSettings = serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value;
+        client.BaseAddress = new Uri(sapSettings.ServiceLayerUrl ?? "https://10.10.10.6:50000/b1s/v1/");
+        client.DefaultRequestHeaders.Add("Accept", "application/json");
+        client.Timeout = TimeSpan.FromMinutes(sapSettings.LongRunningRequestTimeoutMinutes);
+    })
+    .AddHttpMessageHandler<SAPCircuitBreakerHandler>()
+    .AddHttpMessageHandler<SAPConcurrencyHandler>()
+    .AddHttpMessageHandler<SAPRequestLoggingHandler>()
+    .ConfigurePrimaryHttpMessageHandler(serviceProvider =>
+    {
+        var sapSettings = serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value;
+        var allowDevelopmentCertificateBypass = sapSettings.SkipCertificateValidation && builder.Environment.IsDevelopment();
+        var allowedThumbprints = sapSettings.AllowedServerCertificateThumbprints
+            .Where(value => !string.IsNullOrWhiteSpace(value) && !value.StartsWith("${", StringComparison.Ordinal))
+            .Select(value => value.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return new SocketsHttpHandler
+        {
+            SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+            {
+                RemoteCertificateValidationCallback = (_, certificate, _, errors) =>
+                {
+                    if (errors == System.Net.Security.SslPolicyErrors.None)
+                    {
+                        return true;
+                    }
+
+                    if (allowDevelopmentCertificateBypass)
+                    {
+                        return true;
+                    }
+
+                    var certificate2 = certificate as X509Certificate2 ?? (certificate != null ? new X509Certificate2(certificate) : null);
+                    var thumbprint = certificate2?.Thumbprint?.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant();
+
+                    return !string.IsNullOrWhiteSpace(thumbprint) && allowedThumbprints.Contains(thumbprint);
+                }
+            },
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
+            KeepAlivePingPolicy = HttpKeepAlivePingPolicy.WithActiveRequests,
+            KeepAlivePingDelay = TimeSpan.FromSeconds(30),
+            KeepAlivePingTimeout = TimeSpan.FromSeconds(10),
+            ConnectTimeout = TimeSpan.FromSeconds(30),
+            EnableMultipleHttp2Connections = true
+        };
+    });
+
     // Configure HttpClient for SAP Service Layer
     builder.Services.AddHttpClient<ISAPServiceLayerClient, SAPServiceLayerClient>((serviceProvider, client) =>
     {
         var sapSettings = serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value;
         client.BaseAddress = new Uri(sapSettings.ServiceLayerUrl ?? "https://10.10.10.6:50000/b1s/v1/");
         client.DefaultRequestHeaders.Add("Accept", "application/json");
-        client.Timeout = TimeSpan.FromMinutes(5); // Increased timeout for large data operations
+        client.Timeout = TimeSpan.FromMinutes(sapSettings.RequestTimeoutMinutes);
     })
     .AddHttpMessageHandler<SAPCircuitBreakerHandler>()
     .AddHttpMessageHandler<SAPConcurrencyHandler>()

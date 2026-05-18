@@ -62,6 +62,7 @@ using ShopInventory.Features.Prices.Queries.GetPricesByPriceList;
 using ShopInventory.Features.Prices.Queries.GetPriceLists;
 using ShopInventory.Features.Prices.Queries.GetItemPriceFromList;
 using ShopInventory.Features.Prices.Queries.GetPricesByBusinessPartner;
+using ShopInventory.Features.Prices.Commands.SyncPriceCatalog;
 using ShopInventory.Features.Prices.Commands.SyncItemPricesForPriceList;
 using ShopInventory.Features.Prices.Commands.SyncPriceLists;
 using ShopInventory.Services;
@@ -768,7 +769,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         {
             return BadRequest(new
             {
-                Message = "Use POST api/DesktopIntegration/prices/pricelists/sync to refresh price lists. Normal GET responses use the cached sync path."
+                Message = "Price lists are served from the local database. Use POST api/DesktopIntegration/prices/sync to refresh local price data from SAP."
             });
         }
 
@@ -779,7 +780,16 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     [HttpPost("prices/pricelists/sync")]
     public async Task<IActionResult> SyncPriceLists(CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new SyncPriceListsCommand(), cancellationToken);
+        using var syncTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(30));
+        var result = await mediator.Send(new SyncPriceCatalogCommand(), syncTimeout.Token);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpPost("prices/sync")]
+    public async Task<IActionResult> SyncPriceCatalog(CancellationToken cancellationToken = default)
+    {
+        using var syncTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(30));
+        var result = await mediator.Send(new SyncPriceCatalogCommand(), syncTimeout.Token);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
@@ -797,7 +807,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         {
             return BadRequest(new
             {
-                Message = $"Use POST api/DesktopIntegration/prices/pricelists/{priceListNum}/sync to refresh item prices. Normal GET responses use the cached sync path."
+                Message = $"Prices are served from the local database. Use POST api/DesktopIntegration/prices/pricelists/{priceListNum}/sync or POST api/DesktopIntegration/prices/sync to refresh from SAP."
             });
         }
 

@@ -39,7 +39,7 @@ public class PriceListEntity
     /// <summary>
     /// Factor/multiplier for derived prices
     /// </summary>
-    [Precision(10, 6)]
+    [Precision(18, 8)]
     public decimal? Factor { get; set; }
 
     /// <summary>

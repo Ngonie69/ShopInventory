@@ -643,19 +643,26 @@
                     </AuthorizeView>
                 </Authorized>
             </AuthorizeView>
-            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="insightsExtraCtx">
+            <AuthorizeView Roles="Admin,Manager,Merchandiser,Driver" Context="crateCtx">
                 <Authorized>
-                    <NavLink class="snav-link" href="/document-templates" Match="NavLinkMatch.Prefix">
+                    <div class="nav-section-label">Crates</div>
+                    <NavLink class="snav-link" href="/crates/opening-balances" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Description" />
+                            <MudIcon Icon="@Icons.Material.Filled.Inventory2" />
                         </span>
-                        <span class="snav-text">Templates</span>
+                        <span class="snav-text">Opening Balances</span>
                     </NavLink>
-                    <NavLink class="snav-link" href="/ai-assistant" Match="NavLinkMatch.Prefix">
+                    <NavLink class="snav-link sub-link" href="/crates/pods" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.SmartToy" />
+                            <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
                         </span>
-                        <span class="snav-text">AI Assistant</span>
+                        <span class="snav-text">Crate PODs</span>
+                    </NavLink>
+                    <NavLink class="snav-link sub-link" href="/crates/grvs" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.AssignmentReturn" />
+                        </span>
+                        <span class="snav-text">Crate GRVs</span>
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
@@ -681,6 +688,18 @@
                             <MudIcon Icon="@Icons.Material.Filled.Notifications" />
                         </span>
                         <span class="snav-text">Notifications</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/document-templates" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Description" />
+                        </span>
+                        <span class="snav-text">Templates</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/ai-assistant" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.SmartToy" />
+                        </span>
+                        <span class="snav-text">AI Assistant</span>
                     </NavLink>
                     <AuthorizeView Roles="Admin" Context="mobilePushCtx">
                         <Authorized>

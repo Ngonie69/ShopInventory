@@ -12,6 +12,8 @@ namespace ShopInventory.Services;
 /// </summary>
 public class CreditNoteService : ICreditNoteService
 {
+    private const decimal CreditAmountTolerance = 0.01m;
+
     private readonly ApplicationDbContext _context;
     private readonly ISAPServiceLayerClient _sapClient;
     private readonly IFiscalizationService _fiscalizationService;
@@ -431,6 +433,24 @@ public class CreditNoteService : ICreditNoteService
         _logger.LogInformation("Found invoice {InvoiceId} in SAP with CardCode {CardCode}, Lines: {LineCount}",
             invoiceId, sapInvoice.CardCode, sapInvoice.DocumentLines?.Count ?? 0);
 
+        var existingCreditNotes = await GetByInvoiceIdAsync(invoiceId, cancellationToken);
+        var activeCreditedAmount = CalculateActiveCreditedAmount(existingCreditNotes);
+        var requestedCreditAmount = CalculateCreditNoteRequestTotal(lines);
+        var remainingCreditableAmount = Math.Max(0m, sapInvoice.DocTotal - activeCreditedAmount);
+        var currency = string.IsNullOrWhiteSpace(sapInvoice.DocCurrency) ? "USD" : sapInvoice.DocCurrency;
+
+        if (remainingCreditableAmount <= CreditAmountTolerance)
+        {
+            throw new InvalidOperationException(
+                $"Invoice #{sapInvoice.DocNum} has already been fully credited. No additional credit note can be created.");
+        }
+
+        if (requestedCreditAmount > remainingCreditableAmount + CreditAmountTolerance)
+        {
+            throw new InvalidOperationException(
+                $"Requested credit amount {requestedCreditAmount:N2} {currency} exceeds the remaining creditable amount {remainingCreditableAmount:N2} {currency} for invoice #{sapInvoice.DocNum}.");
+        }
+
         // Log invoice lines for debugging
         if (sapInvoice.DocumentLines != null)
         {
@@ -753,6 +773,28 @@ public class CreditNoteService : ICreditNoteService
             "bost_Close" => CreditNoteStatus.Applied,
             _ => CreditNoteStatus.Draft
         };
+    }
+
+    private static decimal CalculateCreditNoteRequestTotal(IEnumerable<CreateCreditNoteLineRequest> lines)
+    {
+        return lines.Sum(line =>
+        {
+            var lineTotal = line.Quantity * line.UnitPrice * (1 - line.DiscountPercent / 100);
+            var lineTax = lineTotal * line.TaxPercent / 100;
+            return lineTotal + lineTax;
+        });
+    }
+
+    private static decimal CalculateActiveCreditedAmount(IEnumerable<CreditNoteDto> creditNotes)
+    {
+        return creditNotes
+            .Where(IsActiveCreditNote)
+            .Sum(note => note.DocTotal);
+    }
+
+    private static bool IsActiveCreditNote(CreditNoteDto creditNote)
+    {
+        return creditNote.Status != CreditNoteStatus.Cancelled;
     }
 
     private async Task CaptureCreditNoteFiscalizationIncidentAsync(

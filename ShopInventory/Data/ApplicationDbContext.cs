@@ -72,6 +72,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // Item Price tables
   public DbSet<ItemPriceEntity> ItemPrices { get; set; }
   public DbSet<PriceListEntity> PriceLists { get; set; }
+  public DbSet<BusinessPartnerPriceProfileEntity> BusinessPartnerPriceProfiles { get; set; }
+  public DbSet<BusinessPartnerSpecialPriceEntity> BusinessPartnerSpecialPrices { get; set; }
 
   // Incoming Payment tables
   public DbSet<IncomingPaymentEntity> IncomingPayments { get; set; }
@@ -153,6 +155,11 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
   // Mobile order post-processing queue for durable price enrichment and notifications
   public DbSet<MobileOrderPostProcessingQueueEntity> MobileOrderPostProcessingQueue { get; set; }
+
+  // Crate tracking tables
+  public DbSet<CrateTransactionEntity> CrateTransactions { get; set; }
+  public DbSet<CratePodSubmissionEntity> CratePodSubmissions { get; set; }
+  public DbSet<CrateGrvEntity> CrateGrvs { get; set; }
 
   // Merchandiser Product assignments
   public DbSet<MerchandiserProductEntity> MerchandiserProducts { get; set; }
@@ -428,6 +435,23 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     {
       entity.HasIndex(p => p.ListNum).IsUnique();
       entity.HasIndex(p => p.IsActive);
+    });
+
+    modelBuilder.Entity<BusinessPartnerPriceProfileEntity>(entity =>
+    {
+      entity.HasIndex(p => p.CardCode).IsUnique();
+      entity.HasIndex(p => p.PriceListNum);
+      entity.HasIndex(p => p.IsActive);
+    });
+
+    modelBuilder.Entity<BusinessPartnerSpecialPriceEntity>(entity =>
+    {
+      entity.HasIndex(p => new { p.CardCode, p.ItemCode }).IsUnique();
+      entity.HasIndex(p => p.CardCode);
+      entity.HasIndex(p => p.ItemCode);
+      entity.HasIndex(p => p.IsActive);
+
+      entity.ToTable(t => t.HasCheckConstraint("CK_BusinessPartnerSpecialPrices_Price_NonNegative", "\"Price\" >= 0"));
     });
 
     // Incoming Payment configuration with CHECK constraints
@@ -1097,6 +1121,118 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
       // CHECK constraint to prevent negative batch quantities
       entity.ToTable(t => t.HasCheckConstraint("CK_StockReservationBatches_ReservedQuantity_Positive", "\"ReservedQuantity\" > 0"));
+    });
+
+    // Crate tracking configuration
+    modelBuilder.Entity<CrateTransactionEntity>(entity =>
+    {
+      entity.ToTable("CrateTransactions");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.InvoiceDocEntry)
+            .IsUnique();
+
+      entity.HasIndex(e => e.ShopCardCode);
+      entity.HasIndex(e => e.TransactionType);
+      entity.HasIndex(e => e.EffectiveDate);
+      entity.HasIndex(e => e.CreatedAt);
+
+      entity.Property(e => e.TransactionType)
+            .IsRequired()
+            .HasMaxLength(30);
+
+      entity.Property(e => e.ShopCardCode)
+            .IsRequired()
+            .HasMaxLength(50);
+
+      entity.Property(e => e.ShopName)
+            .HasMaxLength(200);
+
+      entity.Property(e => e.Notes)
+            .HasMaxLength(500);
+
+      entity.HasMany(e => e.PodSubmissions)
+            .WithOne(e => e.CrateTransaction)
+            .HasForeignKey(e => e.CrateTransactionId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.Grv)
+            .WithOne(e => e.CrateTransaction)
+            .HasForeignKey<CrateGrvEntity>(e => e.CrateTransactionId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      entity.ToTable(t => t.HasCheckConstraint("CK_CrateTransactions_ExpectedQuantity_NonNegative", "\"ExpectedQuantity\" >= 0"));
+    });
+
+    modelBuilder.Entity<CratePodSubmissionEntity>(entity =>
+    {
+      entity.ToTable("CratePodSubmissions");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => new { e.CrateTransactionId, e.SubmissionRole })
+            .IsUnique();
+
+      entity.HasIndex(e => e.SubmittedAt);
+
+      entity.Property(e => e.SubmissionRole)
+            .IsRequired()
+            .HasMaxLength(20);
+
+      entity.Property(e => e.Notes)
+            .HasMaxLength(500);
+
+      entity.HasOne(e => e.SubmittedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.SubmittedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      entity.ToTable(t => t.HasCheckConstraint("CK_CratePodSubmissions_Quantity_NonNegative", "\"Quantity\" >= 0"));
+    });
+
+    modelBuilder.Entity<CrateGrvEntity>(entity =>
+    {
+      entity.ToTable("CrateGrvs");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.CrateTransactionId)
+            .IsUnique();
+
+      entity.HasIndex(e => e.GrvNumber)
+            .IsUnique();
+
+      entity.HasIndex(e => e.CreatedAt);
+      entity.HasIndex(e => e.Status);
+
+      entity.Property(e => e.GrvNumber)
+            .HasMaxLength(30);
+
+      entity.Property(e => e.Direction)
+            .IsRequired()
+            .HasMaxLength(20);
+
+      entity.Property(e => e.Reason)
+            .IsRequired()
+            .HasMaxLength(1000);
+
+      entity.Property(e => e.Status)
+            .IsRequired()
+            .HasMaxLength(20);
+
+      entity.HasOne(e => e.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      entity.ToTable(t =>
+          {
+    t.HasCheckConstraint("CK_CrateGrvs_ExpectedQuantity_NonNegative", "\"ExpectedQuantity\" >= 0");
+    t.HasCheckConstraint("CK_CrateGrvs_ActualQuantity_NonNegative", "\"ActualQuantity\" >= 0");
+  });
     });
 
     // Merchandiser Product configuration

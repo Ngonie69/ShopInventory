@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using ErrorOr;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Crates;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.Models;
@@ -117,6 +118,21 @@ public sealed class DocumentAttachmentAccessService(
             return await EnsureExternalPurchaseOrderAccessAsync(role, isWriteOperation, GetPermissionsAsync, cancellationToken);
         }
 
+        if (string.Equals(normalizedEntityType, CrateTrackingConstants.AttachmentEntityTypeCrateTransaction, StringComparison.OrdinalIgnoreCase))
+        {
+            return await EnsureCrateTransactionAccessAsync(entityId, userId, role, isWriteOperation, cancellationToken);
+        }
+
+        if (string.Equals(normalizedEntityType, CrateTrackingConstants.AttachmentEntityTypeCratePodSubmission, StringComparison.OrdinalIgnoreCase))
+        {
+            return await EnsureCratePodSubmissionAccessAsync(entityId, userId, role, uploadedByUserId, isWriteOperation, cancellationToken);
+        }
+
+        if (string.Equals(normalizedEntityType, CrateTrackingConstants.AttachmentEntityTypeCrateGrv, StringComparison.OrdinalIgnoreCase))
+        {
+            return await EnsureCrateGrvAccessAsync(entityId, userId, role, isWriteOperation, cancellationToken);
+        }
+
         if (IsRole(role, "Admin") || IsRole(role, "Manager"))
         {
             return true;
@@ -207,6 +223,102 @@ public sealed class DocumentAttachmentAccessService(
             isWriteOperation
                 ? "You do not have permission to modify purchase order attachments."
                 : "You do not have permission to view purchase order attachments.");
+    }
+
+    private async Task<ErrorOr<bool>> EnsureCrateTransactionAccessAsync(
+        int entityId,
+        Guid userId,
+        string role,
+        bool isWriteOperation,
+        CancellationToken cancellationToken)
+    {
+        var transactionExists = await context.CrateTransactions
+            .AsNoTracking()
+            .AnyAsync(t => t.Id == entityId, cancellationToken);
+
+        if (!transactionExists)
+        {
+            return Errors.CrateTracking.TransactionNotFound(entityId);
+        }
+
+        if (IsRole(role, "Admin") || IsRole(role, "Manager") || IsRole(role, "Merchandiser"))
+        {
+            return true;
+        }
+
+        return Errors.Document.AccessDenied(
+            isWriteOperation
+                ? "You do not have permission to modify crate transaction documents."
+                : "You do not have permission to view crate transaction documents.");
+    }
+
+    private async Task<ErrorOr<bool>> EnsureCratePodSubmissionAccessAsync(
+        int entityId,
+        Guid userId,
+        string role,
+        Guid? uploadedByUserId,
+        bool isWriteOperation,
+        CancellationToken cancellationToken)
+    {
+        var submission = await context.CratePodSubmissions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == entityId, cancellationToken);
+
+        if (submission is null)
+        {
+            return Errors.CrateTracking.SubmissionNotFound(entityId);
+        }
+
+        if (IsRole(role, "Admin") || IsRole(role, "Manager") || IsRole(role, "Merchandiser"))
+        {
+            return true;
+        }
+
+        if (IsRole(role, "Driver") && (submission.SubmittedByUserId == userId || uploadedByUserId == userId))
+        {
+            return true;
+        }
+
+        return Errors.Document.AccessDenied(
+            isWriteOperation
+                ? "You can only modify your own crate POD attachments."
+                : "You can only view your own crate POD attachments.");
+    }
+
+    private async Task<ErrorOr<bool>> EnsureCrateGrvAccessAsync(
+        int entityId,
+        Guid userId,
+        string role,
+        bool isWriteOperation,
+        CancellationToken cancellationToken)
+    {
+        var grv = await context.CrateGrvs
+            .AsNoTracking()
+            .Include(g => g.CrateTransaction)
+                .ThenInclude(t => t.PodSubmissions)
+            .FirstOrDefaultAsync(g => g.Id == entityId, cancellationToken);
+
+        if (grv is null)
+        {
+            return Errors.CrateTracking.GrvNotFound(entityId);
+        }
+
+        if (IsRole(role, "Admin") || IsRole(role, "Manager") || IsRole(role, "Merchandiser"))
+        {
+            return true;
+        }
+
+        if (!isWriteOperation && IsRole(role, "Driver") && grv.CrateTransaction.PodSubmissions.Any(s =>
+                s.SubmissionRole == CrateTrackingConstants.SubmissionRoleDriver &&
+                s.SubmittedByUserId == userId))
+        {
+            return true;
+        }
+
+        return Errors.Document.AccessDenied(
+            isWriteOperation
+                ? "You do not have permission to modify crate GRV attachments."
+                : "You do not have permission to view crate GRV attachments.");
     }
 
     private async Task<ErrorOr<(Guid UserId, string Role, string? AssignedSection, bool IsApiKeyBypass)>> ResolveCurrentUserAsync(

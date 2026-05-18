@@ -168,6 +168,13 @@ public class CreateInvoiceRequest
     /// </summary>
     public string? U_Van_saleorder { get; set; }
 
+    /// <summary>
+    /// Expected number of crates attached to this invoice for crate reconciliation.
+    /// When zero or omitted, no crate transaction is registered.
+    /// </summary>
+    [Range(0, double.MaxValue, ErrorMessage = "Crate quantity cannot be negative")]
+    public decimal? CrateQuantity { get; set; }
+
     [Required(ErrorMessage = "At least one line item is required")]
     [MinLength(1, ErrorMessage = "At least one line item is required")]
     public List<CreateInvoiceLineRequest>? Lines { get; set; }

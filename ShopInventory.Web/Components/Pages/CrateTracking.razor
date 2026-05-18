@@ -1,0 +1,233 @@
+@page "/crates"
+@page "/crates/opening-balances"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+@inherits CrateTrackingPageBase
+@rendermode InteractiveServer
+
+<PageTitle>Crate Opening Balances</PageTitle>
+
+<CrateTrackingStyles />
+
+<div class="container-fluid fade-in staff-dashboard staff-shell crt-page">
+    <CratePageHeader Title="Crate Opening Balances"
+                     Subtitle="Upload shop opening balances and review the full crate register, including invoice-linked transactions and historical support documents."
+                     IsLoading="isLoading" OnRefresh="RefreshAllAsync" TransactionCount="transactions.Count"
+                     PendingPodCount="PendingPodCount" VariancePendingCount="VariancePendingCount" GrvCount="grvs.Count"
+                     StatusMessage="@statusMessage" StatusIsSuccess="statusIsSuccess" />
+
+    <div class="row g-4">
+        @if (canManageOpeningBalances)
+        {
+            <div class="col-xl-4 col-lg-5">
+                <div class="crt-card">
+                    <div class="crt-card-header">
+                        <div>
+                            <h3 class="crt-card-title">Opening Balance</h3>
+                            <p class="crt-card-note">Admin uploads the starting shop balance with a mandatory supporting
+                                document.</p>
+                            </div>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="crt-label">Shop</label>
+                                <div class="crt-bp-search">
+                                    <input class="crt-form-control" value="@openingBalanceShopSearchTerm"
+                                           @oninput="OnOpeningBalanceShopSearchInputAsync" @onfocus="ShowOpeningBalanceShopResults"
+                                           @onblur="HandleOpeningBalanceShopBlurAsync"
+                                           placeholder="Search SAP customer by code or name" />
+
+                                    @if (showOpeningBalanceShopResults && selectedOpeningBalanceShop is null)
+                                    {
+                                        <div class="crt-bp-dropdown">
+                                            @if (isOpeningBalanceShopLoading)
+                                            {
+                                                <div class="crt-bp-search-empty">Searching SAP customers...</div>
+                                            }
+                                            else if (openingBalanceShopResults.Count > 0)
+                                            {
+                                                @foreach (var businessPartner in openingBalanceShopResults)
+                                                {
+                                                    <button type="button" class="crt-bp-option"
+                                                            @onmousedown="() => SelectOpeningBalanceShop(businessPartner)">
+                                                        <div>
+                                                            <div class="crt-bp-option-code">@businessPartner.CardCode</div>
+                                                            <div class="crt-bp-option-name">@businessPartner.CardName</div>
+                                                        </div>
+                                                        @if (!string.IsNullOrWhiteSpace(businessPartner.Phone1))
+                                                        {
+                                                            <span class="crt-bp-option-meta">@businessPartner.Phone1</span>
+                                                        }
+                                                    </button>
+                                                }
+                                            }
+                                            else if (!string.IsNullOrWhiteSpace(openingBalanceShopSearchTerm) &&
+                                    openingBalanceShopSearchTerm.Trim().Length >= 2)
+                                            {
+                                                <div class="crt-bp-search-empty">No SAP customer matches this search.</div>
+                                            }
+                                            else
+                                            {
+                                                <div class="crt-bp-search-empty">Type at least 2 characters to search SAP customers.
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                            @if (selectedOpeningBalanceShop is not null)
+                            {
+                                <div class="col-12">
+                                    <div class="crt-bp-selected">
+                                        <div>
+                                            <div class="crt-bp-selected-code">
+                                                <i class="bi bi-check-circle-fill me-1"></i>@selectedOpeningBalanceShop.CardCode
+                                            </div>
+                                            <div class="crt-bp-selected-name">@selectedOpeningBalanceShop.CardName</div>
+                                            @if (!string.IsNullOrWhiteSpace(selectedOpeningBalanceShop.Phone1))
+                                            {
+                                                <div class="crt-bp-selected-meta">
+                                                    <i class="bi bi-telephone me-1"></i>@selectedOpeningBalanceShop.Phone1
+                                                </div>
+                                            }
+                                        </div>
+                                        <button type="button" class="crt-bp-change"
+                                                @onclick="ClearOpeningBalanceShopSelection">Change</button>
+                                    </div>
+                                </div>
+                            }
+                            <div class="col-md-6">
+                                <label class="crt-label">Quantity</label>
+                                <input type="number" min="0" step="0.01" class="crt-form-control"
+                                       @bind="openingBalanceQuantity" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="crt-label">Effective Date</label>
+                                <input type="date" class="crt-form-control" @bind="openingBalanceEffectiveDate" />
+                            </div>
+                            <div class="col-12">
+                                <label class="crt-label">Notes</label>
+                                <textarea class="crt-form-control" rows="2" @bind="openingBalanceNotes"
+                                          placeholder="Optional context for the uploaded balance"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="crt-label">Supporting Document</label>
+                                <InputFile @key="openingBalanceFileKey" OnChange="OnOpeningBalanceFileSelected"
+                                           class="crt-form-control" accept=".jpg,.jpeg,.png,.webp,.pdf" />
+                            </div>
+                            <div class="col-12">
+                                <button type="button" class="crt-btn crt-btn-primary w-100" @onclick="SubmitOpeningBalanceAsync"
+                                        disabled="@isSubmittingOpeningBalance">
+                                    @(isSubmittingOpeningBalance ? "Uploading..." : "Upload Opening Balance")
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <div class="@(canManageOpeningBalances ? "col-xl-8 col-lg-7" : "col-12")">
+                <div class="crt-table-card h-100">
+                    <div class="crt-card-header">
+                        <div>
+                            <h3 class="crt-card-title">Crate Register</h3>
+                            <p class="crt-card-note">Invoice-linked crate rows and opening balances. Every opening balance
+                                entry must carry a supporting document.</p>
+                            </div>
+                            <div class="d-flex gap-2 flex-wrap">
+                                <input class="crt-form-control" style="width: 250px;" @bind="transactionSearch"
+                                       placeholder="Search by invoice, shop, or card code" />
+                                <select class="crt-form-select" style="width: 220px;" @bind="transactionStatusFilter">
+                                    <option value="">All statuses</option>
+                                    <option value="PendingDriverPod">Pending Driver POD</option>
+                                    <option value="PendingMerchandiserPod">Pending Merchandiser POD</option>
+                                    <option value="VariancePendingGrv">Variance Pending GRV</option>
+                                    <option value="GrvRaised">GRV Raised</option>
+                                    <option value="Matched">Matched</option>
+                                </select>
+                                <button type="button" class="crt-btn crt-btn-secondary"
+                                        @onclick="RefreshAllAsync">Apply</button>
+                            </div>
+                        </div>
+
+                        @if (isLoading)
+                        {
+                            <div class="crt-empty">Loading crate transactions...</div>
+                        }
+                        else if (transactions.Count == 0)
+                        {
+                            <div class="crt-empty">No crate transactions have been registered yet.</div>
+                        }
+                        else
+                        {
+                            <div class="crt-table-wrap">
+                                <table class="crt-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Reference</th>
+                                            <th>Shop</th>
+                                            <th>Expected</th>
+                                            <th>Driver</th>
+                                            <th>Merch</th>
+                                            <th>Variance</th>
+                                            <th>Status</th>
+                                            <th>Docs</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var transaction in transactions)
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <div class="fw-semibold">@GetReferenceLabel(transaction)</div>
+                                                    <div class="crt-muted">@transaction.EffectiveDate.ToString("dd MMM yyyy")</div>
+                                                </td>
+                                                <td>
+                                                    <div class="fw-semibold">@transaction.ShopCardCode</div>
+                                                    <div class="crt-muted">@transaction.ShopName</div>
+                                                </td>
+                                                <td>@transaction.ExpectedQuantity.ToString("N2")</td>
+                                                <td>
+                                                    @FormatQuantity(transaction.DriverQuantity)
+                                                    @if (transaction.HasDriverPodDocument)
+                                                    {
+                                                        <div class="crt-muted">Document attached</div>
+                                                    }
+                                                </td>
+                                                <td>
+                                                    @FormatQuantity(transaction.MerchandiserQuantity)
+                                                    @if (transaction.HasMerchandiserPodDocument)
+                                                    {
+                                                        <div class="crt-muted">Document attached</div>
+                                                    }
+                                                </td>
+                                                <td>@FormatVariance(transaction.VarianceQuantity)</td>
+                                                <td>
+                                                    <span
+                                                    class="crt-badge @GetStatusClass(transaction.Status)">@GetStatusLabel(transaction.Status)</span>
+                                                    @if (transaction.HasGrv && !string.IsNullOrWhiteSpace(transaction.GrvNumber))
+                                                    {
+                                                        <div class="crt-muted mt-1">@transaction.GrvNumber</div>
+                                                    }
+                                                </td>
+                                                <td>
+                                                    @if (transaction.TransactionType == "OpeningBalance")
+                                                    {
+                                                        <span>@transaction.SupportingDocumentCount file(s)</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span>@(transaction.HasDriverPodDocument || transaction.HasMerchandiserPodDocument ?
+                                                                                    "PODs attached" : "Awaiting docs")</span>
+                                                        }
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>

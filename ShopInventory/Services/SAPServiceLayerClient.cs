@@ -20,6 +20,7 @@ namespace ShopInventory.Services;
 public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 {
     private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly SAPSettings _settings;
     private readonly IHostEnvironment _hostEnvironment;
     private readonly ILogger<SAPServiceLayerClient> _logger;
@@ -80,6 +81,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
     public SAPServiceLayerClient(
         HttpClient httpClient,
+        IHttpClientFactory httpClientFactory,
         IOptions<SAPSettings> settings,
         IHostEnvironment hostEnvironment,
         ILogger<SAPServiceLayerClient> logger,
@@ -87,11 +89,17 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         CacheSyncStateRecorder cacheSyncStateRecorder)
     {
         _httpClient = httpClient;
+        _httpClientFactory = httpClientFactory;
         _settings = settings.Value;
         _hostEnvironment = hostEnvironment;
         _logger = logger;
         _memoryCache = memoryCache;
         _cacheSyncStateRecorder = cacheSyncStateRecorder;
+    }
+
+    private HttpClient GetLongRunningHttpClient()
+    {
+        return _httpClientFactory.CreateClient("SAPServiceLayerLongRunning");
     }
 
     private async Task EnsureAuthenticatedAsync(CancellationToken cancellationToken)
@@ -3068,6 +3076,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
+        var syncHttpClient = GetLongRunningHttpClient();
 
         var priceLists = new List<PriceListDto>();
         var queryCode = "SHOP_PRICE_LISTS";
@@ -3102,7 +3111,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
 
-                var response = await _httpClient.SendAsync(request, cancellationToken);
+                var response = await syncHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
@@ -3112,7 +3121,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                     request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
                     request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                     request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-                    response = await _httpClient.SendAsync(request, cancellationToken);
+                    response = await syncHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
                 }
 
                 if (!response.IsSuccessStatusCode)
@@ -3271,6 +3280,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
     private async Task<List<ItemPriceByListDto>> GetPricesByPriceListViaItemsApiAsync(int priceListNum, CancellationToken cancellationToken)
     {
         var prices = new List<ItemPriceByListDto>();
+        var syncHttpClient = GetLongRunningHttpClient();
         var skip = 0;
         const int pageSize = 100;
         var hasMore = true;
@@ -3288,7 +3298,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
             httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
 
-            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            var response = await syncHttpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
@@ -3298,7 +3308,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                 httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
                 httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-                response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                response = await syncHttpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             }
 
             if (!response.IsSuccessStatusCode)
@@ -3396,6 +3406,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
     private async Task<List<ItemPriceByListDto>> ExecutePriceListQueryAsync(string queryCode, int priceListNum, CancellationToken cancellationToken)
     {
         var prices = new List<ItemPriceByListDto>();
+        var syncHttpClient = GetLongRunningHttpClient();
         var skip = 0;
         var hasMore = true;
         const int maxRetries = 3;
@@ -3415,7 +3426,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                     httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                     httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
 
-                    response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                    response = await syncHttpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
                     if (response.StatusCode == HttpStatusCode.Unauthorized)
                     {
@@ -3425,7 +3436,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                         httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
                         httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                         httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
-                        response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                        response = await syncHttpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
                     }
 
                     break; // success — exit retry loop
@@ -3739,6 +3750,89 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
     public async Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, CancellationToken cancellationToken = default)
         => await GetSpecialPricesForBPAsync(cardCode, itemCodes: null, cancellationToken);
 
+    public async Task<List<BusinessPartnerSpecialPriceDto>> GetAllSpecialPricesAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var syncHttpClient = GetLongRunningHttpClient();
+
+        var todayUtc = DateTime.UtcNow.Date;
+        var result = new Dictionary<string, BusinessPartnerSpecialPriceDto>(StringComparer.OrdinalIgnoreCase);
+        const int pageSize = 100;
+        var skip = 0;
+        var filteredOutCount = 0;
+
+        while (true)
+        {
+            var url = $"SpecialPrices?$top={pageSize}&$skip={skip}";
+            var requestSession = _sessionId;
+
+            var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+            httpRequest.Headers.Add("Cookie", $"B1SESSION={requestSession}");
+            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            httpRequest.Headers.Add("Prefer", "odata.maxpagesize=100");
+
+            var response = await syncHttpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(requestSession, cancellationToken);
+
+                httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                httpRequest.Headers.Add("Prefer", "odata.maxpagesize=100");
+                response = await syncHttpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                throw new InvalidOperationException($"Failed to retrieve special prices from SAP: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var count = 0;
+
+            if (doc.RootElement.TryGetProperty("value", out var valueArray))
+            {
+                foreach (var item in valueArray.EnumerateArray())
+                {
+                    count++;
+
+                    var specialPrice = ParseCurrentBusinessPartnerSpecialPrice(item, todayUtc);
+                    if (specialPrice is null)
+                    {
+                        filteredOutCount++;
+                        continue;
+                    }
+
+                    result[$"{specialPrice.CardCode}::{specialPrice.ItemCode}"] = specialPrice;
+                }
+            }
+
+            if (count < pageSize)
+            {
+                break;
+            }
+
+            skip += pageSize;
+        }
+
+        if (filteredOutCount > 0)
+        {
+            _logger.LogInformation(
+                "Filtered out {Count} inactive or expired special price records during full SAP sync",
+                filteredOutCount);
+        }
+
+        _logger.LogInformation(
+            "Retrieved {Count} active special prices across all business partners",
+            result.Count);
+
+        return result.Values.ToList();
+    }
+
     public async Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, IEnumerable<string>? itemCodes, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
@@ -3854,6 +3948,40 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
             cardCode,
             safeItemCodes is { Count: > 0 } ? $" across {safeItemCodes.Count} requested items" : string.Empty);
         return result;
+    }
+
+    private static BusinessPartnerSpecialPriceDto? ParseCurrentBusinessPartnerSpecialPrice(JsonElement item, DateTime todayUtc)
+    {
+        var cardCode = item.TryGetProperty("CardCode", out var cardCodeProp)
+            ? cardCodeProp.GetString()?.Trim()
+            : null;
+        var itemCode = item.TryGetProperty("ItemCode", out var itemCodeProp)
+            ? itemCodeProp.GetString()?.Trim()
+            : null;
+
+        if (string.IsNullOrWhiteSpace(cardCode) || string.IsNullOrWhiteSpace(itemCode))
+        {
+            return null;
+        }
+
+        if (!TryExtractCurrentSpecialPrice(item, todayUtc, out var price))
+        {
+            return null;
+        }
+
+        var validFrom = TryGetNamedDate(item, "DateFrom", "ValidFrom", "EffectiveFrom", "FromDate", "StartDate");
+        var validTo = TryGetNamedDate(item, "DateTo", "ValidTo", "EffectiveTo", "ToDate", "EndDate");
+        var isActive = !TryGetSpecialPriceActiveFlag(item, out var active) || active;
+
+        return new BusinessPartnerSpecialPriceDto
+        {
+            CardCode = cardCode,
+            ItemCode = itemCode,
+            Price = price,
+            ValidFrom = validFrom,
+            ValidTo = validTo,
+            IsActive = isActive
+        };
     }
 
     private const int MaxSpecialPricesFilterLength = 1200;
@@ -4038,11 +4166,30 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                         ? minusIndex
                         : -1;
 
+                TimeSpan? offset = null;
+
                 if (offsetIndex > 0)
+                {
+                    var offsetValue = timestamp[offsetIndex..];
                     timestamp = timestamp[..offsetIndex];
 
+                    if (offsetValue.Length == 5 &&
+                        int.TryParse(offsetValue[1..3], NumberStyles.Integer, CultureInfo.InvariantCulture, out var hours) &&
+                        int.TryParse(offsetValue[3..5], NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes))
+                    {
+                        offset = new TimeSpan(hours, minutes, 0);
+                        if (offsetValue[0] == '-')
+                        {
+                            offset = -offset.Value;
+                        }
+                    }
+                }
+
                 if (long.TryParse(timestamp, NumberStyles.Integer, CultureInfo.InvariantCulture, out var unixMilliseconds))
-                    return DateTimeOffset.FromUnixTimeMilliseconds(unixMilliseconds).UtcDateTime.Date;
+                {
+                    var date = DateTimeOffset.FromUnixTimeMilliseconds(unixMilliseconds);
+                    return offset.HasValue ? date.ToOffset(offset.Value).Date : date.Date;
+                }
             }
         }
 
@@ -4052,7 +4199,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                 DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
                 out var dateTimeOffset))
         {
-            return dateTimeOffset.UtcDateTime.Date;
+            return dateTimeOffset.Date;
         }
 
         if (DateTime.TryParse(
@@ -5651,6 +5798,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
+        var syncHttpClient = GetLongRunningHttpClient();
 
         var allPartners = new List<BusinessPartnerDto>();
         var skip = 0;
@@ -5667,7 +5815,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
 
-            var response = await _httpClient.SendAsync(request, cancellationToken);
+            var response = await syncHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
@@ -5677,7 +5825,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-                response = await _httpClient.SendAsync(request, cancellationToken);
+                response = await syncHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             }
 
             if (!response.IsSuccessStatusCode)

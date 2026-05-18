@@ -26,16 +26,13 @@ public interface IBusinessPartnerPricingService
 public sealed class BusinessPartnerPricingService : IBusinessPartnerPricingService
 {
     private readonly IPriceService _priceService;
-    private readonly IMasterDataCacheService _cacheService;
     private readonly ILogger<BusinessPartnerPricingService> _logger;
 
     public BusinessPartnerPricingService(
         IPriceService priceService,
-        IMasterDataCacheService cacheService,
         ILogger<BusinessPartnerPricingService> logger)
     {
         _priceService = priceService;
-        _cacheService = cacheService;
         _logger = logger;
     }
 
@@ -164,20 +161,8 @@ public sealed class BusinessPartnerPricingService : IBusinessPartnerPricingServi
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var cachedPrices = await _cacheService.GetPricesByPriceListAsync(priceListNum);
-        if (cachedPrices.Count > 0)
-        {
-            return new Dictionary<string, decimal>(cachedPrices, StringComparer.OrdinalIgnoreCase);
-        }
-
         var response = await _priceService.GetPricesByPriceListAsync(priceListNum);
-        var prices = ToPriceMap(response?.Prices);
-        if (prices.Count > 0)
-        {
-            _cacheService.StorePriceListPrices(priceListNum, new Dictionary<string, decimal>(prices, StringComparer.OrdinalIgnoreCase));
-        }
-
-        return prices;
+        return ToPriceMap(response?.Prices);
     }
 
     private static Dictionary<string, decimal> ToPriceMap(IEnumerable<ItemPriceByListDto>? prices)

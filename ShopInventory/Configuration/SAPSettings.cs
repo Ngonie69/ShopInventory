@@ -7,6 +7,17 @@ public class SAPSettings
     public string CompanyDB { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Default timeout for standard SAP requests.
+    /// </summary>
+    public int RequestTimeoutMinutes { get; set; } = 5;
+
+    /// <summary>
+    /// Extended timeout for bulk sync SAP requests that read large SAP datasets.
+    /// </summary>
+    public int LongRunningRequestTimeoutMinutes { get; set; } = 20;
+
     public bool SkipCertificateValidation { get; set; }
 
     /// <summary>

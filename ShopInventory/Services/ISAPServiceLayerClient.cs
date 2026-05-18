@@ -126,6 +126,11 @@ public interface ISAPServiceLayerClient
     /// </summary>
     Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Gets all currently active business partner special prices from SAP.
+    /// </summary>
+    Task<List<BusinessPartnerSpecialPriceDto>> GetAllSpecialPricesAsync(CancellationToken cancellationToken = default);
+
     // Incoming Payment Operations
     Task<List<IncomingPayment>> GetIncomingPaymentsAsync(CancellationToken cancellationToken = default);
     Task<List<IncomingPayment>> GetPagedIncomingPaymentsAsync(int page, int pageSize, CancellationToken cancellationToken = default);

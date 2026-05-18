@@ -1,0 +1,211 @@
+using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using ShopInventory.DTOs;
+using ShopInventory.Features.Crates.Commands.CreateCrateGrv;
+using ShopInventory.Features.Crates.Commands.CreateCrateOpeningBalance;
+using ShopInventory.Features.Crates.Commands.UploadCratePod;
+using ShopInventory.Features.Crates.Queries.GetCrateGrvs;
+using ShopInventory.Features.Crates.Queries.GetCratePods;
+using ShopInventory.Features.Crates.Queries.GetCrateTransactions;
+using System.Security.Claims;
+
+namespace ShopInventory.Controllers;
+
+[Route("api/crates")]
+[Authorize(Policy = "ApiAccess")]
+public class CratesController(ISender mediator) : ApiControllerBase
+{
+    private static readonly HashSet<string> AllowedTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "application/pdf"
+    };
+
+    [HttpGet("transactions")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+    [ProducesResponseType(typeof(List<CrateTransactionDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetTransactions(
+        [FromQuery] string? search = null,
+        [FromQuery] string? status = null,
+        [FromQuery] string? transactionType = null,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(
+            new GetCrateTransactionsQuery(search, status, transactionType, userId.Value),
+            cancellationToken);
+
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpGet("pods")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+    [ProducesResponseType(typeof(List<CratePodSubmissionDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetPods(
+        [FromQuery] string? search = null,
+        [FromQuery] string? submissionRole = null,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(
+            new GetCratePodsQuery(search, submissionRole, userId.Value),
+            cancellationToken);
+
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpGet("grvs")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+    [ProducesResponseType(typeof(List<CrateGrvDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetGrvs(
+        [FromQuery] string? search = null,
+        [FromQuery] string? status = null,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(
+            new GetCrateGrvsQuery(search, status, userId.Value),
+            cancellationToken);
+
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPost("opening-balances")]
+    [Authorize(Roles = "Admin")]
+    [RequestSizeLimit(20 * 1024 * 1024)]
+    [ProducesResponseType(typeof(CrateTransactionDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> CreateOpeningBalance(
+        [FromForm] string shopCardCode,
+        [FromForm] decimal quantity,
+        [FromForm] DateTime effectiveDate,
+        [FromForm] string? notes,
+        IFormFile file,
+        CancellationToken cancellationToken = default)
+    {
+        if (file is null || file.Length == 0)
+        {
+            return BadRequest(new ErrorResponseDto { Message = "An opening balance document is required." });
+        }
+
+        if (!AllowedTypes.Contains(file.ContentType))
+        {
+            return BadRequest(new ErrorResponseDto { Message = "Invalid file type. Only JPEG, PNG, WebP images and PDF files are allowed." });
+        }
+
+        using var stream = file.OpenReadStream();
+        var result = await mediator.Send(
+            new CreateCrateOpeningBalanceCommand(
+                shopCardCode,
+                quantity,
+                effectiveDate,
+                notes,
+                stream,
+                file.FileName,
+                file.ContentType,
+                GetUserId()),
+            cancellationToken);
+
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPost("transactions/{crateTransactionId:int}/pods")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+    [RequestSizeLimit(20 * 1024 * 1024)]
+    [ProducesResponseType(typeof(CratePodSubmissionDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> UploadCratePod(
+        int crateTransactionId,
+        [FromForm] decimal quantity,
+        [FromForm] string? submissionRole,
+        [FromForm] string? notes,
+        IFormFile file,
+        CancellationToken cancellationToken = default)
+    {
+        if (file is null || file.Length == 0)
+        {
+            return BadRequest(new ErrorResponseDto { Message = "A crate POD document is required." });
+        }
+
+        if (!AllowedTypes.Contains(file.ContentType))
+        {
+            return BadRequest(new ErrorResponseDto { Message = "Invalid file type. Only JPEG, PNG, WebP images and PDF files are allowed." });
+        }
+
+        using var stream = file.OpenReadStream();
+        var result = await mediator.Send(
+            new UploadCratePodCommand(
+                crateTransactionId,
+                submissionRole,
+                quantity,
+                notes,
+                stream,
+                file.FileName,
+                file.ContentType,
+                GetUserId()),
+            cancellationToken);
+
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPost("transactions/{crateTransactionId:int}/grvs")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser")]
+    [RequestSizeLimit(20 * 1024 * 1024)]
+    [ProducesResponseType(typeof(CrateGrvDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> CreateGrv(
+        int crateTransactionId,
+        [FromForm] string reason,
+        IFormFile file,
+        CancellationToken cancellationToken = default)
+    {
+        if (file is null || file.Length == 0)
+        {
+            return BadRequest(new ErrorResponseDto { Message = "A GRV document is required." });
+        }
+
+        if (!AllowedTypes.Contains(file.ContentType))
+        {
+            return BadRequest(new ErrorResponseDto { Message = "Invalid file type. Only JPEG, PNG, WebP images and PDF files are allowed." });
+        }
+
+        using var stream = file.OpenReadStream();
+        var result = await mediator.Send(
+            new CreateCrateGrvCommand(
+                crateTransactionId,
+                reason,
+                stream,
+                file.FileName,
+                file.ContentType,
+                GetUserId()),
+            cancellationToken);
+
+        return result.Match(Ok, Problem);
+    }
+
+    private Guid? GetUserId()
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!string.IsNullOrWhiteSpace(userIdClaim) && Guid.TryParse(userIdClaim, out var userId) && userId != Guid.Empty)
+        {
+            return userId;
+        }
+
+        return null;
+    }
+}

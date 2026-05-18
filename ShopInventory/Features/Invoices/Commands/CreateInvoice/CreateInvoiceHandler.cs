@@ -1,7 +1,10 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Crates;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Invoices.Events;
 using ShopInventory.Mappings;
@@ -14,10 +17,12 @@ namespace ShopInventory.Features.Invoices.Commands.CreateInvoice;
 
 public sealed class CreateInvoiceHandler(
     ISAPServiceLayerClient sapClient,
+    ILocalPriceCatalogService localPriceCatalogService,
     IBatchInventoryValidationService batchValidation,
     IInventoryLockService lockService,
     IInvoiceFiscalizationQueue fiscalizationQueue,
     IAuditService auditService,
+    ApplicationDbContext context,
     IOptions<SAPSettings> settings,
     ILogger<CreateInvoiceHandler> logger
 ) : IRequestHandler<CreateInvoiceCommand, ErrorOr<InvoiceCreatedResponseDto>>
@@ -45,6 +50,13 @@ public sealed class CreateInvoiceHandler(
                         request.U_Van_saleorder, existingInvoice.DocEntry, existingInvoice.DocNum);
                     return Errors.Invoice.DuplicateVanSaleOrder(request.U_Van_saleorder, existingInvoice.DocNum);
                 }
+            }
+
+            var missingPriceItems = await PopulateStoredPricesAsync(request, cancellationToken);
+            if (missingPriceItems.Count > 0)
+            {
+                return Errors.Invoice.ValidationFailed(
+                    $"No SAP price is set for item(s): {string.Join(", ", missingPriceItems)}. Please contact the admin.");
             }
 
             // Step 2: Validate basic quantities
@@ -116,6 +128,8 @@ public sealed class CreateInvoiceHandler(
                 "Invoice created successfully in SAP. DocEntry: {DocEntry}, DocNum: {DocNum}, Customer: {CardCode}, BatchesAllocated: {BatchCount}, Strategy: {Strategy}",
                 invoice.DocEntry, invoice.DocNum, invoice.CardCode,
                 batchValidationResult.AllocatedLines.Sum(l => l.Batches.Count), command.AllocationStrategy);
+
+            await RegisterCrateTransactionAsync(invoice, request, command.UserId, cancellationToken);
 
             try { await auditService.LogAsync(AuditActions.CreateInvoice, "Invoice", invoice.DocEntry.ToString(), $"Invoice #{invoice.DocNum} created for {invoice.CardCode}", true); } catch { }
 
@@ -214,6 +228,84 @@ public sealed class CreateInvoiceHandler(
         };
     }
 
+    private async Task RegisterCrateTransactionAsync(
+        Invoice invoice,
+        CreateInvoiceRequest request,
+        Guid? userId,
+        CancellationToken cancellationToken)
+    {
+        var crateQuantity = request.CrateQuantity.GetValueOrDefault();
+        if (crateQuantity <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var transaction = await context.CrateTransactions
+                .FirstOrDefaultAsync(t => t.InvoiceDocEntry == invoice.DocEntry, cancellationToken);
+
+            if (transaction is null)
+            {
+                transaction = new CrateTransactionEntity
+                {
+                    TransactionType = CrateTrackingConstants.TransactionTypeInvoice,
+                    InvoiceDocEntry = invoice.DocEntry,
+                    InvoiceDocNum = invoice.DocNum,
+                    ShopCardCode = invoice.CardCode ?? request.CardCode ?? string.Empty,
+                    ShopName = invoice.CardName,
+                    ExpectedQuantity = crateQuantity,
+                    EffectiveDate = ResolveCrateEffectiveDate(invoice.DocDate),
+                    Notes = string.IsNullOrWhiteSpace(request.Comments) ? null : request.Comments.Trim(),
+                    CreatedAt = DateTime.UtcNow,
+                    CreatedByUserId = userId
+                };
+
+                context.CrateTransactions.Add(transaction);
+            }
+            else
+            {
+                transaction.InvoiceDocNum = invoice.DocNum;
+                transaction.ShopCardCode = invoice.CardCode ?? transaction.ShopCardCode;
+                transaction.ShopName = invoice.CardName;
+                transaction.ExpectedQuantity = crateQuantity;
+                transaction.EffectiveDate = ResolveCrateEffectiveDate(invoice.DocDate, transaction.EffectiveDate);
+                transaction.Notes = string.IsNullOrWhiteSpace(request.Comments) ? transaction.Notes : request.Comments.Trim();
+                transaction.UpdatedAt = DateTime.UtcNow;
+                transaction.CreatedByUserId ??= userId;
+            }
+
+            await context.SaveChangesAsync(cancellationToken);
+
+            try
+            {
+                await auditService.LogAsync(
+                    AuditActions.RegisterInvoiceCrates,
+                    "CrateTransaction",
+                    transaction.Id.ToString(),
+                    $"Registered {crateQuantity:N2} expected crates for invoice #{invoice.DocNum}",
+                    true);
+            }
+            catch
+            {
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to register crate tracking record for invoice {DocEntry}", invoice.DocEntry);
+        }
+    }
+
+    private static DateTime ResolveCrateEffectiveDate(string? docDate, DateTime? fallback = null)
+    {
+        if (DateTime.TryParse(docDate, out var parsedDate))
+        {
+            return DateTime.SpecifyKind(parsedDate.Date, DateTimeKind.Utc);
+        }
+
+        return fallback ?? DateTime.UtcNow.Date;
+    }
+
     private static List<string> ValidateQuantities(CreateInvoiceRequest request)
     {
         var errors = new List<string>();
@@ -229,15 +321,73 @@ public sealed class CreateInvoiceHandler(
             if (line.Quantity <= 0)
                 errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Quantity must be greater than zero. Current value: {line.Quantity}");
             if (line.UnitPrice.HasValue && line.UnitPrice.Value <= 0)
-                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Unit price must be greater than zero. Current value: {line.UnitPrice.Value}");
+                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): No SAP price is set for this item. Please contact the admin.");
             else if (!line.UnitPrice.HasValue)
-                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Unit price is required and must be greater than zero.");
+                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): No SAP price is set for this item. Please contact the admin.");
             if (line.BatchNumbers != null)
                 for (int j = 0; j < line.BatchNumbers.Count; j++)
                     if (line.BatchNumbers[j].Quantity <= 0)
                         errors.Add($"Line {i + 1}, Batch {j + 1} (Batch: {line.BatchNumbers[j].BatchNumber ?? "unknown"}): Quantity must be greater than zero.");
         }
         return errors;
+    }
+
+    private async Task<List<string>> PopulateStoredPricesAsync(CreateInvoiceRequest request, CancellationToken cancellationToken)
+    {
+        var missingPriceItems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (request.Lines == null || request.Lines.Count == 0 || string.IsNullOrWhiteSpace(request.CardCode))
+        {
+            return [];
+        }
+
+        var itemCodes = request.Lines
+            .Select(line => line.ItemCode?.Trim())
+            .Where(itemCode => !string.IsNullOrWhiteSpace(itemCode))
+            .Select(itemCode => itemCode!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (itemCodes.Count == 0)
+        {
+            return [];
+        }
+
+        logger.LogInformation(
+            "Resolving invoice prices from the local price catalog for customer {CardCode} across {ItemCount} item(s)",
+            request.CardCode,
+            itemCodes.Count);
+
+        var pricing = await localPriceCatalogService.GetBusinessPartnerPricingAsync(request.CardCode, itemCodes, cancellationToken);
+        var priceMap = pricing?.Prices.Prices?
+            .Where(price => !string.IsNullOrWhiteSpace(price.ItemCode))
+            .ToDictionary(price => price.ItemCode!, price => price.Price, StringComparer.OrdinalIgnoreCase)
+            ?? new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var line in request.Lines)
+        {
+            var itemCode = line.ItemCode?.Trim();
+            if (string.IsNullOrWhiteSpace(itemCode))
+            {
+                continue;
+            }
+
+            if (priceMap.TryGetValue(itemCode, out var resolvedPrice) && resolvedPrice > 0)
+            {
+                line.UnitPrice = resolvedPrice;
+                continue;
+            }
+
+            line.UnitPrice = 0m;
+            missingPriceItems.Add(itemCode);
+
+            logger.LogWarning(
+                "No locally synced price configured for invoice item {ItemCode} and customer {CardCode}",
+                itemCode,
+                request.CardCode);
+        }
+
+        return missingPriceItems.OrderBy(itemCode => itemCode).ToList();
     }
 
     private static List<string> ValidateWarehouseCodes(CreateInvoiceRequest request)

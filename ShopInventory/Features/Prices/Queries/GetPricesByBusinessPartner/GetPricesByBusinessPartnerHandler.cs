@@ -1,74 +1,35 @@
 using ErrorOr;
 using MediatR;
+using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
 using ShopInventory.Services;
 
 namespace ShopInventory.Features.Prices.Queries.GetPricesByBusinessPartner;
 
 public sealed class GetPricesByBusinessPartnerHandler(
-    IBusinessPartnerService businessPartnerService,
-    ISAPServiceLayerClient sapClient,
+    ILocalPriceCatalogService localPriceCatalogService,
     ILogger<GetPricesByBusinessPartnerHandler> logger)
     : IRequestHandler<GetPricesByBusinessPartnerQuery, ErrorOr<ItemPricesByListResponseDto>>
 {
     public async Task<ErrorOr<ItemPricesByListResponseDto>> Handle(
         GetPricesByBusinessPartnerQuery request, CancellationToken cancellationToken)
     {
-        var bp = await businessPartnerService.GetBusinessPartnerByCodeAsync(request.CardCode, cancellationToken);
-        if (bp is null)
-            return Error.NotFound("BusinessPartner.NotFound", $"Business partner '{request.CardCode}' not found in SAP.");
+        var pricing = await localPriceCatalogService.GetBusinessPartnerPricingAsync(
+            request.CardCode,
+            request.ItemCodes,
+            cancellationToken);
 
-        var priceListNum = bp.PriceListNum ?? 1; // Default to price list 1 if none assigned
-
-        var itemCodes = request.ItemCodes?
-            .Where(code => !string.IsNullOrWhiteSpace(code))
-            .Select(code => code.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList() ?? [];
-
-        var prices = itemCodes.Count > 0
-            ? await sapClient.GetItemPricesForCustomerAsync(request.CardCode, itemCodes, cancellationToken)
-            : await sapClient.GetPricesByPriceListAsync(priceListNum, cancellationToken);
-
-        // Overlay BP-specific special prices (OSPP) on top of the price list prices
-        var specialPrices = itemCodes.Count > 0
-            ? await sapClient.GetSpecialPricesForBPAsync(request.CardCode, itemCodes, cancellationToken)
-            : await sapClient.GetSpecialPricesForBPAsync(request.CardCode, cancellationToken);
-        if (specialPrices.Count > 0)
+        if (pricing is null)
         {
-            logger.LogInformation("Applying {Count} special prices for BP {CardCode} over price list {PriceListNum}",
-                specialPrices.Count, request.CardCode, priceListNum);
-
-            foreach (var price in prices)
-            {
-                if (price.ItemCode is not null && specialPrices.TryGetValue(price.ItemCode, out var specialPrice))
-                    price.Price = specialPrice;
-            }
-
-            // Add special-priced items that aren't in the base price list
-            var existingCodes = prices.Select(p => p.ItemCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            foreach (var (itemCode, specialPrice) in specialPrices)
-            {
-                if (!existingCodes.Contains(itemCode))
-                {
-                    prices.Add(new ItemPriceByListDto
-                    {
-                        ItemCode = itemCode,
-                        Price = specialPrice,
-                        PriceListNum = priceListNum,
-                        PriceListName = $"Special Price ({request.CardCode})"
-                    });
-                }
-            }
+            return Errors.BusinessPartner.NotFound(request.CardCode);
         }
 
-        return new ItemPricesByListResponseDto
-        {
-            TotalCount = prices.Count,
-            PriceListNum = priceListNum,
-            PriceListName = bp.CardName ?? $"Price List {priceListNum}",
-            Currency = prices.FirstOrDefault()?.Currency,
-            Prices = prices
-        };
+        logger.LogInformation(
+            "Retrieved {Count} locally stored item prices for business partner {CardCode} using price list {PriceListNum}",
+            pricing.Prices.TotalCount,
+            request.CardCode,
+            pricing.Prices.PriceListNum);
+
+        return pricing.Prices;
     }
 }

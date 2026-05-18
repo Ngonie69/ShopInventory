@@ -1,0 +1,56 @@
+<div class="crt-hero">
+    <div class="crt-hero-grid">
+        <div>
+            <div class="crt-kicker">Crate Control</div>
+            <h1 class="crt-title">@Title</h1>
+            <p class="crt-subtitle">@Subtitle</p>
+        </div>
+        <button type="button" class="crt-btn crt-btn-secondary" @onclick="OnRefresh" disabled="@IsLoading">
+            @if (IsLoading)
+            {
+                <span>Refreshing...</span>
+            }
+            else
+            {
+                <span>Refresh</span>
+            }
+        </button>
+    </div>
+
+    <div class="crt-summary-grid">
+        <div class="crt-summary-card">
+            <div class="crt-summary-label">Transactions</div>
+            <div class="crt-summary-value">@TransactionCount</div>
+        </div>
+        <div class="crt-summary-card">
+            <div class="crt-summary-label">Pending PODs</div>
+            <div class="crt-summary-value">@PendingPodCount</div>
+        </div>
+        <div class="crt-summary-card">
+            <div class="crt-summary-label">GRV Pending</div>
+            <div class="crt-summary-value">@VariancePendingCount</div>
+        </div>
+        <div class="crt-summary-card">
+            <div class="crt-summary-label">GRVs Raised</div>
+            <div class="crt-summary-value">@GrvCount</div>
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(StatusMessage))
+{
+    <div class="alert @(StatusIsSuccess ? "alert-success" : "alert-danger") mb-3">@StatusMessage</div>
+}
+
+@code {
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public string Subtitle { get; set; } = string.Empty;
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public int TransactionCount { get; set; }
+    [Parameter] public int PendingPodCount { get; set; }
+    [Parameter] public int VariancePendingCount { get; set; }
+    [Parameter] public int GrvCount { get; set; }
+    [Parameter] public string? StatusMessage { get; set; }
+    [Parameter] public bool StatusIsSuccess { get; set; }
+    [Parameter] public EventCallback OnRefresh { get; set; }
+}

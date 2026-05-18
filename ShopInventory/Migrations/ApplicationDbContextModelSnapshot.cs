@@ -360,6 +360,117 @@ namespace ShopInventory.Migrations
                     b.ToTable("Backups", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.BusinessPartnerPriceProfileEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CardCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("CardName")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Currency")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastSyncedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("PriceListNum")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("SyncedFromSAP")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CardCode")
+                        .IsUnique();
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("PriceListNum");
+
+                    b.ToTable("BusinessPartnerPriceProfiles");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.BusinessPartnerSpecialPriceEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CardCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ItemCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("LastSyncedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<bool>("SyncedFromSAP")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ValidFrom")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ValidTo")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CardCode");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("ItemCode");
+
+                    b.HasIndex("CardCode", "ItemCode")
+                        .IsUnique();
+
+                    b.ToTable("BusinessPartnerSpecialPrices", t =>
+                        {
+                            t.HasCheckConstraint("CK_BusinessPartnerSpecialPrices_Price_NonNegative", "\"Price\" >= 0");
+                        });
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.CacheSyncStateEntity", b =>
                 {
                     b.Property<string>("CacheKey")
@@ -397,6 +508,190 @@ namespace ShopInventory.Migrations
                     b.HasIndex("LastSyncedAt");
 
                     b.ToTable("CacheSyncStates", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.CrateGrvEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("ActualQuantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("CrateTransactionId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal>("ExpectedQuantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("GrvNumber")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal>("VarianceQuantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CrateTransactionId")
+                        .IsUnique();
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("GrvNumber")
+                        .IsUnique();
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("CrateGrvs", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CrateGrvs_ActualQuantity_NonNegative", "\"ActualQuantity\" >= 0");
+
+                            t.HasCheckConstraint("CK_CrateGrvs_ExpectedQuantity_NonNegative", "\"ExpectedQuantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.CratePodSubmissionEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CrateTransactionId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("SubmissionRole")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("SubmittedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SubmittedAt");
+
+                    b.HasIndex("SubmittedByUserId");
+
+                    b.HasIndex("CrateTransactionId", "SubmissionRole")
+                        .IsUnique();
+
+                    b.ToTable("CratePodSubmissions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CratePodSubmissions_Quantity_NonNegative", "\"Quantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.CrateTransactionEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("EffectiveDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("ExpectedQuantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int?>("InvoiceDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("InvoiceDocNum")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ShopCardCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ShopName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("TransactionType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("EffectiveDate");
+
+                    b.HasIndex("InvoiceDocEntry")
+                        .IsUnique();
+
+                    b.HasIndex("ShopCardCode");
+
+                    b.HasIndex("TransactionType");
+
+                    b.ToTable("CrateTransactions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CrateTransactions_ExpectedQuantity_NonNegative", "\"ExpectedQuantity\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.CreditNoteEntity", b =>
@@ -2572,8 +2867,8 @@ namespace ShopInventory.Migrations
                         .HasColumnType("character varying(10)");
 
                     b.Property<decimal?>("Factor")
-                        .HasPrecision(10, 6)
-                        .HasColumnType("numeric(10,6)");
+                        .HasPrecision(18, 8)
+                        .HasColumnType("numeric(18,8)");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
@@ -4814,6 +5109,52 @@ namespace ShopInventory.Migrations
                     b.Navigation("CreatedByUser");
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.CrateGrvEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.CrateTransactionEntity", "CrateTransaction")
+                        .WithOne("Grv")
+                        .HasForeignKey("ShopInventory.Models.Entities.CrateGrvEntity", "CrateTransactionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ShopInventory.Models.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CrateTransaction");
+
+                    b.Navigation("CreatedByUser");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.CratePodSubmissionEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.CrateTransactionEntity", "CrateTransaction")
+                        .WithMany("PodSubmissions")
+                        .HasForeignKey("CrateTransactionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ShopInventory.Models.User", "SubmittedByUser")
+                        .WithMany()
+                        .HasForeignKey("SubmittedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CrateTransaction");
+
+                    b.Navigation("SubmittedByUser");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.CrateTransactionEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CreatedByUser");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.CreditNoteEntity", b =>
                 {
                     b.HasOne("ShopInventory.Models.User", "ApprovedByUser")
@@ -5325,6 +5666,13 @@ namespace ShopInventory.Migrations
                         .IsRequired();
 
                     b.Navigation("Webhook");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.CrateTransactionEntity", b =>
+                {
+                    b.Navigation("Grv");
+
+                    b.Navigation("PodSubmissions");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.CreditNoteEntity", b =>

@@ -1,0 +1,183 @@
+@page "/crates/grvs"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+@inherits CrateTrackingPageBase
+@rendermode InteractiveServer
+
+<PageTitle>Crate GRVs</PageTitle>
+
+<CrateTrackingStyles />
+
+<div class="container-fluid fade-in staff-dashboard staff-shell crt-page">
+    <CratePageHeader Title="Crate GRVs"
+                     Subtitle="Review crate variances, raise GRVs for under or over supply, and download the supporting evidence attached to each GRV."
+                     IsLoading="isLoading" OnRefresh="RefreshAllAsync" TransactionCount="transactions.Count"
+                     PendingPodCount="PendingPodCount" VariancePendingCount="VariancePendingCount" GrvCount="grvs.Count"
+                     StatusMessage="@statusMessage" StatusIsSuccess="statusIsSuccess" />
+
+    <div class="row g-4">
+        @if (canRaiseGrvs)
+        {
+            <div class="col-xl-5 col-lg-6">
+                <div class="crt-card">
+                    <div class="crt-card-header">
+                        <div>
+                            <h3 class="crt-card-title">Raise GRV</h3>
+                            <p class="crt-card-note">Only transactions with a merchandiser variance can raise a GRV, and a
+                                supporting document is mandatory.</p>
+                            </div>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="crt-label">Variance Transaction</label>
+                                <select class="crt-form-select" @bind="selectedGrvTransactionId">
+                                    <option value="">Select a variance transaction</option>
+                                    @foreach (var transaction in GrvEligibleTransactions)
+                                    {
+                                        <option value="@transaction.Id">@GetTransactionLabel(transaction)</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <label class="crt-label">Reason</label>
+                                <textarea class="crt-form-control" rows="3" @bind="grvReason"
+                                          placeholder="Explain why the supply was under or over the invoiced crates"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="crt-label">GRV Document</label>
+                                <InputFile @key="grvFileKey" OnChange="OnGrvFileSelected" class="crt-form-control"
+                                           accept=".jpg,.jpeg,.png,.webp,.pdf" />
+                            </div>
+                            <div class="col-12">
+                                <button type="button" class="crt-btn crt-btn-primary w-100" @onclick="SubmitGrvAsync"
+                                        disabled="@isSubmittingGrv">
+                                    @(isSubmittingGrv ? "Creating..." : "Create GRV")
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <div class="@(canRaiseGrvs ? "col-xl-7 col-lg-6" : "col-12")">
+                <div class="crt-card h-100">
+                    <div class="crt-card-header">
+                        <div>
+                            <h3 class="crt-card-title">Transactions Awaiting GRV</h3>
+                            <p class="crt-card-note">These transactions already have both POD confirmations but still need a
+                                variance response.</p>
+                            </div>
+                        </div>
+
+                        @if (!GrvEligibleTransactions.Any())
+                        {
+                            <div class="crt-empty">No crate variances are currently waiting for a GRV.</div>
+                        }
+                        else
+                        {
+                            <div class="crt-table-wrap">
+                                <table class="crt-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Invoice</th>
+                                            <th>Shop</th>
+                                            <th>Expected</th>
+                                            <th>Merch</th>
+                                            <th>Variance</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var transaction in GrvEligibleTransactions)
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <div class="fw-semibold">@GetReferenceLabel(transaction)</div>
+                                                    <div class="crt-muted">@transaction.EffectiveDate.ToString("dd MMM yyyy")</div>
+                                                </td>
+                                                <td>
+                                                    <div class="fw-semibold">@transaction.ShopCardCode</div>
+                                                    <div class="crt-muted">@transaction.ShopName</div>
+                                                </td>
+                                                <td>@transaction.ExpectedQuantity.ToString("N2")</td>
+                                                <td>@FormatQuantity(transaction.MerchandiserQuantity)</td>
+                                                <td>@FormatVariance(transaction.VarianceQuantity)</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="crt-table-card">
+                <div class="crt-card-header">
+                    <div>
+                        <h3 class="crt-card-title">GRVs Raised</h3>
+                        <p class="crt-card-note">Only crate GRVs raised from merchandiser variance are shown here.</p>
+                    </div>
+                </div>
+
+                @if (grvs.Count == 0)
+                {
+                    <div class="crt-empty">No crate GRVs have been raised yet.</div>
+                }
+                else
+                {
+                    <div class="crt-table-wrap">
+                        <table class="crt-table">
+                            <thead>
+                                <tr>
+                                    <th>GRV</th>
+                                    <th>Invoice</th>
+                                    <th>Variance</th>
+                                    <th>Reason</th>
+                                    <th>Documents</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var grv in grvs)
+                                {
+                                    <tr>
+                                        <td>
+                                            <div class="fw-semibold">@grv.GrvNumber</div>
+                                            <div class="crt-muted">@grv.CreatedAt.ToString("g")</div>
+                                        </td>
+                                        <td>
+                                            <div class="fw-semibold">@GetGrvReferenceLabel(grv)</div>
+                                            <div class="crt-muted">@grv.ShopCardCode@if (!string.IsNullOrWhiteSpace(grv.ShopName))
+                                                {
+                                                    <span> - @grv.ShopName</span>
+                                                }
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div>@grv.Direction</div>
+                                            <div class="crt-muted">@grv.VarianceQuantity.ToString("N2")</div>
+                                        </td>
+                                        <td>@grv.Reason</td>
+                                        <td>
+                                            @if (grv.Attachments.Count == 0)
+                                            {
+                                                <span class="crt-muted">No documents</span>
+                                            }
+                                            else
+                                            {
+                                                <div class="crt-attachments">
+                                                    @foreach (var attachment in grv.Attachments)
+                                                    {
+                                                        <button type="button" class="crt-attachment-btn"
+                                                                @onclick="() => DownloadAttachmentAsync(attachment)">@attachment.FileName</button>
+                                                    }
+                                                </div>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>

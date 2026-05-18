@@ -2,6 +2,7 @@
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize(Roles = "Admin,Cashier")]
 @inject ICreditNoteService CreditNoteService
+@inject IInvoiceService InvoiceService
 @inject IMasterDataCacheService CacheService
 @inject IBusinessPartnerPricingService BusinessPartnerPricingService
 @inject NavigationManager NavigationManager
@@ -1245,12 +1246,12 @@
         <!-- ━━━ View Credit Note Drawer ━━━ -->
         @if (selectedCreditNote != null)
         {
-            <div class="modal-backdrop-custom" @onclick="() => selectedCreditNote = null"></div>
+            <div class="modal-backdrop-custom" @onclick="CloseCreditNoteDetails"></div>
             <div class="detail-drawer">
                 <div class="drawer-header">
                     <h5><i class="bi bi-file-earmark-minus me-2"></i>Credit Note: @selectedCreditNote.CreditNoteNumber</h5>
-                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => selectedCreditNote = null"
-                                   Class="btn-close-drawer" Size="Size.Small" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CloseCreditNoteDetails" Class="btn-close-drawer"
+                                   Size="Size.Small" />
                 </div>
                 <div class="drawer-body">
                     <div class="detail-grid">
@@ -1290,6 +1291,62 @@
                             <strong>Reason</strong>
                             <p>@selectedCreditNote.Reason</p>
                         </div>
+                    }
+
+                    @if (selectedCreditNote.OriginalInvoiceDocEntry.HasValue)
+                    {
+                        <div class="detail-section-title"><i class="bi bi-link-45deg"></i> Source Invoice</div>
+
+                        @if (isLoadingSourceInvoice)
+                        {
+                            <div class="reason-box">
+                                <strong>Loading source invoice</strong>
+                                <p>Fetching the linked invoice details...</p>
+                            </div>
+                        }
+                        else if (selectedSourceInvoice != null)
+                        {
+                            <div class="detail-grid">
+                                <div class="detail-item">
+                                    <div class="detail-label">Invoice #</div>
+                                    <div class="detail-value">@selectedSourceInvoice.DocNum</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Doc Entry</div>
+                                    <div class="detail-value">@selectedSourceInvoice.DocEntry</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Customer</div>
+                                    <div class="detail-value">@selectedSourceInvoice.CardCode — @selectedSourceInvoice.CardName</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Invoice Date</div>
+                                    <div class="detail-value">@FormatDate(selectedSourceInvoice.DocDate)</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Currency</div>
+                                    <div class="detail-value">@selectedSourceInvoice.DocCurrency</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Invoice Total</div>
+                                    <div class="detail-value">@selectedSourceInvoice.DocTotal.ToString("N2")</div>
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(selectedSourceInvoice.NumAtCard))
+                                {
+                                    <div class="detail-item">
+                                        <div class="detail-label">Reference</div>
+                                        <div class="detail-value">@selectedSourceInvoice.NumAtCard</div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="reason-box">
+                                <strong>Source invoice</strong>
+                                <p>Linked invoice DocEntry: @selectedCreditNote.OriginalInvoiceDocEntry</p>
+                            </div>
+                        }
                     }
 
                     @if (selectedCreditNote.Lines?.Any() == true)
@@ -1349,7 +1406,7 @@
                     }
                 </div>
                 <div class="drawer-footer">
-                    <MudButton Class="btn-secondary-action" OnClick="() => selectedCreditNote = null">Close</MudButton>
+                    <MudButton Class="btn-secondary-action" OnClick="CloseCreditNoteDetails">Close</MudButton>
                 </div>
             </div>
         }
@@ -1511,7 +1568,7 @@
                                                                     @if (!string.IsNullOrEmpty(line.ItemDescription))
                                                                     {
                                                                         <span style="font-size:.82rem;color:#374151;">@TruncateText(line.ItemDescription,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            25)</span>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        25)</span>
                                                                         }
                                                             else
                                                                         {
@@ -1580,7 +1637,9 @@
     private int _pageSize = 10;
     private List<CreditNoteDto>? creditNotes;
     private CreditNoteDto? selectedCreditNote;
+    private InvoiceDto? selectedSourceInvoice;
     private bool isLoading = true;
+    private bool isLoadingSourceInvoice = false;
     private bool isCreating = false;
     private bool showCreateModal = false;
     private string? errorMessage;
@@ -1751,9 +1810,46 @@
         await LoadCreditNotes();
     }
 
-    private void ViewCreditNote(CreditNoteDto note)
+    private async Task ViewCreditNote(CreditNoteDto note)
     {
         selectedCreditNote = note;
+        selectedSourceInvoice = null;
+
+        if (!note.OriginalInvoiceDocEntry.HasValue)
+        {
+            isLoadingSourceInvoice = false;
+            return;
+        }
+
+        isLoadingSourceInvoice = true;
+
+        try
+        {
+            selectedSourceInvoice = await InvoiceService.GetInvoiceByDocEntryAsync(note.OriginalInvoiceDocEntry.Value);
+        }
+        finally
+        {
+            isLoadingSourceInvoice = false;
+        }
+    }
+
+    private void CloseCreditNoteDetails()
+    {
+        selectedCreditNote = null;
+        selectedSourceInvoice = null;
+        isLoadingSourceInvoice = false;
+    }
+
+    private string FormatDate(string? dateStr)
+    {
+        if (string.IsNullOrWhiteSpace(dateStr))
+        {
+            return "—";
+        }
+
+        return DateTime.TryParse(dateStr, out var date)
+            ? date.ToString("dd MMM yyyy")
+            : dateStr;
     }
 
     private async Task ApproveCreditNote(int id)
