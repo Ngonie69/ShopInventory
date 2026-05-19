@@ -1661,6 +1661,8 @@ public class ReportExportService : IReportExportService
     private static readonly XLColor PodRed = XLColor.FromHtml("#C62828");
     private static readonly HashSet<string> PodExcelExcludedBusinessPartnerCodes = new(
         Enumerable.Range(1, 20).Select(number => $"VAN{number:000}")
+            .Concat(Enumerable.Range(1, 7).Select(number => $"TEA{number:000}"))
+            .Concat(Enumerable.Range(30, 7).Select(number => $"PRO{number:000}"))
             .Concat([
                 "COR006",
                 "COR007",
@@ -1669,6 +1671,7 @@ public class ReportExportService : IReportExportService
                 "CHA009",
                 "STE014",
                 "ABI002",
+                "LAN016",
                 "RED002 FCA",
                 "RED002(FCA)"
             ]),
