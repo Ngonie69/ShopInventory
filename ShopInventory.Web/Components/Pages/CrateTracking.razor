@@ -189,7 +189,7 @@
                                     <tbody>
                                         @foreach (var transaction in transactions)
                                         {
-                                            <tr>
+                                            <tr @key="transaction.Id">
                                                 <td>
                                                     <div class="fw-semibold">@GetReferenceLabel(transaction)</div>
                                                     <div class="crt-muted">@transaction.EffectiveDate.ToString("dd MMM yyyy")</div>

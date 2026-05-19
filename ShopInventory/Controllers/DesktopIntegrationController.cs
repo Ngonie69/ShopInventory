@@ -21,6 +21,7 @@ using ShopInventory.Features.DesktopIntegration.Commands.RetryQueuedTransfer;
 using ShopInventory.Features.DesktopIntegration.Commands.ValidateTransfer;
 using ShopInventory.Features.DesktopIntegration.Queries.DownloadInvoicePdf;
 using ShopInventory.Features.DesktopIntegration.Queries.GetAvailableBatches;
+using ShopInventory.Features.DesktopIntegration.Queries.GetCreditNoteByDocNum;
 using ShopInventory.Features.DesktopIntegration.Queries.GetInvoice;
 using ShopInventory.Features.DesktopIntegration.Queries.GetInvoiceByDocNum;
 using ShopInventory.Features.DesktopIntegration.Queries.GetInvoicesByCustomer;
@@ -332,6 +333,13 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     public async Task<IActionResult> GetInvoiceByDocNum(int docNum, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetInvoiceByDocNumQuery(docNum), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpGet("credit-notes/by-docnum/{docNum:int}")]
+    public async Task<IActionResult> GetCreditNoteByDocNum(int docNum, CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetCreditNoteByDocNumQuery(docNum), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

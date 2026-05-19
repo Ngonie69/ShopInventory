@@ -124,11 +124,17 @@ public sealed class CreateCrateOpeningBalanceHandler(
 
         transaction.CreatedByUser = createdByUser;
 
+        var supportingDocumentCount = await context.DocumentAttachments
+            .AsNoTracking()
+            .CountAsync(
+                a => a.EntityType == CrateTrackingConstants.AttachmentEntityTypeCrateTransaction && a.EntityId == transaction.Id,
+                cancellationToken);
+
         return CrateDtoMapping.MapTransaction(
             transaction,
             null,
             null,
-            1,
+            supportingDocumentCount,
             0,
             0);
     }

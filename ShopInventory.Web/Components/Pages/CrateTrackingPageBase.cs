@@ -318,7 +318,15 @@ public abstract class CrateTrackingPageBase : ComponentBase
             if (result.Success)
             {
                 ResetOpeningBalanceForm();
-                await RefreshAllAsync();
+
+                if (result.Transaction is not null)
+                {
+                    UpsertTransaction(result.Transaction);
+                }
+                else
+                {
+                    await RefreshAllAsync();
+                }
             }
         }
         finally
@@ -402,7 +410,7 @@ public abstract class CrateTrackingPageBase : ComponentBase
                     ResetOpeningBalanceForm();
                 }
 
-                await RefreshAllAsync();
+                RemoveTransaction(transaction.Id);
             }
         }
         finally
@@ -703,6 +711,95 @@ public abstract class CrateTrackingPageBase : ComponentBase
         openingBalanceFile = null;
         editingOpeningBalanceId = null;
         openingBalanceFileKey++;
+    }
+
+    private void UpsertTransaction(CrateTransactionDto transaction)
+    {
+        var existingIndex = transactions.FindIndex(item => item.Id == transaction.Id);
+
+        if (!MatchesCurrentTransactionFilters(transaction))
+        {
+            if (existingIndex >= 0)
+            {
+                transactions.RemoveAt(existingIndex);
+            }
+
+            NormalizeSelections();
+            return;
+        }
+
+        if (existingIndex >= 0)
+        {
+            transactions[existingIndex] = transaction;
+        }
+        else
+        {
+            transactions.Add(transaction);
+        }
+
+        SortTransactions();
+        NormalizeSelections();
+    }
+
+    private void RemoveTransaction(int transactionId)
+    {
+        var existingIndex = transactions.FindIndex(item => item.Id == transactionId);
+        if (existingIndex >= 0)
+        {
+            transactions.RemoveAt(existingIndex);
+        }
+
+        NormalizeSelections();
+    }
+
+    private bool MatchesCurrentTransactionFilters(CrateTransactionDto transaction)
+    {
+        if (!string.IsNullOrWhiteSpace(transactionStatusFilter) &&
+            !string.Equals(transaction.Status, transactionStatusFilter.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(transactionSearch))
+        {
+            return true;
+        }
+
+        var searchTerm = transactionSearch.Trim();
+        if (searchTerm.Length == 0)
+        {
+            return true;
+        }
+
+        return ContainsIgnoreCase(transaction.ShopCardCode, searchTerm)
+            || ContainsIgnoreCase(transaction.ShopName, searchTerm)
+            || (transaction.InvoiceDocNum?.ToString()?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    private void SortTransactions()
+    {
+        transactions.Sort(static (left, right) =>
+        {
+            var effectiveDateComparison = right.EffectiveDate.CompareTo(left.EffectiveDate);
+            if (effectiveDateComparison != 0)
+            {
+                return effectiveDateComparison;
+            }
+
+            var createdAtComparison = right.CreatedAt.CompareTo(left.CreatedAt);
+            if (createdAtComparison != 0)
+            {
+                return createdAtComparison;
+            }
+
+            return right.Id.CompareTo(left.Id);
+        });
+    }
+
+    private static bool ContainsIgnoreCase(string? value, string searchTerm)
+    {
+        return !string.IsNullOrWhiteSpace(value)
+            && value.Contains(searchTerm, StringComparison.OrdinalIgnoreCase);
     }
 
     protected void ResetPodForm()

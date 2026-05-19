@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ShopInventory.Web.Services;
 
@@ -145,6 +146,30 @@ public class RevmaxService : IRevmaxService
 }
 
 // Response models for the web client
+public class EmptyStringToNullConverter<T> : JsonConverter<T?> where T : class
+{
+    public override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            reader.GetString();
+            return null;
+        }
+
+        if (reader.TokenType == JsonTokenType.Null)
+        {
+            return null;
+        }
+
+        return JsonSerializer.Deserialize<T>(ref reader, options);
+    }
+
+    public override void Write(Utf8JsonWriter writer, T? value, JsonSerializerOptions options)
+    {
+        JsonSerializer.Serialize(writer, value, options);
+    }
+}
+
 public class RevmaxCardDetailsResponse
 {
     public string? Code { get; set; }
@@ -222,7 +247,10 @@ public class RevmaxInvoiceResponse
     public string? DeviceID { get; set; }
     public string? DeviceSerialNumber { get; set; }
     public string? FiscalDay { get; set; }
+
+    [JsonConverter(typeof(EmptyStringToNullConverter<RevmaxInvoiceData>))]
     public RevmaxInvoiceData? Data { get; set; }
+
     public bool Success => Code == "1";
 }
 
@@ -236,7 +264,7 @@ public class RevmaxInvoiceData
     public string? BuyerData { get; set; }
     public string? ReceiptNotes { get; set; }
     public string? ReceiptDate { get; set; }
-    public string? CreditDebitNote { get; set; }
+    public object? CreditDebitNote { get; set; }
     public bool ReceiptLinesTaxInclusive { get; set; }
     public List<RevmaxReceiptLine>? ReceiptLines { get; set; }
     public List<RevmaxReceiptTax>? ReceiptTaxes { get; set; }
