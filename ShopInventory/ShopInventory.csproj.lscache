@@ -115,10 +115,12 @@ Common/
   Errors.UserActivity.cs
   Errors.UserManagement.cs
   Errors.Webhook.cs
+  Errors.WhatsApp.cs
  Extensions/UserCredentialQueryExtensions.cs
  Mobile/MobileAssignedCustomerScope.cs
  Pods/
   PodExclusions.cs
+  PodInvoiceCreatorLocations.cs
   PodLocationScope.cs
  Validation/
   RecursiveDataAnnotationsValidator.cs
@@ -130,6 +132,7 @@ Configuration/
  FirebaseSettings.cs
  JwtSettings.cs
  MobileVersionPolicyOptions.cs
+ OpenWASettings.cs
  PaymentGatewaySettings.cs
  PostgresConnectionPolicyOptions.cs
  PostgresConnectionStringValidator.cs
@@ -186,6 +189,7 @@ Controllers/
  UserController.cs
  UserManagementController.cs
  WebhookController.cs
+ WhatsAppController.cs
 Data/
  ApplicationDbContext.cs
  DbInitializer.cs
@@ -272,6 +276,16 @@ DTOs/
  UserManagementDto.cs
  ValidateStockRequest.cs
  WebhookDto.cs
+ WhatsAppCreateSessionRequestDto.cs
+ WhatsAppHealthDto.cs
+ WhatsAppInboxItemDto.cs
+ WhatsAppInboxResponseDto.cs
+ WhatsAppMessageDispatchDto.cs
+ WhatsAppQrCodeDto.cs
+ WhatsAppReplyRequestDto.cs
+ WhatsAppSendTextRequestDto.cs
+ WhatsAppSessionDto.cs
+ WhatsAppWebhookReceiptDto.cs
 Features/AppVersion/Commands/UpdateMobileVersionPolicySettings/
  UpdateMobileVersionPolicySettingsCommand.cs
  UpdateMobileVersionPolicySettingsHandler.cs
@@ -1556,6 +1570,15 @@ Features/
  Webhooks/Queries/GetWebhooks/
   GetWebhooksHandler.cs
   GetWebhooksQuery.cs
+ WhatsApp/Commands/ReceiveOpenWAWebhook/
+  ReceiveOpenWAWebhookCommand.cs
+  ReceiveOpenWAWebhookHandler.cs
+ WhatsApp/Queries/GetWhatsAppHealth/
+  GetWhatsAppHealthHandler.cs
+  GetWhatsAppHealthQuery.cs
+ WhatsApp/Queries/GetWhatsAppInbox/
+  GetWhatsAppInboxHandler.cs
+  GetWhatsAppInboxQuery.cs
 Health/
  ApplicationDbHealthCheck.cs
  ApplicationSchemaHealthCheck.cs
@@ -1667,6 +1690,8 @@ Migrations/
  20260517200123_WidenPriceListFactorPrecision.Designer.cs
  20260518100225_AddCrateTrackingModule.cs
  20260518100225_AddCrateTrackingModule.Designer.cs
+ 20260518182121_AddWhatsAppWebhookInbox.cs
+ 20260518182121_AddWhatsAppWebhookInbox.Designer.cs
  ApplicationDbContextModelSnapshot.cs
 Models/
  AuditActions.cs
@@ -1707,6 +1732,7 @@ Models/
   StockTransferAdjustmentEntity.cs
   SystemEntities.cs
   TimesheetEntryEntity.cs
+  WhatsAppWebhookEventEntity.cs
  IncomingPayment.cs
  InventoryTransfer.cs
  InventoryTransferRequest.cs
@@ -1772,6 +1798,7 @@ Services/
  InvoicePostingBackgroundService.cs
  InvoiceQueueService.cs
  InvoiceService.cs
+ IOpenWAClient.cs
  IQuotationPdfService.cs
  IRevmaxClient.cs
  ISAPServiceLayerClient.cs
@@ -1780,6 +1807,8 @@ Services/
  MobileOrderPostProcessingBackgroundService.cs
  MobileOrderPostProcessingQueue.cs
  NotificationService.cs
+ OpenWAClient.cs
+ OpenWAGatewayException.cs
  PasskeyOperationStore.cs
  PasswordResetService.cs
  PaymentGatewayService.cs

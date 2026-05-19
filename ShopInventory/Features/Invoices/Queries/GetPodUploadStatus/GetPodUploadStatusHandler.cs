@@ -58,6 +58,8 @@ public sealed class GetPodUploadStatusHandler(
             var items = invoices.Select(i =>
             {
                 podLookup.TryGetValue(i.DocEntry, out var podInfo);
+                var creatorLocation = PodInvoiceCreatorLocations.GetCreatorLocation(i.UserSign);
+
                 return new PodUploadStatusItemDto
                 {
                     DocEntry = i.DocEntry,
@@ -67,6 +69,9 @@ public sealed class GetPodUploadStatusHandler(
                     CardName = i.CardName,
                     DocTotal = i.DocTotal,
                     DocCurrency = i.DocCurrency,
+                    CreatedByUserId = i.UserSign,
+                    CreatedByUserCode = creatorLocation?.UserName,
+                    CreatedLocation = creatorLocation?.Location,
                     HasPod = podInfo != null,
                     PodUploadedAt = podInfo?.UploadedAt,
                     PodUploadedBy = podInfo?.UploadedBy,

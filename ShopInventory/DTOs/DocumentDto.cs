@@ -336,6 +336,9 @@ public class PodUploadStatusItemDto
     public string? CardName { get; set; }
     public decimal DocTotal { get; set; }
     public string? DocCurrency { get; set; }
+    public int? CreatedByUserId { get; set; }
+    public string? CreatedByUserCode { get; set; }
+    public string? CreatedLocation { get; set; }
     public bool HasPod { get; set; }
     public DateTime? PodUploadedAt { get; set; }
     public string? PodUploadedBy { get; set; }

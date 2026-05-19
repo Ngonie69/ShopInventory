@@ -127,6 +127,9 @@ public class SalesOrderDto
     [JsonPropertyName("invoiceId")]
     public int? InvoiceId { get; set; }
 
+    [JsonPropertyName("invoiceSapDocNum")]
+    public int? InvoiceSapDocNum { get; set; }
+
     [JsonPropertyName("isSynced")]
     public bool IsSynced { get; set; }
 

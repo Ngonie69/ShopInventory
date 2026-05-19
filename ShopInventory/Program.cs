@@ -648,6 +648,25 @@ try
     // Register fiscalization service - fiscalizes invoices after SAP posting
     builder.Services.AddScoped<IFiscalizationService, FiscalizationService>();
 
+    builder.Services.Configure<OpenWASettings>(builder.Configuration.GetSection(OpenWASettings.SectionName));
+    builder.Services.AddHttpClient<IOpenWAClient, OpenWAClient>((serviceProvider, client) =>
+    {
+        var openWaSettings = serviceProvider.GetRequiredService<IOptions<OpenWASettings>>().Value;
+        var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+
+        if (!Uri.TryCreate(openWaSettings.BaseUrl, UriKind.Absolute, out var baseUri))
+        {
+            logger.LogWarning(
+                "Invalid OpenWA base URL '{BaseUrl}'. Falling back to http://localhost:2785 for client registration.",
+                openWaSettings.BaseUrl);
+            baseUri = new Uri("http://localhost:2785");
+        }
+
+        client.BaseAddress = baseUri;
+        client.Timeout = TimeSpan.FromSeconds(Math.Max(openWaSettings.TimeoutSeconds, 1));
+        client.DefaultRequestHeaders.Add("Accept", "application/json");
+    });
+
     var app = builder.Build();
     var startupReadiness = app.Services.GetRequiredService<StartupReadinessSignal>();
 

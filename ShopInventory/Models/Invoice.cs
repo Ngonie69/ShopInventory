@@ -42,6 +42,9 @@ public class Invoice
     [JsonPropertyName("DocCurrency")]
     public string? DocCurrency { get; set; }
 
+    [JsonPropertyName("UserSign")]
+    public int? UserSign { get; set; }
+
     [JsonPropertyName("DocumentStatus")]
     public string? DocumentStatus { get; set; }
 

@@ -271,6 +271,7 @@ public sealed class GetAllSalesOrdersHandler(
                 CreatedAt = o.CreatedAt,
                 UpdatedAt = o.UpdatedAt,
                 InvoiceId = o.InvoiceId,
+                InvoiceSapDocNum = o.Invoice != null ? o.Invoice.SAPDocNum : null,
                 IsSynced = o.IsSynced && o.SAPDocNum.HasValue && o.SAPDocNum > 0,
                 SyncError = o.SyncError,
                 Source = o.Source,

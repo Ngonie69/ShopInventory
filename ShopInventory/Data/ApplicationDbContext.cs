@@ -94,6 +94,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // Webhook tables
   public DbSet<Webhook> Webhooks { get; set; }
   public DbSet<WebhookDelivery> WebhookDeliveries { get; set; }
+  public DbSet<WhatsAppWebhookEventEntity> WhatsAppWebhookEvents { get; set; }
 
   // Payment tables
   public DbSet<PaymentTransaction> PaymentTransactions { get; set; }
@@ -680,6 +681,67 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
                   .OnDelete(DeleteBehavior.Cascade);
     });
 
+    modelBuilder.Entity<WhatsAppWebhookEventEntity>(entity =>
+    {
+      entity.ToTable("WhatsAppWebhookEvents");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.IdempotencyKey)
+                  .IsUnique();
+      entity.HasIndex(e => e.ReceivedAtUtc);
+      entity.HasIndex(e => e.OccurredAtUtc);
+      entity.HasIndex(e => e.EventType);
+      entity.HasIndex(e => e.MessageId);
+      entity.HasIndex(e => e.SessionName);
+      entity.HasIndex(e => e.ChatId);
+      entity.HasIndex(e => e.DeliveryId);
+
+      entity.Property(e => e.IdempotencyKey)
+                  .HasMaxLength(255);
+
+      entity.Property(e => e.DeliveryId)
+                  .HasMaxLength(120);
+
+      entity.Property(e => e.EventType)
+                  .IsRequired()
+                  .HasMaxLength(100);
+
+      entity.Property(e => e.SessionName)
+                  .HasMaxLength(120);
+
+      entity.Property(e => e.MessageId)
+                  .HasMaxLength(200);
+
+      entity.Property(e => e.ChatId)
+                  .HasMaxLength(160);
+
+      entity.Property(e => e.SenderNumber)
+                  .HasMaxLength(120);
+
+      entity.Property(e => e.SenderDisplayName)
+                  .HasMaxLength(160);
+
+      entity.Property(e => e.MessageType)
+                  .HasMaxLength(50);
+
+      entity.Property(e => e.Direction)
+                  .IsRequired()
+                  .HasMaxLength(20);
+
+      entity.Property(e => e.Status)
+                  .HasMaxLength(40);
+
+      entity.Property(e => e.SourcePath)
+                  .HasMaxLength(120);
+
+      entity.Property(e => e.TextBody)
+                  .HasColumnType("text");
+
+      entity.Property(e => e.RawPayload)
+                  .IsRequired()
+                  .HasColumnType("text");
+    });
+
     // Payment Transaction configuration
     modelBuilder.Entity<PaymentTransaction>(entity =>
     {
@@ -1230,9 +1292,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
       entity.ToTable(t =>
           {
-    t.HasCheckConstraint("CK_CrateGrvs_ExpectedQuantity_NonNegative", "\"ExpectedQuantity\" >= 0");
-    t.HasCheckConstraint("CK_CrateGrvs_ActualQuantity_NonNegative", "\"ActualQuantity\" >= 0");
-  });
+            t.HasCheckConstraint("CK_CrateGrvs_ExpectedQuantity_NonNegative", "\"ExpectedQuantity\" >= 0");
+            t.HasCheckConstraint("CK_CrateGrvs_ActualQuantity_NonNegative", "\"ActualQuantity\" >= 0");
+          });
     });
 
     // Merchandiser Product configuration

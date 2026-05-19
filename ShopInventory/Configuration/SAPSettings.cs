@@ -3,6 +3,9 @@ namespace ShopInventory.Configuration;
 public class SAPSettings
 {
     public bool Enabled { get; set; }
+    public bool AutoSyncEnabled { get; set; } = true;
+    public int SyncIntervalHours { get; set; } = 4;
+    public int InitialDelayMinutes { get; set; }
     public string ServiceLayerUrl { get; set; } = string.Empty;
     public string CompanyDB { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;

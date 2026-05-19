@@ -1642,270 +1642,491 @@ public class ReportExportService : IReportExportService
     // POD UPLOAD STATUS REPORT
     // ═══════════════════════════════════════════════════════════════
 
-    // Stock-sheet-style accent colors
-    private static readonly XLColor StockGreen = XLColor.FromHtml("#006100");
-    private static readonly XLColor StockGreenLight = XLColor.FromHtml("#c6efce");
-    private static readonly XLColor TotalRed = XLColor.FromHtml("#c00000");
-    private static readonly XLColor HeaderGreen = XLColor.FromHtml("#006100");
-    private static readonly XLColor PendingAmber = XLColor.FromHtml("#9c5700");
-    private static readonly XLColor PendingAmberBg = XLColor.FromHtml("#ffeb9c");
+    private static readonly XLColor PodNavy = XLColor.FromHtml("#1B3A5C");
+    private static readonly XLColor PodHeaderBg = XLColor.FromHtml("#2C5F8A");
+    private static readonly XLColor PodSubHeaderBg = XLColor.FromHtml("#E8EEF4");
+    private static readonly XLColor PodStripeBg = XLColor.FromHtml("#F5F7FA");
+    private static readonly XLColor PodGridColor = XLColor.FromHtml("#C5CED8");
+    private static readonly XLColor PodGridLight = XLColor.FromHtml("#DDE3EA");
+    private static readonly XLColor PodTextDark = XLColor.FromHtml("#1A1A2E");
+    private static readonly XLColor PodTextMuted = XLColor.FromHtml("#5A6A7A");
+    private static readonly XLColor PodTotalBg = XLColor.FromHtml("#DCE6F0");
+    private static readonly XLColor PodTotalStripeBg = XLColor.FromHtml("#CCDBEB");
+    private static readonly XLColor PodPendingBg = XLColor.FromHtml("#FFF3D6");
+    private static readonly XLColor PodPendingStripeBg = XLColor.FromHtml("#FFE8B3");
+    private static readonly XLColor PodUploadedBg = XLColor.FromHtml("#E8F3E8");
+    private static readonly XLColor PodUploadedStripeBg = XLColor.FromHtml("#D8EBD8");
+    private static readonly XLColor PodGreen = XLColor.FromHtml("#2E7D32");
+    private static readonly XLColor PodOrange = XLColor.FromHtml("#E65100");
+    private static readonly XLColor PodRed = XLColor.FromHtml("#C62828");
 
-    /// <summary>Stock-sheet style green header row.</summary>
-    private static void StyleStockHeader(IXLWorksheet ws, int headerRow, int lastCol)
+    private static void PodApplyDefaults(IXLWorksheet ws)
     {
-        var range = ws.Range(headerRow, 1, headerRow, lastCol);
+        ws.Style.Font.FontName = "Aptos";
+        ws.Style.Font.FontSize = 10;
+    }
+
+    private static int PodTitleBar(IXLWorksheet ws, string title, int lastCol, DateTime now)
+    {
+        ws.Row(1).Height = 32;
+        var titleRange = ws.Range(1, 1, 1, lastCol);
+        titleRange.Style.Fill.BackgroundColor = PodNavy;
+        titleRange.Style.Font.FontColor = XLColor.White;
+        titleRange.Style.Border.BottomBorder = XLBorderStyleValues.Medium;
+        titleRange.Style.Border.BottomBorderColor = XLColor.FromHtml("#4A90C4");
+
+        if (lastCol > 1)
+            ws.Range(1, 1, 1, lastCol - 1).Merge();
+
+        ws.Cell(1, 1).Value = $" {title}";
+        ws.Cell(1, 1).Style.Font.Bold = true;
+        ws.Cell(1, 1).Style.Font.FontSize = 13;
+        ws.Cell(1, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
+        ws.Cell(1, lastCol).Value = now.ToString("dd MMM yyyy  HH:mm");
+        ws.Cell(1, lastCol).Style.Font.FontSize = 9;
+        ws.Cell(1, lastCol).Style.Font.Italic = true;
+        ws.Cell(1, lastCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+        ws.Cell(1, lastCol).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
+        return 2;
+    }
+
+    private static int PodKpiStrip(IXLWorksheet ws, int row, int lastCol, params (string Label, string Value, XLColor? Color)[] kpis)
+    {
+        if (kpis.Length == 0)
+            return row;
+
+        ws.Row(row).Height = 28;
+        ws.Row(row + 1).Height = 18;
+
+        for (int metricIndex = 0; metricIndex < kpis.Length; metricIndex++)
+        {
+            int startCol = (int)Math.Floor(metricIndex * lastCol / (double)kpis.Length) + 1;
+            int endCol = (int)Math.Floor((metricIndex + 1) * lastCol / (double)kpis.Length);
+            if (endCol < startCol)
+                endCol = startCol;
+
+            var valueRange = ws.Range(row, startCol, row, endCol);
+            var labelRange = ws.Range(row + 1, startCol, row + 1, endCol);
+            if (endCol > startCol)
+            {
+                valueRange.Merge();
+                labelRange.Merge();
+            }
+
+            valueRange.Style.Fill.BackgroundColor = PodSubHeaderBg;
+            valueRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            valueRange.Style.Border.OutsideBorderColor = PodGridColor;
+            valueRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+            valueRange.Style.Border.InsideBorderColor = PodGridLight;
+
+            labelRange.Style.Fill.BackgroundColor = PodSubHeaderBg;
+            labelRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            labelRange.Style.Border.OutsideBorderColor = PodGridColor;
+            labelRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+            labelRange.Style.Border.InsideBorderColor = PodGridLight;
+            labelRange.Style.Border.BottomBorder = XLBorderStyleValues.Medium;
+            labelRange.Style.Border.BottomBorderColor = PodGridColor;
+
+            ws.Cell(row, startCol).Value = kpis[metricIndex].Value;
+            ws.Cell(row, startCol).Style.Font.Bold = true;
+            ws.Cell(row, startCol).Style.Font.FontSize = 14;
+            ws.Cell(row, startCol).Style.Font.FontColor = kpis[metricIndex].Color ?? PodNavy;
+            ws.Cell(row, startCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, startCol).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
+            ws.Cell(row + 1, startCol).Value = kpis[metricIndex].Label;
+            ws.Cell(row + 1, startCol).Style.Font.FontSize = 8;
+            ws.Cell(row + 1, startCol).Style.Font.FontColor = PodTextMuted;
+            ws.Cell(row + 1, startCol).Style.Font.Italic = true;
+            ws.Cell(row + 1, startCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row + 1, startCol).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        }
+
+        return row + 3;
+    }
+
+    private static void PodSectionTitle(IXLWorksheet ws, int row, int lastCol, string title)
+    {
+        ws.Range(row, 1, row, lastCol).Merge();
+        var cell = ws.Cell(row, 1);
+        cell.Value = title;
+        cell.Style.Font.Bold = true;
+        cell.Style.Font.FontSize = 11;
+        cell.Style.Font.FontColor = PodNavy;
+        cell.Style.Border.BottomBorder = XLBorderStyleValues.Thin;
+        cell.Style.Border.BottomBorderColor = PodGridColor;
+    }
+
+    private static int PodColumnHeaders(IXLWorksheet ws, int row, int lastCol, string[] headers)
+    {
+        ws.Row(row).Height = 38;
+        var range = ws.Range(row, 1, row, lastCol);
+        range.Style.Fill.BackgroundColor = PodHeaderBg;
+        range.Style.Font.FontColor = XLColor.White;
         range.Style.Font.Bold = true;
         range.Style.Font.FontSize = 9;
-        range.Style.Fill.BackgroundColor = HeaderGreen;
-        range.Style.Font.FontColor = XLColor.White;
         range.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         range.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
         range.Style.Alignment.WrapText = true;
         range.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-        range.Style.Border.OutsideBorderColor = HeaderGreen;
+        range.Style.Border.OutsideBorderColor = PodNavy;
         range.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
-        range.Style.Border.InsideBorderColor = XLColor.FromHtml("#338033");
-        ws.Row(headerRow).Height = 36;
+        range.Style.Border.InsideBorderColor = XLColor.FromHtml("#4A7DAA");
+
+        for (int headerIndex = 0; headerIndex < headers.Length; headerIndex++)
+            ws.Cell(row, headerIndex + 1).Value = headers[headerIndex];
+
+        return row + 1;
     }
 
-    /// <summary>Applies stock-sheet data styling: thin borders, consistent font, dashes for empty.</summary>
-    private static void StyleStockData(IXLWorksheet ws, int firstRow, int lastRow, int lastCol)
+    private static void PodDataRow(IXLWorksheet ws, int row, int lastCol, bool isStripe)
     {
-        if (lastRow < firstRow) return;
-        var range = ws.Range(firstRow, 1, lastRow, lastCol);
-        range.Style.Border.InsideBorder = XLBorderStyleValues.Hair;
-        range.Style.Border.InsideBorderColor = XLColor.FromHtml("#d9d9d9");
-        range.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-        range.Style.Border.OutsideBorderColor = XLColor.FromHtml("#bfbfbf");
+        var rowRange = ws.Range(row, 1, row, lastCol);
+        rowRange.Style.Fill.BackgroundColor = isStripe ? PodStripeBg : XLColor.White;
+        rowRange.Style.Border.BottomBorder = XLBorderStyleValues.Thin;
+        rowRange.Style.Border.BottomBorderColor = PodGridLight;
+        rowRange.Style.Font.FontSize = 10;
+        rowRange.Style.Font.FontColor = PodTextDark;
+
+        for (int columnIndex = 1; columnIndex <= lastCol; columnIndex++)
+        {
+            ws.Cell(row, columnIndex).Style.Border.LeftBorder = XLBorderStyleValues.Thin;
+            ws.Cell(row, columnIndex).Style.Border.LeftBorderColor = PodGridLight;
+            ws.Cell(row, columnIndex).Style.Border.RightBorder = XLBorderStyleValues.Thin;
+            ws.Cell(row, columnIndex).Style.Border.RightBorderColor = PodGridLight;
+        }
+
+        ws.Cell(row, 1).Style.Border.LeftBorderColor = PodGridColor;
+        ws.Cell(row, lastCol).Style.Border.RightBorderColor = PodGridColor;
+    }
+
+    private static void PodSummaryRow(IXLWorksheet ws, int row, int lastCol)
+    {
+        var range = ws.Range(row, 1, row, lastCol);
+        range.Style.Fill.BackgroundColor = PodNavy;
+        range.Style.Font.FontColor = XLColor.White;
+        range.Style.Font.Bold = true;
         range.Style.Font.FontSize = 10;
+        range.Style.Border.TopBorder = XLBorderStyleValues.Medium;
+        range.Style.Border.TopBorderColor = PodNavy;
+        range.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
+        range.Style.Border.OutsideBorderColor = PodNavy;
+        range.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        ws.Row(row).Height = 26;
+    }
+
+    private static void PodDisclaimerRow(IXLWorksheet ws, int row, int lastCol, DateTime now)
+    {
+        ws.Range(row, 1, row, lastCol).Merge();
+        var cell = ws.Cell(row, 1);
+        cell.Value = $"This document was auto-generated by the Shop Inventory System on {now:dd MMM yyyy 'at' HH:mm} CAT. Data sourced from SAP Business One and POD upload records.";
+        cell.Style.Font.FontSize = 8;
+        cell.Style.Font.Italic = true;
+        cell.Style.Font.FontColor = XLColor.FromHtml("#9CA3AF");
+        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+    }
+
+    private static void PodFinalize(IXLWorksheet ws, int lastCol, int freezeRow = 0, int freezeCol = 0)
+    {
+        ws.Columns(1, lastCol).AdjustToContents();
+        for (int columnIndex = 1; columnIndex <= lastCol; columnIndex++)
+        {
+            if (ws.Column(columnIndex).Width > 42) ws.Column(columnIndex).Width = 42;
+            if (ws.Column(columnIndex).Width < 11) ws.Column(columnIndex).Width = 11;
+        }
+
+        if (freezeRow > 0) ws.SheetView.FreezeRows(freezeRow);
+        if (freezeCol > 0) ws.SheetView.FreezeColumns(freezeCol);
+        ws.PageSetup.PageOrientation = XLPageOrientation.Landscape;
+        ws.PageSetup.FitToPages(1, 0);
+        ws.PageSetup.Margins.SetLeft(0.4);
+        ws.PageSetup.Margins.SetRight(0.4);
+        ws.PageSetup.Margins.SetTop(0.4);
+        ws.PageSetup.Margins.SetBottom(0.4);
+    }
+
+    private static string FormatPodReportPeriod(PodUploadStatusReport report)
+    {
+        var hasFromDate = DateTime.TryParse(report.FromDate, out var fromDate);
+        var hasToDate = DateTime.TryParse(report.ToDate, out var toDate);
+
+        if (hasFromDate && hasToDate)
+            return $"{fromDate:dd MMM yyyy} to {toDate:dd MMM yyyy}";
+
+        if (hasFromDate)
+            return $"From {fromDate:dd MMM yyyy}";
+
+        if (hasToDate)
+            return $"To {toDate:dd MMM yyyy}";
+
+        return "Selected period";
+    }
+
+    private static string FormatPodAmount(decimal amount) => amount.ToString("N2");
+
+    private static string FormatPodUploadDate(DateTime? uploadedAt) =>
+        uploadedAt.HasValue ? FormatCatDateTime(uploadedAt.Value) : "-";
+
+    private static string FormatPodGeneratedLocationDisplay(PodUploadStatusItem item) =>
+        string.IsNullOrWhiteSpace(item.CreatedLocation) ? "Unmapped creator" : item.CreatedLocation.Trim();
+
+    private static int CalculatePodDaysAging(string? docDate, DateTime now)
+    {
+        if (!DateTime.TryParse(docDate, out var parsedDate))
+            return 0;
+
+        return Math.Max(0, (int)(now.Date - parsedDate.Date).TotalDays);
+    }
+
+    private static XLColor GetPodCompletionColor(double completionPct) => completionPct switch
+    {
+        >= 85 => PodGreen,
+        >= 60 => PodOrange,
+        _ => PodRed
+    };
+
+    private static void StylePodCurrencyCell(IXLCell cell, bool bold = false, XLColor? fontColor = null)
+    {
+        cell.Style.NumberFormat.Format = "#,##0.00";
+        cell.Style.Font.Bold = bold;
+        cell.Style.Font.FontColor = fontColor ?? PodTextDark;
+        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+    }
+
+    private static void StylePodTotalCell(IXLCell cell, bool isStripe)
+    {
+        StylePodCurrencyCell(cell, bold: true, fontColor: PodNavy);
+        cell.Style.Fill.BackgroundColor = isStripe ? PodTotalStripeBg : PodTotalBg;
+        cell.Style.Border.LeftBorder = XLBorderStyleValues.Medium;
+        cell.Style.Border.LeftBorderColor = PodGridColor;
+        cell.Style.Border.RightBorder = XLBorderStyleValues.Medium;
+        cell.Style.Border.RightBorderColor = PodGridColor;
+    }
+
+    private static void StylePodStatusCell(IXLCell cell, bool hasPod, bool isStripe)
+    {
+        cell.Style.Font.Bold = true;
+        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        cell.Style.Fill.BackgroundColor = hasPod
+            ? isStripe ? PodUploadedStripeBg : PodUploadedBg
+            : isStripe ? PodPendingStripeBg : PodPendingBg;
+        cell.Style.Font.FontColor = hasPod ? PodGreen : PodOrange;
+    }
+
+    private static void StylePodAgingCell(IXLCell cell, int daysAging)
+    {
+        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        cell.Style.Font.Bold = daysAging > 7;
+        cell.Style.Font.FontColor = daysAging switch
+        {
+            > 14 => PodRed,
+            > 7 => PodOrange,
+            _ => PodGreen
+        };
+    }
+
+    private static void StylePodMutedCell(IXLCell cell)
+    {
+        cell.Style.Font.FontColor = PodTextMuted;
+        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
     }
 
     public byte[] ExportPodUploadStatusToExcel(PodUploadStatusReport report)
     {
         using var workbook = new XLWorkbook();
-        DateTime.TryParse(report.FromDate, out var fromDt);
-        DateTime.TryParse(report.ToDate, out var toDt);
-        var now = DateTime.Now;
+        var now = CurrentCatNow();
+        var periodText = FormatPodReportPeriod(report);
 
-        var totalAmount = report.Items.Sum(i => i.DocTotal);
-        var uploadedAmount = report.Items.Where(i => i.HasPod).Sum(i => i.DocTotal);
-        var pendingAmount = report.Items.Where(i => !i.HasPod).Sum(i => i.DocTotal);
+        var totalAmount = report.Items.Sum(item => item.DocTotal);
+        var uploadedAmount = report.Items.Where(item => item.HasPod).Sum(item => item.DocTotal);
+        var pendingAmount = report.Items.Where(item => !item.HasPod).Sum(item => item.DocTotal);
+        var completionPct = report.TotalInvoices > 0
+            ? report.UploadedCount / (double)report.TotalInvoices * 100
+            : 0;
 
-        // ════════════════════════════════════════════════════════════
-        //  POD DASHBOARD — all invoices
-        // ════════════════════════════════════════════════════════════
         {
             var ws = workbook.Worksheets.Add("POD Dashboard");
-            int lastCol = 8;
+            const int lastCol = 9;
+            PodApplyDefaults(ws);
 
-            // Row 1: Title + date
-            ws.Cell(1, 1).Value = "POD UPLOAD STATUS";
-            ws.Cell(1, 1).Style.Font.Bold = true;
-            ws.Cell(1, 1).Style.Font.FontSize = 14;
-            ws.Range(1, 1, 1, 3).Merge();
-            ws.Cell(1, lastCol).Value = now.ToString("dd MMM yyyy");
-            ws.Cell(1, lastCol).Style.Font.FontSize = 9;
-            ws.Cell(1, lastCol).Style.Font.FontColor = XLColor.FromHtml("#808080");
-            ws.Cell(1, lastCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            var row = PodTitleBar(ws, $"POD UPLOAD STATUS - {periodText}", lastCol, now);
+            row = PodKpiStrip(ws, row, lastCol,
+                ("Total Invoices", report.TotalInvoices.ToString("N0"), null),
+                ("Uploaded", report.UploadedCount.ToString("N0"), PodGreen),
+                ("Pending", report.PendingCount.ToString("N0"), report.PendingCount > 0 ? PodOrange : PodGreen),
+                ("Completion", $"{completionPct:N1}%", GetPodCompletionColor(completionPct)),
+                ("Total Value", FormatPodAmount(totalAmount), null),
+                ("Pending Value", FormatPodAmount(pendingAmount), pendingAmount > 0 ? PodOrange : PodGreen));
 
-            // Row 2: Headers
-            int hRow = 2;
-            ws.Cell(hRow, 1).Value = "Invoice #";
-            ws.Cell(hRow, 2).Value = "Customer";
-            ws.Cell(hRow, 3).Value = "Card Code";
-            ws.Cell(hRow, 4).Value = "Invoice Date";
-            ws.Cell(hRow, 5).Value = "Amount";
-            ws.Cell(hRow, 6).Value = "POD Status";
-            ws.Cell(hRow, 7).Value = "Uploaded";
-            ws.Cell(hRow, 8).Value = "TOTAL";
-            StyleStockHeader(ws, hRow, lastCol);
-            int freezeRow = hRow;
+            PodSectionTitle(ws, row, lastCol, "Uploaded vs pending POD status");
+            row++;
 
-            // Data rows
-            int row = 3;
-            int dataStart = row;
+            var headerRow = row;
+            row = PodColumnHeaders(ws, row, lastCol,
+            [
+                "Invoice #",
+                "Customer",
+                "Card Code",
+                "Invoice Date",
+                "Generated Location",
+                "Amount",
+                "POD Status",
+                "Uploaded",
+                "TOTAL"
+            ]);
+
+            var rowIndex = 0;
             foreach (var item in report.Items)
             {
+                var isStripe = rowIndex % 2 == 1;
+                PodDataRow(ws, row, lastCol, isStripe);
+
                 ws.Cell(row, 1).Value = item.DocNum;
                 ws.Cell(row, 1).Style.Font.Bold = true;
+                ws.Cell(row, 1).Style.Font.FontColor = PodTextMuted;
+                ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 ws.Cell(row, 2).Value = item.CardName ?? "-";
                 ws.Cell(row, 3).Value = item.CardCode ?? "-";
                 ws.Cell(row, 4).Value = FormatExcelDate(item.DocDate);
-                ws.Cell(row, 5).Value = item.DocTotal;
-                ws.Cell(row, 5).Style.NumberFormat.Format = "#,##0.00";
-                ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+                ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 5).Value = FormatPodGeneratedLocationDisplay(item);
+                ws.Cell(row, 5).Style.Font.FontColor = PodTextMuted;
+                ws.Cell(row, 6).Value = item.DocTotal;
+                StylePodCurrencyCell(ws.Cell(row, 6));
 
-                if (item.HasPod)
-                {
-                    ws.Cell(row, 6).Value = "Uploaded";
-                    ws.Cell(row, 6).Style.Font.FontColor = StockGreen;
-                    ws.Cell(row, 6).Style.Fill.BackgroundColor = StockGreenLight;
-                }
-                else
-                {
-                    ws.Cell(row, 6).Value = "Pending";
-                    ws.Cell(row, 6).Style.Font.FontColor = PendingAmber;
-                    ws.Cell(row, 6).Style.Fill.BackgroundColor = PendingAmberBg;
-                }
-                ws.Cell(row, 6).Style.Font.Bold = true;
-                ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 7).Value = item.HasPod ? "Uploaded" : "Pending";
+                StylePodStatusCell(ws.Cell(row, 7), item.HasPod, isStripe);
 
                 if (item.HasPod && item.PodUploadedAt.HasValue)
                 {
-                    var uploadStr = item.PodUploadedAt.Value.ToString("dd MMM yyyy HH:mm");
+                    var uploadStr = FormatPodUploadDate(item.PodUploadedAt);
                     var uploaderDisplay = FormatPodUploadedByDisplay(item);
                     if (!string.IsNullOrEmpty(uploaderDisplay) && uploaderDisplay != "-")
                         uploadStr += $" ({uploaderDisplay})";
-                    ws.Cell(row, 7).Value = uploadStr;
+                    ws.Cell(row, 8).Value = uploadStr;
+                    ws.Cell(row, 8).Style.Font.FontColor = PodTextMuted;
                 }
                 else
                 {
-                    ws.Cell(row, 7).Value = "-";
-                    ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                    ws.Cell(row, 8).Value = "-";
+                    StylePodMutedCell(ws.Cell(row, 8));
                 }
 
-                // TOTAL column (running amount in bold red)
-                ws.Cell(row, 8).Value = item.DocTotal;
-                ws.Cell(row, 8).Style.NumberFormat.Format = "#,##0.00";
-                ws.Cell(row, 8).Style.Font.Bold = true;
-                ws.Cell(row, 8).Style.Font.FontColor = TotalRed;
-                ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+                ws.Cell(row, 9).Value = item.DocTotal;
+                StylePodTotalCell(ws.Cell(row, 9), isStripe);
 
                 row++;
+                rowIndex++;
             }
-            StyleStockData(ws, dataStart, row - 1, lastCol);
 
-            // Summary row
+            PodSummaryRow(ws, row, lastCol);
             ws.Cell(row, 1).Value = "SUMMARY";
-            ws.Cell(row, 1).Style.Font.Bold = true;
-            ws.Cell(row, 4).Value = $"{report.TotalInvoices} invoices";
-            ws.Cell(row, 4).Style.Font.Bold = true;
-            ws.Cell(row, 5).Value = totalAmount;
-            ws.Cell(row, 5).Style.NumberFormat.Format = "#,##0.00";
-            ws.Cell(row, 5).Style.Font.Bold = true;
-            ws.Cell(row, 6).Value = $"{report.UploadedCount} / {report.PendingCount}";
-            ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 6).Style.Font.Bold = true;
-            ws.Cell(row, 8).Value = totalAmount;
-            ws.Cell(row, 8).Style.NumberFormat.Format = "#,##0.00";
-            ws.Cell(row, 8).Style.Font.Bold = true;
-            ws.Cell(row, 8).Style.Font.FontColor = TotalRed;
-            ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
-            var summaryRange = ws.Range(row, 1, row, lastCol);
-            summaryRange.Style.Border.TopBorder = XLBorderStyleValues.Thin;
-            summaryRange.Style.Border.TopBorderColor = HeaderGreen;
-            summaryRange.Style.Border.BottomBorder = XLBorderStyleValues.Double;
-            summaryRange.Style.Border.BottomBorderColor = HeaderGreen;
-            summaryRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#f2f2f2");
+            ws.Cell(row, 2).Value = $"{report.TotalInvoices:N0} invoices";
+            ws.Cell(row, 4).Value = periodText;
+            ws.Cell(row, 6).Value = totalAmount;
+            ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            ws.Cell(row, 7).Value = $"{report.UploadedCount:N0} uploaded / {report.PendingCount:N0} pending";
+            ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 9).Value = totalAmount;
+            ws.Cell(row, 9).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
 
-            FinalizeSheet(ws, lastCol, freezeRow, landscape: true);
+            PodDisclaimerRow(ws, row + 2, lastCol, now);
+            PodFinalize(ws, lastCol, headerRow, 2);
             ws.Column(1).Width = 12;
             ws.Column(2).Width = 38;
             ws.Column(3).Width = 12;
             ws.Column(4).Width = 14;
-            ws.Column(5).Width = 14;
-            ws.Column(6).Width = 12;
-            ws.Column(7).Width = 28;
-            ws.Column(8).Width = 14;
+            ws.Column(5).Width = 22;
+            ws.Column(6).Width = 14;
+            ws.Column(7).Width = 12;
+            ws.Column(8).Width = 28;
+            ws.Column(9).Width = 14;
         }
 
-        // ════════════════════════════════════════════════════════════
-        //  PENDING PODs
-        // ════════════════════════════════════════════════════════════
-        var pending = report.Items.Where(i => !i.HasPod).OrderBy(i => i.DocDate).ToList();
-        if (pending.Any())
+        var pending = report.Items.Where(item => !item.HasPod).OrderBy(item => item.DocDate).ToList();
         {
             var ws = workbook.Worksheets.Add("Pending PODs");
-            int lastCol = 6;
+            const int lastCol = 7;
+            PodApplyDefaults(ws);
 
-            // Row 1: Title + date
-            ws.Cell(1, 1).Value = "PENDING POD UPLOADS";
-            ws.Cell(1, 1).Style.Font.Bold = true;
-            ws.Cell(1, 1).Style.Font.FontSize = 14;
-            ws.Range(1, 1, 1, 3).Merge();
-            ws.Cell(1, lastCol).Value = now.ToString("dd MMM yyyy");
-            ws.Cell(1, lastCol).Style.Font.FontSize = 9;
-            ws.Cell(1, lastCol).Style.Font.FontColor = XLColor.FromHtml("#808080");
-            ws.Cell(1, lastCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            var oldestPendingDays = pending.Count > 0
+                ? pending.Max(item => CalculatePodDaysAging(item.DocDate, now))
+                : 0;
+            var stalePendingCount = pending.Count(item => CalculatePodDaysAging(item.DocDate, now) > 14);
 
-            // Row 2: Headers
-            int hRow = 2;
-            ws.Cell(hRow, 1).Value = "Invoice #";
-            ws.Cell(hRow, 2).Value = "Customer";
-            ws.Cell(hRow, 3).Value = "Card Code";
-            ws.Cell(hRow, 4).Value = "Invoice Date";
-            ws.Cell(hRow, 5).Value = "Days Aging";
-            ws.Cell(hRow, 6).Value = "TOTAL";
-            StyleStockHeader(ws, hRow, lastCol);
-            int freezeRow = hRow;
+            var row = PodTitleBar(ws, $"PENDING POD UPLOADS - {periodText}", lastCol, now);
+            row = PodKpiStrip(ws, row, lastCol,
+                ("Pending Invoices", pending.Count.ToString("N0"), PodOrange),
+                ("Pending Value", FormatPodAmount(pendingAmount), PodOrange),
+                ("Oldest Age", $"{oldestPendingDays:N0} days", oldestPendingDays > 14 ? PodRed : PodOrange),
+                ("Over 14 Days", stalePendingCount.ToString("N0"), stalePendingCount > 0 ? PodRed : PodGreen));
 
-            int row = 3;
-            int dataStart = row;
+            PodSectionTitle(ws, row, lastCol, "Invoices awaiting POD upload");
+            row++;
+
+            var headerRow = row;
+            row = PodColumnHeaders(ws, row, lastCol,
+            [
+                "Invoice #",
+                "Customer",
+                "Card Code",
+                "Invoice Date",
+                "Generated Location",
+                "Days Aging",
+                "TOTAL"
+            ]);
+
+            var rowIndex = 0;
             foreach (var item in pending)
             {
-                DateTime.TryParse(item.DocDate, out var docDt);
-                int daysAging = docDt > DateTime.MinValue ? (int)(now - docDt).TotalDays : 0;
+                var isStripe = rowIndex % 2 == 1;
+                var daysAging = CalculatePodDaysAging(item.DocDate, now);
+                PodDataRow(ws, row, lastCol, isStripe);
 
                 ws.Cell(row, 1).Value = item.DocNum;
                 ws.Cell(row, 1).Style.Font.Bold = true;
+                ws.Cell(row, 1).Style.Font.FontColor = PodTextMuted;
+                ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 ws.Cell(row, 2).Value = item.CardName ?? "-";
                 ws.Cell(row, 3).Value = item.CardCode ?? "-";
                 ws.Cell(row, 4).Value = FormatExcelDate(item.DocDate);
-                ws.Cell(row, 5).Value = daysAging;
-                ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                if (daysAging > 14)
-                {
-                    ws.Cell(row, 5).Style.Font.FontColor = XLColor.FromHtml("#c00000");
-                    ws.Cell(row, 5).Style.Font.Bold = true;
-                }
-                else if (daysAging > 7)
-                {
-                    ws.Cell(row, 5).Style.Font.FontColor = PendingAmber;
-                    ws.Cell(row, 5).Style.Font.Bold = true;
-                }
-
-                // TOTAL column bold red
-                ws.Cell(row, 6).Value = item.DocTotal;
-                ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
-                ws.Cell(row, 6).Style.Font.Bold = true;
-                ws.Cell(row, 6).Style.Font.FontColor = TotalRed;
-                ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+                ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 5).Value = FormatPodGeneratedLocationDisplay(item);
+                ws.Cell(row, 5).Style.Font.FontColor = PodTextMuted;
+                ws.Cell(row, 6).Value = daysAging;
+                StylePodAgingCell(ws.Cell(row, 6), daysAging);
+                ws.Cell(row, 7).Value = item.DocTotal;
+                StylePodTotalCell(ws.Cell(row, 7), isStripe);
 
                 row++;
+                rowIndex++;
             }
-            StyleStockData(ws, dataStart, row - 1, lastCol);
 
-            // Summary
+            PodSummaryRow(ws, row, lastCol);
             ws.Cell(row, 1).Value = "TOTAL";
-            ws.Cell(row, 1).Style.Font.Bold = true;
-            ws.Cell(row, 4).Value = $"{pending.Count} invoices";
-            ws.Cell(row, 4).Style.Font.Bold = true;
-            ws.Cell(row, 6).Value = pendingAmount;
-            ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
-            ws.Cell(row, 6).Style.Font.Bold = true;
-            ws.Cell(row, 6).Style.Font.FontColor = TotalRed;
-            ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
-            var summaryRange = ws.Range(row, 1, row, lastCol);
-            summaryRange.Style.Border.TopBorder = XLBorderStyleValues.Thin;
-            summaryRange.Style.Border.TopBorderColor = HeaderGreen;
-            summaryRange.Style.Border.BottomBorder = XLBorderStyleValues.Double;
-            summaryRange.Style.Border.BottomBorderColor = HeaderGreen;
-            summaryRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#f2f2f2");
+            ws.Cell(row, 2).Value = $"{pending.Count:N0} invoices";
+            ws.Cell(row, 6).Value = $"Oldest: {oldestPendingDays:N0} days";
+            ws.Cell(row, 7).Value = pendingAmount;
+            ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
 
-            FinalizeSheet(ws, lastCol, freezeRow);
+            PodDisclaimerRow(ws, row + 2, lastCol, now);
+            PodFinalize(ws, lastCol, headerRow, 2);
             ws.Column(1).Width = 12;
             ws.Column(2).Width = 38;
             ws.Column(3).Width = 12;
             ws.Column(4).Width = 14;
-            ws.Column(5).Width = 12;
-            ws.Column(6).Width = 14;
+            ws.Column(5).Width = 22;
+            ws.Column(6).Width = 12;
+            ws.Column(7).Width = 14;
         }
 
-        // ════════════════════════════════════════════════════════════
-        //  UPLOADS BY USER
-        // ════════════════════════════════════════════════════════════
         var uploadsByUser = report.Items
-            .Where(i => i.HasPod)
+            .Where(item => item.HasPod)
             .SelectMany(item => GetPodUploadedByUsers(item).Select(uploader => new { Item = item, Uploader = uploader }))
             .GroupBy(entry => entry.Uploader.Username, StringComparer.OrdinalIgnoreCase)
             .Select(group => new
@@ -1923,30 +2144,35 @@ public class ReportExportService : IReportExportService
         if (uploadsByUser.Any())
         {
             var ws = workbook.Worksheets.Add("Uploads By User");
-            int lastCol = 5;
+            const int lastCol = 5;
+            PodApplyDefaults(ws);
 
-            ws.Cell(1, 1).Value = "POD UPLOADS BY USER";
-            ws.Cell(1, 1).Style.Font.Bold = true;
-            ws.Cell(1, 1).Style.Font.FontSize = 14;
-            ws.Range(1, 1, 1, 3).Merge();
-            ws.Cell(1, lastCol).Value = now.ToString("dd MMM yyyy");
-            ws.Cell(1, lastCol).Style.Font.FontSize = 9;
-            ws.Cell(1, lastCol).Style.Font.FontColor = XLColor.FromHtml("#808080");
-            ws.Cell(1, lastCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            var row = PodTitleBar(ws, $"POD UPLOADS BY USER - {periodText}", lastCol, now);
+            row = PodKpiStrip(ws, row, lastCol,
+                ("Uploaders", uploadsByUser.Count.ToString("N0"), null),
+                ("Invoice Coverage", uploadsByUser.Sum(group => group.UploadedInvoices).ToString("N0"), PodGreen),
+                ("POD Files", uploadsByUser.Sum(group => group.TotalFiles).ToString("N0"), PodGreen),
+                ("Uploaded Value", FormatPodAmount(uploadsByUser.Sum(group => group.TotalAmount)), null));
 
-            int hRow = 2;
-            ws.Cell(hRow, 1).Value = "Uploaded By";
-            ws.Cell(hRow, 2).Value = "Invoices Covered";
-            ws.Cell(hRow, 3).Value = "POD Files";
-            ws.Cell(hRow, 4).Value = "Invoice Amount";
-            ws.Cell(hRow, 5).Value = "Latest Upload";
-            StyleStockHeader(ws, hRow, lastCol);
-            int freezeRow = hRow;
+            PodSectionTitle(ws, row, lastCol, "Uploader performance");
+            row++;
 
-            int row = 3;
-            int dataStart = row;
+            var headerRow = row;
+            row = PodColumnHeaders(ws, row, lastCol,
+            [
+                "Uploaded By",
+                "Invoices Covered",
+                "POD Files",
+                "Invoice Amount",
+                "Latest Upload"
+            ]);
+
+            var rowIndex = 0;
             foreach (var group in uploadsByUser)
             {
+                var isStripe = rowIndex % 2 == 1;
+                PodDataRow(ws, row, lastCol, isStripe);
+
                 ws.Cell(row, 1).Value = group.UploadedBy;
                 ws.Cell(row, 1).Style.Font.Bold = true;
                 ws.Cell(row, 2).Value = group.UploadedInvoices;
@@ -1954,42 +2180,30 @@ public class ReportExportService : IReportExportService
                 ws.Cell(row, 3).Value = group.TotalFiles;
                 ws.Cell(row, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 ws.Cell(row, 4).Value = group.TotalAmount;
-                ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
-                ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
-                ws.Cell(row, 5).Value = group.LatestUpload.HasValue
-                    ? group.LatestUpload.Value.ToString("dd MMM yyyy HH:mm")
-                    : "-";
+                StylePodCurrencyCell(ws.Cell(row, 4));
+                ws.Cell(row, 5).Value = FormatPodUploadDate(group.LatestUpload);
+                if (!group.LatestUpload.HasValue)
+                    StylePodMutedCell(ws.Cell(row, 5));
 
                 row++;
+                rowIndex++;
             }
 
-            StyleStockData(ws, dataStart, row - 1, lastCol);
-
+            PodSummaryRow(ws, row, lastCol);
             ws.Cell(row, 1).Value = "SUMMARY";
-            ws.Cell(row, 1).Style.Font.Bold = true;
             ws.Cell(row, 2).Value = uploadsByUser.Sum(group => group.UploadedInvoices);
-            ws.Cell(row, 2).Style.Font.Bold = true;
             ws.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 3).Value = uploadsByUser.Sum(group => group.TotalFiles);
-            ws.Cell(row, 3).Style.Font.Bold = true;
             ws.Cell(row, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 4).Value = uploadsByUser.Sum(group => group.TotalAmount);
             ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
-            ws.Cell(row, 4).Style.Font.Bold = true;
             ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
             ws.Cell(row, 5).Value = uploadsByUser.Count == 1
                 ? uploadsByUser[0].UploadedBy
                 : $"{uploadsByUser.Count:N0} uploaders";
-            ws.Cell(row, 5).Style.Font.Bold = true;
 
-            var summaryRange = ws.Range(row, 1, row, lastCol);
-            summaryRange.Style.Border.TopBorder = XLBorderStyleValues.Thin;
-            summaryRange.Style.Border.TopBorderColor = HeaderGreen;
-            summaryRange.Style.Border.BottomBorder = XLBorderStyleValues.Double;
-            summaryRange.Style.Border.BottomBorderColor = HeaderGreen;
-            summaryRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#f2f2f2");
-
-            FinalizeSheet(ws, lastCol, freezeRow, landscape: true);
+            PodDisclaimerRow(ws, row + 2, lastCol, now);
+            PodFinalize(ws, lastCol, headerRow, 1);
             ws.Column(1).Width = 28;
             ws.Column(2).Width = 16;
             ws.Column(3).Width = 12;
@@ -1997,88 +2211,95 @@ public class ReportExportService : IReportExportService
             ws.Column(5).Width = 22;
         }
 
-        // ════════════════════════════════════════════════════════════
-        //  UPLOADED PODs
-        // ════════════════════════════════════════════════════════════
-        var uploaded = report.Items.Where(i => i.HasPod).OrderByDescending(i => i.PodUploadedAt).ToList();
-        if (uploaded.Any())
+        var uploaded = report.Items.Where(item => item.HasPod).OrderByDescending(item => item.PodUploadedAt).ToList();
         {
             var ws = workbook.Worksheets.Add("Uploaded PODs");
-            int lastCol = 7;
+            const int lastCol = 8;
+            PodApplyDefaults(ws);
 
-            // Row 1: Title + date
-            ws.Cell(1, 1).Value = "INVOICES WITH POD UPLOADED";
-            ws.Cell(1, 1).Style.Font.Bold = true;
-            ws.Cell(1, 1).Style.Font.FontSize = 14;
-            ws.Range(1, 1, 1, 3).Merge();
-            ws.Cell(1, lastCol).Value = now.ToString("dd MMM yyyy");
-            ws.Cell(1, lastCol).Style.Font.FontSize = 9;
-            ws.Cell(1, lastCol).Style.Font.FontColor = XLColor.FromHtml("#808080");
-            ws.Cell(1, lastCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            var uploadedFileCount = uploaded.Sum(item => item.PodCount > 0
+                ? item.PodCount
+                : GetPodUploadedByUsers(item).Sum(user => user.FileCount));
+            var uploadedUsers = uploaded
+                .SelectMany(GetPodUploadedByUsers)
+                .Select(user => user.Username.Trim())
+                .Where(username => !string.IsNullOrWhiteSpace(username))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+            var latestUpload = uploaded.Count > 0
+                ? uploaded.Max(item => item.PodUploadedAt)
+                : null;
 
-            // Row 2: Headers
-            int hRow = 2;
-            ws.Cell(hRow, 1).Value = "Invoice #";
-            ws.Cell(hRow, 2).Value = "Customer";
-            ws.Cell(hRow, 3).Value = "Card Code";
-            ws.Cell(hRow, 4).Value = "Invoice Date";
-            ws.Cell(hRow, 5).Value = "Uploaded";
-            ws.Cell(hRow, 6).Value = "Uploaded By";
-            ws.Cell(hRow, 7).Value = "TOTAL";
-            StyleStockHeader(ws, hRow, lastCol);
-            int freezeRow = hRow;
+            var row = PodTitleBar(ws, $"INVOICES WITH POD UPLOADED - {periodText}", lastCol, now);
+            row = PodKpiStrip(ws, row, lastCol,
+                ("Uploaded Invoices", uploaded.Count.ToString("N0"), PodGreen),
+                ("Uploaded Value", FormatPodAmount(uploadedAmount), null),
+                ("POD Files", uploadedFileCount.ToString("N0"), PodGreen),
+                ("Uploaders", uploadedUsers.ToString("N0"), null),
+                ("Latest Upload", FormatPodUploadDate(latestUpload), PodTextMuted));
 
-            int row = 3;
-            int dataStart = row;
+            PodSectionTitle(ws, row, lastCol, "Invoices with uploaded PODs");
+            row++;
+
+            var headerRow = row;
+            row = PodColumnHeaders(ws, row, lastCol,
+            [
+                "Invoice #",
+                "Customer",
+                "Card Code",
+                "Invoice Date",
+                "Generated Location",
+                "Uploaded",
+                "Uploaded By",
+                "TOTAL"
+            ]);
+
+            var rowIndex = 0;
             foreach (var item in uploaded)
             {
+                var isStripe = rowIndex % 2 == 1;
+                PodDataRow(ws, row, lastCol, isStripe);
+
                 ws.Cell(row, 1).Value = item.DocNum;
                 ws.Cell(row, 1).Style.Font.Bold = true;
+                ws.Cell(row, 1).Style.Font.FontColor = PodTextMuted;
+                ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 ws.Cell(row, 2).Value = item.CardName ?? "-";
                 ws.Cell(row, 3).Value = item.CardCode ?? "-";
                 ws.Cell(row, 4).Value = FormatExcelDate(item.DocDate);
-                ws.Cell(row, 5).Value = item.PodUploadedAt.HasValue
-                    ? item.PodUploadedAt.Value.ToString("dd MMM yyyy HH:mm")
-                    : "-";
-                ws.Cell(row, 6).Value = FormatPodUploadedByDisplay(item);
-                ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-
-                // TOTAL column bold red
-                ws.Cell(row, 7).Value = item.DocTotal;
-                ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
-                ws.Cell(row, 7).Style.Font.Bold = true;
-                ws.Cell(row, 7).Style.Font.FontColor = TotalRed;
-                ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+                ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 5).Value = FormatPodGeneratedLocationDisplay(item);
+                ws.Cell(row, 5).Style.Font.FontColor = PodTextMuted;
+                ws.Cell(row, 6).Value = FormatPodUploadDate(item.PodUploadedAt);
+                ws.Cell(row, 6).Style.Font.FontColor = PodTextMuted;
+                ws.Cell(row, 7).Value = FormatPodUploadedByDisplay(item);
+                ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 8).Value = item.DocTotal;
+                StylePodTotalCell(ws.Cell(row, 8), isStripe);
 
                 row++;
+                rowIndex++;
             }
-            StyleStockData(ws, dataStart, row - 1, lastCol);
 
-            // Summary
+            PodSummaryRow(ws, row, lastCol);
             ws.Cell(row, 1).Value = "TOTAL";
-            ws.Cell(row, 1).Style.Font.Bold = true;
-            ws.Cell(row, 4).Value = $"{uploaded.Count} invoices";
-            ws.Cell(row, 4).Style.Font.Bold = true;
-            ws.Cell(row, 7).Value = uploadedAmount;
-            ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
-            ws.Cell(row, 7).Style.Font.Bold = true;
-            ws.Cell(row, 7).Style.Font.FontColor = TotalRed;
-            ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
-            var summaryRange = ws.Range(row, 1, row, lastCol);
-            summaryRange.Style.Border.TopBorder = XLBorderStyleValues.Thin;
-            summaryRange.Style.Border.TopBorderColor = HeaderGreen;
-            summaryRange.Style.Border.BottomBorder = XLBorderStyleValues.Double;
-            summaryRange.Style.Border.BottomBorderColor = HeaderGreen;
-            summaryRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#f2f2f2");
+            ws.Cell(row, 2).Value = $"{uploaded.Count:N0} invoices";
+            ws.Cell(row, 6).Value = $"{uploadedFileCount:N0} files";
+            ws.Cell(row, 7).Value = $"{uploadedUsers:N0} uploaders";
+            ws.Cell(row, 8).Value = uploadedAmount;
+            ws.Cell(row, 8).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
 
-            FinalizeSheet(ws, lastCol, freezeRow, landscape: true);
+            PodDisclaimerRow(ws, row + 2, lastCol, now);
+            PodFinalize(ws, lastCol, headerRow, 2);
             ws.Column(1).Width = 12;
             ws.Column(2).Width = 38;
             ws.Column(3).Width = 12;
             ws.Column(4).Width = 14;
             ws.Column(5).Width = 22;
-            ws.Column(6).Width = 14;
+            ws.Column(6).Width = 22;
             ws.Column(7).Width = 14;
+            ws.Column(8).Width = 14;
         }
 
         return WorkbookToBytes(workbook);

@@ -265,6 +265,12 @@ Models/
  SystemModels.cs
  TimesheetModels.cs
  UpdateBatchStatusApiRequest.cs
+ WhatsAppHealthModel.cs
+ WhatsAppInboxItemModel.cs
+ WhatsAppInboxResponseModel.cs
+ WhatsAppMessageDispatchModel.cs
+ WhatsAppQrCodeModel.cs
+ WhatsAppSessionModel.cs
 obj/Debug/net10.0/
  .NETCoreApp,Version=v10.0.AssemblyAttributes.cs
  EmbeddedAttribute.cs
@@ -336,6 +342,7 @@ Services/
  UserManagementService.cs
  WarehouseStockCacheService.cs
  WebhookWebService.cs
+ WhatsAppAdminService.cs
 
 [metadataReferences]
 <DOTNET>/packs/Microsoft.AspNetCore.App.Ref/10.0.8/ref/net10.0/
@@ -847,6 +854,7 @@ Components/
   UserActivity.razor
   UserManagement.razor
   Webhooks.razor
+  WhatsAppInbox.razor
  RedirectToLogin.razor
  Routes.razor
  SystemHealthBanner.razor
@@ -958,6 +966,7 @@ Components/
   UserActivity.razor
   UserManagement.razor
   Webhooks.razor
+  WhatsAppInbox.razor
  RedirectToLogin.razor
  Routes.razor
  SystemHealthBanner.razor

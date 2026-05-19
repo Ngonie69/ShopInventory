@@ -66,6 +66,7 @@ public interface ISAPServiceLayerClient
     Task<Invoice?> GetInvoiceByDocNumAsync(int docNum, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoiceHeadersByDocEntriesAsync(IEnumerable<int> docEntries, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByDocNumsAsync(IEnumerable<int> docNums, CancellationToken cancellationToken = default);
+    Task<List<Invoice>> GetInvoicesByVanSaleOrdersAsync(IEnumerable<string> vanSaleOrders, CancellationToken cancellationToken = default);
     Task<Invoice?> GetInvoiceByVanSaleOrderAsync(string vanSaleOrder, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByCustomerAsync(string cardCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);

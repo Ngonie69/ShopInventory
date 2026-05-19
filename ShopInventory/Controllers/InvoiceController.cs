@@ -118,7 +118,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         [FromBody] BulkPodValidationRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new ValidateBulkPodsQuery(request.DocNums), cancellationToken);
+        var result = await mediator.Send(
+            new ValidateBulkPodsQuery(request.DocNums, request.SalesOrderDocNums),
+            cancellationToken);
         return result.Match(Ok, Problem);
     }
 

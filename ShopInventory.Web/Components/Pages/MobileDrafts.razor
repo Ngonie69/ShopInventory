@@ -1,8 +1,10 @@
 @page "/mobile-drafts"
+@using System.Globalization
 @using Microsoft.AspNetCore.Authorization
 @using MudBlazor
 @attribute [Authorize(Roles = "Admin,Cashier,Merchandiser,SalesRep")]
 @inject ISalesOrderService SalesOrderService
+@inject IPodService PodService
 @inject IPurchaseOrderService PurchaseOrderService
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
@@ -372,6 +374,7 @@
     .status-badge.approved { background: #d1fae5; color: #065f46; }
     .status-badge.partial { background: #e0e7ff; color: #3730a3; }
     .status-badge.fulfilled { background: #dbeafe; color: #1e40af; }
+    .status-badge.delivered { background: #dcfce7; color: #166534; }
     .status-badge.invoiced { background: #d1fae5; color: #065f46; }
     .status-badge.cancelled {
         background-color: #dc2626 !important;
@@ -773,6 +776,11 @@
         color: #6ee7b7;
     }
 
+    .dark-theme .status-badge.delivered {
+        background: rgba(34, 197, 94, .22);
+        color: #86efac;
+    }
+
     @@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     @@keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
     @@keyframes slideDown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
@@ -884,7 +892,7 @@
                             <option value="">All</option>
                             @foreach (var statusOption in GetStatusFilterOptions())
                             {
-                                <option value="@(((int)statusOption.Value).ToString())">@statusOption.Label</option>
+                                <option value="@statusOption.Value">@statusOption.Label</option>
                             }
                         </select>
                     </div>
@@ -938,7 +946,7 @@
                         <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.CardName ?? string.Empty)">Customer</MudTableSortLabel></MudTh>
                         <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.OrderDate)">Order Date</MudTableSortLabel></MudTh>
                         <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.DeliveryDate ?? DateTime.MinValue)">Delivery</MudTableSortLabel></MudTh>
-                        <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => (int)x.Status)">Status</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => GetDisplayStatusSortOrder(x))">Status</MudTableSortLabel></MudTh>
                         <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.Currency ?? string.Empty)">Currency</MudTableSortLabel></MudTh>
                         <MudTh Style="text-align:right"><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.DocTotal)">Total</MudTableSortLabel></MudTh>
                         <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.SAPDocNum ?? 0)">SAP Doc #</MudTableSortLabel></MudTh>
@@ -960,7 +968,7 @@
                         </MudTd>
                         <MudTd DataLabel="Delivery"><span style="font-size:.85rem;color:#374151;">@(context.DeliveryDate?.ToString("dd MMM yyyy") ?? "—")</span></MudTd>
                         <MudTd DataLabel="Status">
-                            <span class="status-badge @GetStatusCssClass(context.Status)">@context.StatusName</span>
+                            <span class="status-badge @GetDisplayStatusCssClass(context)">@GetDisplayStatusName(context)</span>
                         </MudTd>
                         <MudTd DataLabel="Currency"><span style="font-size:.85rem;color:#6b7280;">@context.Currency</span></MudTd>
                         <MudTd DataLabel="Total" Style="text-align:right">
@@ -988,6 +996,13 @@
                                                Variant="Variant.Outlined" Color="Color.Primary" title="View Details"
                                                Disabled="@IsOrderActionBusy(context.Id)"
                                                OnClick="() => ViewOrder(context)" />
+                                @if (CanViewOrderPod(context))
+                                {
+                                    <MudIconButton Icon="@Icons.Material.Filled.LocalShipping" Size="Size.Small"
+                                                   Variant="Variant.Outlined" Color="Color.Success" title="View POD"
+                                                   Disabled="@IsOrderActionBusy(context.Id)"
+                                                   OnClick="() => NavigateToPod(context)" />
+                                }
                                 @if ((context.Status == SalesOrderStatus.Draft || context.Status == SalesOrderStatus.Pending) && !context.IsSynced)
                                 {
                                     <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
@@ -1131,7 +1146,7 @@
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">Status</div>
-                    <div class="detail-value"><span class="status-badge @GetStatusCssClass(GetSelectedOrderStatus())">@GetSelectedOrderStatusName()</span></div>
+                    <div class="detail-value"><span class="status-badge @GetSelectedOrderStatusCssClass()">@GetSelectedOrderStatusName()</span></div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">Currency</div>
@@ -1150,6 +1165,13 @@
                     <div class="detail-item">
                         <div class="detail-label">SAP Document #</div>
                         <div class="detail-value" style="color:#059669; font-family:'Space Grotesk',monospace;">@selectedOrder.SAPDocNum</div>
+                    </div>
+                }
+                @if (GetSelectedOrderInvoiceDocNum().HasValue)
+                {
+                    <div class="detail-item">
+                        <div class="detail-label">@(CanViewSelectedOrderPod() ? "POD Invoice #" : "Invoice #")</div>
+                        <div class="detail-value" style="color:#166534; font-family:'Space Grotesk',monospace;">@GetSelectedOrderInvoiceDocNum()</div>
                     </div>
                 }
             </div>
@@ -1328,6 +1350,13 @@
                     <span>Create PDF</span>
                 }
             </MudButton>
+            @if (CanViewSelectedOrderPod())
+            {
+                <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#15803d,#166534);"
+                           OnClick="NavigateToSelectedOrderPod">
+                    <i class="bi bi-truck me-1"></i> View POD
+                </MudButton>
+            }
             @if (CanEditSelectedOrder())
             {
                 <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem;"
@@ -1437,6 +1466,7 @@
     private string? purchaseOrderViewerMimeType;
     private DocumentAttachmentDto? purchaseOrderViewerAttachment;
     private readonly Dictionary<int, OrderActionType> orderActionStates = new();
+    private readonly Dictionary<int, BulkPodValidationResult> podStatusByOrderId = new();
     private readonly HashSet<SalesOrderStatus> availableStatusFilters = new()
     {
         SalesOrderStatus.Draft,
@@ -1444,19 +1474,22 @@
         SalesOrderStatus.Approved
     };
     private int ordersLoadVersion;
+    private const string DeliveredStatusFilterValue = "delivered";
+    private const int PodStatusBatchSize = 100;
 
-    private sealed record StatusFilterOption(SalesOrderStatus Value, string Label);
+    private sealed record StatusFilterOption(string Value, string Label);
 
     private static readonly StatusFilterOption[] AllStatusFilterOptions =
     [
-        new(SalesOrderStatus.Draft, "Draft"),
-        new(SalesOrderStatus.Pending, "Pending"),
-        new(SalesOrderStatus.Approved, "Approved"),
-        new(SalesOrderStatus.PartiallyFulfilled, "Partially Fulfilled"),
-        new(SalesOrderStatus.Fulfilled, "Fulfilled"),
-        new(SalesOrderStatus.Cancelled, "Cancelled"),
-        new(SalesOrderStatus.OnHold, "On Hold"),
-        new(SalesOrderStatus.Rejected, "Rejected")
+        new("0", "Draft"),
+        new("1", "Pending"),
+        new("2", "Approved"),
+        new("3", "Partially Fulfilled"),
+        new("4", "Fulfilled"),
+        new(DeliveredStatusFilterValue, "Delivered"),
+        new("5", "Cancelled"),
+        new("6", "On Hold"),
+        new("7", "Rejected")
     ];
 
     // Filters
@@ -1528,15 +1561,32 @@
         return configuredPageSize > 0 ? configuredPageSize : DefaultPageSizeOptions[0];
     }
 
+    private static bool TryParseStatusFilterValue(string? value, out SalesOrderStatus status)
+    {
+        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var statusInt)
+            && Enum.IsDefined(typeof(SalesOrderStatus), statusInt))
+        {
+            status = (SalesOrderStatus)statusInt;
+            return true;
+        }
+
+        status = default;
+        return false;
+    }
+
+    private static bool IsDeliveredStatusFilterValue(string? value)
+        => string.Equals(value, DeliveredStatusFilterValue, StringComparison.OrdinalIgnoreCase);
+
     private SalesOrderStatus? GetSelectedStatusFilter()
     {
-        if (!string.IsNullOrEmpty(statusFilter) && int.TryParse(statusFilter, out var statusInt))
-        {
-            return (SalesOrderStatus)statusInt;
-        }
+        if (TryParseStatusFilterValue(statusFilter, out var selectedStatus))
+            return selectedStatus;
 
         return null;
     }
+
+    private bool IsDeliveredStatusFilterSelected()
+        => IsDeliveredStatusFilterValue(statusFilter);
 
     private IEnumerable<StatusFilterOption> GetStatusFilterOptions()
     {
@@ -1546,8 +1596,18 @@
             availableStatusFilters.Add(selectedStatus.Value);
         }
 
-        return AllStatusFilterOptions.Where(option => availableStatusFilters.Contains(option.Value));
+        return AllStatusFilterOptions.Where(option =>
+        {
+            if (IsDeliveredStatusFilterValue(option.Value))
+                return IsDeliveredStatusFilterSelected() || HasDeliveredOrders();
+
+            return TryParseStatusFilterValue(option.Value, out var parsedStatus)
+                && availableStatusFilters.Contains(parsedStatus);
+        });
     }
+
+    private bool HasDeliveredOrders()
+        => orders?.Any(IsOrderDelivered) == true;
 
     private IEnumerable<string> GetCurrencyFilterOptions()
     {
@@ -1605,7 +1665,14 @@
         }
 
         var selectedStatus = GetSelectedStatusFilter();
-        if (selectedStatus.HasValue && order.Status != selectedStatus.Value)
+        if (IsDeliveredStatusFilterSelected())
+        {
+            if (!IsOrderDelivered(order))
+            {
+                return false;
+            }
+        }
+        else if (selectedStatus.HasValue && (IsOrderDelivered(order) || order.Status != selectedStatus.Value))
         {
             return false;
         }
@@ -1713,7 +1780,7 @@
                 if (loadVersion != ordersLoadVersion)
                     return;
 
-                await RefreshSelectedOrderAsync();
+                _ = LoadOrderPodStatusesInBackgroundAsync(loadVersion);
             }
             else
             {
@@ -1734,6 +1801,22 @@
                 isLoading = false;
             }
         }
+    }
+
+    private async Task LoadOrderPodStatusesInBackgroundAsync(int loadVersion)
+    {
+        var currentOrders = orders;
+        if (currentOrders == null)
+            return;
+
+        await LoadOrderPodStatusesAsync(currentOrders, loadVersion);
+        if (loadVersion != ordersLoadVersion)
+            return;
+
+        await RefreshSelectedOrderAsync();
+
+        if (loadVersion == ordersLoadVersion)
+            await InvokeAsync(StateHasChanged);
     }
 
     private void ClearFilter()
@@ -1826,6 +1909,133 @@
         {
             isLoadingPurchaseOrderAttachments = false;
         }
+    }
+
+    private async Task LoadOrderPodStatusesAsync(IEnumerable<SalesOrderDto> loadedOrders, int loadVersion)
+    {
+        podStatusByOrderId.Clear();
+
+        var ordersBySalesOrderDocNum = loadedOrders
+            .Where(ShouldCheckPodStatus)
+            .OrderByDescending(order => order.OrderDate)
+            .GroupBy(order => order.SAPDocNum!.Value)
+            .ToDictionary(group => group.Key, group => group.ToList());
+
+        if (ordersBySalesOrderDocNum.Count == 0)
+            return;
+
+        try
+        {
+            foreach (var salesOrderDocNumBatch in ordersBySalesOrderDocNum.Keys.Chunk(PodStatusBatchSize))
+            {
+                var response = await PodService.ValidateBulkSalesOrderPodsAsync(salesOrderDocNumBatch);
+                if (loadVersion != ordersLoadVersion)
+                    return;
+
+                foreach (var podStatus in response?.Results ?? Enumerable.Empty<BulkPodValidationResult>())
+                {
+                    if (!podStatus.SalesOrderDocNum.HasValue || !ordersBySalesOrderDocNum.TryGetValue(podStatus.SalesOrderDocNum.Value, out var matchingOrders))
+                        continue;
+
+                    foreach (var order in matchingOrders)
+                    {
+                        podStatusByOrderId[order.Id] = podStatus;
+                    }
+                }
+
+                if (loadVersion == ordersLoadVersion)
+                    await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (Exception ex)
+        {
+            if (loadVersion != ordersLoadVersion)
+                return;
+
+            Logger.LogWarning(ex, "Failed to load POD delivery status for mobile orders.");
+        }
+    }
+
+    private static bool ShouldCheckPodStatus(SalesOrderDto order)
+    {
+        return order.SAPDocNum is > 0
+            && order.Status is SalesOrderStatus.Approved
+                or SalesOrderStatus.PartiallyFulfilled
+                or SalesOrderStatus.Fulfilled;
+    }
+
+    private bool IsOrderDelivered(SalesOrderDto order)
+    {
+        return podStatusByOrderId.TryGetValue(order.Id, out var podStatus)
+            && podStatus.Found
+            && podStatus.ExistingPodCount > 0;
+    }
+
+    private string GetDisplayStatusName(SalesOrderDto order)
+        => IsOrderDelivered(order) ? "Delivered" : order.Status.ToString();
+
+    private string GetDisplayStatusCssClass(SalesOrderDto order)
+        => IsOrderDelivered(order) ? "delivered" : GetStatusCssClass(order.Status);
+
+    private static int GetStatusSortOrder(SalesOrderStatus status) => status switch
+    {
+        SalesOrderStatus.Draft => 0,
+        SalesOrderStatus.Pending => 1,
+        SalesOrderStatus.Approved => 2,
+        SalesOrderStatus.PartiallyFulfilled => 3,
+        SalesOrderStatus.Fulfilled => 4,
+        SalesOrderStatus.Cancelled => 6,
+        SalesOrderStatus.OnHold => 7,
+        SalesOrderStatus.Rejected => 8,
+        _ => 9
+    };
+
+    private int GetDisplayStatusSortOrder(SalesOrderDto order)
+        => IsOrderDelivered(order) ? 5 : GetStatusSortOrder(order.Status);
+
+    private int? GetOrderPodInvoiceDocNum(SalesOrderDto order)
+    {
+        if (!podStatusByOrderId.TryGetValue(order.Id, out var podStatus)
+            || !podStatus.Found
+            || podStatus.ExistingPodCount <= 0
+            || (!podStatus.ResolvedInvoiceDocNum.HasValue && podStatus.DocNum <= 0))
+        {
+            return null;
+        }
+
+        return podStatus.ResolvedInvoiceDocNum is > 0
+            ? podStatus.ResolvedInvoiceDocNum
+            : podStatus.DocNum;
+    }
+
+    private int? GetSelectedOrderInvoiceDocNum()
+    {
+        var order = GetSelectedOrderListState() ?? selectedOrder;
+        if (order == null)
+            return null;
+
+        if (podStatusByOrderId.TryGetValue(order.Id, out var podStatus))
+        {
+            if (podStatus.ResolvedInvoiceDocNum is > 0)
+                return podStatus.ResolvedInvoiceDocNum;
+
+            if (podStatus.DocNum > 0)
+                return podStatus.DocNum;
+        }
+
+        return order.InvoiceSapDocNum;
+    }
+
+    private bool CanViewOrderPod(SalesOrderDto order)
+        => GetOrderPodInvoiceDocNum(order).HasValue;
+
+    private void NavigateToPod(SalesOrderDto order)
+    {
+        var invoiceDocNum = GetOrderPodInvoiceDocNum(order);
+        if (!invoiceDocNum.HasValue)
+            return;
+
+        NavigationManager.NavigateTo($"/pods?docNum={invoiceDocNum.Value.ToString(CultureInfo.InvariantCulture)}&viewLatest=true");
     }
 
     private static string? GetPurchaseOrderReference(SalesOrderDto order)
@@ -2243,10 +2453,34 @@
         => GetSelectedOrderListState()?.Status ?? selectedOrder?.Status ?? SalesOrderStatus.Draft;
 
     private string GetSelectedOrderStatusName()
-        => GetSelectedOrderStatus().ToString();
+    {
+        var order = GetSelectedOrderListState() ?? selectedOrder;
+        return order == null ? SalesOrderStatus.Draft.ToString() : GetDisplayStatusName(order);
+    }
+
+    private string GetSelectedOrderStatusCssClass()
+    {
+        var order = GetSelectedOrderListState() ?? selectedOrder;
+        return order == null ? GetStatusCssClass(SalesOrderStatus.Draft) : GetDisplayStatusCssClass(order);
+    }
 
     private bool IsSelectedOrderSynced()
         => GetSelectedOrderListState()?.IsSynced ?? selectedOrder?.IsSynced == true;
+
+    private bool CanViewSelectedOrderPod()
+    {
+        var order = GetSelectedOrderListState() ?? selectedOrder;
+        return order != null && CanViewOrderPod(order);
+    }
+
+    private void NavigateToSelectedOrderPod()
+    {
+        var order = GetSelectedOrderListState() ?? selectedOrder;
+        if (order != null)
+        {
+            NavigateToPod(order);
+        }
+    }
 
     private bool CanEditSelectedOrder()
         => selectedOrder != null && !IsSelectedOrderSynced() && GetSelectedOrderStatus() is SalesOrderStatus.Draft or SalesOrderStatus.Pending;
@@ -2508,6 +2742,8 @@
         {
             await ClearSelectedOrder();
         }
+
+        podStatusByOrderId.Remove(id);
 
         if (orders == null)
             return;

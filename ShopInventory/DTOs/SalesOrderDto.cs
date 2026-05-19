@@ -42,6 +42,7 @@ public class SalesOrderDto
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public int? InvoiceId { get; set; }
+    public int? InvoiceSapDocNum { get; set; }
     public bool IsSynced { get; set; }
     public string? SyncError { get; set; }
     public SalesOrderSource Source { get; set; }

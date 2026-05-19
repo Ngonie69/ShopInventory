@@ -43,7 +43,7 @@
                         @BasePendingCount pending
                     </span>
                     <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ExportToExcel"
-                               Disabled="@(isExporting || FilteredCount == 0)" Class="podr-export-btn">
+                               Disabled="@(isExporting || BaseFilteredCount == 0)" Class="podr-export-btn">
                         @if (isExporting)
                         {
                             <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
@@ -1002,19 +1002,20 @@
 
     private async Task ExportToExcel()
     {
-        if (report == null || FilteredCount == 0) return;
+        if (report == null || BaseFilteredCount == 0) return;
         isExporting = true;
         StateHasChanged();
         try
         {
+            var exportItems = BaseFilteredItems.ToList();
             var exportReport = new PodUploadStatusReport
             {
                 FromDate = report.FromDate,
                 ToDate = report.ToDate,
-                TotalInvoices = FilteredCount,
-                UploadedCount = FilteredItems.Count(i => i.HasPod),
-                PendingCount = FilteredItems.Count(i => !i.HasPod),
-                Items = FilteredItems.ToList()
+                TotalInvoices = exportItems.Count,
+                UploadedCount = exportItems.Count(i => i.HasPod),
+                PendingCount = exportItems.Count(i => !i.HasPod),
+                Items = exportItems
             };
 
             var bytes = ExportService.ExportPodUploadStatusToExcel(exportReport);

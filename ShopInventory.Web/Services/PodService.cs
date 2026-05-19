@@ -11,6 +11,7 @@ public interface IPodService
     Task<PodAttachmentListResponse?> GetAllPodsForAccountsAsync(int page, int pageSize, List<string> cardCodes, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
     Task<DocumentAttachmentListResponse?> GetInvoicePodsAsync(int docEntry);
     Task<BulkPodValidationResponse?> ValidateBulkPodsAsync(IEnumerable<int> docNums, CancellationToken cancellationToken = default);
+    Task<BulkPodValidationResponse?> ValidateBulkSalesOrderPodsAsync(IEnumerable<int> salesOrderDocNums, CancellationToken cancellationToken = default);
     Task<(bool Success, string Message, DocumentAttachmentDto? Attachment)> UploadPodAsync(int docEntry, Stream fileStream, string fileName, string contentType, string? description = null, string? uploadedByUsername = null);
     Task<byte[]?> DownloadPodAsync(int docEntry, int attachmentId);
     Task<bool> DeletePodAsync(int attachmentId);
@@ -120,14 +121,27 @@ public class PodService : IPodService
     }
 
     public async Task<BulkPodValidationResponse?> ValidateBulkPodsAsync(IEnumerable<int> docNums, CancellationToken cancellationToken = default)
+        => await ValidateBulkPodsCoreAsync(docNums, null, cancellationToken);
+
+    public async Task<BulkPodValidationResponse?> ValidateBulkSalesOrderPodsAsync(IEnumerable<int> salesOrderDocNums, CancellationToken cancellationToken = default)
+        => await ValidateBulkPodsCoreAsync(null, salesOrderDocNums, cancellationToken);
+
+    private async Task<BulkPodValidationResponse?> ValidateBulkPodsCoreAsync(
+        IEnumerable<int>? docNums,
+        IEnumerable<int>? salesOrderDocNums,
+        CancellationToken cancellationToken)
     {
         try
         {
             await EnsureAuthenticationAsync();
             var request = new BulkPodValidationRequest
             {
-                DocNums = docNums.Where(docNum => docNum > 0).Distinct().ToList()
+                DocNums = (docNums ?? Enumerable.Empty<int>()).Where(docNum => docNum > 0).Distinct().ToList(),
+                SalesOrderDocNums = (salesOrderDocNums ?? Enumerable.Empty<int>()).Where(docNum => docNum > 0).Distinct().ToList()
             };
+
+            if (request.DocNums.Count == 0 && request.SalesOrderDocNums.Count == 0)
+                return new BulkPodValidationResponse();
 
             var response = await _httpClient.PostAsJsonAsync("api/invoice/pods/validate-bulk", request, cancellationToken);
             if (response.IsSuccessStatusCode)
@@ -143,7 +157,7 @@ public class PodService : IPodService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error validating bulk POD invoice numbers");
+            _logger.LogError(ex, "Error validating bulk POD status");
             return null;
         }
     }

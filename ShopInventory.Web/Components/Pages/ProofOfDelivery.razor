@@ -1,4 +1,5 @@
 @page "/pods"
+@using System.Globalization
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Common
 @using ShopInventory.Web.Models
@@ -1387,19 +1388,91 @@
     private bool deleteSuccess;
     private PodAttachmentItemDto? deletePod;
     private string? currentUsername;
+    private int? appliedInitialDocNum;
+    private bool appliedInitialViewLatest;
 
     [SupplyParameterFromQuery(Name = "docNum")]
     public int? InitialDocNum { get; set; }
+
+    [SupplyParameterFromQuery(Name = "viewLatest")]
+    public bool InitialViewLatest { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         currentUsername = authState.User.Identity?.Name;
+    }
 
-        if (InitialDocNum.HasValue && InitialDocNum.Value > 0)
+    protected override async Task OnParametersSetAsync()
+    {
+        await ApplyInitialNavigationAsync();
+    }
+
+    private async Task ApplyInitialNavigationAsync()
+    {
+        if (!InitialDocNum.HasValue || InitialDocNum.Value <= 0)
+            return;
+
+        if (appliedInitialDocNum == InitialDocNum.Value && appliedInitialViewLatest == InitialViewLatest)
+            return;
+
+        appliedInitialDocNum = InitialDocNum.Value;
+        appliedInitialViewLatest = InitialViewLatest;
+
+        uploadDocNum = InitialDocNum.Value;
+        filterSearch = InitialDocNum.Value.ToString(CultureInfo.InvariantCulture);
+        activeFilterSearch = filterSearch;
+
+        await LookupInvoice();
+        await ReloadPodsTableAsync(resetToFirstPage: true);
+
+        if (InitialViewLatest)
         {
-            uploadDocNum = InitialDocNum.Value;
-            await LookupInvoice();
+            await OpenLatestPodForLookupInvoiceAsync();
+        }
+    }
+
+    private async Task OpenLatestPodForLookupInvoiceAsync()
+    {
+        if (lookupInvoice == null)
+            return;
+
+        try
+        {
+            var response = await PodService.GetInvoicePodsAsync(lookupInvoice.DocEntry);
+            var latestAttachment = response?.Attachments?
+                .OrderByDescending(attachment => attachment.UploadedAt)
+                .FirstOrDefault();
+
+            if (latestAttachment == null)
+            {
+                uploadSuccess = false;
+                uploadMessage = $"No POD upload was found for invoice #{lookupInvoice.DocNum}.";
+                return;
+            }
+
+            await ViewPod(new PodAttachmentItemDto
+            {
+                Id = latestAttachment.Id,
+                FileName = latestAttachment.FileName,
+                MimeType = latestAttachment.MimeType,
+                FileSizeBytes = latestAttachment.FileSizeBytes,
+                FileSizeFormatted = latestAttachment.FileSizeFormatted,
+                Description = latestAttachment.Description,
+                UploadedAt = latestAttachment.UploadedAt,
+                UploadedByUserName = latestAttachment.UploadedByUserName,
+                DownloadUrl = latestAttachment.DownloadUrl,
+                InvoiceDocEntry = lookupInvoice.DocEntry,
+                InvoiceDocNum = lookupInvoice.DocNum,
+                CardCode = lookupInvoice.CardCode,
+                CardName = lookupInvoice.CardName
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error opening latest POD for invoice {DocNum}", lookupInvoice.DocNum);
+            uploadSuccess = false;
+            uploadMessage = "Failed to open the uploaded POD.";
         }
     }
 

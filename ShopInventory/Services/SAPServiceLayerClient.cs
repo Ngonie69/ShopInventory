@@ -1358,6 +1358,67 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             .ToList();
     }
 
+    public async Task<List<Invoice>> GetInvoicesByVanSaleOrdersAsync(
+        IEnumerable<string> vanSaleOrders,
+        CancellationToken cancellationToken = default)
+    {
+        var distinctVanSaleOrders = vanSaleOrders
+            .Where(vanSaleOrder => !string.IsNullOrWhiteSpace(vanSaleOrder))
+            .Select(vanSaleOrder => vanSaleOrder.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (distinctVanSaleOrders.Count == 0)
+            return [];
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var allInvoices = new List<Invoice>();
+
+        foreach (var chunk in distinctVanSaleOrders.Chunk(20))
+        {
+            var currentSession = _sessionId;
+            var filter = string.Join(" or ", chunk.Select(vanSaleOrder => $"U_Van_saleorder eq '{vanSaleOrder.Replace("'", "''")}'"));
+            var url = $"Invoices?$filter={filter}&$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency,U_Van_saleorder&$top={chunk.Length}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to bulk get invoices by U_Van_saleorder: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to bulk get invoices by U_Van_saleorder: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var result = JsonSerializer.Deserialize<SAPResponse<Invoice>>(content);
+            if (result?.Value is { Count: > 0 })
+                allInvoices.AddRange(result.Value);
+        }
+
+        return allInvoices
+            .Where(invoice => !string.IsNullOrWhiteSpace(invoice.U_Van_saleorder))
+            .GroupBy(invoice => invoice.U_Van_saleorder!, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderByDescending(invoice => invoice.DocEntry)
+                .ThenByDescending(invoice => invoice.DocNum)
+                .First())
+            .ToList();
+    }
+
     public async Task<List<Invoice>> GetInvoiceHeadersByDocEntriesAsync(
         IEnumerable<int> docEntries,
         CancellationToken cancellationToken = default)
@@ -1614,7 +1675,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         // Keep this query header-only. Line-level warehouse codes are fetched separately
         // for PodOperator section scoping through single-invoice reads.
-        var select = "$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency";
+        var select = "$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency,UserSign";
 
         while (hasMore)
         {

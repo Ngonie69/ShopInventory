@@ -263,6 +263,7 @@ public class SalesOrderService : ISalesOrderService
                 CreatedAt = o.CreatedAt,
                 UpdatedAt = o.UpdatedAt,
                 InvoiceId = o.InvoiceId,
+                InvoiceSapDocNum = o.Invoice != null ? o.Invoice.SAPDocNum : null,
                 IsSynced = o.IsSynced,
                 SyncError = o.SyncError,
                 Source = o.Source,
@@ -367,6 +368,7 @@ public class SalesOrderService : ISalesOrderService
                 CreatedAt = o.CreatedAt,
                 UpdatedAt = o.UpdatedAt,
                 InvoiceId = o.InvoiceId,
+                InvoiceSapDocNum = o.Invoice != null ? o.Invoice.SAPDocNum : null,
                 IsSynced = o.IsSynced,
                 SyncError = o.SyncError,
                 Source = o.Source,
@@ -1169,6 +1171,7 @@ public class SalesOrderService : ISalesOrderService
     {
         var order = await _context.SalesOrders
             .Include(o => o.Lines)
+            .Include(o => o.Invoice)
             .Include(o => o.CreatedByUser)
             .Include(o => o.ApprovedByUser)
             .AsNoTracking()
@@ -1759,6 +1762,7 @@ public class SalesOrderService : ISalesOrderService
             CreatedAt = entity.CreatedAt,
             UpdatedAt = entity.UpdatedAt,
             InvoiceId = entity.InvoiceId,
+            InvoiceSapDocNum = entity.Invoice?.SAPDocNum,
             IsSynced = entity.IsSynced,
             SyncError = entity.SyncError,
             Source = entity.Source,

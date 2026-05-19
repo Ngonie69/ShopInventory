@@ -283,6 +283,7 @@ try
     builder.Services.AddScoped<IMobileVersionPolicySettingsService, MobileVersionPolicySettingsService>();
     builder.Services.AddScoped<ISAPSettingsService, SAPSettingsService>();
     builder.Services.AddScoped<IWebhookService, WebhookService>();
+    builder.Services.AddScoped<IWhatsAppAdminService, WhatsAppAdminService>();
 
     // Add Two-Factor Authentication service
     builder.Services.AddScoped<ITwoFactorWebService, TwoFactorWebService>();
