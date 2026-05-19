@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Mvc;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Crates.Commands.CreateCrateGrv;
 using ShopInventory.Features.Crates.Commands.CreateCrateOpeningBalance;
+using ShopInventory.Features.Crates.Commands.DeleteCrateOpeningBalance;
+using ShopInventory.Features.Crates.Commands.UpdateCrateOpeningBalance;
 using ShopInventory.Features.Crates.Commands.UploadCratePod;
 using ShopInventory.Features.Crates.Queries.GetCrateGrvs;
 using ShopInventory.Features.Crates.Queries.GetCratePods;
@@ -97,20 +99,15 @@ public class CratesController(ISender mediator) : ApiControllerBase
         [FromForm] decimal quantity,
         [FromForm] DateTime effectiveDate,
         [FromForm] string? notes,
-        IFormFile file,
+        IFormFile? file,
         CancellationToken cancellationToken = default)
     {
-        if (file is null || file.Length == 0)
-        {
-            return BadRequest(new ErrorResponseDto { Message = "An opening balance document is required." });
-        }
-
-        if (!AllowedTypes.Contains(file.ContentType))
+        if (file is { Length: > 0 } && !AllowedTypes.Contains(file.ContentType))
         {
             return BadRequest(new ErrorResponseDto { Message = "Invalid file type. Only JPEG, PNG, WebP images and PDF files are allowed." });
         }
 
-        using var stream = file.OpenReadStream();
+        using var stream = file is { Length: > 0 } ? file.OpenReadStream() : null;
         var result = await mediator.Send(
             new CreateCrateOpeningBalanceCommand(
                 shopCardCode,
@@ -118,12 +115,61 @@ public class CratesController(ISender mediator) : ApiControllerBase
                 effectiveDate,
                 notes,
                 stream,
-                file.FileName,
-                file.ContentType,
+                file?.FileName,
+                file?.ContentType,
                 GetUserId()),
             cancellationToken);
 
         return result.Match(Ok, Problem);
+    }
+
+    [HttpPut("opening-balances/{crateTransactionId:int}")]
+    [Authorize(Roles = "Admin")]
+    [RequestSizeLimit(20 * 1024 * 1024)]
+    [ProducesResponseType(typeof(CrateTransactionDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> UpdateOpeningBalance(
+        int crateTransactionId,
+        [FromForm] string shopCardCode,
+        [FromForm] decimal quantity,
+        [FromForm] DateTime effectiveDate,
+        [FromForm] string? notes,
+        IFormFile? file,
+        CancellationToken cancellationToken = default)
+    {
+        if (file is { Length: > 0 } && !AllowedTypes.Contains(file.ContentType))
+        {
+            return BadRequest(new ErrorResponseDto { Message = "Invalid file type. Only JPEG, PNG, WebP images and PDF files are allowed." });
+        }
+
+        using var stream = file is { Length: > 0 } ? file.OpenReadStream() : null;
+        var result = await mediator.Send(
+            new UpdateCrateOpeningBalanceCommand(
+                crateTransactionId,
+                shopCardCode,
+                quantity,
+                effectiveDate,
+                notes,
+                stream,
+                file?.FileName,
+                file?.ContentType,
+                GetUserId()),
+            cancellationToken);
+
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpDelete("opening-balances/{crateTransactionId:int}")]
+    [Authorize(Roles = "Admin")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> DeleteOpeningBalance(
+        int crateTransactionId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new DeleteCrateOpeningBalanceCommand(crateTransactionId, GetUserId()),
+            cancellationToken);
+
+        return result.Match(_ => NoContent(), Problem);
     }
 
     [HttpPost("transactions/{crateTransactionId:int}/pods")]

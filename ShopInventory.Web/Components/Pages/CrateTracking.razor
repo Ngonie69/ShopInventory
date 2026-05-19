@@ -23,9 +23,10 @@
                 <div class="crt-card">
                     <div class="crt-card-header">
                         <div>
-                            <h3 class="crt-card-title">Opening Balance</h3>
-                            <p class="crt-card-note">Admin uploads the starting shop balance with a mandatory supporting
-                                document.</p>
+                            <h3 class="crt-card-title">@(editingOpeningBalanceId.HasValue ? $"Edit Opening Balance #{editingOpeningBalanceId}" : "Opening Balance")</h3>
+                            <p class="crt-card-note">@(editingOpeningBalanceId.HasValue
+                                                                ? "Update the actual counted crate quantity on the ground. You can attach another supporting document if needed."
+                                                                : "Admin uploads the starting shop balance as the actual counted crate quantity on the ground. Supporting document is optional.")</p>
                             </div>
                         </div>
                         <div class="row g-3">
@@ -111,15 +112,26 @@
                                           placeholder="Optional context for the uploaded balance"></textarea>
                             </div>
                             <div class="col-12">
-                                <label class="crt-label">Supporting Document</label>
+                                <label class="crt-label">Supporting Document (Optional)</label>
                                 <InputFile @key="openingBalanceFileKey" OnChange="OnOpeningBalanceFileSelected"
                                            class="crt-form-control" accept=".jpg,.jpeg,.png,.webp,.pdf" />
                             </div>
                             <div class="col-12">
-                                <button type="button" class="crt-btn crt-btn-primary w-100" @onclick="SubmitOpeningBalanceAsync"
-                                        disabled="@isSubmittingOpeningBalance">
-                                    @(isSubmittingOpeningBalance ? "Uploading..." : "Upload Opening Balance")
-                                </button>
+                                <div class="d-flex gap-2">
+                                    <button type="button" class="crt-btn crt-btn-primary flex-fill"
+                                            @onclick="SubmitOpeningBalanceAsync" disabled="@isSubmittingOpeningBalance">
+                                        @(isSubmittingOpeningBalance
+                                            ? (editingOpeningBalanceId.HasValue ? "Saving..." : "Uploading...")
+                                            : (editingOpeningBalanceId.HasValue ? "Save Opening Balance" : "Upload Opening Balance"))
+                                    </button>
+                                    @if (editingOpeningBalanceId.HasValue)
+                                    {
+                                        <button type="button" class="crt-btn crt-btn-secondary" @onclick="CancelOpeningBalanceEdit"
+                                                disabled="@isSubmittingOpeningBalance">
+                                            Cancel
+                                        </button>
+                                    }
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -131,8 +143,8 @@
                     <div class="crt-card-header">
                         <div>
                             <h3 class="crt-card-title">Crate Register</h3>
-                            <p class="crt-card-note">Invoice-linked crate rows and opening balances. Every opening balance
-                                entry must carry a supporting document.</p>
+                            <p class="crt-card-note">Invoice-linked crate rows and opening balances. Opening balances record
+                                the actual counted quantity captured for the shop.</p>
                             </div>
                             <div class="d-flex gap-2 flex-wrap">
                                 <input class="crt-form-control" style="width: 250px;" @bind="transactionSearch"
@@ -166,7 +178,7 @@
                                         <tr>
                                             <th>Reference</th>
                                             <th>Shop</th>
-                                            <th>Expected</th>
+                                            <th>Quantity</th>
                                             <th>Driver</th>
                                             <th>Merch</th>
                                             <th>Variance</th>
@@ -186,7 +198,10 @@
                                                     <div class="fw-semibold">@transaction.ShopCardCode</div>
                                                     <div class="crt-muted">@transaction.ShopName</div>
                                                 </td>
-                                                <td>@transaction.ExpectedQuantity.ToString("N2")</td>
+                                                <td>
+                                                    <div>@transaction.ExpectedQuantity.ToString("N2")</div>
+                                                    <div class="crt-muted">@GetRegisterQuantityLabel(transaction)</div>
+                                                </td>
                                                 <td>
                                                     @FormatQuantity(transaction.DriverQuantity)
                                                     @if (transaction.HasDriverPodDocument)
@@ -211,23 +226,40 @@
                                                     }
                                                 </td>
                                                 <td>
-                                                    @if (transaction.TransactionType == "OpeningBalance")
+                                                    @if (IsOpeningBalance(transaction))
                                                     {
-                                                        <span>@transaction.SupportingDocumentCount file(s)</span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <span>@(transaction.HasDriverPodDocument || transaction.HasMerchandiserPodDocument ?
-                                                                                    "PODs attached" : "Awaiting docs")</span>
+                                                        <span>@(transaction.SupportingDocumentCount > 0 ?
+                                                                                                    $"{transaction.SupportingDocumentCount} file(s)" : "No file")</span>
+
+                                                            @if (canManageOpeningBalances)
+                                                            {
+                                                                <div class="crt-table-actions">
+                                                                    <button type="button" class="crt-table-action"
+                                                                            @onclick="() => BeginOpeningBalanceEdit(transaction)"
+                                                                            disabled="@(deletingOpeningBalanceId == transaction.Id)">
+                                                                        @(IsEditingOpeningBalance(transaction) ? "Editing" : "Edit")
+                                                                    </button>
+                                                                    <button type="button" class="crt-table-action crt-table-action-danger"
+                                                                            @onclick="() => DeleteOpeningBalanceAsync(transaction)"
+                                                                            disabled="@(deletingOpeningBalanceId == transaction.Id)">
+                                                                        @(deletingOpeningBalanceId == transaction.Id ? "Deleting..." : "Delete")
+                                                                    </button>
+                                                                </div>
+                                                            }
                                                         }
-                                                    </td>
-                                                </tr>
-                                            }
-                                        </tbody>
-                                    </table>
-                                </div>
-                            }
+                                                    else
+                                                        {
+                                                            <span>@(transaction.HasDriverPodDocument || transaction.HasMerchandiserPodDocument ?
+                                                                                                                                                    "PODs attached" : "Awaiting docs")</span>
+                                                            }
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>

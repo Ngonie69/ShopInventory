@@ -67,6 +67,8 @@ public static class AuditActions
     public const string UploadPod = "UploadPod";
     public const string RegisterInvoiceCrates = "RegisterInvoiceCrates";
     public const string CreateCrateOpeningBalance = "CreateCrateOpeningBalance";
+    public const string UpdateCrateOpeningBalance = "UpdateCrateOpeningBalance";
+    public const string DeleteCrateOpeningBalance = "DeleteCrateOpeningBalance";
     public const string UploadCratePod = "UploadCratePod";
     public const string CreateCrateGrv = "CreateCrateGrv";
 

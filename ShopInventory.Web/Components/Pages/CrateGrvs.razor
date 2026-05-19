@@ -39,6 +39,19 @@
                                 </select>
                             </div>
                             <div class="col-12">
+                                <label class="crt-label">Possible Reasons</label>
+                                <select class="crt-form-select" value="@selectedGrvReasonOption"
+                                        @onchange="ApplyGrvReasonOption">
+                                    <option value="">Select a suggested reason</option>
+                                    @foreach (var reasonOption in grvReasonOptions)
+                                    {
+                                        <option value="@reasonOption">@reasonOption</option>
+                                    }
+                                </select>
+                                <div class="crt-muted mt-2">Selecting a reason fills the text box below. You can still edit it.
+                                </div>
+                            </div>
+                            <div class="col-12">
                                 <label class="crt-label">Reason</label>
                                 <textarea class="crt-form-control" rows="3" @bind="grvReason"
                                           placeholder="Explain why the supply was under or over the invoiced crates"></textarea>
@@ -64,8 +77,8 @@
                     <div class="crt-card-header">
                         <div>
                             <h3 class="crt-card-title">Transactions Awaiting GRV</h3>
-                            <p class="crt-card-note">These transactions already have both POD confirmations but still need a
-                                variance response.</p>
+                            <p class="crt-card-note">These transactions have a merchandiser variance and can be raised as a
+                                GRV.</p>
                             </div>
                         </div>
 

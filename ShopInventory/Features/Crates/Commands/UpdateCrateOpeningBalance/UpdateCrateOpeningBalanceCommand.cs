@@ -2,9 +2,10 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.DTOs;
 
-namespace ShopInventory.Features.Crates.Commands.CreateCrateOpeningBalance;
+namespace ShopInventory.Features.Crates.Commands.UpdateCrateOpeningBalance;
 
-public sealed record CreateCrateOpeningBalanceCommand(
+public sealed record UpdateCrateOpeningBalanceCommand(
+    int CrateTransactionId,
     string ShopCardCode,
     decimal Quantity,
     DateTime EffectiveDate,

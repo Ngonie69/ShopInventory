@@ -316,6 +316,38 @@
         border-color: rgba(185, 28, 28, 0.18);
     }
 
+    .crt-table-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        padding: .35rem .7rem;
+        border: 1px solid var(--crt-border);
+        background: transparent;
+        color: var(--crt-text);
+        font-size: .76rem;
+        font-weight: 700;
+        transition: var(--transition);
+    }
+
+    .crt-table-action-danger {
+        color: var(--crt-danger);
+        border-color: rgba(185, 28, 28, 0.22);
+        background: rgba(185, 28, 28, 0.08);
+    }
+
+    .crt-table-actions {
+        display: flex;
+        gap: .45rem;
+        flex-wrap: wrap;
+        margin-top: .55rem;
+    }
+
+    .crt-table-action:disabled {
+        opacity: .65;
+        cursor: not-allowed;
+    }
+
     .crt-attachments {
         display: flex;
         flex-wrap: wrap;

@@ -8,24 +8,42 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
-using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
-namespace ShopInventory.Features.Crates.Commands.CreateCrateOpeningBalance;
+namespace ShopInventory.Features.Crates.Commands.UpdateCrateOpeningBalance;
 
-public sealed class CreateCrateOpeningBalanceHandler(
+public sealed class UpdateCrateOpeningBalanceHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
     IOptions<SAPSettings> sapSettings,
     IDocumentService documentService,
     IAuditService auditService,
-    ILogger<CreateCrateOpeningBalanceHandler> logger
-) : IRequestHandler<CreateCrateOpeningBalanceCommand, ErrorOr<CrateTransactionDto>>
+    ILogger<UpdateCrateOpeningBalanceHandler> logger
+) : IRequestHandler<UpdateCrateOpeningBalanceCommand, ErrorOr<CrateTransactionDto>>
 {
     public async Task<ErrorOr<CrateTransactionDto>> Handle(
-        CreateCrateOpeningBalanceCommand command,
+        UpdateCrateOpeningBalanceCommand command,
         CancellationToken cancellationToken)
     {
+        if (!command.UserId.HasValue)
+        {
+            return Errors.Auth.Unauthenticated;
+        }
+
+        var currentUser = await context.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == command.UserId.Value, cancellationToken);
+
+        if (currentUser is null || !currentUser.IsActive)
+        {
+            return Errors.Auth.UserNotFound;
+        }
+
+        if (!string.Equals(currentUser.Role, "Admin", StringComparison.OrdinalIgnoreCase))
+        {
+            return Errors.CrateTracking.AccessDenied("Only administrators can edit opening balances.");
+        }
+
         if (command.Quantity <= 0)
         {
             return Errors.CrateTracking.InvalidQuantity("Opening balance quantity must be greater than zero.");
@@ -41,6 +59,20 @@ public sealed class CreateCrateOpeningBalanceHandler(
             return Errors.BusinessPartner.SapDisabled;
         }
 
+        var transaction = await context.CrateTransactions
+            .Include(t => t.CreatedByUser)
+            .FirstOrDefaultAsync(t => t.Id == command.CrateTransactionId, cancellationToken);
+
+        if (transaction is null)
+        {
+            return Errors.CrateTracking.TransactionNotFound(command.CrateTransactionId);
+        }
+
+        if (!string.Equals(transaction.TransactionType, CrateTrackingConstants.TransactionTypeOpeningBalance, StringComparison.OrdinalIgnoreCase))
+        {
+            return Errors.CrateTracking.InvalidTransactionType("Only opening balance crate transactions can be edited from this screen.");
+        }
+
         var normalizedShopCardCode = command.ShopCardCode.Trim();
 
         BusinessPartnerDto? sapBusinessPartner;
@@ -50,7 +82,7 @@ public sealed class CreateCrateOpeningBalanceHandler(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error resolving SAP business partner {ShopCardCode} for crate opening balance", normalizedShopCardCode);
+            logger.LogError(ex, "Error resolving SAP business partner {ShopCardCode} for crate opening balance update", normalizedShopCardCode);
             return Errors.BusinessPartner.SapError(ex.Message);
         }
 
@@ -66,23 +98,13 @@ public sealed class CreateCrateOpeningBalanceHandler(
             return Errors.CrateTracking.InvalidShop("Opening balances must use a customer business partner from SAP.");
         }
 
-        var createdByUser = command.UserId.HasValue
-            ? await context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == command.UserId.Value, cancellationToken)
-            : null;
+        transaction.ShopCardCode = normalizedShopCardCode;
+        transaction.ShopName = string.IsNullOrWhiteSpace(sapBusinessPartner.CardName) ? null : sapBusinessPartner.CardName.Trim();
+        transaction.ExpectedQuantity = command.Quantity;
+        transaction.EffectiveDate = DateTime.SpecifyKind(command.EffectiveDate.Date, DateTimeKind.Utc);
+        transaction.Notes = string.IsNullOrWhiteSpace(command.Notes) ? null : command.Notes.Trim();
+        transaction.UpdatedAt = DateTime.UtcNow;
 
-        var transaction = new CrateTransactionEntity
-        {
-            TransactionType = CrateTrackingConstants.TransactionTypeOpeningBalance,
-            ShopCardCode = normalizedShopCardCode,
-            ShopName = string.IsNullOrWhiteSpace(sapBusinessPartner.CardName) ? null : sapBusinessPartner.CardName.Trim(),
-            ExpectedQuantity = command.Quantity,
-            EffectiveDate = DateTime.SpecifyKind(command.EffectiveDate.Date, DateTimeKind.Utc),
-            Notes = string.IsNullOrWhiteSpace(command.Notes) ? null : command.Notes.Trim(),
-            CreatedByUserId = command.UserId,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        context.CrateTransactions.Add(transaction);
         await context.SaveChangesAsync(cancellationToken);
 
         if (command.FileStream is not null &&
@@ -107,10 +129,10 @@ public sealed class CreateCrateOpeningBalanceHandler(
         try
         {
             await auditService.LogAsync(
-                AuditActions.CreateCrateOpeningBalance,
+                AuditActions.UpdateCrateOpeningBalance,
                 "CrateTransaction",
                 transaction.Id.ToString(),
-                $"Opening balance of {command.Quantity:N2} crates uploaded for {transaction.ShopCardCode}",
+                $"Updated opening balance #{transaction.Id} for {transaction.ShopCardCode}",
                 true);
         }
         catch
@@ -118,17 +140,21 @@ public sealed class CreateCrateOpeningBalanceHandler(
         }
 
         logger.LogInformation(
-            "Created crate opening balance transaction {TransactionId} for {ShopCardCode}",
+            "Updated crate opening balance transaction {TransactionId} for {ShopCardCode}",
             transaction.Id,
             transaction.ShopCardCode);
 
-        transaction.CreatedByUser = createdByUser;
+        var supportingDocumentCount = await context.DocumentAttachments
+            .AsNoTracking()
+            .CountAsync(
+                a => a.EntityType == CrateTrackingConstants.AttachmentEntityTypeCrateTransaction && a.EntityId == transaction.Id,
+                cancellationToken);
 
         return CrateDtoMapping.MapTransaction(
             transaction,
             null,
             null,
-            1,
+            supportingDocumentCount,
             0,
             0);
     }

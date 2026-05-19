@@ -42,7 +42,9 @@ public abstract class CrateTrackingPageBase : ComponentBase
     protected string? openingBalanceNotes;
     protected IBrowserFile? openingBalanceFile;
     protected int openingBalanceFileKey;
+    protected int? editingOpeningBalanceId;
     protected bool isSubmittingOpeningBalance;
+    protected int? deletingOpeningBalanceId;
 
     protected int? selectedPodTransactionId;
     protected string selectedPodRole = "Driver";
@@ -54,16 +56,27 @@ public abstract class CrateTrackingPageBase : ComponentBase
 
     protected int? selectedGrvTransactionId;
     protected string grvReason = string.Empty;
+    protected string selectedGrvReasonOption = string.Empty;
     protected IBrowserFile? grvFile;
     protected int grvFileKey;
     protected bool isSubmittingGrv;
+
+    protected readonly List<string> grvReasonOptions =
+    [
+        "Customer retained empties from previous deliveries.",
+        "Empty crates were not available for collection at the shop.",
+        "Additional crates were supplied but not reflected on the invoice.",
+        "Invoice crate quantity was captured incorrectly.",
+        "Damaged crates were replaced during delivery.",
+        "Crates were transferred between shops before merchandiser count.",
+        "Physical count at the shop differed from the delivery handover."
+    ];
 
     protected int PendingPodCount => transactions.Count(t =>
         string.Equals(t.Status, "PendingDriverPod", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(t.Status, "PendingMerchandiserPod", StringComparison.OrdinalIgnoreCase));
 
-    protected int VariancePendingCount => transactions.Count(t =>
-        string.Equals(t.Status, "VariancePendingGrv", StringComparison.OrdinalIgnoreCase));
+    protected int VariancePendingCount => transactions.Count(CanRaiseGrv);
 
     protected IEnumerable<CrateTransactionDto> PodEligibleTransactions => transactions
         .Where(t => string.Equals(t.TransactionType, "Invoice", StringComparison.OrdinalIgnoreCase))
@@ -71,7 +84,7 @@ public abstract class CrateTrackingPageBase : ComponentBase
         .ThenByDescending(t => t.InvoiceDocNum);
 
     protected IEnumerable<CrateTransactionDto> GrvEligibleTransactions => transactions
-        .Where(t => string.Equals(t.Status, "VariancePendingGrv", StringComparison.OrdinalIgnoreCase))
+        .Where(CanRaiseGrv)
         .OrderByDescending(t => t.EffectiveDate)
         .ThenByDescending(t => t.InvoiceDocNum);
 
@@ -266,13 +279,13 @@ public abstract class CrateTrackingPageBase : ComponentBase
 
         if (!canManageOpeningBalances)
         {
-            SetStatus(false, "You do not have permission to upload opening balances.");
+            SetStatus(false, "You do not have permission to manage opening balances.");
             return;
         }
 
         if (!await EnsureOpeningBalanceShopSelectedAsync())
         {
-            SetStatus(false, "Select a shop from SAP before uploading the opening balance.");
+            SetStatus(false, "Select a shop from SAP before saving the opening balance.");
             return;
         }
 
@@ -282,25 +295,27 @@ public abstract class CrateTrackingPageBase : ComponentBase
             return;
         }
 
-        if (openingBalanceFile is null)
-        {
-            SetStatus(false, "A supporting document is required for the opening balance.");
-            return;
-        }
-
         isSubmittingOpeningBalance = true;
 
         try
         {
-            var (success, message, _) = await CrateTrackingService.CreateOpeningBalanceAsync(
-                openingBalanceShopCardCode.Trim(),
-                openingBalanceQuantity,
-                openingBalanceEffectiveDate,
-                openingBalanceFile,
-                openingBalanceNotes);
+            var result = editingOpeningBalanceId.HasValue
+                ? await CrateTrackingService.UpdateOpeningBalanceAsync(
+                    editingOpeningBalanceId.Value,
+                    openingBalanceShopCardCode.Trim(),
+                    openingBalanceQuantity,
+                    openingBalanceEffectiveDate,
+                    openingBalanceFile,
+                    openingBalanceNotes)
+                : await CrateTrackingService.CreateOpeningBalanceAsync(
+                    openingBalanceShopCardCode.Trim(),
+                    openingBalanceQuantity,
+                    openingBalanceEffectiveDate,
+                    openingBalanceFile,
+                    openingBalanceNotes);
 
-            SetStatus(success, message);
-            if (success)
+            SetStatus(result.Success, result.Message);
+            if (result.Success)
             {
                 ResetOpeningBalanceForm();
                 await RefreshAllAsync();
@@ -309,6 +324,90 @@ public abstract class CrateTrackingPageBase : ComponentBase
         finally
         {
             isSubmittingOpeningBalance = false;
+        }
+    }
+
+    protected void BeginOpeningBalanceEdit(CrateTransactionDto transaction)
+    {
+        ClearStatus();
+
+        if (!canManageOpeningBalances || !IsOpeningBalance(transaction))
+        {
+            return;
+        }
+
+        editingOpeningBalanceId = transaction.Id;
+        selectedOpeningBalanceShop = new BusinessPartnerDto
+        {
+            CardCode = transaction.ShopCardCode,
+            CardName = transaction.ShopName,
+            CardType = "cCustomer"
+        };
+        openingBalanceShopSearchTerm = string.IsNullOrWhiteSpace(transaction.ShopName)
+            ? transaction.ShopCardCode
+            : $"{transaction.ShopCardCode} - {transaction.ShopName}";
+        openingBalanceShopCardCode = transaction.ShopCardCode;
+        openingBalanceShopResults.Clear();
+        showOpeningBalanceShopResults = false;
+        isOpeningBalanceShopLoading = false;
+        openingBalanceQuantity = transaction.ExpectedQuantity;
+        openingBalanceEffectiveDate = transaction.EffectiveDate.Date;
+        openingBalanceNotes = transaction.Notes;
+        openingBalanceFile = null;
+        openingBalanceFileKey++;
+    }
+
+    protected void CancelOpeningBalanceEdit()
+    {
+        ClearStatus();
+        ResetOpeningBalanceForm();
+    }
+
+    protected async Task DeleteOpeningBalanceAsync(CrateTransactionDto transaction)
+    {
+        ClearStatus();
+
+        if (!canManageOpeningBalances)
+        {
+            SetStatus(false, "You do not have permission to delete opening balances.");
+            return;
+        }
+
+        if (!string.Equals(transaction.TransactionType, "OpeningBalance", StringComparison.OrdinalIgnoreCase))
+        {
+            SetStatus(false, "Only opening balances can be deleted from this register.");
+            return;
+        }
+
+        var confirmed = await JS.InvokeAsync<bool>(
+            "confirm",
+            $"Delete opening balance #{transaction.Id} for {transaction.ShopCardCode}? This cannot be undone.");
+
+        if (!confirmed)
+        {
+            return;
+        }
+
+        deletingOpeningBalanceId = transaction.Id;
+
+        try
+        {
+            var (success, message) = await CrateTrackingService.DeleteOpeningBalanceAsync(transaction.Id);
+            SetStatus(success, message);
+
+            if (success)
+            {
+                if (editingOpeningBalanceId == transaction.Id)
+                {
+                    ResetOpeningBalanceForm();
+                }
+
+                await RefreshAllAsync();
+            }
+        }
+        finally
+        {
+            deletingOpeningBalanceId = null;
         }
     }
 
@@ -409,6 +508,18 @@ public abstract class CrateTrackingPageBase : ComponentBase
         }
     }
 
+    protected void ApplyGrvReasonOption(ChangeEventArgs e)
+    {
+        selectedGrvReasonOption = e.Value?.ToString() ?? string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(selectedGrvReasonOption))
+        {
+            grvReason = selectedGrvReasonOption;
+        }
+
+        ClearStatus();
+    }
+
     protected async Task DownloadAttachmentAsync(DocumentAttachmentDto attachment)
     {
         try
@@ -439,7 +550,11 @@ public abstract class CrateTrackingPageBase : ComponentBase
             ? transaction.ShopCardCode
             : $"{transaction.ShopCardCode} - {transaction.ShopName}";
 
-        return $"{reference} | {shop} | Expected {transaction.ExpectedQuantity:N2}";
+        var quantityLabel = string.Equals(transaction.TransactionType, "OpeningBalance", StringComparison.OrdinalIgnoreCase)
+            ? "Actual"
+            : "Expected";
+
+        return $"{reference} | {shop} | {quantityLabel} {transaction.ExpectedQuantity:N2}";
     }
 
     protected static string GetPodReferenceLabel(CratePodSubmissionDto pod)
@@ -525,6 +640,29 @@ public abstract class CrateTrackingPageBase : ComponentBase
         return variance.Value.ToString("+0.##;-0.##;0");
     }
 
+    protected static bool IsOpeningBalance(CrateTransactionDto transaction)
+    {
+        return string.Equals(transaction.TransactionType, "OpeningBalance", StringComparison.OrdinalIgnoreCase);
+    }
+
+    protected static bool CanRaiseGrv(CrateTransactionDto transaction)
+    {
+        return string.Equals(transaction.TransactionType, "Invoice", StringComparison.OrdinalIgnoreCase)
+            && !transaction.HasGrv
+            && transaction.MerchandiserQuantity.HasValue
+            && transaction.MerchandiserQuantity.Value != transaction.ExpectedQuantity;
+    }
+
+    protected static string GetRegisterQuantityLabel(CrateTransactionDto transaction)
+    {
+        return IsOpeningBalance(transaction) ? "Actual counted" : "Expected";
+    }
+
+    protected bool IsEditingOpeningBalance(CrateTransactionDto transaction)
+    {
+        return editingOpeningBalanceId == transaction.Id;
+    }
+
     protected static string GetStatusClass(string status)
     {
         return status switch
@@ -563,6 +701,7 @@ public abstract class CrateTrackingPageBase : ComponentBase
         openingBalanceEffectiveDate = DateTime.Today;
         openingBalanceNotes = null;
         openingBalanceFile = null;
+        editingOpeningBalanceId = null;
         openingBalanceFileKey++;
     }
 
@@ -578,6 +717,7 @@ public abstract class CrateTrackingPageBase : ComponentBase
     protected void ResetGrvForm()
     {
         selectedGrvTransactionId = null;
+        selectedGrvReasonOption = string.Empty;
         grvReason = string.Empty;
         grvFile = null;
         grvFileKey++;

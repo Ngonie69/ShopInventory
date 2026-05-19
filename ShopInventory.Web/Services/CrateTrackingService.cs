@@ -11,7 +11,9 @@ public interface ICrateTrackingService
     Task<List<CrateTransactionDto>?> GetTransactionsAsync(string? search = null, string? status = null, string? transactionType = null, CancellationToken cancellationToken = default);
     Task<List<CratePodSubmissionDto>?> GetPodsAsync(string? search = null, string? submissionRole = null, CancellationToken cancellationToken = default);
     Task<List<CrateGrvDto>?> GetGrvsAsync(string? search = null, string? status = null, CancellationToken cancellationToken = default);
-    Task<(bool Success, string Message, CrateTransactionDto? Transaction)> CreateOpeningBalanceAsync(string shopCardCode, decimal quantity, DateTime effectiveDate, IBrowserFile file, string? notes = null, CancellationToken cancellationToken = default);
+    Task<(bool Success, string Message, CrateTransactionDto? Transaction)> CreateOpeningBalanceAsync(string shopCardCode, decimal quantity, DateTime effectiveDate, IBrowserFile? file, string? notes = null, CancellationToken cancellationToken = default);
+    Task<(bool Success, string Message, CrateTransactionDto? Transaction)> UpdateOpeningBalanceAsync(int crateTransactionId, string shopCardCode, decimal quantity, DateTime effectiveDate, IBrowserFile? file, string? notes = null, CancellationToken cancellationToken = default);
+    Task<(bool Success, string Message)> DeleteOpeningBalanceAsync(int crateTransactionId, CancellationToken cancellationToken = default);
     Task<(bool Success, string Message, CratePodSubmissionDto? Submission)> UploadCratePodAsync(int crateTransactionId, decimal quantity, IBrowserFile file, string? submissionRole = null, string? notes = null, CancellationToken cancellationToken = default);
     Task<(bool Success, string Message, CrateGrvDto? Grv)> CreateCrateGrvAsync(int crateTransactionId, string reason, IBrowserFile file, CancellationToken cancellationToken = default);
 }
@@ -92,17 +94,22 @@ public class CrateTrackingService(HttpClient httpClient, ILogger<CrateTrackingSe
         string shopCardCode,
         decimal quantity,
         DateTime effectiveDate,
-        IBrowserFile file,
+        IBrowserFile? file,
         string? notes = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
             await EnsureAuthenticationAsync();
-            using var content = await BuildFileContentAsync(file, cancellationToken);
+            using var content = new MultipartFormDataContent();
             content.Add(new StringContent(shopCardCode), "shopCardCode");
             content.Add(new StringContent(quantity.ToString(System.Globalization.CultureInfo.InvariantCulture)), "quantity");
             content.Add(new StringContent(effectiveDate.ToString("yyyy-MM-dd")), "effectiveDate");
+
+            if (file is not null)
+            {
+                await AddFileContentAsync(content, file, cancellationToken);
+            }
 
             if (!string.IsNullOrWhiteSpace(notes))
             {
@@ -123,6 +130,74 @@ public class CrateTrackingService(HttpClient httpClient, ILogger<CrateTrackingSe
         {
             logger.LogError(ex, "Error creating crate opening balance");
             return (false, ApiErrorResponse.GetFriendlyMessage(ex, "We couldn't upload this opening balance right now. Please try again."), null);
+        }
+    }
+
+    public async Task<(bool Success, string Message, CrateTransactionDto? Transaction)> UpdateOpeningBalanceAsync(
+        int crateTransactionId,
+        string shopCardCode,
+        decimal quantity,
+        DateTime effectiveDate,
+        IBrowserFile? file,
+        string? notes = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await EnsureAuthenticationAsync();
+            using var content = new MultipartFormDataContent();
+            content.Add(new StringContent(shopCardCode), "shopCardCode");
+            content.Add(new StringContent(quantity.ToString(System.Globalization.CultureInfo.InvariantCulture)), "quantity");
+            content.Add(new StringContent(effectiveDate.ToString("yyyy-MM-dd")), "effectiveDate");
+
+            if (file is not null)
+            {
+                await AddFileContentAsync(content, file, cancellationToken);
+            }
+
+            if (!string.IsNullOrWhiteSpace(notes))
+            {
+                content.Add(new StringContent(notes), "notes");
+            }
+
+            var response = await httpClient.PutAsync($"api/crates/opening-balances/{crateTransactionId}", content, cancellationToken);
+            var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return (true, "Opening balance updated successfully.", System.Text.Json.JsonSerializer.Deserialize<CrateTransactionDto>(payload, JsonDefaults.Options));
+            }
+
+            return (false, ApiErrorResponse.GetFriendlyMessage(response.StatusCode, payload, "We couldn't update this opening balance right now. Please try again."), null);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error updating crate opening balance {TransactionId}", crateTransactionId);
+            return (false, ApiErrorResponse.GetFriendlyMessage(ex, "We couldn't update this opening balance right now. Please try again."), null);
+        }
+    }
+
+    public async Task<(bool Success, string Message)> DeleteOpeningBalanceAsync(
+        int crateTransactionId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await EnsureAuthenticationAsync();
+            var response = await httpClient.DeleteAsync($"api/crates/opening-balances/{crateTransactionId}", cancellationToken);
+            var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return (true, "Opening balance deleted successfully.");
+            }
+
+            return (false, ApiErrorResponse.GetFriendlyMessage(response.StatusCode, payload, "We couldn't delete this opening balance right now. Please try again."));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error deleting crate opening balance {TransactionId}", crateTransactionId);
+            return (false, ApiErrorResponse.GetFriendlyMessage(ex, "We couldn't delete this opening balance right now. Please try again."));
         }
     }
 
@@ -208,16 +283,21 @@ public class CrateTrackingService(HttpClient httpClient, ILogger<CrateTrackingSe
 
     private static async Task<MultipartFormDataContent> BuildFileContentAsync(IBrowserFile file, CancellationToken cancellationToken)
     {
+        var content = new MultipartFormDataContent();
+        await AddFileContentAsync(content, file, cancellationToken);
+        return content;
+    }
+
+    private static async Task AddFileContentAsync(MultipartFormDataContent content, IBrowserFile file, CancellationToken cancellationToken)
+    {
         using var sourceStream = file.OpenReadStream(MaxUploadSize, cancellationToken);
         var memoryStream = new MemoryStream();
         await sourceStream.CopyToAsync(memoryStream, cancellationToken);
         memoryStream.Position = 0;
 
-        var content = new MultipartFormDataContent();
         var streamContent = new StreamContent(memoryStream);
         streamContent.Headers.ContentType = new MediaTypeHeaderValue(string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType);
         content.Add(streamContent, "file", file.Name);
-        return content;
     }
 
     private static class JsonDefaults
