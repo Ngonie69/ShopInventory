@@ -1659,6 +1659,21 @@ public class ReportExportService : IReportExportService
     private static readonly XLColor PodGreen = XLColor.FromHtml("#2E7D32");
     private static readonly XLColor PodOrange = XLColor.FromHtml("#E65100");
     private static readonly XLColor PodRed = XLColor.FromHtml("#C62828");
+    private static readonly HashSet<string> PodExcelExcludedBusinessPartnerCodes = new(
+        Enumerable.Range(1, 20).Select(number => $"VAN{number:000}")
+            .Concat([
+                "COR006",
+                "COR007",
+                "MAC006",
+                "MAC009",
+                "CHA009",
+                "STE014",
+                "ABI002",
+                "RED002 FCA",
+                "RED002(FCA)"
+            ]),
+        StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<int> PodExcelExcludedCreatorUserIds = [75, 51, 70, 1, 54, 32];
 
     private static void PodApplyDefaults(IXLWorksheet ws)
     {
@@ -1872,6 +1887,18 @@ public class ReportExportService : IReportExportService
     private static string FormatPodGeneratedLocationDisplay(PodUploadStatusItem item) =>
         string.IsNullOrWhiteSpace(item.CreatedLocation) ? "Unmapped creator" : item.CreatedLocation.Trim();
 
+    private static bool IsPodExcelExcludedInvoice(PodUploadStatusItem item) =>
+        IsPodExcelExcludedBusinessPartner(item)
+        || IsPodExcelExcludedCreatorUser(item);
+
+    private static bool IsPodExcelExcludedBusinessPartner(PodUploadStatusItem item) =>
+        !string.IsNullOrWhiteSpace(item.CardCode)
+        && PodExcelExcludedBusinessPartnerCodes.Contains(item.CardCode.Trim());
+
+    private static bool IsPodExcelExcludedCreatorUser(PodUploadStatusItem item) =>
+        item.CreatedByUserId.HasValue
+        && PodExcelExcludedCreatorUserIds.Contains(item.CreatedByUserId.Value);
+
     private static int CalculatePodDaysAging(string? docDate, DateTime now)
     {
         if (!DateTime.TryParse(docDate, out var parsedDate))
@@ -1938,12 +1965,18 @@ public class ReportExportService : IReportExportService
         using var workbook = new XLWorkbook();
         var now = CurrentCatNow();
         var periodText = FormatPodReportPeriod(report);
+        var reportItems = report.Items
+            .Where(item => !IsPodExcelExcludedInvoice(item))
+            .ToList();
 
-        var totalAmount = report.Items.Sum(item => item.DocTotal);
-        var uploadedAmount = report.Items.Where(item => item.HasPod).Sum(item => item.DocTotal);
-        var pendingAmount = report.Items.Where(item => !item.HasPod).Sum(item => item.DocTotal);
-        var completionPct = report.TotalInvoices > 0
-            ? report.UploadedCount / (double)report.TotalInvoices * 100
+        var totalInvoices = reportItems.Count;
+        var uploadedCount = reportItems.Count(item => item.HasPod);
+        var pendingCount = reportItems.Count(item => !item.HasPod);
+        var totalAmount = reportItems.Sum(item => item.DocTotal);
+        var uploadedAmount = reportItems.Where(item => item.HasPod).Sum(item => item.DocTotal);
+        var pendingAmount = reportItems.Where(item => !item.HasPod).Sum(item => item.DocTotal);
+        var completionPct = totalInvoices > 0
+            ? uploadedCount / (double)totalInvoices * 100
             : 0;
 
         {
@@ -1953,9 +1986,9 @@ public class ReportExportService : IReportExportService
 
             var row = PodTitleBar(ws, $"POD UPLOAD STATUS - {periodText}", lastCol, now);
             row = PodKpiStrip(ws, row, lastCol,
-                ("Total Invoices", report.TotalInvoices.ToString("N0"), null),
-                ("Uploaded", report.UploadedCount.ToString("N0"), PodGreen),
-                ("Pending", report.PendingCount.ToString("N0"), report.PendingCount > 0 ? PodOrange : PodGreen),
+                ("Total Invoices", totalInvoices.ToString("N0"), null),
+                ("Uploaded", uploadedCount.ToString("N0"), PodGreen),
+                ("Pending", pendingCount.ToString("N0"), pendingCount > 0 ? PodOrange : PodGreen),
                 ("Completion", $"{completionPct:N1}%", GetPodCompletionColor(completionPct)),
                 ("Total Value", FormatPodAmount(totalAmount), null),
                 ("Pending Value", FormatPodAmount(pendingAmount), pendingAmount > 0 ? PodOrange : PodGreen));
@@ -1978,7 +2011,7 @@ public class ReportExportService : IReportExportService
             ]);
 
             var rowIndex = 0;
-            foreach (var item in report.Items)
+            foreach (var item in reportItems)
             {
                 var isStripe = rowIndex % 2 == 1;
                 PodDataRow(ws, row, lastCol, isStripe);
@@ -2023,12 +2056,12 @@ public class ReportExportService : IReportExportService
 
             PodSummaryRow(ws, row, lastCol);
             ws.Cell(row, 1).Value = "SUMMARY";
-            ws.Cell(row, 2).Value = $"{report.TotalInvoices:N0} invoices";
+            ws.Cell(row, 2).Value = $"{totalInvoices:N0} invoices";
             ws.Cell(row, 4).Value = periodText;
             ws.Cell(row, 6).Value = totalAmount;
             ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
             ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
-            ws.Cell(row, 7).Value = $"{report.UploadedCount:N0} uploaded / {report.PendingCount:N0} pending";
+            ws.Cell(row, 7).Value = $"{uploadedCount:N0} uploaded / {pendingCount:N0} pending";
             ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 9).Value = totalAmount;
             ws.Cell(row, 9).Style.NumberFormat.Format = "#,##0.00";
@@ -2047,7 +2080,7 @@ public class ReportExportService : IReportExportService
             ws.Column(9).Width = 14;
         }
 
-        var pending = report.Items.Where(item => !item.HasPod).OrderBy(item => item.DocDate).ToList();
+        var pending = reportItems.Where(item => !item.HasPod).OrderBy(item => item.DocDate).ToList();
         {
             var ws = workbook.Worksheets.Add("Pending PODs");
             const int lastCol = 7;
@@ -2125,7 +2158,7 @@ public class ReportExportService : IReportExportService
             ws.Column(7).Width = 14;
         }
 
-        var uploadsByUser = report.Items
+        var uploadsByUser = reportItems
             .Where(item => item.HasPod)
             .SelectMany(item => GetPodUploadedByUsers(item).Select(uploader => new { Item = item, Uploader = uploader }))
             .GroupBy(entry => entry.Uploader.Username, StringComparer.OrdinalIgnoreCase)
@@ -2211,7 +2244,7 @@ public class ReportExportService : IReportExportService
             ws.Column(5).Width = 22;
         }
 
-        var uploaded = report.Items.Where(item => item.HasPod).OrderByDescending(item => item.PodUploadedAt).ToList();
+        var uploaded = reportItems.Where(item => item.HasPod).OrderByDescending(item => item.PodUploadedAt).ToList();
         {
             var ws = workbook.Worksheets.Add("Uploaded PODs");
             const int lastCol = 8;
