@@ -54,8 +54,10 @@ using ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
 using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
 using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
+using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
+using ShopInventory.Features.DesktopIntegration.Queries.GetFiscalTransactions;
 using ShopInventory.Features.DesktopIntegration.Queries.GetFiscalizedSalesReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
 using ShopInventory.Features.DesktopIntegration.Queries.GetMonitoredWarehouses;
@@ -77,6 +79,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 {
     private string? GetUserId() =>
         User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("client_id")?.Value;
+
+    private string? GetUsername() =>
+        User.Identity?.Name ?? User.FindFirst(ClaimTypes.Name)?.Value;
 
     #region Stock Reservations
 
@@ -295,6 +300,32 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     {
         var result = await mediator.Send(new GetFiscalizedSalesReportQuery(
             period, date, fromDate, toDate, cardCode, warehouseCode, isConsolidated, page, pageSize),
+            cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpPost("fiscal-transactions")]
+    public async Task<IActionResult> SyncFiscalTransaction(
+        [FromBody] SyncFiscalTransactionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new SyncFiscalTransactionCommand(request, GetUserId(), GetUsername()), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpGet("fiscal-transactions")]
+    public async Task<IActionResult> GetFiscalTransactions(
+        [FromQuery] string? search = null,
+        [FromQuery] string? status = null,
+        [FromQuery] string? documentType = null,
+        [FromQuery] DateTime? fromUtc = null,
+        [FromQuery] DateTime? toUtc = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetFiscalTransactionsQuery(search, status, documentType, fromUtc, toUtc, page, pageSize),
             cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }

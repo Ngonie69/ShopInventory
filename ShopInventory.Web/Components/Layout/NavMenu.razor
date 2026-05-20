@@ -556,6 +556,16 @@
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
+            <AuthorizeView Roles="Admin,Manager,Cashier" Context="fiscalTransactionCtx">
+                <Authorized>
+                    <NavLink class="snav-link sub-link" href="/reports/fiscal-transactions" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
+                        </span>
+                        <span class="snav-text">Fiscal Txn Log</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
 
             <AuthorizeView Roles="Admin,Manager,Merchandiser" Context="timesheetsAdminCtx">
                 <Authorized>

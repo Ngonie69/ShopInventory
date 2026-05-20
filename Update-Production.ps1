@@ -1094,6 +1094,25 @@ try {
                 $config.Save($WebConfigPath)
             }
 
+            function Get-WebConfigEnvironmentVariableValue {
+                param(
+                    [string]$WebConfigPath,
+                    [string]$Name
+                )
+
+                if (-not (Test-Path $WebConfigPath)) {
+                    return $null
+                }
+
+                [xml]$config = Get-Content $WebConfigPath
+                $environmentVariableNode = $config.SelectSingleNode("/configuration/location/system.webServer/aspNetCore/environmentVariables/environmentVariable[@name='$Name']")
+                if ($null -eq $environmentVariableNode) {
+                    return $null
+                }
+
+                return $environmentVariableNode.GetAttribute("value")
+            }
+
             function Wait-ForHealthyEndpoint {
                 param(
                     [string]$Url,
@@ -1287,6 +1306,20 @@ try {
                 if (-not [string]::IsNullOrWhiteSpace($databaseConnectionString)) {
                     Set-WebConfigEnvironmentVariableValue -WebConfigPath "$($Plan.TargetPath)\web.config" -Name 'ConnectionStrings__DefaultConnection' -Value $databaseConnectionString
                     Write-Host "  Applied database connection override for $($Plan.Name)" -ForegroundColor Green
+                }
+
+                $managedEnvironmentVariablesByApp = @{
+                    API = @('SAP__AttachmentsPath', 'SAP__AttachmentsServiceLayerSourcePath')
+                }
+
+                if ($managedEnvironmentVariablesByApp.ContainsKey($Plan.Name)) {
+                    foreach ($managedEnvironmentVariable in $managedEnvironmentVariablesByApp[$Plan.Name]) {
+                        $managedValue = Get-WebConfigEnvironmentVariableValue -WebConfigPath "$tempPath\web.config" -Name $managedEnvironmentVariable
+                        if (-not [string]::IsNullOrWhiteSpace($managedValue)) {
+                            Set-WebConfigEnvironmentVariableValue -WebConfigPath "$($Plan.TargetPath)\web.config" -Name $managedEnvironmentVariable -Value $managedValue
+                            Write-Host "  Applied managed web.config environment variable $managedEnvironmentVariable for $($Plan.Name)" -ForegroundColor Green
+                        }
+                    }
                 }
 
                 if ((Test-Path "$($Plan.TargetPath)\web.config") -and (Test-Path "$tempPath\web.config")) {

@@ -175,6 +175,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<DesktopSaleLineEntity> DesktopSaleLines { get; set; }
   public DbSet<SaleConsolidationEntity> SaleConsolidations { get; set; }
   public DbSet<StockTransferAdjustmentEntity> StockTransferAdjustments { get; set; }
+  public DbSet<DesktopFiscalTransactionEntity> DesktopFiscalTransactions { get; set; }
 
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {

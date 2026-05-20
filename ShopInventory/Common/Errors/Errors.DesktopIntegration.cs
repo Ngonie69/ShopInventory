@@ -33,6 +33,12 @@ public static partial class Errors
         public static Error ValidationFailed(string message) =>
             Error.Failure("DesktopIntegration.ValidationFailed", message);
 
+        public static Error FiscalTransactionSyncFailed(string message) =>
+            Error.Failure("DesktopIntegration.FiscalTransactionSyncFailed", message);
+
+        public static Error LoadFiscalTransactionsFailed(string message) =>
+            Error.Failure("DesktopIntegration.LoadFiscalTransactionsFailed", message);
+
         public static Error SapError(string message) =>
             Error.Failure("DesktopIntegration.SapError", message);
 

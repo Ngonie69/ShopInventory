@@ -54,6 +54,14 @@ public class SAPSettings
     public string AttachmentsPath { get; set; } = string.Empty;
 
     /// <summary>
+    /// Optional path to the same attachments directory as seen by SAP Service Layer.
+    /// Use this when the API copies to a Windows UNC/Samba path but Service Layer runs on Linux
+    /// and must receive a Linux-local or mounted path in the Attachments2 SourcePath payload.
+    /// Leave empty to use AttachmentsPath for both copying and SourcePath.
+    /// </summary>
+    public string AttachmentsServiceLayerSourcePath { get; set; } = string.Empty;
+
+    /// <summary>
     /// Optional Windows username used to authenticate to the SAP attachments UNC share.
     /// Leave empty to rely on the IIS app pool identity.
     /// </summary>

@@ -1,0 +1,694 @@
+@page "/reports/fiscal-transactions"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using ShopInventory.Web.Features.Reports.Queries.GetFiscalTransactionLog
+@attribute [Authorize(Roles = "Admin,Manager,Cashier")]
+@rendermode InteractiveServer
+
+<PageTitle>Fiscal Transaction Log - Shop Inventory</PageTitle>
+
+<div class="ftr-page">
+    <section class="ftr-hero">
+        <div>
+            <span class="ftr-kicker">Fiscalisation Visibility</span>
+            <h1>Synced fiscal transaction log</h1>
+            <p>Browse every desktop fiscalisation attempt that has reached the central ShopInventory API.</p>
+        </div>
+        <div class="ftr-hero-actions">
+            <button class="ftr-action ftr-action--primary" @onclick="ReloadAsync" disabled="@isLoading">Refresh</button>
+            <button class="ftr-action" @onclick="ClearFiltersAsync" disabled="@isLoading">Reset filters</button>
+        </div>
+    </section>
+
+    <section class="ftr-summary-grid">
+        <article class="ftr-summary-card">
+            <span>Total</span>
+            <strong>@reportResult.Summary.TotalTransactions</strong>
+            <small>@PageSummary</small>
+        </article>
+        <article class="ftr-summary-card ftr-summary-card--success">
+            <span>Success</span>
+            <strong>@reportResult.Summary.SuccessCount</strong>
+            <small>Newly fiscalised submissions</small>
+        </article>
+        <article class="ftr-summary-card ftr-summary-card--info">
+            <span>Already fiscalised</span>
+            <strong>@reportResult.Summary.FiscalisedCount</strong>
+            <small>REVMax already had a receipt</small>
+        </article>
+        <article class="ftr-summary-card ftr-summary-card--warning">
+            <span>Not fiscalised</span>
+            <strong>@reportResult.Summary.NotFiscalisedCount</strong>
+            <small>Checked but not found in REVMax</small>
+        </article>
+        <article class="ftr-summary-card ftr-summary-card--danger">
+            <span>Failed</span>
+            <strong>@reportResult.Summary.FailedCount</strong>
+            <small>Operator action required</small>
+        </article>
+        <article class="ftr-summary-card">
+            <span>Operators</span>
+            <strong>@reportResult.Summary.UniqueOperators</strong>
+            <small>@LatestActivityText</small>
+        </article>
+    </section>
+
+    <section class="ftr-filter-card">
+        <div class="ftr-filter-grid">
+            <label>
+                <span>Search</span>
+                <input class="form-control" @bind="searchTerm" placeholder="Doc number, customer, status, verification code" />
+            </label>
+            <label>
+                <span>Document type</span>
+                <select class="form-select" @bind="selectedDocumentType">
+                    <option value="All">All</option>
+                    <option value="Invoice">Invoice</option>
+                    <option value="CreditNote">Credit Note</option>
+                    <option value="DebitNote">Debit Note</option>
+                </select>
+            </label>
+            <label>
+                <span>Status</span>
+                <select class="form-select" @bind="selectedStatus">
+                    <option value="All">All</option>
+                    <option value="Success">Success</option>
+                    <option value="Fiscalised">Fiscalised</option>
+                    <option value="Not Fiscalised">Not Fiscalised</option>
+                    <option value="Failed">Failed</option>
+                </select>
+            </label>
+            <label>
+                <span>From</span>
+                <InputDate class="form-control" @bind-Value="fromDate" />
+            </label>
+            <label>
+                <span>To</span>
+                <InputDate class="form-control" @bind-Value="toDate" />
+            </label>
+        </div>
+        <div class="ftr-filter-actions">
+            <button class="ftr-action ftr-action--primary" @onclick="ApplyFiltersAsync" disabled="@isLoading">Apply filters</button>
+            <button class="ftr-action" @onclick="ClearFiltersAsync" disabled="@isLoading">Clear</button>
+        </div>
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger ftr-alert" role="alert">@errorMessage</div>
+    }
+
+    @if (isLoading)
+    {
+        <section class="ftr-loading-card">
+            <div class="spinner-border text-primary" role="status"></div>
+            <span>Loading fiscal transactions…</span>
+        </section>
+    }
+    else
+    {
+        <section>
+            <div class="ftr-table-card">
+                <div class="ftr-table-toolbar">
+                    <div>
+                        <h2>Transactions</h2>
+                        <p>@PageSummary</p>
+                    </div>
+                    <div class="ftr-pagination">
+                        <button class="ftr-action" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)">Previous</button>
+                        <span>Page @currentPage</span>
+                        <button class="ftr-action" @onclick="NextPageAsync" disabled="@(isLoading || !reportResult.HasMore)">Next</button>
+                    </div>
+                </div>
+
+                @if (!reportResult.Transactions.Any())
+                {
+                    <div class="ftr-empty-state">
+                        <strong>No synced transactions found</strong>
+                        <p>Change the filter window or wait for the desktop app to sync local records.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table ftr-table">
+                            <thead>
+                                <tr>
+                                    <th>Document</th>
+                                    <th>Customer</th>
+                                    <th>Status</th>
+                                    <th>Total</th>
+                                    <th>Verification</th>
+                                    <th>Operator</th>
+                                    <th>When</th>
+                                    <th class="ftr-actions-column">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var transaction in reportResult.Transactions)
+                                {
+                                    <tr class="@GetRowClass(transaction)">
+                                        <td>
+                                            <div class="ftr-cell-title">@transaction.DocumentType #@transaction.DocNum</div>
+                                            <div class="ftr-cell-subtitle">@transaction.SourceSystem</div>
+                                        </td>
+                                        <td>
+                                            <div class="ftr-cell-title">@DisplayCustomer(transaction)</div>
+                                            <div class="ftr-cell-subtitle">@DisplayCardCode(transaction)</div>
+                                        </td>
+                                        <td>
+                                            <span class="@GetStatusBadgeClass(transaction.Status)">@transaction.Status</span>
+                                        </td>
+                                        <td>
+                                            <div class="ftr-cell-title">@FormatAmount(transaction.DocTotal, transaction.Currency)</div>
+                                            <div class="ftr-cell-subtitle">VAT @FormatAmount(transaction.VatSum, transaction.Currency)</div>
+                                        </td>
+                                        <td>
+                                            <div class="ftr-cell-title">@DisplayVerification(transaction)</div>
+                                            <div class="ftr-cell-subtitle">Receipt @DisplayReceiptGlobalNo(transaction)</div>
+                                        </td>
+                                        <td>
+                                            <div class="ftr-cell-title">@DisplayOperator(transaction)</div>
+                                            <div class="ftr-cell-subtitle">Synced @FormatTimestamp(transaction.LastSyncedAtUtc)</div>
+                                        </td>
+                                        <td>
+                                            <div class="ftr-cell-title">@FormatTimestamp(transaction.TimestampUtc)</div>
+                                            <div class="ftr-cell-subtitle">Created @FormatTimestamp(transaction.CreatedAtUtc)</div>
+                                        </td>
+                                        <td class="ftr-actions-cell">
+                                            <button type="button" class="ftr-row-action" @onclick="() => OpenTransactionDetails(transaction)">
+                                                Details
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </section>
+    }
+
+    @if (isDetailsModalOpen && selectedTransaction is not null)
+    {
+        <div class="ftr-modal-backdrop" @onclick="CloseTransactionDetails">
+            <div class="ftr-modal" role="dialog" aria-modal="true" aria-labelledby="ftr-details-title" @onclick:stopPropagation="true">
+                <div class="ftr-detail-header ftr-modal-header">
+                    <div>
+                        <h2 id="ftr-details-title">Details</h2>
+                        <span>#@selectedTransaction.DocNum</span>
+                    </div>
+                    <button type="button" class="ftr-modal-close" @onclick="CloseTransactionDetails" aria-label="Close details">Close</button>
+                </div>
+
+                <div class="ftr-detail-body">
+                    <div class="ftr-detail-chip-row">
+                        <span class="@GetStatusBadgeClass(selectedTransaction.Status)">@selectedTransaction.Status</span>
+                        <span class="ftr-detail-chip">@selectedTransaction.DocumentType</span>
+                        <span class="ftr-detail-chip">@selectedTransaction.SourceSystem</span>
+                    </div>
+
+                    <dl class="ftr-detail-list">
+                        <div>
+                            <dt>Customer</dt>
+                            <dd>@DisplayCustomer(selectedTransaction)</dd>
+                        </div>
+                        <div>
+                            <dt>Card code</dt>
+                            <dd>@DisplayCardCode(selectedTransaction)</dd>
+                        </div>
+                        <div>
+                            <dt>Total</dt>
+                            <dd>@FormatAmount(selectedTransaction.DocTotal, selectedTransaction.Currency)</dd>
+                        </div>
+                        <div>
+                            <dt>VAT</dt>
+                            <dd>@FormatAmount(selectedTransaction.VatSum, selectedTransaction.Currency)</dd>
+                        </div>
+                        <div>
+                            <dt>Verification code</dt>
+                            <dd>@DisplayVerification(selectedTransaction)</dd>
+                        </div>
+                        <div>
+                            <dt>Receipt</dt>
+                            <dd>@DisplayReceiptGlobalNo(selectedTransaction)</dd>
+                        </div>
+                        <div>
+                            <dt>Original invoice</dt>
+                            <dd>@DisplayOriginalInvoice(selectedTransaction)</dd>
+                        </div>
+                        <div>
+                            <dt>Operator</dt>
+                            <dd>@DisplayOperator(selectedTransaction)</dd>
+                        </div>
+                        <div>
+                            <dt>Device serial</dt>
+                            <dd>@DisplayDeviceSerial(selectedTransaction)</dd>
+                        </div>
+                        <div>
+                            <dt>Device ID</dt>
+                            <dd>@DisplayDeviceId(selectedTransaction)</dd>
+                        </div>
+                        <div>
+                            <dt>Fiscal day</dt>
+                            <dd>@DisplayFiscalDay(selectedTransaction)</dd>
+                        </div>
+                        <div>
+                            <dt>Timestamp</dt>
+                            <dd>@FormatTimestamp(selectedTransaction.TimestampUtc)</dd>
+                        </div>
+                        <div>
+                            <dt>Last synced</dt>
+                            <dd>@FormatTimestamp(selectedTransaction.LastSyncedAtUtc)</dd>
+                        </div>
+                    </dl>
+
+                    <div class="ftr-message-card">
+                        <span>Operator message</span>
+                        <p>@DisplayMessage(selectedTransaction)</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .ftr-page {
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+        padding: 1.25rem;
+    }
+
+    .ftr-hero {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1.5rem;
+        border-radius: 24px;
+        background:
+            radial-gradient(circle at top right, rgba(56, 189, 248, 0.22), transparent 36%),
+            linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.95));
+        color: #f8fafc;
+        box-shadow: 0 20px 48px rgba(15, 23, 42, 0.24);
+    }
+
+    .ftr-kicker {
+        display: inline-flex;
+        margin-bottom: 0.6rem;
+        padding: 0.3rem 0.7rem;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.16);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .ftr-hero h1 {
+        margin: 0;
+        font-size: clamp(1.8rem, 2vw, 2.4rem);
+        font-weight: 800;
+    }
+
+    .ftr-hero p {
+        max-width: 46rem;
+        margin: 0.6rem 0 0;
+        color: rgba(226, 232, 240, 0.86);
+    }
+
+    .ftr-hero-actions {
+        display: flex;
+        gap: 0.75rem;
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .ftr-action {
+        border: 1px solid rgba(148, 163, 184, 0.24);
+        border-radius: 999px;
+        padding: 0.7rem 1rem;
+        background: rgba(255, 255, 255, 0.08);
+        color: inherit;
+        font-weight: 600;
+        transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+    }
+
+    .ftr-action:hover:not(:disabled) {
+        transform: translateY(-1px);
+        border-color: rgba(148, 163, 184, 0.4);
+    }
+
+    .ftr-action:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .ftr-action--primary {
+        background: linear-gradient(135deg, #38bdf8, #2563eb);
+        border-color: transparent;
+        color: #eff6ff;
+    }
+
+    .ftr-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem;
+    }
+
+    .ftr-summary-card,
+    .ftr-filter-card,
+    .ftr-table-card,
+    .ftr-loading-card,
+    .ftr-modal {
+        border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 78%, transparent);
+        border-radius: 22px;
+        background: color-mix(in srgb, var(--mud-palette-surface) 94%, transparent);
+        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
+        backdrop-filter: blur(12px);
+    }
+
+    .ftr-summary-card {
+        padding: 1rem 1.1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .ftr-summary-card span,
+    .ftr-filter-card label span,
+    .ftr-message-card span,
+    .ftr-cell-subtitle,
+    .ftr-summary-card small,
+    .ftr-table-toolbar p,
+    .ftr-detail-header span,
+    .ftr-detail-list dt {
+        color: var(--mud-palette-text-secondary);
+    }
+
+    .ftr-summary-card strong {
+        font-size: 1.9rem;
+        line-height: 1;
+        color: var(--mud-palette-text-primary);
+    }
+
+    .ftr-summary-card--success {
+        background: linear-gradient(180deg, rgba(16, 185, 129, 0.12), transparent 70%), color-mix(in srgb, var(--mud-palette-surface) 94%, transparent);
+    }
+
+    .ftr-summary-card--info {
+        background: linear-gradient(180deg, rgba(37, 99, 235, 0.12), transparent 70%), color-mix(in srgb, var(--mud-palette-surface) 94%, transparent);
+    }
+
+    .ftr-summary-card--warning {
+        background: linear-gradient(180deg, rgba(245, 158, 11, 0.14), transparent 70%), color-mix(in srgb, var(--mud-palette-surface) 94%, transparent);
+    }
+
+    .ftr-summary-card--danger {
+        background: linear-gradient(180deg, rgba(239, 68, 68, 0.14), transparent 70%), color-mix(in srgb, var(--mud-palette-surface) 94%, transparent);
+    }
+
+    .ftr-filter-card,
+    .ftr-loading-card,
+    .ftr-table-card,
+    .ftr-modal {
+        padding: 1.2rem;
+    }
+
+    .ftr-filter-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem;
+    }
+
+    .ftr-filter-card label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        font-weight: 600;
+    }
+
+    .ftr-filter-actions,
+    .ftr-pagination,
+    .ftr-detail-chip-row {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .ftr-filter-actions {
+        margin-top: 1rem;
+    }
+
+    .ftr-table-toolbar,
+    .ftr-detail-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .ftr-table-toolbar h2,
+    .ftr-detail-header h2 {
+        margin: 0;
+        font-size: 1.15rem;
+        color: var(--mud-palette-text-primary);
+    }
+
+    .ftr-table {
+        margin: 0;
+    }
+
+    .ftr-table thead th {
+        border-bottom-color: color-mix(in srgb, var(--mud-palette-divider) 75%, transparent);
+        color: var(--mud-palette-text-secondary);
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .ftr-table tbody td {
+        padding-top: 0.95rem;
+        padding-bottom: 0.95rem;
+        border-color: color-mix(in srgb, var(--mud-palette-divider) 60%, transparent);
+        color: var(--mud-palette-text-primary);
+        vertical-align: middle;
+    }
+
+    .ftr-table tbody tr {
+        transition: background 0.16s ease, transform 0.16s ease;
+    }
+
+    .ftr-table tbody tr:hover {
+        background: color-mix(in srgb, var(--mud-palette-primary) 6%, transparent);
+    }
+
+    .ftr-row--selected {
+        background: color-mix(in srgb, var(--mud-palette-primary) 10%, transparent);
+    }
+
+    .ftr-actions-column,
+    .ftr-actions-cell {
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .ftr-row-action {
+        border: 1px solid color-mix(in srgb, var(--mud-palette-primary) 30%, transparent);
+        border-radius: 999px;
+        padding: 0.45rem 0.85rem;
+        background: color-mix(in srgb, var(--mud-palette-primary) 10%, transparent);
+        color: var(--mud-palette-primary);
+        font-size: 0.82rem;
+        font-weight: 700;
+        transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+    }
+
+    .ftr-row-action:hover {
+        transform: translateY(-1px);
+        background: color-mix(in srgb, var(--mud-palette-primary) 16%, transparent);
+        border-color: color-mix(in srgb, var(--mud-palette-primary) 45%, transparent);
+    }
+
+    .ftr-cell-title {
+        font-weight: 700;
+        color: var(--mud-palette-text-primary);
+    }
+
+    .ftr-status-badge,
+    .ftr-detail-chip {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 0.32rem 0.7rem;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+    }
+
+    .ftr-status-badge--success {
+        background: rgba(16, 185, 129, 0.14);
+        color: #047857;
+    }
+
+    .ftr-status-badge--info {
+        background: rgba(37, 99, 235, 0.14);
+        color: #1d4ed8;
+    }
+
+    .ftr-status-badge--warning {
+        background: rgba(245, 158, 11, 0.16);
+        color: #b45309;
+    }
+
+    .ftr-status-badge--danger {
+        background: rgba(239, 68, 68, 0.14);
+        color: #dc2626;
+    }
+
+    .ftr-status-badge--muted,
+    .ftr-detail-chip {
+        background: color-mix(in srgb, var(--mud-palette-divider) 28%, transparent);
+        color: var(--mud-palette-text-secondary);
+    }
+
+    .ftr-detail-body {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .ftr-detail-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 0.9rem;
+        margin: 0;
+    }
+
+    .ftr-detail-list div {
+        padding: 0.85rem;
+        border-radius: 18px;
+        background: color-mix(in srgb, var(--mud-palette-background) 84%, transparent);
+    }
+
+    .ftr-detail-list dt {
+        margin-bottom: 0.35rem;
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .ftr-detail-list dd {
+        margin: 0;
+        color: var(--mud-palette-text-primary);
+        font-weight: 600;
+    }
+
+    .ftr-message-card {
+        padding: 1rem;
+        border-radius: 18px;
+        background: color-mix(in srgb, var(--mud-palette-background) 84%, transparent);
+    }
+
+    .ftr-message-card p,
+    .ftr-empty-state p,
+    .ftr-empty-detail,
+    .ftr-loading-card span {
+        margin: 0.5rem 0 0;
+        color: var(--mud-palette-text-secondary);
+    }
+
+    .ftr-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1400;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        background: rgba(15, 23, 42, 0.68);
+        backdrop-filter: blur(10px);
+    }
+
+    .ftr-modal {
+        width: min(960px, 100%);
+        max-height: min(88vh, 920px);
+        overflow: auto;
+        box-shadow: 0 24px 56px rgba(15, 23, 42, 0.28);
+    }
+
+    .ftr-modal-header {
+        margin-bottom: 1.2rem;
+        align-items: flex-start;
+    }
+
+    .ftr-modal-close {
+        border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 80%, transparent);
+        border-radius: 999px;
+        padding: 0.55rem 0.95rem;
+        background: color-mix(in srgb, var(--mud-palette-background) 84%, transparent);
+        color: var(--mud-palette-text-primary);
+        font-weight: 700;
+        transition: background 0.16s ease, transform 0.16s ease;
+    }
+
+    .ftr-modal-close:hover {
+        transform: translateY(-1px);
+        background: color-mix(in srgb, var(--mud-palette-background) 92%, transparent);
+    }
+
+    .ftr-empty-state,
+    .ftr-empty-detail,
+    .ftr-loading-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        min-height: 220px;
+    }
+
+    .ftr-alert {
+        margin: 0;
+        border-radius: 18px;
+    }
+
+    @@media (max-width: 768px) {
+        .ftr-page {
+            padding: 1rem;
+        }
+
+        .ftr-hero,
+        .ftr-table-toolbar,
+        .ftr-detail-header {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .ftr-pagination {
+            width: 100%;
+            justify-content: space-between;
+        }
+
+        .ftr-modal-backdrop {
+            padding: 1rem;
+            align-items: flex-end;
+        }
+
+        .ftr-modal {
+            width: 100%;
+            max-height: 92vh;
+        }
+
+        .ftr-actions-column,
+        .ftr-actions-cell {
+            text-align: left;
+        }
+    }
+</style>
