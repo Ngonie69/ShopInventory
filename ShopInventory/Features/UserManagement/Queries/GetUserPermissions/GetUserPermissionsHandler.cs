@@ -1,5 +1,6 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.AspNetCore.Http;
 using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
 using ShopInventory.Services;
@@ -7,6 +8,7 @@ using ShopInventory.Services;
 namespace ShopInventory.Features.UserManagement.Queries.GetUserPermissions;
 
 public sealed class GetUserPermissionsHandler(
+    IHttpContextAccessor httpContextAccessor,
     IUserManagementService userManagementService
 ) : IRequestHandler<GetUserPermissionsQuery, ErrorOr<UserPermissionsResponse>>
 {
@@ -19,6 +21,13 @@ public sealed class GetUserPermissionsHandler(
         {
             return Errors.UserManagement.NotFound(query.Id);
         }
+
+        if (httpContextAccessor.HttpContext?.User.IsInRole("PodOperator") == true &&
+            !string.Equals(permissions.Role, "Driver", StringComparison.OrdinalIgnoreCase))
+        {
+            return Errors.UserManagement.PodOperatorCanOnlyManageDrivers;
+        }
+
         return permissions;
     }
 }

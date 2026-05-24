@@ -11,12 +11,16 @@
     <section class="ftr-hero">
         <div>
             <span class="ftr-kicker">Fiscalisation Visibility</span>
-            <h1>Synced fiscal transaction log</h1>
-            <p>Browse every desktop fiscalisation attempt that has reached the central ShopInventory API.</p>
+            <h1>Fiscal transaction log</h1>
+            <p>Browse every fiscalisation attempt that has reached the central ShopInventory API.</p>
         </div>
         <div class="ftr-hero-actions">
             <button class="ftr-action ftr-action--primary" @onclick="ReloadAsync" disabled="@isLoading">Refresh</button>
             <button class="ftr-action" @onclick="ClearFiltersAsync" disabled="@isLoading">Reset filters</button>
+            @if (canBackfill)
+            {
+                <button class="ftr-action" @onclick="BackfillCurrentRangeAsync" disabled="@(isLoading || isBackfilling)">@(isBackfilling ? "Backfilling..." : "Backfill current range")</button>
+            }
         </div>
     </section>
 
@@ -79,6 +83,15 @@
                 </select>
             </label>
             <label>
+                <span>Source</span>
+                <select class="form-select" @bind="selectedSourceSystem">
+                    <option value="All">All</option>
+                    <option value="InvoiceFiscalisation">API Queue</option>
+                    <option value="RevmaxEndpoint">REVMax Endpoint</option>
+                    <option value="InvoiceFiscalisationBackfill">Backfill</option>
+                </select>
+            </label>
+            <label>
                 <span>From</span>
                 <InputDate class="form-control" @bind-Value="fromDate" />
             </label>
@@ -92,6 +105,11 @@
             <button class="ftr-action" @onclick="ClearFiltersAsync" disabled="@isLoading">Clear</button>
         </div>
     </section>
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+        <div class="alert alert-success ftr-alert" role="status">@successMessage</div>
+    }
 
     @if (!string.IsNullOrWhiteSpace(errorMessage))
     {
@@ -124,8 +142,8 @@
                 @if (!reportResult.Transactions.Any())
                 {
                     <div class="ftr-empty-state">
-                        <strong>No synced transactions found</strong>
-                        <p>Change the filter window or wait for the desktop app to sync local records.</p>
+                        <strong>No fiscal transactions found</strong>
+                        <p>Change the filter window or wait for the next fiscalisation attempt to reach the API.</p>
                     </div>
                 }
                 else
@@ -150,7 +168,9 @@
                                     <tr class="@GetRowClass(transaction)">
                                         <td>
                                             <div class="ftr-cell-title">@transaction.DocumentType #@transaction.DocNum</div>
-                                            <div class="ftr-cell-subtitle">@transaction.SourceSystem</div>
+                                            <div class="ftr-cell-subtitle">
+                                                <span class="@GetSourceBadgeClass(transaction.SourceSystem)">@DisplaySourceSystem(transaction.SourceSystem)</span>
+                                            </div>
                                         </td>
                                         <td>
                                             <div class="ftr-cell-title">@DisplayCustomer(transaction)</div>
@@ -169,7 +189,7 @@
                                         </td>
                                         <td>
                                             <div class="ftr-cell-title">@DisplayOperator(transaction)</div>
-                                            <div class="ftr-cell-subtitle">Synced @FormatTimestamp(transaction.LastSyncedAtUtc)</div>
+                                            <div class="ftr-cell-subtitle">Recorded @FormatTimestamp(transaction.LastSyncedAtUtc)</div>
                                         </td>
                                         <td>
                                             <div class="ftr-cell-title">@FormatTimestamp(transaction.TimestampUtc)</div>
@@ -206,7 +226,7 @@
                     <div class="ftr-detail-chip-row">
                         <span class="@GetStatusBadgeClass(selectedTransaction.Status)">@selectedTransaction.Status</span>
                         <span class="ftr-detail-chip">@selectedTransaction.DocumentType</span>
-                        <span class="ftr-detail-chip">@selectedTransaction.SourceSystem</span>
+                        <span class="@GetSourceBadgeClass(selectedTransaction.SourceSystem)">@DisplaySourceSystem(selectedTransaction.SourceSystem)</span>
                     </div>
 
                     <dl class="ftr-detail-list">
@@ -259,7 +279,7 @@
                             <dd>@FormatTimestamp(selectedTransaction.TimestampUtc)</dd>
                         </div>
                         <div>
-                            <dt>Last synced</dt>
+                            <dt>Last recorded</dt>
                             <dd>@FormatTimestamp(selectedTransaction.LastSyncedAtUtc)</dd>
                         </div>
                     </dl>
@@ -521,7 +541,8 @@
     }
 
     .ftr-status-badge,
-    .ftr-detail-chip {
+    .ftr-detail-chip,
+    .ftr-source-badge {
         display: inline-flex;
         align-items: center;
         border-radius: 999px;
@@ -553,6 +574,26 @@
 
     .ftr-status-badge--muted,
     .ftr-detail-chip {
+        background: color-mix(in srgb, var(--mud-palette-divider) 28%, transparent);
+        color: var(--mud-palette-text-secondary);
+    }
+
+    .ftr-source-badge--queue {
+        background: color-mix(in srgb, var(--mud-palette-success) 16%, transparent);
+        color: color-mix(in srgb, var(--mud-palette-success) 74%, var(--mud-palette-text-primary));
+    }
+
+    .ftr-source-badge--endpoint {
+        background: color-mix(in srgb, var(--mud-palette-primary) 14%, transparent);
+        color: color-mix(in srgb, var(--mud-palette-primary) 76%, var(--mud-palette-text-primary));
+    }
+
+    .ftr-source-badge--backfill {
+        background: color-mix(in srgb, var(--mud-palette-warning) 18%, transparent);
+        color: color-mix(in srgb, var(--mud-palette-warning) 82%, var(--mud-palette-text-primary));
+    }
+
+    .ftr-source-badge--muted {
         background: color-mix(in srgb, var(--mud-palette-divider) 28%, transparent);
         color: var(--mud-palette-text-secondary);
     }

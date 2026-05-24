@@ -1,10 +1,13 @@
+using System.Security.Claims;
 using System.Text.Json;
 using ErrorOr;
 using MediatR;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Extensions;
+using ShopInventory.Common.Security;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.UserManagement;
@@ -15,6 +18,7 @@ namespace ShopInventory.Features.UserManagement.Commands.UpdateUser;
 
 public sealed class UpdateUserHandler(
     ApplicationDbContext context,
+    IHttpContextAccessor httpContextAccessor,
     IMemoryCache memoryCache,
     IAuditService auditService,
     IBusinessPartnerService businessPartnerService,
@@ -45,6 +49,23 @@ public sealed class UpdateUserHandler(
         UpdateUserCommand command,
         CancellationToken cancellationToken)
     {
+        var currentUserId = UserClaimReader.GetUserId(httpContextAccessor.HttpContext?.User);
+        if (currentUserId is null)
+        {
+            return Errors.UserManagement.Unauthenticated;
+        }
+
+        var currentUser = await context.Users
+            .AsNoTracking()
+            .Where(current => current.Id == currentUserId.Value)
+            .Select(current => new { current.Role, current.IsActive })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (currentUser is null || !currentUser.IsActive)
+        {
+            return Errors.UserManagement.Unauthenticated;
+        }
+
         var user = await context.Users
             .AsNoTracking()
             .FirstOrDefaultAsync(u => u.Id == command.Id, cancellationToken);
@@ -61,6 +82,24 @@ public sealed class UpdateUserHandler(
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        if (string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
+        {
+            var requestedRole = string.IsNullOrWhiteSpace(command.Request.Role)
+                ? user.Role
+                : command.Request.Role;
+
+            if (!string.Equals(currentRole, "Driver", StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(requestedRole, "Driver", StringComparison.OrdinalIgnoreCase))
+            {
+                return Errors.UserManagement.PodOperatorCanOnlyManageDrivers;
+            }
+
+            if (command.Request.Permissions is { Count: > 0 })
+            {
+                return Errors.UserManagement.PodOperatorCannotAssignCustomPermissionsOnUpdate;
+            }
+        }
 
         if (command.Request.Username != null)
         {

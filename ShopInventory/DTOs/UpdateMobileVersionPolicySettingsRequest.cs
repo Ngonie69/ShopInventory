@@ -2,6 +2,7 @@ namespace ShopInventory.DTOs;
 
 public sealed class UpdateMobileVersionPolicySettingsRequest
 {
+    public string AppId { get; set; } = string.Empty;
     public bool Enabled { get; set; }
     public bool RequireHeaders { get; set; }
     public string LatestVersion { get; set; } = string.Empty;

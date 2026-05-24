@@ -19,6 +19,7 @@ using ShopInventory.Features.Invoices.Queries.GetPodDashboard;
 using ShopInventory.Features.Invoices.Queries.GetPodUploadStatus;
 using ShopInventory.Features.Invoices.Queries.ValidateInvoice;
 using ShopInventory.Features.Invoices.Queries.ValidateBulkPods;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 
 namespace ShopInventory.Controllers;
@@ -41,7 +42,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new CreateInvoiceCommand(request, autoAllocateBatches, allocationStrategy, GetUserId()), cancellationToken);
+            new CreateInvoiceCommand(request, autoAllocateBatches, allocationStrategy, GetUserId(), GetUsername()), cancellationToken);
 
         return result.Match(
             invoice => CreatedAtAction(nameof(GetInvoiceByDocEntry), new { docEntry = invoice.Invoice?.DocEntry }, invoice),
@@ -93,7 +94,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("by-docnum/{docNum:int}")]
-    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager,Driver,PodOperator")]
+    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager,Driver,PodOperator,ApiUser")]
     [ProducesResponseType(typeof(InvoiceDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetInvoiceByDocNum(
@@ -326,9 +327,19 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
 
     private Guid? GetUserId()
     {
-        var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        if (!string.IsNullOrEmpty(userIdClaim) && Guid.TryParse(userIdClaim, out var userId) && userId != Guid.Empty)
-            return userId;
+        var candidateValues = User.FindAll(ClaimTypes.NameIdentifier)
+            .Select(claim => claim.Value)
+            .Concat(User.FindAll(JwtRegisteredClaimNames.Sub).Select(claim => claim.Value));
+
+        foreach (var candidateValue in candidateValues)
+        {
+            if (Guid.TryParse(candidateValue, out var userId) && userId != Guid.Empty)
+                return userId;
+        }
+
         return null;
     }
+
+    private string? GetUsername()
+        => User.Identity?.Name ?? User.FindFirst(ClaimTypes.Name)?.Value;
 }

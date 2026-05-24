@@ -558,7 +558,17 @@
     {
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         isPodOperator = authState.User.IsInRole("PodOperator");
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (!firstRender)
+            return;
+
         await LoadDashboard();
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task LoadDashboard()

@@ -9,5 +9,6 @@ public sealed record CreateInvoiceCommand(
     CreateInvoiceRequest Request,
     bool AutoAllocateBatches,
     BatchAllocationStrategy AllocationStrategy,
-    Guid? UserId
+    Guid? UserId,
+    string? Username
 ) : IRequest<ErrorOr<InvoiceCreatedResponseDto>>;

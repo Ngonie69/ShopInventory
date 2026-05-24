@@ -41,9 +41,16 @@ public sealed class GetPodUploadStatusHandler(
             if (currentUser is null)
                 return Errors.Auth.UserNotFound;
 
-            var invoices = await sapClient.GetInvoiceHeadersByDateRangeAsync(request.FromDate, request.ToDate, PodExclusions.ExcludedCardCodes.ToList(), cancellationToken);
+            var isPodOperator = string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase);
 
-            if (string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
+            var invoices = await sapClient.GetInvoiceHeadersByDateRangeAsync(
+                request.FromDate,
+                request.ToDate,
+                PodExclusions.ExcludedCardCodes.ToList(),
+                includeDocumentLines: isPodOperator,
+                cancellationToken);
+
+            if (isPodOperator)
             {
                 invoices = await FilterInvoicesForPodOperatorAsync(
                     invoices,
@@ -131,20 +138,104 @@ public sealed class GetPodUploadStatusHandler(
             return [];
         }
 
-        var scopedDocEntries = await documentService.GetScopedPodInvoiceDocEntriesAsync(
-            invoices.Select(invoice => invoice.DocEntry),
-            assignedSection.Trim(),
+        var normalizedSection = assignedSection.Trim();
+        var warehouseLocations = PodLocationScope.BuildWarehouseLocationLookup(
+            await sapClient.GetWarehousesAsync(cancellationToken));
+        var candidateDocEntries = invoices
+            .Select(invoice => invoice.DocEntry)
+            .Distinct()
+            .ToList();
+        var locallyScopedDocEntries = await GetLocalScopedInvoiceDocEntriesAsync(
+            candidateDocEntries,
+            normalizedSection,
+            warehouseLocations,
             cancellationToken);
+
+        var invoicesWithLines = invoices
+            .Where(invoice => invoice.DocumentLines is { Count: > 0 })
+            .ToList();
+
+        var scopedDocEntries = invoicesWithLines
+            .Where(invoice => PodLocationScope.InvoiceMatchesAssignedSection(invoice, normalizedSection, warehouseLocations))
+            .Select(invoice => invoice.DocEntry)
+            .ToHashSet();
+
+        foreach (var docEntry in locallyScopedDocEntries)
+        {
+            scopedDocEntries.Add(docEntry);
+        }
+
+        foreach (var invoice in invoices)
+        {
+            var creatorLocation = PodInvoiceCreatorLocations.GetCreatorLocation(invoice.UserSign)?.Location;
+            if (string.Equals(
+                    PodLocationScope.CanonicalizeSection(creatorLocation),
+                    PodLocationScope.CanonicalizeSection(normalizedSection),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                scopedDocEntries.Add(invoice.DocEntry);
+            }
+        }
+
+        var invoicesWithoutLines = invoices
+            .Where(invoice => !scopedDocEntries.Contains(invoice.DocEntry))
+            .Where(invoice => invoice.DocumentLines is null || invoice.DocumentLines.Count == 0)
+            .Select(invoice => invoice.DocEntry)
+            .ToList();
+
+        if (invoicesWithoutLines.Count > 0)
+        {
+            var fallbackDocEntries = await documentService.GetScopedPodInvoiceDocEntriesAsync(
+                invoicesWithoutLines,
+                normalizedSection,
+                cancellationToken);
+
+            foreach (var docEntry in fallbackDocEntries)
+            {
+                scopedDocEntries.Add(docEntry);
+            }
+        }
 
         if (scopedDocEntries.Count == 0)
         {
             return [];
         }
 
-        var scopedDocEntrySet = scopedDocEntries.ToHashSet();
-
         return invoices
-            .Where(invoice => scopedDocEntrySet.Contains(invoice.DocEntry))
+            .Where(invoice => scopedDocEntries.Contains(invoice.DocEntry))
             .ToList();
+    }
+
+    private async Task<HashSet<int>> GetLocalScopedInvoiceDocEntriesAsync(
+        List<int> docEntries,
+        string assignedSection,
+        IReadOnlyDictionary<string, string?> warehouseLocations,
+        CancellationToken cancellationToken)
+    {
+        if (docEntries.Count == 0)
+        {
+            return [];
+        }
+
+        var localInvoiceWarehouseRows = await context.Invoices
+            .AsNoTracking()
+            .Where(invoice => invoice.SAPDocEntry.HasValue && docEntries.Contains(invoice.SAPDocEntry.Value))
+            .SelectMany(invoice => invoice.DocumentLines
+                .Where(line => line.WarehouseCode != null && line.WarehouseCode != string.Empty)
+                .Select(line => new
+                {
+                    DocEntry = invoice.SAPDocEntry!.Value,
+                    line.WarehouseCode
+                }))
+            .ToListAsync(cancellationToken);
+
+        return localInvoiceWarehouseRows
+            .GroupBy(row => row.DocEntry)
+            .Where(group => PodLocationScope.WarehouseCodesMatchAssignedSection(
+                group.Select(row => row.WarehouseCode),
+                assignedSection,
+                warehouseLocations))
+            .Select(group => group.Key)
+            .ToHashSet();
     }
 }

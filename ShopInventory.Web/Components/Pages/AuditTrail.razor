@@ -175,6 +175,7 @@
                                 <th class="col-role">Role</th>
                                 <th class="col-action">Action</th>
                                 <th class="col-details">Details</th>
+                                <th class="col-ip">IP Address</th>
                                 <th class="col-status">Status</th>
                             </tr>
                         </thead>
@@ -230,6 +231,16 @@
                                                 <span class="error-text">@TruncateText(log.ErrorMessage, 50)</span>
                                             }
                                         </div>
+                                    </td>
+                                    <td class="col-ip" data-label="IP Address">
+                                        @if (!string.IsNullOrWhiteSpace(log.IpAddress))
+                                        {
+                                            <span class="ip-chip">@log.IpAddress</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="empty-ip">Not captured</span>
+                                        }
                                     </td>
                                     <td class="col-status" data-label="Status">
                                         @if (log.IsSuccess)
@@ -382,35 +393,56 @@
                                     <span class="detail-value error-text">@selectedLog.ErrorMessage</span>
                                 </div>
                             }
-                            @if (!string.IsNullOrEmpty(selectedLog.IpAddress))
+                            @if (HasClientMetadata(selectedLog))
                             {
-                                <div class="detail-item">
-                                    <span class="detail-label">IP Address</span>
-                                    <span class="detail-value"
-                                          style="font-family:'Space Grotesk',monospace;">@selectedLog.IpAddress</span>
-                                </div>
-                            }
-                            @if (!string.IsNullOrEmpty(selectedLog.AppVersion))
-                            {
-                                <div class="detail-item">
-                                    <span class="detail-label">App Version</span>
-                                    <span class="detail-value"
-                                          style="font-family:'Space Grotesk',monospace;">@selectedLog.AppVersion</span>
-                                </div>
-                            }
-                            @if (!string.IsNullOrEmpty(selectedLog.DeviceModel))
-                            {
-                                <div class="detail-item">
-                                    <span class="detail-label">Device Model</span>
-                                    <span class="detail-value">@selectedLog.DeviceModel</span>
-                                </div>
-                            }
-                            @if (!string.IsNullOrEmpty(selectedLog.PageUrl))
-                            {
-                                <div class="detail-item">
-                                    <span class="detail-label">Page URL</span>
-                                    <span class="detail-value"
-                                          style="font-family:'Space Grotesk',monospace;">@selectedLog.PageUrl</span>
+                                <div class="detail-item detail-full">
+                                    <span class="detail-label">Client Metadata</span>
+                                    <div class="client-detail-stack">
+                                        @if (!string.IsNullOrWhiteSpace(selectedLog.IpAddress))
+                                        {
+                                            <div class="client-detail-row">
+                                                <span class="client-detail-label">IP Address</span>
+                                                <span class="client-detail-value">@selectedLog.IpAddress</span>
+                                                <button class="client-copy-btn" title="Copy IP address" @onclick="() => CopyClientDetail(selectedLog.IpAddress)">
+                                                    <i class="bi bi-clipboard"></i>
+                                                </button>
+                                            </div>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(selectedLog.UserAgent))
+                                        {
+                                            <div class="client-detail-row client-detail-row-long">
+                                                <span class="client-detail-label">User Agent</span>
+                                                <span class="client-detail-value">@selectedLog.UserAgent</span>
+                                                <button class="client-copy-btn" title="Copy user agent" @onclick="() => CopyClientDetail(selectedLog.UserAgent)">
+                                                    <i class="bi bi-clipboard"></i>
+                                                </button>
+                                            </div>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(selectedLog.AppVersion))
+                                        {
+                                            <div class="client-detail-row">
+                                                <span class="client-detail-label">App Version</span>
+                                                <span class="client-detail-value">@selectedLog.AppVersion</span>
+                                            </div>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(selectedLog.DeviceModel))
+                                        {
+                                            <div class="client-detail-row">
+                                                <span class="client-detail-label">Device Model</span>
+                                                <span class="client-detail-value">@selectedLog.DeviceModel</span>
+                                            </div>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(selectedLog.PageUrl))
+                                        {
+                                            <div class="client-detail-row client-detail-row-long">
+                                                <span class="client-detail-label">Page URL</span>
+                                                <span class="client-detail-value">@selectedLog.PageUrl</span>
+                                                <button class="client-copy-btn" title="Copy page URL" @onclick="() => CopyClientDetail(selectedLog.PageUrl)">
+                                                    <i class="bi bi-clipboard"></i>
+                                                </button>
+                                            </div>
+                                        }
+                                    </div>
                                 </div>
                             }
                         </div>
@@ -882,8 +914,33 @@
                 width: 130px;
             }
 
+            .col-ip {
+                width: 150px;
+            }
+
             .col-status {
                 width: 90px;
+            }
+
+            .ip-chip {
+                display: inline-flex;
+                align-items: center;
+                max-width: 145px;
+                padding: .18rem .55rem;
+                border-radius: 6px;
+                background: #eef2ff;
+                color: #4f46e5;
+                font-family: 'Space Grotesk', monospace;
+                font-size: .72rem;
+                font-weight: 600;
+                overflow-wrap: anywhere;
+                word-break: break-word;
+            }
+
+            .empty-ip {
+                color: #9ca3af;
+                font-size: .74rem;
+                font-weight: 500;
             }
 
             /* Timestamp Cell */
@@ -1265,6 +1322,68 @@
                 border: 1px solid #f3f4f6;
             }
 
+            .client-detail-stack {
+                display: flex;
+                flex-direction: column;
+                gap: .55rem;
+            }
+
+            .client-detail-row {
+                display: grid;
+                grid-template-columns: 108px minmax(0, 1fr) 32px;
+                align-items: center;
+                gap: .6rem;
+                padding: .55rem .7rem;
+                background: #f9fafb;
+                border: 1px solid #f3f4f6;
+                border-radius: 8px;
+            }
+
+            .client-detail-row:not(:has(.client-copy-btn)) {
+                grid-template-columns: 108px minmax(0, 1fr);
+            }
+
+            .client-detail-label {
+                color: #6b7280;
+                font-size: .68rem;
+                font-weight: 700;
+                letter-spacing: .05em;
+                text-transform: uppercase;
+            }
+
+            .client-detail-value {
+                color: #1a1a2e;
+                font-family: 'Space Grotesk', monospace;
+                font-size: .8rem;
+                font-weight: 600;
+                overflow-wrap: anywhere;
+                word-break: break-word;
+            }
+
+            .client-detail-row-long {
+                align-items: start;
+            }
+
+            .client-copy-btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 30px;
+                height: 30px;
+                border: 1px solid #e5e7eb;
+                border-radius: 6px;
+                background: white;
+                color: #6b7280;
+                cursor: pointer;
+                transition: all .15s ease;
+            }
+
+            .client-copy-btn:hover {
+                background: #eef2ff;
+                border-color: #c7d2fe;
+                color: #4f46e5;
+            }
+
             /* ===== Dark Theme ===== */
             [data-theme="dark"] .audit-page {
                 color: #e2e8f0;
@@ -1385,6 +1504,15 @@
                 color: #94a3b8;
             }
 
+            [data-theme="dark"] .ip-chip {
+                background: #1e1b4b;
+                color: #c7d2fe;
+            }
+
+            [data-theme="dark"] .empty-ip {
+                color: #64748b;
+            }
+
             [data-theme="dark"] .detail-text {
                 color: #94a3b8;
             }
@@ -1426,6 +1554,31 @@
             [data-theme="dark"] .detail-pre {
                 background: #0f172a;
                 border-color: #334155;
+            }
+
+            [data-theme="dark"] .client-detail-row {
+                background: #0f172a;
+                border-color: #334155;
+            }
+
+            [data-theme="dark"] .client-detail-label {
+                color: #94a3b8;
+            }
+
+            [data-theme="dark"] .client-detail-value {
+                color: #f1f5f9;
+            }
+
+            [data-theme="dark"] .client-copy-btn {
+                background: #1e293b;
+                border-color: #475569;
+                color: #cbd5e1;
+            }
+
+            [data-theme="dark"] .client-copy-btn:hover {
+                background: #334155;
+                border-color: #64748b;
+                color: #f8fafc;
             }
 
             [data-theme="dark"] .alert-error {
@@ -1535,10 +1688,39 @@
             }
 
             .dark-theme .audit-page .entity-tag,
+            .dark-theme .audit-page .ip-chip,
             .dark-theme .audit-page .role-default,
             .dark-theme .audit-page .action-default {
                 background: #1e293b !important;
                 color: #cbd5e1 !important;
+            }
+
+            .dark-theme .audit-page .empty-ip {
+                color: #64748b !important;
+            }
+
+            .dark-theme .audit-page .client-detail-row {
+                background: #0f172a !important;
+                border-color: #334155 !important;
+            }
+
+            .dark-theme .audit-page .client-detail-label {
+                color: #94a3b8 !important;
+            }
+
+            .dark-theme .audit-page .client-detail-value {
+                color: #f8fafc !important;
+            }
+
+            .dark-theme .audit-page .client-copy-btn {
+                background: #1e293b !important;
+                border-color: #475569 !important;
+                color: #cbd5e1 !important;
+            }
+
+            .dark-theme .audit-page .client-copy-btn:hover {
+                background: #334155 !important;
+                color: #f8fafc !important;
             }
 
             .dark-theme .audit-page .empty-state h3 {
@@ -1659,6 +1841,7 @@
                 .col-user,
                 .col-role,
                 .col-action,
+                .col-ip,
                 .col-status {
                     width: auto;
                 }
@@ -1674,9 +1857,21 @@
                 .user-name,
                 .detail-text,
                 .error-text,
-                .entity-tag {
+                .entity-tag,
+                .ip-chip,
+                .client-detail-value {
                     overflow-wrap: anywhere;
                     word-break: break-word;
+                }
+
+                .client-detail-row,
+                .client-detail-row:not(:has(.client-copy-btn)) {
+                    grid-template-columns: 1fr;
+                    align-items: stretch;
+                }
+
+                .client-copy-btn {
+                    justify-self: start;
                 }
 
                 .table-footer {
@@ -1824,6 +2019,30 @@
 
     private void SelectLog(AuditLog log) => selectedLog = log;
     private void CloseDrawer() => selectedLog = null;
+
+    private static bool HasClientMetadata(AuditLog log) =>
+        !string.IsNullOrWhiteSpace(log.IpAddress) ||
+        !string.IsNullOrWhiteSpace(log.UserAgent) ||
+        !string.IsNullOrWhiteSpace(log.AppVersion) ||
+        !string.IsNullOrWhiteSpace(log.DeviceModel) ||
+        !string.IsNullOrWhiteSpace(log.PageUrl);
+
+    private async Task CopyClientDetail(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", value);
+        }
+        catch
+        {
+            errorMessage = "Unable to copy this value to the clipboard.";
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -2072,6 +2291,10 @@ StringComparison.Ordinal))
         (log.Action?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
         (log.EntityType?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
         (log.Details?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
+        (log.ErrorMessage?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
+        (log.IpAddress?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
+        (log.UserAgent?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
+        (log.PageUrl?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
         (log.AppVersion?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) ||
         (log.DeviceModel?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true);
 

@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Mobile;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
@@ -130,6 +131,8 @@ public sealed class GetInvoicesByCustomerHandler(
                 HasMore = hasMore,
                 Invoices = invoices.ToDto()
             };
+
+            await FiscalDocumentStatusProjector.EnrichInvoicesAsync(db, response.Invoices, cancellationToken);
 
             try
             {

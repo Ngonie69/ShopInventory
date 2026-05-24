@@ -20,5 +20,11 @@ public static partial class Errors
 
         public static Error CreationFailed(string message) =>
             Error.Failure("CreditNote.CreationFailed", message);
+
+        public static Error BulkCancellationFailed(string message) =>
+            Error.Failure("CreditNote.BulkCancellationFailed", message);
+
+        public static Error DuplicationFailed(string message) =>
+            Error.Failure("CreditNote.DuplicationFailed", message);
     }
 }

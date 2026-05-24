@@ -309,6 +309,7 @@ public static class Permissions
             "PodOperator" => new List<string>
             {
                 ViewDashboard, ViewInvoices,
+                ViewUsers, CreateUsers, EditUsers,
                 ViewTimesheets, ManageTimesheets
             },
             "Driver" => new List<string>

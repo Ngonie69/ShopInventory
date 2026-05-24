@@ -215,6 +215,110 @@ a:hover {
 }
 
 /* ========================================
+   REVMax Cross-Device Credit Note
+   ======================================== */
+
+.dark-theme .rxcn-page {
+    background: linear-gradient(180deg, #0f172a 0%, #111827 100%);
+}
+
+.dark-theme .rxcn-breadcrumb,
+.dark-theme .rxcn-subtitle,
+.dark-theme .rxcn-label,
+.dark-theme .rxcn-help {
+    color: #94a3b8;
+}
+
+.dark-theme .rxcn-breadcrumb a,
+.dark-theme .rxcn-link,
+.dark-theme .rxcn-title,
+.dark-theme .rxcn-card-title,
+.dark-theme .rxcn-value,
+.dark-theme .rxcn-table td {
+    color: #e2e8f0;
+}
+
+.dark-theme .rxcn-card,
+.dark-theme .rxcn-table-wrap {
+    background: #1e293b;
+    border-color: #334155;
+    box-shadow: 0 10px 24px rgba(2, 6, 23, 0.35);
+}
+
+.dark-theme .rxcn-meta-item,
+.dark-theme .rxcn-table td {
+    border-color: #334155;
+}
+
+.dark-theme .rxcn-table th {
+    background: #0f172a;
+    color: #94a3b8;
+}
+
+.dark-theme .rxcn-field input,
+.dark-theme .rxcn-field textarea {
+    background: #0f172a;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+.dark-theme .rxcn-field input::placeholder,
+.dark-theme .rxcn-field textarea::placeholder {
+    color: #64748b;
+}
+
+.dark-theme .rxcn-field input:focus,
+.dark-theme .rxcn-field textarea:focus {
+    border-color: #cbd5e1;
+    box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.15);
+}
+
+.dark-theme .rxcn-btn-secondary {
+    background: #0f172a;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+.dark-theme .rxcn-btn-secondary:hover:not(:disabled) {
+    background: #111827;
+    border-color: #475569;
+    color: #f8fafc;
+}
+
+.dark-theme .rxcn-status-ok {
+    background: rgba(16, 185, 129, 0.18);
+    color: #a7f3d0;
+}
+
+.dark-theme .rxcn-status-warn {
+    background: rgba(245, 158, 11, 0.18);
+    color: #fde68a;
+}
+
+.dark-theme .rxcn-status-muted {
+    background: rgba(148, 163, 184, 0.18);
+    color: #cbd5e1;
+}
+
+.dark-theme .rxcn-alert-success {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(16, 185, 129, 0.35);
+    color: #d1fae5;
+}
+
+.dark-theme .rxcn-alert-warning {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.35);
+    color: #fde68a;
+}
+
+.dark-theme .rxcn-alert-error {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.35);
+    color: #fecaca;
+}
+
+/* ========================================
    Gradient Page Shell (Create Invoice style)
    ======================================== */
 .page-shell {
@@ -3562,6 +3666,92 @@ html.dark-theme {
 .dark-theme .qt-table-wrap {
     background: #1e293b !important;
     border-color: #334155 !important;
+}
+
+.dark-theme .cn-table-header {
+    background: #0f172a !important;
+    border-bottom-color: #334155 !important;
+}
+
+.dark-theme .cn-table-header h6 {
+    color: #f1f5f9 !important;
+}
+
+.dark-theme .cn-count-badge {
+    background: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+.dark-theme .cn-selected-pill {
+    background: #4c1d95 !important;
+    color: #ddd6fe !important;
+}
+
+.dark-theme .btn-cn-outline {
+    background: #1e293b !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
+}
+
+.dark-theme .btn-cn-outline:hover:not(:disabled) {
+    background: #334155 !important;
+    border-color: #64748b !important;
+    color: #f8fafc !important;
+}
+
+.dark-theme .inv-page .status-badge.fiscalised,
+.dark-theme .cn-page .status-badge.fiscalised {
+    background: #14532d !important;
+    color: #bbf7d0 !important;
+}
+
+.dark-theme .inv-page .status-badge.not-fiscalised,
+.dark-theme .cn-page .status-badge.not-fiscalised {
+    background: #7f1d1d !important;
+    color: #fecaca !important;
+}
+
+.dark-theme .inv-page .status-badge.unknown,
+.dark-theme .cn-page .status-badge.unknown {
+    background: #334155 !important;
+    color: #cbd5e1 !important;
+}
+
+.dark-theme .btn-cn-danger {
+    background: rgba(127, 29, 29, .35) !important;
+    border-color: #7f1d1d !important;
+    color: #fca5a5 !important;
+}
+
+.dark-theme .btn-cn-danger:hover:not(:disabled) {
+    background: #7f1d1d !important;
+    border-color: #991b1b !important;
+    color: #fee2e2 !important;
+}
+
+.dark-theme .cn-confirm-summary {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+}
+
+.dark-theme .cn-confirm-count {
+    background: #4c1d95 !important;
+    color: #ddd6fe !important;
+}
+
+.dark-theme .cn-confirm-copy {
+    color: #f1f5f9 !important;
+}
+
+.dark-theme .cn-confirm-subcopy,
+.dark-theme .cn-confirm-field label {
+    color: #94a3b8 !important;
+}
+
+.dark-theme .cn-confirm-textarea {
+    background: #0f172a !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
 }
 
 /* --- Lines table (detail views) --- */

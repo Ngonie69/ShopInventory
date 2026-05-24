@@ -5,6 +5,9 @@ using MediatR;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
+using ShopInventory.Features.Revmax;
+using ShopInventory.Models;
 using ShopInventory.Models.Revmax;
 using ShopInventory.Services;
 
@@ -13,6 +16,9 @@ namespace ShopInventory.Features.Revmax.Commands.TransactExt;
 public sealed class TransactExtHandler(
     IRevmaxClient revmaxClient,
     IOptions<RevmaxSettings> settings,
+    IAuditService auditService,
+    ApplicationDbContext dbContext,
+    IHttpContextAccessor httpContextAccessor,
     ILogger<TransactExtHandler> logger
 ) : IRequestHandler<TransactExtCommand, ErrorOr<TransactMExtResponse>>
 {
@@ -24,24 +30,88 @@ public sealed class TransactExtHandler(
     {
         var request = command.Request;
 
+        if (request is null)
+        {
+            const string error = "Request body is required";
+            await RevmaxFiscalTransactionLog.TryRecordAsync(
+                dbContext,
+                httpContextAccessor,
+                logger,
+                "TransactMExt",
+                null,
+                "Failed",
+                error,
+                rawResponse: new { Error = error },
+                cancellationToken: cancellationToken);
+
+            await RevmaxAudit.TryLogAsync(
+                auditService,
+                AuditActions.CreateRevmaxExtendedTransaction,
+                RevmaxAudit.TransactionEntityType,
+                null,
+                error,
+                false,
+                error);
+
+            return Errors.Revmax.InvalidRequest;
+        }
+
         // Validate request
         var validationErrors = ValidateRequest(request);
         if (validationErrors.Count > 0)
         {
+            var validationMessage = string.Join("; ", validationErrors.Select(error => error.Description));
+            await RevmaxFiscalTransactionLog.TryRecordAsync(
+                dbContext,
+                httpContextAccessor,
+                logger,
+                "TransactMExt",
+                request,
+                "Failed",
+                validationMessage,
+                rawResponse: new { Error = validationMessage },
+                cancellationToken: cancellationToken);
+
+            await RevmaxAudit.TryLogAsync(
+                auditService,
+                AuditActions.CreateRevmaxExtendedTransaction,
+                RevmaxAudit.TransactionEntityType,
+                request.InvoiceNumber,
+                validationMessage,
+                false,
+                validationMessage);
             return validationErrors;
         }
 
         try
         {
-            // Apply defaults
-            request.Currency ??= _settings.DefaultCurrency;
-            request.BranchName ??= _settings.DefaultBranchName;
+            RevmaxRequestNormalizer.ApplyDefaults(request, _settings.DefaultCurrency, _settings.DefaultBranchName);
             request.refDeviceId ??= _settings.DefaultRefDeviceId;
 
             // Process and validate items
             var itemsResult = ProcessAndValidateItems(request);
             if (itemsResult.IsError)
             {
+                var itemError = string.Join("; ", itemsResult.Errors.Select(error => error.Description));
+                await RevmaxFiscalTransactionLog.TryRecordAsync(
+                    dbContext,
+                    httpContextAccessor,
+                    logger,
+                    "TransactMExt",
+                    request,
+                    "Failed",
+                    itemError,
+                    rawResponse: new { Error = itemError },
+                    cancellationToken: cancellationToken);
+
+                await RevmaxAudit.TryLogAsync(
+                    auditService,
+                    AuditActions.CreateRevmaxExtendedTransaction,
+                    RevmaxAudit.TransactionEntityType,
+                    request.InvoiceNumber,
+                    itemError,
+                    false,
+                    itemError);
                 return itemsResult.Errors;
             }
             request.ItemsXml = itemsResult.Value;
@@ -56,6 +126,26 @@ public sealed class TransactExtHandler(
 
                 if (originalInvoice == null || !originalInvoice.Success)
                 {
+                    var error = $"Original invoice {request.OriginalInvoiceNumber} was not found on REVMax.";
+                    await RevmaxFiscalTransactionLog.TryRecordAsync(
+                        dbContext,
+                        httpContextAccessor,
+                        logger,
+                        "TransactMExt",
+                        request,
+                        "Failed",
+                        error,
+                        rawResponse: originalInvoice is null ? new { Error = error } : originalInvoice,
+                        cancellationToken: cancellationToken);
+
+                    await RevmaxAudit.TryLogAsync(
+                        auditService,
+                        AuditActions.CreateRevmaxExtendedTransaction,
+                        RevmaxAudit.TransactionEntityType,
+                        request.InvoiceNumber,
+                        error,
+                        false,
+                        error);
                     return Errors.Revmax.InvoiceNotFound(request.OriginalInvoiceNumber!);
                 }
 
@@ -64,6 +154,26 @@ public sealed class TransactExtHandler(
 
                 if (!hasFiscalEvidence)
                 {
+                    var error = $"Original invoice not fiscalized: {request.OriginalInvoiceNumber}";
+                    await RevmaxFiscalTransactionLog.TryRecordAsync(
+                        dbContext,
+                        httpContextAccessor,
+                        logger,
+                        "TransactMExt",
+                        request,
+                        "Failed",
+                        error,
+                        rawResponse: originalInvoice,
+                        cancellationToken: cancellationToken);
+
+                    await RevmaxAudit.TryLogAsync(
+                        auditService,
+                        AuditActions.CreateRevmaxExtendedTransaction,
+                        RevmaxAudit.TransactionEntityType,
+                        request.InvoiceNumber,
+                        error,
+                        false,
+                        error);
                     return Errors.Revmax.TransactionFailed($"Original invoice not fiscalized: {request.OriginalInvoiceNumber}");
                 }
 
@@ -78,13 +188,33 @@ public sealed class TransactExtHandler(
                 }
 
                 // Check for duplicate credit note fiscalization
-                var existingInvoice = await revmaxClient.GetInvoiceAsync(request.InvoiceNumber!, cancellationToken);
+                var existingInvoice = await GetExistingInvoiceIfAvailableAsync(request.InvoiceNumber!, cancellationToken);
                 if (existingInvoice is { Success: true })
                 {
                     bool isDuplicate = !string.IsNullOrWhiteSpace(existingInvoice.QRcode) ||
                                        (existingInvoice.Data?.ReceiptGlobalNo > 0);
                     if (isDuplicate)
                     {
+                        var error = $"Credit note already fiscalized: {request.InvoiceNumber}";
+                        await RevmaxFiscalTransactionLog.TryRecordAsync(
+                            dbContext,
+                            httpContextAccessor,
+                            logger,
+                            "TransactMExt",
+                            request,
+                            "Fiscalised",
+                            error,
+                            rawResponse: existingInvoice,
+                            cancellationToken: cancellationToken);
+
+                        await RevmaxAudit.TryLogAsync(
+                            auditService,
+                            AuditActions.CreateRevmaxExtendedTransaction,
+                            RevmaxAudit.TransactionEntityType,
+                            request.InvoiceNumber,
+                            error,
+                            false,
+                            error);
                         return Errors.Revmax.TransactionFailed($"Credit note already fiscalized: {request.InvoiceNumber}");
                     }
                 }
@@ -97,13 +227,118 @@ public sealed class TransactExtHandler(
 
             var result = await revmaxClient.TransactMExtAsync(request, cancellationToken);
             if (result is null)
-                return Errors.Revmax.DeviceError("No response from device");
+            {
+                const string error = "No response from device";
+                await RevmaxFiscalTransactionLog.TryRecordAsync(
+                    dbContext,
+                    httpContextAccessor,
+                    logger,
+                    "TransactMExt",
+                    request,
+                    "Failed",
+                    error,
+                    rawResponse: new { Error = error },
+                    cancellationToken: cancellationToken);
+
+                await RevmaxAudit.TryLogAsync(
+                    auditService,
+                    AuditActions.CreateRevmaxExtendedTransaction,
+                    RevmaxAudit.TransactionEntityType,
+                    request.InvoiceNumber,
+                    error,
+                    false,
+                    error);
+                return Errors.Revmax.DeviceError(error);
+            }
+
+            var isSuccess = result.Success;
+            var upstreamMessage = result.Message;
+            var details = isSuccess
+                ? $"Fiscalized REVMax extended {(isCreditNote ? "credit note" : "invoice")} {request.InvoiceNumber}{(string.IsNullOrWhiteSpace(result.ReceiptGlobalNo) ? string.Empty : $" with receipt #{result.ReceiptGlobalNo}")}."
+                : RevmaxFailureDiagnostics.BuildHandledFailureMessage(request.InvoiceNumber, result.Code, upstreamMessage);
+
+            if (!isSuccess)
+            {
+                logger.LogWarning(
+                    "REVMax upstream failure on {Endpoint} for invoice {InvoiceNumber} with code {Code}: {Message}",
+                    "TransactMExt",
+                    request.InvoiceNumber,
+                    result.Code,
+                    upstreamMessage);
+
+                result.Message = details;
+            }
+
+            await RevmaxFiscalTransactionLog.TryRecordAsync(
+                dbContext,
+                httpContextAccessor,
+                logger,
+                "TransactMExt",
+                request,
+                isSuccess ? "Success" : "Failed",
+                details,
+                result,
+                rawResponse: isSuccess
+                    ? null
+                    : RevmaxFailureDiagnostics.BuildHandledFailurePayload(
+                        "TransactMExt",
+                        request.InvoiceNumber,
+                        result,
+                        upstreamMessage,
+                        details),
+                cancellationToken: cancellationToken);
+
+            await RevmaxAudit.TryLogAsync(
+                auditService,
+                AuditActions.CreateRevmaxExtendedTransaction,
+                RevmaxAudit.TransactionEntityType,
+                request.InvoiceNumber,
+                details,
+                isSuccess,
+                isSuccess ? null : details);
+
             return result;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error processing extended transaction for invoice {InvoiceNumber}", request.InvoiceNumber);
+
+            await RevmaxFiscalTransactionLog.TryRecordAsync(
+                dbContext,
+                httpContextAccessor,
+                logger,
+                "TransactMExt",
+                request,
+                "Failed",
+                ex.Message,
+                rawResponse: new { Error = ex.Message, Type = ex.GetType().Name },
+                cancellationToken: cancellationToken);
+
+            await RevmaxAudit.TryLogAsync(
+                auditService,
+                AuditActions.CreateRevmaxExtendedTransaction,
+                RevmaxAudit.TransactionEntityType,
+                request.InvoiceNumber,
+                ex.Message,
+                false,
+                ex.Message);
+
             return Errors.Revmax.TransactionFailed(ex.Message);
+        }
+    }
+
+    private async Task<InvoiceResponse?> GetExistingInvoiceIfAvailableAsync(
+        string invoiceNumber,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await revmaxClient.GetInvoiceAsync(invoiceNumber, cancellationToken);
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogDebug(ex, "REVMax invoice {InvoiceNumber} was not found during duplicate fiscalization check", invoiceNumber);
+            return null;
         }
     }
 

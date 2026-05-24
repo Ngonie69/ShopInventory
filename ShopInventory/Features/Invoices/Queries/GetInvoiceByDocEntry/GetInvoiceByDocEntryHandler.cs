@@ -1,7 +1,9 @@
 using ErrorOr;
 using MediatR;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Mappings;
 using ShopInventory.Services;
@@ -10,6 +12,7 @@ using Microsoft.Extensions.Options;
 namespace ShopInventory.Features.Invoices.Queries.GetInvoiceByDocEntry;
 
 public sealed class GetInvoiceByDocEntryHandler(
+    ApplicationDbContext dbContext,
     ISAPServiceLayerClient sapClient,
     IOptions<SAPSettings> settings,
     ILogger<GetInvoiceByDocEntryHandler> logger
@@ -28,7 +31,9 @@ public sealed class GetInvoiceByDocEntryHandler(
             if (invoice is null)
                 return Errors.Invoice.NotFound(request.DocEntry);
 
-            return invoice.ToDto();
+            var invoiceDto = invoice.ToDto();
+            await FiscalDocumentStatusProjector.EnrichInvoiceAsync(dbContext, invoiceDto, cancellationToken);
+            return invoiceDto;
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {

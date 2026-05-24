@@ -52,6 +52,7 @@ using ShopInventory.Features.DesktopIntegration.Queries.ValidateInvoice;
 using ShopInventory.Features.DesktopIntegration.Queries.ValidateStockAvailability;
 using ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
+using ShopInventory.Features.DesktopIntegration.Commands.BackfillFiscalTransactions;
 using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
 using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
@@ -318,6 +319,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         [FromQuery] string? search = null,
         [FromQuery] string? status = null,
         [FromQuery] string? documentType = null,
+        [FromQuery] string? sourceSystem = null,
         [FromQuery] DateTime? fromUtc = null,
         [FromQuery] DateTime? toUtc = null,
         [FromQuery] int page = 1,
@@ -325,8 +327,24 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new GetFiscalTransactionsQuery(search, status, documentType, fromUtc, toUtc, page, pageSize),
+            new GetFiscalTransactionsQuery(search, status, documentType, sourceSystem, fromUtc, toUtc, page, pageSize),
             cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpPost("fiscal-transactions/backfill")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<IActionResult> BackfillFiscalTransactions(
+        [FromBody] BackfillFiscalTransactionsRequest? request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new BackfillFiscalTransactionsCommand(
+                request ?? new BackfillFiscalTransactionsRequest(),
+                GetUserId(),
+                GetUsername()),
+            cancellationToken);
+
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

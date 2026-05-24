@@ -122,17 +122,24 @@ public class AuditService : IAuditService
     private readonly HttpClient _httpClient;
     private readonly ILogger<AuditService> _logger;
     private readonly AuthenticationStateProvider _authStateProvider;
+    private readonly WebClientAuditContext _clientAuditContext;
 
     private const int ApiActivityPageSize = 500;
     private const int LocalAuditPageSize = 500;
     private static readonly TimeSpan AuditDeduplicationWindow = TimeSpan.FromSeconds(5);
 
-    public AuditService(IDbContextFactory<WebAppDbContext> dbContextFactory, HttpClient httpClient, ILogger<AuditService> logger, AuthenticationStateProvider authStateProvider)
+    public AuditService(
+        IDbContextFactory<WebAppDbContext> dbContextFactory,
+        HttpClient httpClient,
+        ILogger<AuditService> logger,
+        AuthenticationStateProvider authStateProvider,
+        WebClientAuditContext clientAuditContext)
     {
         _dbContextFactory = dbContextFactory;
         _httpClient = httpClient;
         _logger = logger;
         _authStateProvider = authStateProvider;
+        _clientAuditContext = clientAuditContext;
     }
 
     public async Task LogAsync(string action, string username, string userRole, string? entityType = null,
@@ -151,6 +158,8 @@ public class AuditService : IAuditService
                 EntityType = entityType,
                 EntityId = entityId,
                 Details = details,
+                IpAddress = TruncateOrNull(_clientAuditContext.IpAddress, 50),
+                UserAgent = TruncateOrNull(_clientAuditContext.UserAgent, 500),
                 PageUrl = pageUrl,
                 IsSuccess = isSuccess,
                 ErrorMessage = errorMessage,
@@ -166,6 +175,17 @@ public class AuditService : IAuditService
         {
             _logger.LogError(ex, "Failed to create audit log for action {Action}", action);
         }
+    }
+
+    private static string? TruncateOrNull(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        return trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength];
     }
 
     public async Task<List<AuditLog>> GetLogsAsync(DateTime? fromDate = null, DateTime? toDate = null,

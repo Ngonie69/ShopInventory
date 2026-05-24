@@ -26,6 +26,9 @@ public abstract class CrateTrackingPageBase : ComponentBase
     protected bool canManageOpeningBalances;
     protected bool canRaiseGrvs;
     protected bool canChoosePodRole;
+    protected bool canSubmitPods;
+    protected bool canViewCrateTransactions;
+    protected bool canViewCrateGrvs;
 
     protected string? transactionSearch;
     protected string? transactionStatusFilter;
@@ -99,11 +102,19 @@ public abstract class CrateTrackingPageBase : ComponentBase
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = authState.User;
 
-        canManageOpeningBalances = user.IsInRole("Admin");
-        canRaiseGrvs = user.IsInRole("Admin") || user.IsInRole("Manager") || user.IsInRole("Merchandiser");
-        canChoosePodRole = user.IsInRole("Admin") || user.IsInRole("Manager");
+        var isAdmin = user.IsInRole("Admin");
+        var isManager = user.IsInRole("Manager");
+        var isMerchandiser = user.IsInRole("Merchandiser");
+        var isDriver = user.IsInRole("Driver");
 
-        selectedPodRole = user.IsInRole("Merchandiser")
+        canManageOpeningBalances = isAdmin;
+        canRaiseGrvs = isAdmin || isManager || isMerchandiser;
+        canChoosePodRole = isAdmin || isManager;
+        canSubmitPods = isAdmin || isManager || isMerchandiser || isDriver;
+        canViewCrateTransactions = canSubmitPods;
+        canViewCrateGrvs = canRaiseGrvs || isDriver;
+
+        selectedPodRole = isMerchandiser
             ? "Merchandiser"
             : "Driver";
     }
@@ -115,9 +126,13 @@ public abstract class CrateTrackingPageBase : ComponentBase
 
         try
         {
-            var transactionTask = CrateTrackingService.GetTransactionsAsync(transactionSearch, transactionStatusFilter);
+            var transactionTask = canViewCrateTransactions
+                ? CrateTrackingService.GetTransactionsAsync(transactionSearch, transactionStatusFilter)
+                : Task.FromResult<List<CrateTransactionDto>?>([]);
             var podTask = CrateTrackingService.GetPodsAsync();
-            var grvTask = CrateTrackingService.GetGrvsAsync();
+            var grvTask = canViewCrateGrvs
+                ? CrateTrackingService.GetGrvsAsync()
+                : Task.FromResult<List<CrateGrvDto>?>([]);
 
             await Task.WhenAll(transactionTask, podTask, grvTask);
 

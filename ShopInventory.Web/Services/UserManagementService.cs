@@ -1,4 +1,3 @@
-using Blazored.LocalStorage;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Models;
 using System.Net;
@@ -50,19 +49,18 @@ public class UserManagementService : IUserManagementService
 {
     private const int AuthTokenReadAttempts = 3;
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ILocalStorageService _localStorage;
+    private readonly CustomAuthStateProvider _authStateProvider;
     private readonly IAppSettingsService _appSettingsService;
     private readonly ILogger<UserManagementService> _logger;
-    private string? _cachedAccessToken;
 
     public UserManagementService(
         IHttpClientFactory httpClientFactory,
-        ILocalStorageService localStorage,
+        CustomAuthStateProvider authStateProvider,
         IAppSettingsService appSettingsService,
         ILogger<UserManagementService> logger)
     {
         _httpClientFactory = httpClientFactory;
-        _localStorage = localStorage;
+        _authStateProvider = authStateProvider;
         _appSettingsService = appSettingsService;
         _logger = logger;
     }
@@ -457,18 +455,13 @@ public class UserManagementService : IUserManagementService
     {
         var client = _httpClientFactory.CreateClient("ShopInventoryApiUser");
 
-        if (!string.IsNullOrWhiteSpace(_cachedAccessToken))
-        {
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _cachedAccessToken);
-        }
-
         Exception? lastException = null;
 
         for (var attempt = 1; attempt <= AuthTokenReadAttempts; attempt++)
         {
             try
             {
-                var token = await _localStorage.GetItemAsync<string>("authToken");
+                var token = await _authStateProvider.GetAccessTokenAsync();
                 if (string.IsNullOrWhiteSpace(token))
                 {
                     lastException = new HttpRequestException(
@@ -478,7 +471,6 @@ public class UserManagementService : IUserManagementService
                 }
                 else
                 {
-                    _cachedAccessToken = token;
                     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
                     return client;
                 }
@@ -486,7 +478,7 @@ public class UserManagementService : IUserManagementService
             catch (Exception ex) when (ex is not HttpRequestException)
             {
                 lastException = ex;
-                _logger.LogDebug(ex, "Could not access auth token for user management API call on attempt {Attempt}", attempt);
+                _logger.LogDebug(ex, "Could not resolve auth token for user management API call on attempt {Attempt}", attempt);
             }
 
             if (attempt < AuthTokenReadAttempts)
@@ -495,32 +487,16 @@ public class UserManagementService : IUserManagementService
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(_cachedAccessToken))
+        if (lastException is HttpRequestException httpRequestException)
         {
-            _logger.LogWarning(lastException, "Falling back to cached auth token for user management API call");
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _cachedAccessToken);
-            return client;
+            throw httpRequestException;
         }
 
-        try
-        {
-            throw lastException ?? new HttpRequestException(
-                "Authentication failed. Please log out and log in again.",
-                null,
-                HttpStatusCode.Unauthorized);
-        }
-        catch (HttpRequestException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not access auth token for user management API call");
-            throw new HttpRequestException(
-                "Authentication failed. Please log out and log in again.",
-                null,
-                HttpStatusCode.Unauthorized);
-        }
+        _logger.LogWarning(lastException, "Could not resolve auth token for user management API call");
+        throw new HttpRequestException(
+            "Authentication failed. Please log out and log in again.",
+            null,
+            HttpStatusCode.Unauthorized);
     }
 
     private static async Task ThrowApiExceptionAsync(HttpResponseMessage response, string fallbackMessage)

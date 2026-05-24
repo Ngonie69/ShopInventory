@@ -53,10 +53,10 @@ public class SAPCreditNote
     public string? Cancelled { get; set; } // tYES, tNO
 
     [JsonPropertyName("DiscountPercent")]
-    public decimal DiscountPercent { get; set; }
+    public decimal? DiscountPercent { get; set; }
 
     [JsonPropertyName("TotalDiscount")]
-    public decimal TotalDiscount { get; set; }
+    public decimal? TotalDiscount { get; set; }
 
     [JsonPropertyName("Address")]
     public string? Address { get; set; }
@@ -108,7 +108,7 @@ public class SAPCreditNoteLine
     public string? TaxCode { get; set; }
 
     [JsonPropertyName("DiscountPercent")]
-    public decimal DiscountPercent { get; set; }
+    public decimal? DiscountPercent { get; set; }
 
     [JsonPropertyName("UoMCode")]
     public string? UoMCode { get; set; }

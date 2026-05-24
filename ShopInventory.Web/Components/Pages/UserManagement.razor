@@ -3,7 +3,7 @@
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @using Microsoft.AspNetCore.Components.Authorization
-@attribute [Authorize(Roles = "Admin")]
+@attribute [Authorize(Roles = "Admin,PodOperator")]
 @inject IUserManagementService UserService
 @inject IAuditService AuditService
 @inject AuthenticationStateProvider AuthStateProvider
@@ -23,20 +23,31 @@
                 <i class="bi bi-people-fill"></i>
             </div>
             <div>
-                <h1 class="um-title">User Management</h1>
-                <p class="um-subtitle">Manage accounts, permissions, and security</p>
+                <h1 class="um-title">@(isPodOperatorView ? "Driver Management" : "User Management")</h1>
+                <p class="um-subtitle">@(isPodOperatorView ? "Create and manage driver accounts for POD operations" : "Manage accounts, permissions, and security")</p>
             </div>
         </div>
         <div class="um-header-actions">
-            <button class="um-btn um-btn-primary" @onclick="ShowCreateMobileUserModal"
-                    title="Create a PodOperator user for mobile POD uploads">
-                <i class="bi bi-phone"></i>
-                <span>Add Mobile User</span>
-            </button>
-            <button class="um-btn um-btn-primary" @onclick="ShowCreateModal">
-                <i class="bi bi-plus-lg"></i>
-                <span>Add User</span>
-            </button>
+            @if (isPodOperatorView)
+            {
+                <button class="um-btn um-btn-primary" @onclick="ShowCreateModal"
+                        title="Create a driver account for POD operations">
+                    <i class="bi bi-truck"></i>
+                    <span>Add Driver</span>
+                </button>
+            }
+            else
+            {
+                <button class="um-btn um-btn-primary" @onclick="ShowCreateMobileUserModal"
+                        title="Create a PodOperator user for mobile POD uploads">
+                    <i class="bi bi-phone"></i>
+                    <span>Add Mobile User</span>
+                </button>
+                <button class="um-btn um-btn-primary" @onclick="ShowCreateModal">
+                    <i class="bi bi-plus-lg"></i>
+                    <span>Add User</span>
+                </button>
+            }
         </div>
     </div>
 
@@ -46,12 +57,15 @@
             <i class="bi bi-people"></i> Users
             <span class="um-tab-count">@users.Count</span>
         </button>
-        <button class="um-tab @(activeTab == "permissions" ? "active" : "")" @onclick="@(() => SetTab("permissions"))">
-            <i class="bi bi-shield-lock"></i> Permissions
-        </button>
-        <button class="um-tab @(activeTab == "security" ? "active" : "")" @onclick="@(() => SetTab("security"))">
-            <i class="bi bi-fingerprint"></i> Security
-        </button>
+        @if (!isPodOperatorView)
+        {
+            <button class="um-tab @(activeTab == "permissions" ? "active" : "")" @onclick="@(() => SetTab("permissions"))">
+                <i class="bi bi-shield-lock"></i> Permissions
+            </button>
+            <button class="um-tab @(activeTab == "security" ? "active" : "")" @onclick="@(() => SetTab("security"))">
+                <i class="bi bi-fingerprint"></i> Security
+            </button>
+        }
     </div>
 
     @if (activeTab == "users")
@@ -63,21 +77,23 @@
                 <input type="text" placeholder="Search by name or email..." @bind="searchTerm" @bind:event="oninput"
                        @onkeyup="OnSearchKeyUp" />
             </div>
-            <select class="um-select" @bind="roleFilter" @bind:after="LoadUsers">
-                <option value="">All Roles</option>
-                @foreach (var role in availableRoles)
-                {
-                    <option value="@role">@role</option>
-                }
-            </select>
+            @if (!isPodOperatorView)
+            {
+                <select class="um-select" @bind="roleFilter" @bind:after="LoadUsers">
+                    <option value="">All Roles</option>
+                    @foreach (var role in availableRoles)
+                    {
+                        <option value="@role">@role</option>
+                    }
+                </select>
+            }
             <select class="um-select" @bind="statusFilter" @bind:after="LoadUsers">
                 <option value="">All Status</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
                 <option value="locked">Locked</option>
             </select>
-            @if (!string.IsNullOrEmpty(searchTerm) || !string.IsNullOrEmpty(roleFilter) ||
-                                                                                                                                                                                                        !string.IsNullOrEmpty(statusFilter))
+            @if (HasActiveFilters)
             {
                 <button class="um-btn um-btn-ghost" @onclick="ResetFilters">
                     <i class="bi bi-x-lg"></i> Clear
@@ -138,56 +154,59 @@
                             <button class="um-action-btn" @onclick="@(() => ShowEditModal(user))" title="Edit user">
                                 <i class="bi bi-pencil-square"></i>
                             </button>
-                            <button class="um-action-btn" @onclick="@(() => ShowPermissionsModal(user))" title="Manage permissions">
-                                <i class="bi bi-shield-lock"></i>
-                            </button>
-                            <div class="um-action-more">
-                                <button class="um-action-btn" @onclick="() => ToggleActionMenu(user.Id)" title="More actions">
-                                    <i class="bi bi-three-dots-vertical"></i>
+                            @if (!isPodOperatorView)
+                            {
+                                <button class="um-action-btn" @onclick="@(() => ShowPermissionsModal(user))" title="Manage permissions">
+                                    <i class="bi bi-shield-lock"></i>
                                 </button>
-                                @if (openMenuUserId == user.Id)
-                                {
-                                    <div class="um-dropdown-menu" @onclick:stopPropagation="true">
-                                        @if (user.IsLocked)
-                                        {
+                                <div class="um-action-more">
+                                    <button class="um-action-btn" @onclick="() => ToggleActionMenu(user.Id)" title="More actions">
+                                        <i class="bi bi-three-dots-vertical"></i>
+                                    </button>
+                                    @if (openMenuUserId == user.Id)
+                                    {
+                                        <div class="um-dropdown-menu" @onclick:stopPropagation="true">
+                                            @if (user.IsLocked)
+                                            {
+                                                <button class="um-dropdown-item"
+                                                        @onclick="@(async () => { CloseActionMenu(); await UnlockUser(user); })">
+                                                    <i class="bi bi-unlock-fill text-warning"></i> Unlock Account
+                                                </button>
+                                            }
+                                            @if (user.TwoFactorEnabled)
+                                            {
+                                                <button class="um-dropdown-item"
+                                                        @onclick="@(async () => { CloseActionMenu(); await ResetTwoFactor(user); })">
+                                                    <i class="bi bi-shield-x text-secondary"></i> Reset 2FA
+                                                </button>
+                                            }
                                             <button class="um-dropdown-item"
-                                                    @onclick="@(async () => { CloseActionMenu(); await UnlockUser(user); })">
-                                                <i class="bi bi-unlock-fill text-warning"></i> Unlock Account
+                                                    @onclick="@(() => { CloseActionMenu(); ShowResetPasswordModal(user); })">
+                                                <i class="bi bi-key-fill text-warning"></i> Reset Password
                                             </button>
-                                        }
-                                        @if (user.TwoFactorEnabled)
-                                        {
-                                            <button class="um-dropdown-item"
-                                                    @onclick="@(async () => { CloseActionMenu(); await ResetTwoFactor(user); })">
-                                                <i class="bi bi-shield-x text-secondary"></i> Reset 2FA
-                                            </button>
-                                        }
-                                        <button class="um-dropdown-item"
-                                                @onclick="@(() => { CloseActionMenu(); ShowResetPasswordModal(user); })">
-                                            <i class="bi bi-key-fill text-warning"></i> Reset Password
-                                        </button>
-                                        @if (user.IsActive)
-                                        {
+                                            @if (user.IsActive)
+                                            {
+                                                <button class="um-dropdown-item um-dropdown-danger"
+                                                        @onclick="@(async () => { CloseActionMenu(); await ConfirmDeactivate(user); })">
+                                                    <i class="bi bi-person-dash-fill"></i> Deactivate User
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <button class="um-dropdown-item um-dropdown-success"
+                                                        @onclick="@(async () => { CloseActionMenu(); await ActivateUser(user); })">
+                                                    <i class="bi bi-person-check-fill"></i> Activate User
+                                                </button>
+                                            }
+                                            <div class="um-dropdown-divider"></div>
                                             <button class="um-dropdown-item um-dropdown-danger"
-                                                    @onclick="@(async () => { CloseActionMenu(); await ConfirmDeactivate(user); })">
-                                                <i class="bi bi-person-dash-fill"></i> Deactivate User
+                                                    @onclick="@(() => { CloseActionMenu(); ConfirmDeleteUser(user); })">
+                                                <i class="bi bi-trash-fill"></i> Delete User
                                             </button>
-                                        }
-                                        else
-                                        {
-                                            <button class="um-dropdown-item um-dropdown-success"
-                                                    @onclick="@(async () => { CloseActionMenu(); await ActivateUser(user); })">
-                                                <i class="bi bi-person-check-fill"></i> Activate User
-                                            </button>
-                                        }
-                                        <div class="um-dropdown-divider"></div>
-                                        <button class="um-dropdown-item um-dropdown-danger"
-                                                @onclick="@(() => { CloseActionMenu(); ConfirmDeleteUser(user); })">
-                                            <i class="bi bi-trash-fill"></i> Delete User
-                                        </button>
-                                    </div>
-                                }
-                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
                         </div>
                     </div>
                 }
@@ -3025,10 +3044,11 @@
     private int pageSize = 10;
     private int totalPages = 1;
     private string activeTab = "users";
+    private string currentUserRole = string.Empty;
 
-    private List<string> availableRoles = new() { "Admin", "Cashier", "StockController", "DepotController", "PodOperator",
-"Driver",
-"Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab" };
+    private static readonly List<string> AdminAvailableRoles = new() { "Admin", "Cashier", "StockController", "DepotController", "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab" };
+    private static readonly List<string> PodOperatorAvailableRoles = new() { "Driver" };
+    private List<string> availableRoles = new(AdminAvailableRoles);
     private List<string> availableSections = AssignedSectionOptions.All.ToList();
     private List<WarehouseDto> availableWarehouses = new();
     private bool isLoadingWarehouses = false;
@@ -3114,6 +3134,9 @@
     private bool showDeleteConfirmModal = false;
     private UserDisplayModel? deleteTargetUser;
 
+    private bool isPodOperatorView => string.Equals(currentUserRole, "PodOperator", StringComparison.OrdinalIgnoreCase);
+    private bool HasActiveFilters => !string.IsNullOrEmpty(searchTerm) || !string.IsNullOrEmpty(statusFilter) || (!isPodOperatorView && !string.IsNullOrEmpty(roleFilter));
+
     private void SetTab(string tab) => activeTab = tab;
 
     private void ToggleActionMenu(Guid userId)
@@ -3145,14 +3168,23 @@
         {
             _hasLoadedData = true;
             // Ensure auth token is set on HttpClient before calling API
-            await AuthStateProvider.GetAuthenticationStateAsync();
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            currentUserRole = authState.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? string.Empty;
+            availableRoles = isPodOperatorView ? new List<string>(PodOperatorAvailableRoles) : new List<string>(AdminAvailableRoles);
+            roleFilter = isPodOperatorView ? "Driver" : string.Empty;
+            activeTab = "users";
             await LoadUsers();
-            await LoadPermissions();
-            await LoadSecurityStats();
-            await LoadWarehouses();
-            await LoadCustomers();
-            await LoadGLAccounts();
-            await LoadPaymentBPs();
+
+            if (!isPodOperatorView)
+            {
+                await LoadPermissions();
+                await LoadSecurityStats();
+                await LoadWarehouses();
+                await LoadCustomers();
+                await LoadGLAccounts();
+                await LoadPaymentBPs();
+            }
+
             StateHasChanged();
         }
     }
@@ -3426,7 +3458,7 @@ new();
     private async Task ResetFilters()
     {
         searchTerm = string.Empty;
-        roleFilter = string.Empty;
+        roleFilter = isPodOperatorView ? "Driver" : string.Empty;
         statusFilter = string.Empty;
         currentPage = 1;
         await LoadUsers();
@@ -3455,7 +3487,7 @@ new();
     private void ShowCreateModal()
     {
         editingUser = null;
-        userModel = new UserFormModel { Role = "Cashier", IsActive = true, IsNew = true };
+        userModel = new UserFormModel { Role = isPodOperatorView ? "Driver" : "Cashier", IsActive = true, IsNew = true };
         showUserModal = true;
     }
 

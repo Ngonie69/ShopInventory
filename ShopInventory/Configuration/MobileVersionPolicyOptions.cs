@@ -25,4 +25,6 @@ public class MobileVersionPolicyOptions
     public string? WarnMessage { get; set; }
 
     public string? BlockMessage { get; set; }
+
+    public Dictionary<string, MobileVersionPolicyProfileOptions> Apps { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }

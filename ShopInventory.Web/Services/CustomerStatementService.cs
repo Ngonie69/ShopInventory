@@ -107,10 +107,16 @@ public class CustomerStatementService : ICustomerStatementService
                 invoiceCardCode => GetInvoicesForPeriodAsync(invoiceCardCode, request.FromDate, request.ToDate, request.IncludeClosedInvoices),
                 StringComparer.OrdinalIgnoreCase);
 
+            var creditNoteTasksByCardCode = invoiceCardCodes.ToDictionary(
+                invoiceCardCode => invoiceCardCode,
+                invoiceCardCode => GetCreditNotesForPeriodAsync(invoiceCardCode, request.FromDate, request.ToDate),
+                StringComparer.OrdinalIgnoreCase);
+
             var paymentsTask = GetPaymentHistoryForCardCodesAsync(invoiceCardCodes, request.FromDate, request.ToDate);
 
             await Task.WhenAll(
                 invoiceTasksByCardCode.Values.Cast<Task>()
+                    .Concat(creditNoteTasksByCardCode.Values.Cast<Task>())
                     .Append(paymentsTask)
                     .Append(paymentTermsTask)
                     .Append(agingTask));
@@ -123,14 +129,15 @@ public class CustomerStatementService : ICustomerStatementService
             }
 
             var allInvoices = invoiceTasksByCardCode.Values.SelectMany(task => task.Result).ToList();
+            var allCreditNotes = creditNoteTasksByCardCode.Values.SelectMany(task => task.Result).ToList();
             var allPayments = paymentsTask.Result;
 
             // Combine and sort transactions
-            var allTransactions = new List<(DateTime Date, string Type, StatementLine Line)>();
+            var allTransactions = new List<(DateTime Date, int SortOrder, StatementLine Line)>();
 
             foreach (var invoice in allInvoices)
             {
-                allTransactions.Add((invoice.DocDate, "Invoice", new StatementLine
+                allTransactions.Add((invoice.DocDate, 10, new StatementLine
                 {
                     Date = invoice.DocDate,
                     DocumentType = "Invoice",
@@ -144,9 +151,29 @@ public class CustomerStatementService : ICustomerStatementService
                 }));
             }
 
+            foreach (var creditNote in allCreditNotes)
+            {
+                var documentNumber = creditNote.SAPDocNum?.ToString() ?? creditNote.CreditNoteNumber;
+                allTransactions.Add((creditNote.CreditNoteDate, 20, new StatementLine
+                {
+                    Date = creditNote.CreditNoteDate,
+                    DocumentType = "Credit Note",
+                    DocumentNumber = documentNumber,
+                    Description = !string.IsNullOrWhiteSpace(creditNote.Comments)
+                        ? creditNote.Comments
+                        : !string.IsNullOrWhiteSpace(creditNote.Reason)
+                            ? creditNote.Reason
+                            : $"Credit Note #{documentNumber}",
+                    Debit = 0,
+                    Credit = Math.Abs(creditNote.DocTotal),
+                    Currency = creditNote.Currency,
+                    Status = creditNote.StatusName
+                }));
+            }
+
             foreach (var payment in allPayments)
             {
-                allTransactions.Add((payment.DocDate, "Payment", new StatementLine
+                allTransactions.Add((payment.DocDate, 30, new StatementLine
                 {
                     Date = payment.DocDate,
                     DocumentType = "Payment",
@@ -160,14 +187,19 @@ public class CustomerStatementService : ICustomerStatementService
             }
 
             // Sort by date
-            allTransactions = allTransactions.OrderBy(t => t.Date).ToList();
+            allTransactions = allTransactions
+                .OrderBy(t => t.Date)
+                .ThenBy(t => t.SortOrder)
+                .ThenBy(t => t.Line.DocumentNumber)
+                .ToList();
 
             // Calculate opening balance: current SAP balance - period debits + period credits
             // This backs out period activity to get the balance "as at" the from date
             var totalInvoiced = allInvoices.Sum(i => i.DocTotal);
             var totalPaid = allPayments.Sum(p => p.DocTotal);
+            var totalCreditNotes = allCreditNotes.Sum(c => Math.Abs(c.DocTotal));
             var currentBalance = response.Customer.Balance;
-            response.OpeningBalance = currentBalance - totalInvoiced + totalPaid;
+            response.OpeningBalance = currentBalance - totalInvoiced + totalPaid + totalCreditNotes;
 
             // Calculate running balance
             decimal runningBalance = response.OpeningBalance;
@@ -837,6 +869,32 @@ public class CustomerStatementService : ICustomerStatementService
         {
             _logger.LogError(ex, "Error getting invoices for period");
             return new List<CustomerInvoiceSummary>();
+        }
+    }
+
+    private async Task<List<CreditNoteDto>> GetCreditNotesForPeriodAsync(
+        string cardCode, DateTime fromDate, DateTime toDate)
+    {
+        try
+        {
+            var response = await _creditNoteService.GetCreditNotesAsync(
+                page: 1,
+                pageSize: 1000,
+                cardCode: cardCode,
+                fromDate: fromDate,
+                toDate: toDate);
+
+            var creditNotes = response?.CreditNotes ?? new List<CreditNoteDto>();
+            return creditNotes
+                .Where(c => c.Status != CreditNoteStatus.Cancelled && c.Status != CreditNoteStatus.Voided)
+                .Where(c => c.CreditNoteDate >= fromDate && c.CreditNoteDate <= toDate)
+                .OrderBy(c => c.CreditNoteDate)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting credit notes for statement period");
+            return new List<CreditNoteDto>();
         }
     }
 

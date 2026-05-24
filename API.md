@@ -1587,9 +1587,15 @@ Proxy endpoints for the REVMax fiscal device (ZIMRA compliance).
 |--------|----------|-------------|
 | GET | `/api/revmax/card-details` | Fiscal device card details (TIN, BPN, serial number) |
 | GET | `/api/revmax/day-status` | Current fiscal day status |
-| POST | `/api/revmax/invoice` | Submit invoice for fiscalization |
-| POST | `/api/revmax/credit-note` | Submit credit note for fiscalization |
-| GET | `/api/revmax/report` | Get fiscal report (Z-report) |
+| GET | `/api/revmax/license` | Get the active REVMax license |
+| POST | `/api/revmax/license` | Set or replace the active REVMax license |
+| GET | `/api/revmax/z-report` | Get fiscal report (Z-report) |
+| GET | `/api/revmax/invoices/{invoiceNumber}` | Get a fiscalized invoice by invoice number |
+| GET | `/api/revmax/unprocessed-invoices/summary` | Get the summary of invoices still pending processing on REVMax |
+| POST | `/api/revmax/transact` | Submit a standard fiscal transaction |
+| POST | `/api/revmax/transact-ext` | Submit an extended fiscal transaction used to fiscalise credit notes where the original invoice was fiscalised on a different device |
+
+`/api/revmax/transact-ext` proxies REVMax `TransactMExt` and extends the standard transaction payload with `refDeviceId`, `refReceiptGlobalNo`, and `refFiscalDayNo`. Use it when the credit note must reference a prior fiscalized invoice from a different device.
 
 **VAT Rate:** 15.5% (configurable)
 

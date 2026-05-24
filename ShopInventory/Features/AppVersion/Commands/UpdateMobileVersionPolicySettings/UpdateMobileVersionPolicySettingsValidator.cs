@@ -1,5 +1,6 @@
 using FluentValidation;
 using ShopInventory.DTOs;
+using ShopInventory.Features.AppVersion;
 
 namespace ShopInventory.Features.AppVersion.Commands.UpdateMobileVersionPolicySettings;
 
@@ -7,6 +8,10 @@ public sealed class UpdateMobileVersionPolicySettingsValidator : AbstractValidat
 {
     public UpdateMobileVersionPolicySettingsValidator()
     {
+        RuleFor(x => x.Request.AppId)
+            .Must(MobileVersionPolicyAppCatalog.IsSupportedPolicyKey)
+            .WithMessage("App ID must target a supported mobile app policy.");
+
         RuleFor(x => x.Request.LatestVersion)
             .Must(BeEmptyOrValidVersion)
             .WithMessage("Latest version must be a valid version like 1.0.2.");

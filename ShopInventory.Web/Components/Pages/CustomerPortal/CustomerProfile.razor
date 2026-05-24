@@ -4,6 +4,7 @@
 @inject ICustomerPortalSessionService CustomerSession
 @inject NavigationManager NavigationManager
 @inject ILogger<CustomerProfile> Logger
+@inject WebClientAuditContext ClientAuditContext
 @attribute [AllowAnonymous]
 @rendermode InteractiveServer
 @layout CustomerPortalLayout
@@ -210,7 +211,7 @@
 
         try
         {
-            var ipAddress = "127.0.0.1";
+            var ipAddress = GetClientIpAddress();
             var result = await CustomerAuthService.ChangePasswordAsync(customerInfo.CardCode, passwordRequest, ipAddress);
 
             if (!result.Success)
@@ -240,4 +241,8 @@
     {
         return $"${amount:N2}";
     }
+
+    private string GetClientIpAddress() => string.IsNullOrWhiteSpace(ClientAuditContext.IpAddress)
+        ? "unknown"
+        : ClientAuditContext.IpAddress;
 }

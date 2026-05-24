@@ -21,6 +21,10 @@ public class InvoiceDto
     public decimal PaidToDate { get; set; }
     public decimal VatSum { get; set; }
     public string? DocCurrency { get; set; }
+    public bool? IsFiscalized { get; set; }
+    public string FiscalizationStatus { get; set; } = "Unknown";
+    public int? FiscalReceiptGlobalNo { get; set; }
+    public DateTime? FiscalizedAtUtc { get; set; }
 
     // Address & tax fields (populated from SAP invoice + business partner)
     public string? BillToAddress { get; set; }

@@ -1975,6 +1975,7 @@
     private bool isPrinting = false;
     private bool notifyCustomerByEmail = true;
     private InvoiceDto? lastCreatedInvoice;
+    private FiscalizationResult? lastFiscalizationResult;
 
     // Print dialog state
     private bool showPrintDialog = false;
@@ -3204,6 +3205,7 @@ customerPriceListPrices.Count, priceListNum);
 
                 // Store reference for manual print button
                 lastCreatedInvoice = createdInvoice;
+                lastFiscalizationResult = fiscalization;
 
                 ClearForm();
                 QueueInvoicePostCreateWork(
@@ -3211,7 +3213,8 @@ customerPriceListPrices.Count, priceListNum);
                     postCreateNotifyByEmail,
                     postCreateCardCode,
                     postCreateCustomerName,
-                    postCreateCustomerEmail);
+                    postCreateCustomerEmail,
+                    fiscalization);
             }
             else
             {
@@ -3250,7 +3253,8 @@ customerPriceListPrices.Count, priceListNum);
         bool notifyByEmail,
         string? cardCode,
         string customerName,
-        string? customerEmail)
+        string? customerEmail,
+        FiscalizationResult? fiscalization)
     {
         _ = InvokeAsync(async () =>
         {
@@ -3269,7 +3273,7 @@ customerPriceListPrices.Count, priceListNum);
                     StateHasChanged();
                 }
 
-                await TryAutoPrintInvoiceAsync(createdInvoice);
+                await TryAutoPrintInvoiceAsync(createdInvoice, fiscalization?.QRCode);
                 await AuditService.LogAsync(AuditActions.CreateInvoice, "Invoice", createdInvoice?.DocNum.ToString());
             }
             catch (Exception ex)
@@ -3340,7 +3344,7 @@ customerPriceListPrices.Count, priceListNum);
         return "Notification email failed to send.";
     }
 
-    private async Task TryAutoPrintInvoiceAsync(InvoiceDto? createdInvoice)
+    private async Task TryAutoPrintInvoiceAsync(InvoiceDto? createdInvoice, string? fiscalQrCode)
     {
         try
         {
@@ -3351,7 +3355,7 @@ customerPriceListPrices.Count, priceListNum);
             Logger.LogInformation("Auto-printing invoice #{DocNum} (DocEntry: {DocEntry})",
             createdInvoice.DocNum, createdInvoice.DocEntry);
 
-            var pdfBytes = await InvoiceService.GetInvoicePdfAsync(createdInvoice.DocEntry);
+            var pdfBytes = await InvoiceService.GetInvoicePdfAsync(createdInvoice.DocEntry, fiscalQrCode);
             if (pdfBytes == null || pdfBytes.Length == 0)
             {
                 Logger.LogWarning("Failed to retrieve PDF for auto-print of invoice #{DocNum}", createdInvoice.DocNum);
@@ -3378,6 +3382,7 @@ customerPriceListPrices.Count, priceListNum);
     {
         successMessage = null;
         lastCreatedInvoice = null;
+        lastFiscalizationResult = null;
     }
 
     private async Task OpenPrintDialog()
@@ -3491,7 +3496,7 @@ StringComparer.OrdinalIgnoreCase))
             await AppSettingsService.SaveSettingAsync(SettingKeys.PrinterName, selectedPrinterName ?? string.Empty);
             await AppSettingsService.SaveSettingAsync(SettingKeys.PrintCopies, printCopies.ToString());
 
-            var pdfBytes = await InvoiceService.GetInvoicePdfAsync(lastCreatedInvoice.DocEntry);
+            var pdfBytes = await InvoiceService.GetInvoicePdfAsync(lastCreatedInvoice.DocEntry, lastFiscalizationResult?.QRCode);
             if (pdfBytes == null || pdfBytes.Length == 0)
             {
                 errorMessage = "Failed to retrieve invoice PDF for printing.";
@@ -3525,7 +3530,7 @@ StringComparer.OrdinalIgnoreCase))
         isPrinting = true;
         try
         {
-            var pdfBytes = await InvoiceService.GetInvoicePdfAsync(lastCreatedInvoice.DocEntry);
+            var pdfBytes = await InvoiceService.GetInvoicePdfAsync(lastCreatedInvoice.DocEntry, lastFiscalizationResult?.QRCode);
             if (pdfBytes == null || pdfBytes.Length == 0)
             {
                 errorMessage = "Failed to retrieve invoice PDF.";

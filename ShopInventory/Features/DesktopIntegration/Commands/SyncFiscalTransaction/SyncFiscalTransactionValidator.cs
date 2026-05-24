@@ -7,8 +7,8 @@ public sealed class SyncFiscalTransactionValidator : AbstractValidator<SyncFisca
     public SyncFiscalTransactionValidator()
     {
         RuleFor(command => command.Request.ClientTransactionId)
-            .NotEmpty()
-            .MaximumLength(100);
+            .MaximumLength(100)
+            .When(command => !string.IsNullOrWhiteSpace(command.Request.ClientTransactionId));
 
         RuleFor(command => command.Request.DocNum)
             .GreaterThan(0);

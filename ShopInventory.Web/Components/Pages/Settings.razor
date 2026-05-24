@@ -530,6 +530,24 @@
                                             <div class="setting-item">
                                                 <div class="setting-info">
                                                     <label class="setting-label">
+                                                        <i class="bi bi-phone me-1"></i>Target Mobile App
+                                                    </label>
+                                                    <span class="setting-desc">Choose which connected mobile app's version policy you want to edit.</span>
+                                                </div>
+                                                <div class="setting-control" style="min-width: 350px;">
+                                                    <MudSelect T="string" Value="@selectedMobileVersionPolicyAppId" ValueChanged="OnMobileVersionPolicyAppChanged"
+                                                               Label="Mobile app" Variant="Variant.Outlined" Margin="Margin.Dense" FullWidth="true">
+                                                        @foreach (var mobileApp in mobileVersionPolicyApps)
+                                                        {
+                                                            <MudSelectItem T="string" Value="@mobileApp.Key">@mobileApp.Value</MudSelectItem>
+                                                        }
+                                                    </MudSelect>
+                                                </div>
+                                            </div>
+
+                                            <div class="setting-item">
+                                                <div class="setting-info">
+                                                    <label class="setting-label">
                                                         <i class="bi bi-shield-check me-1"></i>Version Policy Enabled
                                                     </label>
                                                     <span class="setting-desc">Turn Android version enforcement on or off without redeploying the API.</span>
@@ -651,7 +669,7 @@
                                                 {
                                                     <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
                                                 }
-                                                Save Mobile App Policy
+                                                Save @SelectedMobileVersionPolicyAppName Policy
                                             </MudButton>
                                         </div>
                                     }
@@ -1378,8 +1396,14 @@
     private string? sapConnectionMessage;
 
     // Mobile app version policy fields
+    private readonly Dictionary<string, string> mobileVersionPolicyApps = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["cheeseman-driver"] = "Cheeseman Driver App",
+        ["kefalos-so"] = "Kefalos SO App"
+    };
     private bool isLoadingMobileVersionPolicy = false;
     private bool isSavingMobileVersionPolicy = false;
+    private string selectedMobileVersionPolicyAppId = "cheeseman-driver";
     private bool mobileVersionPolicyEnabled = true;
     private bool mobileVersionPolicyRequireHeaders = true;
     private string mobileVersionPolicyLatestVersion = string.Empty;
@@ -1391,6 +1415,10 @@
     private string mobileVersionPolicyBlockMessage = string.Empty;
     private bool mobileVersionPolicySaveSucceeded = false;
     private string? mobileVersionPolicyMessage;
+
+    private string SelectedMobileVersionPolicyAppName => mobileVersionPolicyApps.TryGetValue(selectedMobileVersionPolicyAppId, out var appName)
+        ? appName
+        : "Mobile App";
 
     private bool CanSaveMobileVersionPolicy => !isSavingMobileVersionPolicy
         && (!mobileVersionPolicyEnabled || !string.IsNullOrWhiteSpace(mobileVersionPolicyLatestVersion));
@@ -2172,12 +2200,17 @@
 
         try
         {
-            var settings = await MobileVersionPolicySettingsService.GetSettingsAsync();
+            var settings = await MobileVersionPolicySettingsService.GetSettingsAsync(selectedMobileVersionPolicyAppId);
             if (settings == null)
             {
                 mobileVersionPolicySaveSucceeded = false;
                 mobileVersionPolicyMessage = "Failed to load mobile app policy settings.";
                 return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(settings.AppId))
+            {
+                selectedMobileVersionPolicyAppId = settings.AppId;
             }
 
             mobileVersionPolicyEnabled = settings.Enabled;
@@ -2201,6 +2234,14 @@
         }
     }
 
+    private async Task OnMobileVersionPolicyAppChanged(string appId)
+    {
+        selectedMobileVersionPolicyAppId = appId;
+        mobileVersionPolicyMessage = null;
+        await LoadMobileVersionPolicySettings();
+        StateHasChanged();
+    }
+
     private async Task SaveMobileVersionPolicySettings()
     {
         isSavingMobileVersionPolicy = true;
@@ -2211,6 +2252,7 @@
         {
             var request = new MobileVersionPolicySettingsUpdateRequest
             {
+                AppId = selectedMobileVersionPolicyAppId,
                 Enabled = mobileVersionPolicyEnabled,
                 RequireHeaders = mobileVersionPolicyRequireHeaders,
                 LatestVersion = mobileVersionPolicyLatestVersion.Trim(),
@@ -2231,7 +2273,7 @@
                 await LoadMobileVersionPolicySettings();
                 await LogAudit(
                     AuditActions.UpdateSettings,
-                    $"Updated mobile version policy (minimum: {mobileVersionPolicyMinimumSupportedVersion}, recommended: {mobileVersionPolicyRecommendedVersion}, latest: {mobileVersionPolicyLatestVersion})");
+                    $"Updated {SelectedMobileVersionPolicyAppName} version policy (minimum: {mobileVersionPolicyMinimumSupportedVersion}, recommended: {mobileVersionPolicyRecommendedVersion}, latest: {mobileVersionPolicyLatestVersion})");
             }
         }
         catch (Exception ex)

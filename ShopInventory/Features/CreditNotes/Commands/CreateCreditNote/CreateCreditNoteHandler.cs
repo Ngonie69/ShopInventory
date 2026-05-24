@@ -1,5 +1,6 @@
 using ErrorOr;
 using MediatR;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -11,6 +12,8 @@ namespace ShopInventory.Features.CreditNotes.Commands.CreateCreditNote;
 public sealed class CreateCreditNoteHandler(
     ICreditNoteService creditNoteService,
     IAuditService auditService,
+    ISender sender,
+    IRevmaxClient revmaxClient,
     ILogger<CreateCreditNoteHandler> logger
 ) : IRequestHandler<CreateCreditNoteCommand, ErrorOr<CreditNoteDto>>
 {
@@ -21,6 +24,15 @@ public sealed class CreateCreditNoteHandler(
         try
         {
             var creditNote = await creditNoteService.CreateAsync(command.Request, command.UserId, cancellationToken);
+
+            await CreditNoteFiscalTransactionSync.SyncAsync(
+                creditNote,
+                revmaxClient,
+                sender,
+                logger,
+                command.UserId.ToString(),
+                cancellationToken);
+
             try { await auditService.LogAsync(AuditActions.CreateCreditNote, "CreditNote", creditNote.Id.ToString(), $"Credit note created for {command.Request.CardCode}", true); } catch { }
             return creditNote;
         }

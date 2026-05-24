@@ -125,8 +125,9 @@ public class CreditNoteService : ICreditNoteService
             else
             {
                 // No filters at all - use date range default to avoid fetching entire SAP dataset
-                var defaultFrom = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
-                var defaultTo = DateTime.Today;
+                var todayUtc = DateTime.UtcNow.Date;
+                var defaultFrom = new DateTime(todayUtc.Year, todayUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                var defaultTo = todayUtc;
                 sapCreditNotes = await _sapClient.GetCreditNotesByDateRangeAsync(defaultFrom, defaultTo, cancellationToken);
                 totalCount = sapCreditNotes.Count;
             }
@@ -150,6 +151,9 @@ public class CreditNoteService : ICreditNoteService
     private async Task<CreditNoteListResponseDto> GetAllFromLocalAsync(int page, int pageSize, CreditNoteStatus? status = null,
         string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
     {
+        var fromDateUtc = NormalizeUtcDateStart(fromDate);
+        var toDateExclusiveUtc = NormalizeUtcDateExclusiveEnd(toDate);
+
         var query = _context.CreditNotes
             .AsNoTracking()
             .AsQueryable();
@@ -160,11 +164,11 @@ public class CreditNoteService : ICreditNoteService
         if (!string.IsNullOrEmpty(cardCode))
             query = query.Where(c => c.CardCode == cardCode);
 
-        if (fromDate.HasValue)
-            query = query.Where(c => c.CreditNoteDate >= fromDate.Value);
+        if (fromDateUtc.HasValue)
+            query = query.Where(c => c.CreditNoteDate >= fromDateUtc.Value);
 
-        if (toDate.HasValue)
-            query = query.Where(c => c.CreditNoteDate <= toDate.Value);
+        if (toDateExclusiveUtc.HasValue)
+            query = query.Where(c => c.CreditNoteDate < toDateExclusiveUtc.Value);
 
         var totalCount = await query.CountAsync(cancellationToken);
         var creditNotes = await query
@@ -754,12 +758,28 @@ public class CreditNoteService : ICreditNoteService
                 ItemDescription = l.ItemDescription,
                 Quantity = l.Quantity,
                 UnitPrice = l.UnitPrice,
-                DiscountPercent = l.DiscountPercent,
+                DiscountPercent = l.DiscountPercent ?? 0,
                 LineTotal = l.LineTotal,
                 WarehouseCode = l.WarehouseCode,
                 IsRestocked = false
             }).ToList() ?? new List<CreditNoteLineDto>()
         };
+    }
+
+    private static DateTime? NormalizeUtcDateStart(DateTime? value)
+    {
+        if (!value.HasValue)
+            return null;
+
+        return DateTime.SpecifyKind(value.Value.Date, DateTimeKind.Utc);
+    }
+
+    private static DateTime? NormalizeUtcDateExclusiveEnd(DateTime? value)
+    {
+        if (!value.HasValue)
+            return null;
+
+        return DateTime.SpecifyKind(value.Value.Date.AddDays(1), DateTimeKind.Utc);
     }
 
     private static CreditNoteStatus MapSAPStatusToLocal(string? documentStatus, string? cancelled)

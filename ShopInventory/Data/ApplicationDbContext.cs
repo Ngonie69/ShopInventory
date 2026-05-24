@@ -223,8 +223,15 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     {
       entity.ToTable("RefreshTokens");
 
-      entity.HasIndex(rt => rt.Token)
+      entity.HasIndex(rt => rt.TokenHash)
                 .IsUnique();
+
+      entity.Property(rt => rt.TokenHash)
+            .IsRequired()
+            .HasMaxLength(128);
+
+      entity.Property(rt => rt.ReplacedByTokenHash)
+            .HasMaxLength(128);
 
       entity.HasOne(rt => rt.User)
                 .WithMany(u => u.RefreshTokens)

@@ -134,7 +134,7 @@ public sealed class CreateInvoiceHandler(
             try { await auditService.LogAsync(AuditActions.CreateInvoice, "Invoice", invoice.DocEntry.ToString(), $"Invoice #{invoice.DocNum} created for {invoice.CardCode}", true); } catch { }
 
             var invoiceDto = invoice.ToDto();
-            var fiscalizationResult = QueueFiscalization(invoiceDto);
+            var fiscalizationResult = QueueFiscalization(invoiceDto, command.UserId, command.Username);
 
             return new InvoiceCreatedResponseDto
             {
@@ -192,11 +192,13 @@ public sealed class CreateInvoiceHandler(
         }
     }
 
-    private FiscalizationResult QueueFiscalization(InvoiceDto invoice)
+    private FiscalizationResult QueueFiscalization(InvoiceDto invoice, Guid? userId, string? username)
     {
         var queued = fiscalizationQueue.TryQueue(new InvoiceFiscalizationWorkItem(
             invoice,
-            new CustomerFiscalDetails { CustomerName = invoice.CardName }));
+            new CustomerFiscalDetails { CustomerName = invoice.CardName },
+            userId,
+            username));
 
         if (queued)
         {

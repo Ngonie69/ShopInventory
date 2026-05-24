@@ -11,5 +11,8 @@ public static partial class Errors
 
         public static Error LoadFiscalTransactionsFailed(string message) =>
             Error.Failure("Report.LoadFiscalTransactionsFailed", message);
+
+        public static Error BackfillFiscalTransactionsFailed(string message) =>
+            Error.Failure("Report.BackfillFiscalTransactionsFailed", message);
     }
 }

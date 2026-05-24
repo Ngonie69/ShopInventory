@@ -241,7 +241,7 @@ public sealed class DocumentAttachmentAccessService(
             return Errors.CrateTracking.TransactionNotFound(entityId);
         }
 
-        if (IsRole(role, "Admin") || IsRole(role, "Manager") || IsRole(role, "Merchandiser"))
+        if (IsRole(role, "Admin") || IsRole(role, "Manager") || IsRole(role, "Merchandiser") || IsRole(role, "PodOperator"))
         {
             return true;
         }

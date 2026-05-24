@@ -14,14 +14,16 @@ public class AppVersionController(IMediator mediator) : ApiControllerBase
     [HttpGet("mobile")]
     [AllowAnonymous]
     public async Task<IActionResult> GetMobileVersionPolicy(
+        [FromHeader(Name = "X-App-Id")] string? appIdHeader,
         [FromHeader(Name = "X-App-Platform")] string? platformHeader,
         [FromHeader(Name = "X-App-Version")] string? versionHeader,
+        [FromQuery] string? appId,
         [FromQuery] string? platform,
         [FromQuery(Name = "currentVersion")] string? currentVersion,
         CancellationToken cancellationToken)
     {
         var result = await mediator.Send(
-            new GetMobileVersionPolicyQuery(platform ?? platformHeader, currentVersion ?? versionHeader),
+            new GetMobileVersionPolicyQuery(appId ?? appIdHeader, platform ?? platformHeader, currentVersion ?? versionHeader),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));
@@ -29,9 +31,9 @@ public class AppVersionController(IMediator mediator) : ApiControllerBase
 
     [HttpGet("mobile/settings")]
     [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> GetMobileVersionPolicySettings(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetMobileVersionPolicySettings([FromQuery] string? appId, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new GetMobileVersionPolicySettingsQuery(), cancellationToken);
+        var result = await mediator.Send(new GetMobileVersionPolicySettingsQuery(appId), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

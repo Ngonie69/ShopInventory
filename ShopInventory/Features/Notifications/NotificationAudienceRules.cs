@@ -11,6 +11,7 @@ public static class NotificationAudienceRules
     public static readonly string[] InventoryBroadcastCategories = ["LowStock", "Stock", "Inventory", "InventoryTransfer", "TransferRequest"];
     public static readonly string[] PurchasingBroadcastCategories = ["PurchaseRequest", "PurchaseQuotation", "PurchaseOrder", "PurchaseInvoice", "GoodsReceiptPurchaseOrder"];
     public static readonly string[] PodBroadcastCategories = ["POD", "ProofOfDelivery"];
+    public static readonly string[] AppVersionBroadcastCategories = ["AppVersion"];
     public static readonly string[] LabBroadcastCategories = ["Lab", "Batch", "BatchStatus"];
 
     public static readonly string[] SalesAudienceRoles = ["Admin", "Cashier", "SalesRep", "Merchandiser"];
@@ -18,9 +19,10 @@ public static class NotificationAudienceRules
     public static readonly string[] PaymentAudienceRoles = ["Admin", "Cashier", "DepotController"];
     public static readonly string[] InventoryAudienceRoles = ["Admin", "StockController", "DepotController"];
     public static readonly string[] PurchasingAudienceRoles = ["Admin", "Manager"];
-    public static readonly string[] PodAudienceRoles = ["Admin", "Cashier", "PodOperator", "Driver", "SalesRep"];
+    public static readonly string[] PodAudienceRoles = ["Admin", "Cashier", "PodOperator", "SalesRep"];
+    public static readonly string[] AppVersionAudienceRoles = ["Driver", "PodOperator", "Merchandiser"];
     public static readonly string[] SystemAudienceRoles = ["Admin", "Cashier", "StockController", "DepotController", "Manager"];
-    public static readonly string[] SecurityAudienceRoles = ["Admin", "Cashier", "StockController", "DepotController", "Manager", "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer"];
+    public static readonly string[] SecurityAudienceRoles = ["Admin", "Cashier", "StockController", "DepotController", "Manager", "PodOperator", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer"];
     public static readonly string[] DashboardAudienceRoles = ["Admin", "Cashier", "StockController", "DepotController", "Manager", "SalesRep"];
     public static readonly string[] SalesOrderPageAudienceRoles = ["Admin", "Cashier", "SalesRep"];
     public static readonly string[] SalesOrderEditAudienceRoles = ["Admin", "Cashier", "Merchandiser", "SalesRep"];
@@ -106,6 +108,11 @@ public static class NotificationAudienceRules
             return PodAudienceRoles;
         }
 
+        if (AppVersionBroadcastCategories.Contains(category, StringComparer.OrdinalIgnoreCase))
+        {
+            return AppVersionAudienceRoles;
+        }
+
         if (LabBroadcastCategories.Contains(category, StringComparer.OrdinalIgnoreCase))
         {
             return LabAudienceRoles;
@@ -127,6 +134,7 @@ public static class NotificationAudienceRules
                InventoryBroadcastCategories.Contains(category, StringComparer.OrdinalIgnoreCase) ||
                PurchasingBroadcastCategories.Contains(category, StringComparer.OrdinalIgnoreCase) ||
                PodBroadcastCategories.Contains(category, StringComparer.OrdinalIgnoreCase) ||
+               AppVersionBroadcastCategories.Contains(category, StringComparer.OrdinalIgnoreCase) ||
                LabBroadcastCategories.Contains(category, StringComparer.OrdinalIgnoreCase);
     }
 

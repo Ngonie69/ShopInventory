@@ -49,7 +49,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("pods")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Driver")]
     [ProducesResponseType(typeof(List<CratePodSubmissionDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPods(
         [FromQuery] string? search = null,

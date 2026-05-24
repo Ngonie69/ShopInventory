@@ -30,6 +30,12 @@ public class ApiControllerBase : ControllerBase
             _ => StatusCodes.Status500InternalServerError
         };
 
-        return Problem(statusCode: statusCode, title: firstError.Description);
+        var title = statusCode >= StatusCodes.Status500InternalServerError
+            ? "An error occurred while processing your request."
+            : firstError.Description;
+
+        return Problem(
+            statusCode: statusCode,
+            title: title);
     }
 }

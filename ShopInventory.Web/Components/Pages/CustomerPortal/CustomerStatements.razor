@@ -68,7 +68,7 @@
                         {
                             <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
                                 Filtered &mdash; @(linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName
-                                                                                    ?? selectedAccountFilter)
+                                                                                                                    ?? selectedAccountFilter)
                             </span>
                         }
                     }
@@ -219,9 +219,9 @@
                 <div class="col-6 col-xl-3">
                     <div class="card stat-card staff-stat-card bg-success">
                         <div class="card-body">
-                            <div class="stat-title">Total Payments</div>
-                            <div class="stat-value">@FormatCurrency(statement.TotalPayments)</div>
-                            <div class="stat-sub">Credits in period</div>
+                            <div class="stat-title">Total Credits</div>
+                            <div class="stat-value">@FormatCurrency(statement.TotalPayments + statement.TotalCreditNotes)</div>
+                            <div class="stat-sub">Payments and credit notes</div>
                         </div>
                     </div>
                 </div>
@@ -318,148 +318,149 @@
                                             <td>@statement.ToDate.ToString("MMM dd, yyyy")</td>
                                             <td colspan="3"><strong>Closing Balance</strong></td>
                                             <td class="text-end fw-bold">@FormatCurrency(statement.TotalInvoices)</td>
-                                            <td class="text-end fw-bold">@FormatCurrency(statement.TotalPayments)</td>
-                                            <td class="text-end fw-bold">@FormatCurrency(statement.ClosingBalance)</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        }
+                                            <td class="text-end fw-bold">@FormatCurrency(statement.TotalPayments +
+                                                                                statement.TotalCreditNotes)</td>
+                                                <td class="text-end fw-bold">@FormatCurrency(statement.ClosingBalance)</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
                     else
-                        {
-                            <div class="text-center py-5 dashboard-empty">
-                                <p class="text-muted mb-0">No transactions found for this period.</p>
-                            </div>
-                        }
+                            {
+                                <div class="text-center py-5 dashboard-empty">
+                                    <p class="text-muted mb-0">No transactions found for this period.</p>
+                                </div>
+                            }
+                        </div>
                     </div>
-                </div>
 
-                <!-- Aging Summary -->
-                <div class="card dashboard-panel mb-3">
-                    <div class="card-header dashboard-panel-header">
-                        <h5 class="mb-0 d-flex align-items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"
-                                 class="panel-icon">
-                                <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z" />
-                                <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z" />
-                            </svg>
-                            Aging Summary
-                        </h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row g-3">
-                            <div class="col-6 col-md-4 col-xl-2">
-                                <div class="aging-card-v2 aging-current">
-                                    <span class="aging-lbl">Current</span>
-                                    <span class="aging-val">@FormatCurrency(statement.Aging.Current)</span>
+                    <!-- Aging Summary -->
+                    <div class="card dashboard-panel mb-3">
+                        <div class="card-header dashboard-panel-header">
+                            <h5 class="mb-0 d-flex align-items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"
+                                     class="panel-icon">
+                                    <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z" />
+                                    <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z" />
+                                </svg>
+                                Aging Summary
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row g-3">
+                                <div class="col-6 col-md-4 col-xl-2">
+                                    <div class="aging-card-v2 aging-current">
+                                        <span class="aging-lbl">Current</span>
+                                        <span class="aging-val">@FormatCurrency(statement.Aging.Current)</span>
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="col-6 col-md-4 col-xl-2">
-                                <div class="aging-card-v2 aging-30">
-                                    <span class="aging-lbl">@statement.Aging.Bucket1Label</span>
-                                    <span class="aging-val">@FormatCurrency(statement.Aging.Days1To30)</span>
+                                <div class="col-6 col-md-4 col-xl-2">
+                                    <div class="aging-card-v2 aging-30">
+                                        <span class="aging-lbl">@statement.Aging.Bucket1Label</span>
+                                        <span class="aging-val">@FormatCurrency(statement.Aging.Days1To30)</span>
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="col-6 col-md-4 col-xl-2">
-                                <div class="aging-card-v2 aging-60">
-                                    <span class="aging-lbl">@statement.Aging.Bucket2Label</span>
-                                    <span class="aging-val">@FormatCurrency(statement.Aging.Days31To60)</span>
+                                <div class="col-6 col-md-4 col-xl-2">
+                                    <div class="aging-card-v2 aging-60">
+                                        <span class="aging-lbl">@statement.Aging.Bucket2Label</span>
+                                        <span class="aging-val">@FormatCurrency(statement.Aging.Days31To60)</span>
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="col-6 col-md-4 col-xl-2">
-                                <div class="aging-card-v2 aging-90">
-                                    <span class="aging-lbl">@statement.Aging.Bucket3Label</span>
-                                    <span class="aging-val">@FormatCurrency(statement.Aging.Days61To90)</span>
+                                <div class="col-6 col-md-4 col-xl-2">
+                                    <div class="aging-card-v2 aging-90">
+                                        <span class="aging-lbl">@statement.Aging.Bucket3Label</span>
+                                        <span class="aging-val">@FormatCurrency(statement.Aging.Days61To90)</span>
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="col-6 col-md-4 col-xl-2">
-                                <div class="aging-card-v2 aging-over90">
-                                    <span class="aging-lbl">@statement.Aging.Bucket4Label</span>
-                                    <span class="aging-val">@FormatCurrency(statement.Aging.Over90Days)</span>
+                                <div class="col-6 col-md-4 col-xl-2">
+                                    <div class="aging-card-v2 aging-over90">
+                                        <span class="aging-lbl">@statement.Aging.Bucket4Label</span>
+                                        <span class="aging-val">@FormatCurrency(statement.Aging.Over90Days)</span>
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="col-6 col-md-4 col-xl-2">
-                                <div class="aging-card-v2 aging-total">
-                                    <span class="aging-lbl">Total</span>
-                                    <span class="aging-val">@FormatCurrency(statement.Aging.Total)</span>
+                                <div class="col-6 col-md-4 col-xl-2">
+                                    <div class="aging-card-v2 aging-total">
+                                        <span class="aging-lbl">Total</span>
+                                        <span class="aging-val">@FormatCurrency(statement.Aging.Total)</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
+                }
+
+                <div class="text-center text-muted small py-3">
+                    <p class="mb-1">Statement generated on @IAuditService.ToCAT(DateTime.UtcNow).ToString("MMMM dd, yyyy 'at' HH:mm") CAT</p>
+                    <p class="mb-0">If you have any questions about this statement, please contact our accounts department.</p>
                 </div>
             }
+        </div>
 
-            <div class="text-center text-muted small py-3">
-                <p class="mb-1">Statement generated on @IAuditService.ToCAT(DateTime.UtcNow).ToString("MMMM dd, yyyy 'at' HH:mm") CAT</p>
-                <p class="mb-0">If you have any questions about this statement, please contact our accounts department.</p>
-            </div>
-        }
-    </div>
+        <style>
+            .customer-statements .aging-card-v2 {
+                padding: 1rem;
+                border-radius: 10px;
+                display: flex;
+                flex-direction: column;
+                gap: 0.35rem;
+                text-align: center;
+                transition: transform 0.2s;
+            }
 
-    <style>
-        .customer-statements .aging-card-v2 {
-            padding: 1rem;
-            border-radius: 10px;
-            display: flex;
-            flex-direction: column;
-            gap: 0.35rem;
-            text-align: center;
-            transition: transform 0.2s;
-        }
+            .customer-statements .aging-card-v2:hover {
+                transform: translateY(-2px);
+            }
 
-        .customer-statements .aging-card-v2:hover {
-            transform: translateY(-2px);
-        }
+            .customer-statements .aging-lbl {
+                font-size: 0.7rem;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                opacity: 0.8;
+            }
 
-        .customer-statements .aging-lbl {
-            font-size: 0.7rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            opacity: 0.8;
-        }
+            .customer-statements .aging-val {
+                font-size: 1.1rem;
+                font-weight: 700;
+            }
 
-        .customer-statements .aging-val {
-            font-size: 1.1rem;
-            font-weight: 700;
-        }
+            .customer-statements .aging-current {
+                background: #f0f4f8;
+                border: 1px solid #d0d8e0;
+                color: #344054;
+            }
 
-        .customer-statements .aging-current {
-            background: #f0f4f8;
-            border: 1px solid #d0d8e0;
-            color: #344054;
-        }
+            .customer-statements .aging-30 {
+                background: #fff8e6;
+                border: 1px solid #f0d060;
+                color: #7a5c00;
+            }
 
-        .customer-statements .aging-30 {
-            background: #fff8e6;
-            border: 1px solid #f0d060;
-            color: #7a5c00;
-        }
+            .customer-statements .aging-60 {
+                background: #fff0e0;
+                border: 1px solid #f0a030;
+                color: #7a4000;
+            }
 
-        .customer-statements .aging-60 {
-            background: #fff0e0;
-            border: 1px solid #f0a030;
-            color: #7a4000;
-        }
+            .customer-statements .aging-90 {
+                background: #ffe8e8;
+                border: 1px solid #e06060;
+                color: #7a1010;
+            }
 
-        .customer-statements .aging-90 {
-            background: #ffe8e8;
-            border: 1px solid #e06060;
-            color: #7a1010;
-        }
+            .customer-statements .aging-over90 {
+                background: #2d2d2d;
+                border: 1px solid #000;
+                color: #fff;
+            }
 
-        .customer-statements .aging-over90 {
-            background: #2d2d2d;
-            border: 1px solid #000;
-            color: #fff;
-        }
-
-        .customer-statements .aging-total {
-            background: var(--bs-primary);
-            border: 1px solid var(--bs-primary);
-            color: #fff;
-        }
-    </style>
+            .customer-statements .aging-total {
+                background: var(--bs-primary);
+                border: 1px solid var(--bs-primary);
+                color: #fff;
+            }
+        </style>
 
 @code {
     private CustomerPortalSession? portalSession;

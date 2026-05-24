@@ -3,6 +3,7 @@ using Asp.Versioning.ApiExplorer;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
@@ -112,6 +113,22 @@ try
         options.Level = CompressionLevel.Fastest);
     builder.Services.Configure<GzipCompressionProviderOptions>(options =>
         options.Level = CompressionLevel.Fastest);
+
+    var knownReverseProxies = builder.Configuration.GetSection("ReverseProxy:KnownProxies").Get<string[]>() ?? [];
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
+        options.ForwardLimit = 1;
+        options.RequireHeaderSymmetry = false;
+
+        foreach (var proxy in knownReverseProxies)
+        {
+            if (System.Net.IPAddress.TryParse(proxy, out var address))
+            {
+                options.KnownProxies.Add(address);
+            }
+        }
+    });
 
     // Add memory cache for expensive queries and SAP call results
     builder.Services.AddMemoryCache();
@@ -710,6 +727,8 @@ try
     }
 
     // Global exception handler - ensures all unhandled errors return JSON, not empty responses
+    app.UseForwardedHeaders();
+
     app.UseExceptionHandler(errorApp =>
     {
         errorApp.Run(async context =>

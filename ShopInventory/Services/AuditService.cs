@@ -174,15 +174,6 @@ public class AuditService : IAuditService
     private static string? GetClientIpAddress(HttpContext? httpContext)
     {
         if (httpContext == null) return null;
-
-        // Check X-Forwarded-For first (behind reverse proxy/load balancer)
-        var forwardedFor = httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(forwardedFor))
-        {
-            // Take the first IP (original client)
-            return forwardedFor.Split(',', StringSplitOptions.TrimEntries)[0];
-        }
-
         return httpContext.Connection.RemoteIpAddress?.ToString();
     }
 

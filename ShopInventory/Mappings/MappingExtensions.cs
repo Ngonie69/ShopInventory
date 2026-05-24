@@ -63,7 +63,9 @@ public static class MappingExtensions
             CardName = model.CardName,
             NumAtCard = model.NumAtCard,
             Comments = model.Comments,
+            DocStatus = NormalizeInvoiceStatus(model.DocStatus, model.DocumentStatus, model.Cancelled),
             DocTotal = model.DocTotal,
+            PaidToDate = model.PaidToDate,
             VatSum = model.VatSum,
             DocCurrency = model.DocCurrency,
             BillToAddress = model.Address,
@@ -98,6 +100,20 @@ public static class MappingExtensions
     public static List<InvoiceDto> ToDto(this List<Invoice> models)
     {
         return models.Select(m => m.ToDto()).ToList();
+    }
+
+    private static string? NormalizeInvoiceStatus(string? docStatus, string? documentStatus, string? cancelled)
+    {
+        if (string.Equals(cancelled, "tYES", StringComparison.OrdinalIgnoreCase))
+            return "X";
+
+        var status = !string.IsNullOrWhiteSpace(docStatus) ? docStatus : documentStatus;
+        return status switch
+        {
+            "bost_Open" => "O",
+            "bost_Close" => "C",
+            _ => status
+        };
     }
 
     /// <summary>

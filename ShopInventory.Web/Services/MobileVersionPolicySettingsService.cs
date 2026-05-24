@@ -6,7 +6,7 @@ namespace ShopInventory.Web.Services;
 
 public interface IMobileVersionPolicySettingsService
 {
-    Task<MobileVersionPolicySettingsResponse?> GetSettingsAsync();
+    Task<MobileVersionPolicySettingsResponse?> GetSettingsAsync(string appId);
     Task<MobileVersionPolicySettingsUpdateResult> UpdateSettingsAsync(MobileVersionPolicySettingsUpdateRequest request);
 }
 
@@ -26,11 +26,12 @@ public class MobileVersionPolicySettingsService : IMobileVersionPolicySettingsSe
         _logger = logger;
     }
 
-    public async Task<MobileVersionPolicySettingsResponse?> GetSettingsAsync()
+    public async Task<MobileVersionPolicySettingsResponse?> GetSettingsAsync(string appId)
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<MobileVersionPolicySettingsResponse>("api/appversion/mobile/settings");
+            var encodedAppId = Uri.EscapeDataString(appId ?? string.Empty);
+            return await _httpClient.GetFromJsonAsync<MobileVersionPolicySettingsResponse>($"api/appversion/mobile/settings?appId={encodedAppId}");
         }
         catch (Exception ex)
         {
@@ -125,6 +126,8 @@ public class MobileVersionPolicySettingsService : IMobileVersionPolicySettingsSe
 
 public class MobileVersionPolicySettingsResponse
 {
+    public string AppId { get; set; } = string.Empty;
+    public string AppDisplayName { get; set; } = string.Empty;
     public bool Enabled { get; set; }
     public bool RequireHeaders { get; set; }
     public string LatestVersion { get; set; } = string.Empty;
@@ -138,6 +141,7 @@ public class MobileVersionPolicySettingsResponse
 
 public class MobileVersionPolicySettingsUpdateRequest
 {
+    public string AppId { get; set; } = string.Empty;
     public bool Enabled { get; set; }
     public bool RequireHeaders { get; set; }
     public string LatestVersion { get; set; } = string.Empty;

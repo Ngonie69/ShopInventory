@@ -77,18 +77,13 @@ public class AuthService : IAuthService
             }
 
             var errorContent = await response.Content.ReadAsStringAsync();
-            _logger.LogWarning("Login failed. Status: {StatusCode}, Error: {Error}", response.StatusCode, errorContent);
+            _logger.LogWarning("Login failed. Status: {StatusCode}, Error: {Error}",
+                response.StatusCode, ApiErrorResponse.SanitizeForLog(errorContent));
 
-            try
-            {
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                return (false, errorResponse?.Message ?? "Login failed", null);
-            }
-            catch
-            {
-                return (false, "Login failed", null);
-            }
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                response.StatusCode,
+                errorContent,
+                "Login failed"), null);
         }
         catch (Exception ex)
         {
@@ -129,18 +124,13 @@ public class AuthService : IAuthService
             }
 
             var errorContent = await response.Content.ReadAsStringAsync();
-            _logger.LogWarning("2FA challenge failed. Status: {StatusCode}, Error: {Error}", response.StatusCode, errorContent);
+            _logger.LogWarning("2FA challenge failed. Status: {StatusCode}, Error: {Error}",
+                response.StatusCode, ApiErrorResponse.SanitizeForLog(errorContent));
 
-            try
-            {
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                return (false, errorResponse?.Message ?? "Invalid code", null);
-            }
-            catch
-            {
-                return (false, "Invalid code", null);
-            }
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                response.StatusCode,
+                errorContent,
+                "Invalid code"), null);
         }
         catch (Exception ex)
         {
@@ -174,18 +164,13 @@ public class AuthService : IAuthService
             }
 
             var errorContent = await response.Content.ReadAsStringAsync();
-            _logger.LogWarning("Failed to start passkey login. Status: {StatusCode}, Error: {Error}", response.StatusCode, errorContent);
+            _logger.LogWarning("Failed to start passkey login. Status: {StatusCode}, Error: {Error}",
+                response.StatusCode, ApiErrorResponse.SanitizeForLog(errorContent));
 
-            try
-            {
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                return (false, errorResponse?.Message ?? "Failed to start passkey login", null);
-            }
-            catch
-            {
-                return (false, "Failed to start passkey login", null);
-            }
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                response.StatusCode,
+                errorContent,
+                "Failed to start passkey login"), null);
         }
         catch (Exception ex)
         {
@@ -225,18 +210,13 @@ public class AuthService : IAuthService
             }
 
             var errorContent = await response.Content.ReadAsStringAsync();
-            _logger.LogWarning("Passkey login failed. Status: {StatusCode}, Error: {Error}", response.StatusCode, errorContent);
+            _logger.LogWarning("Passkey login failed. Status: {StatusCode}, Error: {Error}",
+                response.StatusCode, ApiErrorResponse.SanitizeForLog(errorContent));
 
-            try
-            {
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                return (false, errorResponse?.Message ?? "Passkey login failed", null);
-            }
-            catch
-            {
-                return (false, "Passkey login failed", null);
-            }
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                response.StatusCode,
+                errorContent,
+                "Passkey login failed"), null);
         }
         catch (Exception ex)
         {
@@ -278,18 +258,12 @@ public class AuthService : IAuthService
 
             var errorContent = await response.Content.ReadAsStringAsync();
             _logger.LogWarning("Failed to register user. Status: {StatusCode}, Error: {Error}",
-                response.StatusCode, errorContent);
+                response.StatusCode, ApiErrorResponse.SanitizeForLog(errorContent));
 
-            try
-            {
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                return (false, errorResponse?.Message ?? "Registration failed", null);
-            }
-            catch
-            {
-                return (false, "Registration failed", null);
-            }
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                response.StatusCode,
+                errorContent,
+                "Registration failed"), null);
         }
         catch (Exception ex)
         {

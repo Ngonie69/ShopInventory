@@ -120,6 +120,9 @@ public static class AuditActions
     public const string CreateCreditNote = "CreateCreditNote";
     public const string ApproveCreditNote = "ApproveCreditNote";
     public const string DeleteCreditNote = "DeleteCreditNote";
+    public const string BulkCancelCreditNotes = "BulkCancelCreditNotes";
+    public const string DuplicateCancelledCreditNotes = "DuplicateCancelledCreditNotes";
+    public const string FiscalizeCrossDeviceCreditNote = "FiscalizeCrossDeviceCreditNote";
 
     // Quotation actions
     public const string ViewQuotations = "ViewQuotations";

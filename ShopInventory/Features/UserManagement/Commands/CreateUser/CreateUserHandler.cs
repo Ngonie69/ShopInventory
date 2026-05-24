@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Extensions;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Security;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -26,15 +27,15 @@ public sealed class CreateUserHandler(
     {
         var request = command.Request;
 
-        var currentUserIdClaim = httpContextAccessor.HttpContext?.User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(currentUserIdClaim, out var currentUserId))
+        var currentUserId = UserClaimReader.GetUserId(httpContextAccessor.HttpContext?.User);
+        if (currentUserId is null)
         {
             return Errors.UserManagement.Unauthenticated;
         }
 
         var currentUser = await context.Users
             .AsNoTracking()
-            .Where(user => user.Id == currentUserId)
+            .Where(user => user.Id == currentUserId.Value)
             .Select(user => new { user.Role, user.IsActive })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -53,6 +54,19 @@ public sealed class CreateUserHandler(
             if (request.Permissions is { Count: > 0 })
             {
                 return Errors.UserManagement.SalesRepCannotAssignCustomPermissions;
+            }
+        }
+
+        if (string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.Equals(request.Role, "Driver", StringComparison.OrdinalIgnoreCase))
+            {
+                return Errors.UserManagement.PodOperatorCanOnlyCreateDrivers;
+            }
+
+            if (request.Permissions is { Count: > 0 })
+            {
+                return Errors.UserManagement.PodOperatorCannotAssignCustomPermissions;
             }
         }
 

@@ -1,7 +1,14 @@
 @page "/credit-notes"
+@using MediatR
 @using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Features.CreditNotes.Commands.ApproveCreditNote
+@using ShopInventory.Web.Features.CreditNotes.Commands.BulkCancelCreditNotes
+@using ShopInventory.Web.Features.CreditNotes.Commands.CreateCreditNote
+@using ShopInventory.Web.Features.CreditNotes.Commands.DeleteCreditNote
+@using ShopInventory.Web.Features.CreditNotes.Commands.DuplicateCancelledCreditNotes
+@using ShopInventory.Web.Features.CreditNotes.Queries.GetCreditNotes
 @attribute [Authorize(Roles = "Admin,Cashier")]
-@inject ICreditNoteService CreditNoteService
+@inject IMediator Mediator
 @inject IInvoiceService InvoiceService
 @inject IMasterDataCacheService CacheService
 @inject IBusinessPartnerPricingService BusinessPartnerPricingService
@@ -9,6 +16,8 @@
 @inject ILogger<CreditNotes> Logger
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -85,6 +94,76 @@
         transform: translateY(-1px);
         box-shadow: 0 4px 14px rgba(102, 126, 234, .4);
         color: #fff;
+    }
+
+    .cn-header-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .5rem;
+        align-items: center;
+        justify-content: flex-end;
+    }
+
+    .cn-bulk-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .5rem;
+        align-items: center;
+        justify-content: flex-end;
+    }
+
+    .btn-cn-danger,
+    .btn-cn-outline {
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .82rem;
+        padding: .45rem .9rem;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        transition: all .15s;
+    }
+
+    .btn-cn-danger {
+        background: #fee2e2;
+        border: 1px solid #fecaca;
+        color: #991b1b;
+    }
+
+    .btn-cn-danger:hover:not(:disabled) {
+        background: #dc2626;
+        border-color: #dc2626;
+        color: #fff;
+    }
+
+    .btn-cn-outline {
+        background: #fff;
+        border: 1px solid #d1d5db;
+        color: #374151;
+    }
+
+    .btn-cn-outline:hover:not(:disabled) {
+        background: #f3f4f6;
+        border-color: #9ca3af;
+        color: #111827;
+    }
+
+    .btn-cn-danger:disabled,
+    .btn-cn-outline:disabled {
+        opacity: .48;
+        cursor: not-allowed;
+    }
+
+    .cn-selected-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: .25rem;
+        padding: .2rem .55rem;
+        border-radius: 6px;
+        font-size: .73rem;
+        font-weight: 700;
+        background: #ede9fe;
+        color: #5b21b6;
     }
 
     /* ── Filter Bar ──────────────────────────────────── */
@@ -220,6 +299,24 @@
         color: #374151;
     }
 
+    .cn-select-cell {
+        width: 42px;
+        text-align: center;
+    }
+
+    .cn-select-check {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        accent-color: #667eea;
+        cursor: pointer;
+    }
+
+    .cn-select-check:disabled {
+        cursor: not-allowed;
+        opacity: .35;
+    }
+
     /* ── Status & Type Badges ────────────────────────── */
     .status-badge {
         display: inline-flex;
@@ -265,6 +362,21 @@
     .status-badge.voided {
         background: #f3f4f6;
         color: #374151;
+    }
+
+    .status-badge.fiscalised {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .status-badge.not-fiscalised {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+
+    .status-badge.unknown {
+        background: #e5e7eb;
+        color: #475569;
     }
 
     .type-badge {
@@ -612,6 +724,146 @@
         display: flex;
         gap: .5rem;
         justify-content: flex-end;
+    }
+
+    .cn-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, .5);
+        z-index: 10000;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        animation: fadeIn .2s ease;
+        padding: 1rem;
+    }
+
+    .cn-modal {
+        background: #fff;
+        border-radius: 14px;
+        width: min(620px, 95vw);
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, .2);
+        animation: scaleIn .25s ease;
+    }
+
+    .cn-modal-header {
+        padding: 1.15rem 1.5rem;
+        border-bottom: 1px solid #e5e7eb;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .cn-modal-header h5 {
+        margin: 0;
+        font-weight: 600;
+        font-size: 1rem;
+        color: #1a1a2e;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .cn-modal-header .btn-close-modal {
+        background: #f3f4f6;
+        border: none;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        color: #6b7280;
+        transition: all .15s;
+        font-size: .9rem;
+    }
+
+    .cn-modal-header .btn-close-modal:hover {
+        background: #e5e7eb;
+        color: #374151;
+    }
+
+    .cn-modal-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.5rem;
+    }
+
+    .cn-modal-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        gap: .5rem;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
+
+    .cn-confirm-summary {
+        display: flex;
+        align-items: center;
+        gap: .75rem;
+        padding: .85rem 1rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        background: #f8fafc;
+        margin-bottom: 1rem;
+    }
+
+    .cn-confirm-count {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: #ede9fe;
+        color: #5b21b6;
+        font-weight: 800;
+        font-size: 1.05rem;
+    }
+
+    .cn-confirm-copy {
+        color: #374151;
+        font-size: .9rem;
+        font-weight: 600;
+    }
+
+    .cn-confirm-subcopy {
+        color: #6b7280;
+        font-size: .82rem;
+        margin-top: .15rem;
+    }
+
+    .cn-confirm-field label {
+        display: block;
+        font-size: .72rem;
+        font-weight: 700;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .45px;
+        margin-bottom: .35rem;
+    }
+
+    .cn-confirm-textarea {
+        width: 100%;
+        min-height: 92px;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        padding: .65rem .8rem;
+        color: #374151;
+        background: #fff;
+        resize: vertical;
+        font-size: .88rem;
+    }
+
+    .cn-confirm-textarea:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
     }
 
     .form-grid {
@@ -1075,9 +1327,18 @@
                     <p>Manage customer credits and adjustments</p>
                 </div>
             </div>
-            <MudButton Class="btn-cn-gradient" Href="/credit-notes/create">
-                <i class="bi bi-plus-lg"></i> New Credit Note
-            </MudButton>
+            <div class="cn-header-actions">
+                <MudButton Class="btn-cn-danger" OnClick="OpenBulkCancelModal" Disabled="@(!CanOpenBulkCancel)">
+                    <i class="bi bi-x-octagon"></i> Cancel Selected
+                </MudButton>
+                <MudButton Class="btn-cn-outline" OnClick="OpenDuplicateCancelledModal"
+                           Disabled="@(!CanOpenDuplicateCancelled)">
+                    <i class="bi bi-copy"></i> Duplicate Cancelled
+                </MudButton>
+                <MudButton Class="btn-cn-gradient" Href="/credit-notes/create">
+                    <i class="bi bi-plus-lg"></i> New Credit Note
+                </MudButton>
+            </div>
         </div>
 
         <!-- ━━━ Alerts ━━━ -->
@@ -1114,6 +1375,15 @@
                 </select>
             </div>
             <div class="filter-field">
+                <label>Fiscal Status</label>
+                <select @bind="fiscalStatusFilter" @bind:after="OnFilterChanged">
+                    <option value="">All Fiscal States</option>
+                    <option value="Fiscalised">Fiscalised</option>
+                    <option value="Not Fiscalised">Not Fiscalised</option>
+                    <option value="Unknown">Unknown</option>
+                </select>
+            </div>
+            <div class="filter-field">
                 <label>From Date</label>
                 <MudDatePicker Date="fromDate" DateChanged="@((DateTime? d) => { fromDate = d; OnFilterChanged(); })"
                                Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat"
@@ -1144,25 +1414,50 @@
         {
             <div class="cn-table-wrap">
                 <div class="cn-table-header">
-                    <h6><i class="bi bi-table"></i> Credit Notes</h6>
-                    <span class="cn-count-badge">@totalCount total</span>
+                    <h6>
+                        <i class="bi bi-table"></i> Credit Notes
+                        @if (SelectedCreditNoteCount > 0)
+                        {
+                            <span class="cn-selected-pill">@SelectedCreditNoteCount selected</span>
+                        }
+                    </h6>
+                    <div class="cn-bulk-actions">
+                        <MudButton Class="btn-cn-danger" OnClick="OpenBulkCancelModal" Disabled="@(!CanOpenBulkCancel)">
+                            <i class="bi bi-x-octagon"></i> Cancel
+                        </MudButton>
+                        <MudButton Class="btn-cn-outline" OnClick="OpenDuplicateCancelledModal"
+                                   Disabled="@(!CanOpenDuplicateCancelled)">
+                            <i class="bi bi-copy"></i> Duplicate
+                        </MudButton>
+                        <span class="cn-count-badge">@totalCount total</span>
+                    </div>
                 </div>
                 <MudTable @ref="@_table" Items="@creditNotes" RowsPerPage="@_pageSize" Hover="true" Striped="true"
                           Dense="true" Filter="new Func<CreditNoteDto, bool>(_quickFilter)" Breakpoint="Breakpoint.Sm"
                           Loading="@isLoading" LoadingProgressColor="Color.Primary" T="CreditNoteDto" Elevation="0"
                           Style="background:transparent;">
                     <HeaderContent>
+                        <MudTh Class="cn-select-cell">
+                            <input class="cn-select-check" type="checkbox" checked="@AreAllDisplayedCreditNotesSelected()"
+                                   @onchange="ToggleAllDisplayedCreditNotes" title="Select visible credit notes" />
+                        </MudTh>
                         <MudTh>Credit Note #</MudTh>
                         <MudTh>Customer</MudTh>
                         <MudTh>Date</MudTh>
                         <MudTh>Type</MudTh>
                         <MudTh>Status</MudTh>
+                        <MudTh>Fiscal</MudTh>
                         <MudTh>Reason</MudTh>
                         <MudTh Style="text-align:right">Total</MudTh>
                         <MudTh Style="text-align:right">Balance</MudTh>
                         <MudTh Style="width:100px">Actions</MudTh>
                     </HeaderContent>
                     <RowTemplate>
+                        <MudTd DataLabel="Select" Class="cn-select-cell">
+                            <input class="cn-select-check" type="checkbox" checked="@IsCreditNoteSelected(context)"
+                                   disabled="@(!CanSelectCreditNote(context))"
+                                   @onchange="args => ToggleCreditNoteSelection(context, args)" title="Select credit note" />
+                        </MudTd>
                         <MudTd DataLabel="Credit Note #"><span
                             class="cn-number">@FormatCreditNoteNumber(context.CreditNoteNumber)</span></MudTd>
                             <MudTd DataLabel="Customer">
@@ -1178,6 +1473,10 @@
                                 </MudTd>
                                 <MudTd DataLabel="Status">
                                     <span class="status-badge @GetStatusCssClass(context.Status)">@context.StatusName</span>
+                                </MudTd>
+                                <MudTd DataLabel="Fiscal">
+                                    <span
+                                    class="status-badge @GetFiscalStatusCssClass(context.FiscalizationStatus)">@context.FiscalizationStatus</span>
                                 </MudTd>
                                 <MudTd DataLabel="Reason">
                                     <span title="@context.Reason"
@@ -1276,9 +1575,22 @@
                             </div>
                         </div>
                         <div class="detail-item">
+                            <div class="detail-label">Fiscal Status</div>
+                            <div class="detail-value"><span
+                                class="status-badge @GetFiscalStatusCssClass(selectedCreditNote.FiscalizationStatus)">@selectedCreditNote.FiscalizationStatus</span>
+                            </div>
+                        </div>
+                        <div class="detail-item">
                             <div class="detail-label">Currency</div>
                             <div class="detail-value">@selectedCreditNote.Currency</div>
                         </div>
+                        @if (selectedCreditNote.FiscalReceiptGlobalNo.HasValue)
+                        {
+                            <div class="detail-item">
+                                <div class="detail-label">Fiscal Receipt #</div>
+                                <div class="detail-value">@selectedCreditNote.FiscalReceiptGlobalNo</div>
+                            </div>
+                        }
                         <div class="detail-item">
                             <div class="detail-label">Restock Items</div>
                             <div class="detail-value">@(selectedCreditNote.RestockItems ? "Yes" : "No")</div>
@@ -1568,7 +1880,7 @@
                                                                     @if (!string.IsNullOrEmpty(line.ItemDescription))
                                                                     {
                                                                         <span style="font-size:.82rem;color:#374151;">@TruncateText(line.ItemDescription,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        25)</span>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                25)</span>
                                                                         }
                                                             else
                                                                         {
@@ -1632,6 +1944,87 @@
                             </div>
                         }
 
+                        @if (showBulkCancelModal)
+                        {
+                            <div class="cn-modal-overlay" @onclick="CloseBulkCancelModal">
+                                <div class="cn-modal" @onclick:stopPropagation="true">
+                                    <div class="cn-modal-header">
+                                        <h5><i class="bi bi-x-octagon"></i> Cancel Credit Notes</h5>
+                                        <button type="button" class="btn-close-modal" @onclick="CloseBulkCancelModal" disabled="@isBulkCancelling">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    </div>
+                                    <div class="cn-modal-body">
+                                        <div class="cn-confirm-summary">
+                                            <span class="cn-confirm-count">@SelectedCancelableCreditNoteCount</span>
+                                            <div>
+                                                <div class="cn-confirm-copy">Cancel selected SAP credit notes</div>
+                                                <div class="cn-confirm-subcopy">Already cancelled and unsynced rows are excluded.</div>
+                                            </div>
+                                        </div>
+                                        <div class="cn-confirm-field">
+                                            <label>Reason</label>
+                                            <textarea class="cn-confirm-textarea" @bind="bulkCancelReason"
+                                                      placeholder="Optional cancellation note"></textarea>
+                                        </div>
+                                    </div>
+                                    <div class="cn-modal-footer">
+                                        <MudButton Class="btn-secondary-action" OnClick="CloseBulkCancelModal" Disabled="@isBulkCancelling">Close
+                                        </MudButton>
+                                        <MudButton Class="btn-cn-danger" OnClick="BulkCancelSelectedAsync"
+                                                   Disabled="@(isBulkCancelling || SelectedCancelableCreditNoteCount == 0)">
+                                            @if (isBulkCancelling)
+                                            {
+                                                <span class="spinner-border spinner-border-sm"></span>
+                                            }
+                                            <span>Cancel @SelectedCancelableCreditNoteCount</span>
+                                        </MudButton>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        @if (showDuplicateCancelledModal)
+                        {
+                            <div class="cn-modal-overlay" @onclick="CloseDuplicateCancelledModal">
+                                <div class="cn-modal" @onclick:stopPropagation="true">
+                                    <div class="cn-modal-header">
+                                        <h5><i class="bi bi-copy"></i> Duplicate Cancelled</h5>
+                                        <button type="button" class="btn-close-modal" @onclick="CloseDuplicateCancelledModal"
+                                                disabled="@isDuplicatingCancelled">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    </div>
+                                    <div class="cn-modal-body">
+                                        <div class="cn-confirm-summary">
+                                            <span class="cn-confirm-count">@SelectedCancelledCreditNoteCount</span>
+                                            <div>
+                                                <div class="cn-confirm-copy">Create replacement credit notes</div>
+                                                <div class="cn-confirm-subcopy">An Excel file downloads after SAP returns the new numbers.</div>
+                                            </div>
+                                        </div>
+                                        <div class="cn-confirm-field">
+                                            <label>Reason</label>
+                                            <textarea class="cn-confirm-textarea" @bind="duplicateCancelledReason"
+                                                      placeholder="Optional reason for the replacement credit notes"></textarea>
+                                        </div>
+                                    </div>
+                                    <div class="cn-modal-footer">
+                                        <MudButton Class="btn-secondary-action" OnClick="CloseDuplicateCancelledModal"
+                                                   Disabled="@isDuplicatingCancelled">Close</MudButton>
+                                        <MudButton Class="btn-cn-outline" OnClick="DuplicateCancelledSelectedAsync"
+                                                   Disabled="@(isDuplicatingCancelled || SelectedCancelledCreditNoteCount == 0)">
+                                            @if (isDuplicatingCancelled)
+                                            {
+                                                <span class="spinner-border spinner-border-sm"></span>
+                                            }
+                                            <span>Duplicate @SelectedCancelledCreditNoteCount</span>
+                                        </MudButton>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
 @code {
     private MudTable<CreditNoteDto> _table = null!;
     private int _pageSize = 10;
@@ -1643,11 +2036,19 @@
     private bool isCreating = false;
     private bool showCreateModal = false;
     private string? errorMessage;
+    private readonly HashSet<int> selectedCreditNoteDocEntries = new();
+    private bool showBulkCancelModal = false;
+    private bool showDuplicateCancelledModal = false;
+    private bool isBulkCancelling = false;
+    private bool isDuplicatingCancelled = false;
+    private string? bulkCancelReason;
+    private string? duplicateCancelledReason;
 
     // Filters
     private string? creditNoteNumberFilter;
     private string? customerFilter;
     private string? statusFilter;
+    private string? fiscalStatusFilter;
     private DateTime? fromDate;
     private DateTime? toDate;
 
@@ -1715,6 +2116,120 @@
         _table.NavigateTo(i - 1);
     }
 
+    private IReadOnlyList<CreditNoteDto> SelectedCreditNotes => creditNotes?
+        .Where(note => selectedCreditNoteDocEntries.Contains(GetCreditNoteSelectionKey(note)))
+        .ToList() ?? new List<CreditNoteDto>();
+
+    private int SelectedCreditNoteCount => SelectedCreditNotes.Count;
+
+    private int SelectedCancelableCreditNoteCount => GetSelectedCancelableDocEntries().Count;
+
+    private int SelectedCancelledCreditNoteCount => GetSelectedCancelledDocEntries().Count;
+
+    private bool CanOpenBulkCancel =>
+        !isLoading && !isBulkCancelling && !isDuplicatingCancelled && SelectedCancelableCreditNoteCount > 0;
+
+    private bool CanOpenDuplicateCancelled =>
+        !isLoading && !isBulkCancelling && !isDuplicatingCancelled && SelectedCancelledCreditNoteCount > 0;
+
+    private static int GetCreditNoteSelectionKey(CreditNoteDto note) => note.SAPDocEntry ?? note.Id;
+
+    private static bool CanSelectCreditNote(CreditNoteDto note) => note.SAPDocEntry.HasValue;
+
+    private static bool CanCancelCreditNote(CreditNoteDto note) =>
+        note.SAPDocEntry.HasValue && note.Status != CreditNoteStatus.Cancelled;
+
+    private static bool CanDuplicateCreditNote(CreditNoteDto note) =>
+        note.SAPDocEntry.HasValue && note.Status == CreditNoteStatus.Cancelled;
+
+    private bool IsCreditNoteSelected(CreditNoteDto note) =>
+        selectedCreditNoteDocEntries.Contains(GetCreditNoteSelectionKey(note));
+
+    private List<CreditNoteDto> GetDisplayedCreditNotes() => creditNotes?
+        .Where(_quickFilter)
+        .Where(CanSelectCreditNote)
+        .ToList() ?? new List<CreditNoteDto>();
+
+    private bool AreAllDisplayedCreditNotesSelected()
+    {
+        var displayed = GetDisplayedCreditNotes();
+        return displayed.Count > 0 && displayed.All(IsCreditNoteSelected);
+    }
+
+    private void ToggleAllDisplayedCreditNotes(ChangeEventArgs args)
+    {
+        var isSelected = IsChecked(args);
+        foreach (var note in GetDisplayedCreditNotes())
+        {
+            SetCreditNoteSelection(note, isSelected);
+        }
+    }
+
+    private void ToggleCreditNoteSelection(CreditNoteDto note, ChangeEventArgs args)
+    {
+        SetCreditNoteSelection(note, IsChecked(args));
+    }
+
+    private void SetCreditNoteSelection(CreditNoteDto note, bool isSelected)
+    {
+        if (!CanSelectCreditNote(note))
+        {
+            return;
+        }
+
+        var key = GetCreditNoteSelectionKey(note);
+        if (isSelected)
+        {
+            selectedCreditNoteDocEntries.Add(key);
+        }
+        else
+        {
+            selectedCreditNoteDocEntries.Remove(key);
+        }
+    }
+
+    private static bool IsChecked(ChangeEventArgs args) =>
+        args.Value is bool value
+            ? value
+            : string.Equals(args.Value?.ToString(), "true", StringComparison.OrdinalIgnoreCase)
+              || string.Equals(args.Value?.ToString(), "on", StringComparison.OrdinalIgnoreCase);
+
+    private List<int> GetSelectedCancelableDocEntries() => SelectedCreditNotes
+        .Where(CanCancelCreditNote)
+        .Select(note => note.SAPDocEntry!.Value)
+        .Distinct()
+        .ToList();
+
+    private List<int> GetSelectedCancelledDocEntries() => SelectedCreditNotes
+        .Where(CanDuplicateCreditNote)
+        .Select(note => note.SAPDocEntry!.Value)
+        .Distinct()
+        .ToList();
+
+    private void RemoveSelectedDocEntries(IEnumerable<int> docEntries)
+    {
+        foreach (var docEntry in docEntries)
+        {
+            selectedCreditNoteDocEntries.Remove(docEntry);
+        }
+    }
+
+    private void PruneSelectedCreditNotes()
+    {
+        if (creditNotes is null)
+        {
+            selectedCreditNoteDocEntries.Clear();
+            return;
+        }
+
+        var currentKeys = creditNotes
+            .Where(CanSelectCreditNote)
+            .Select(GetCreditNoteSelectionKey)
+            .ToHashSet();
+
+        selectedCreditNoteDocEntries.RemoveWhere(key => !currentKeys.Contains(key));
+    }
+
     protected override async Task OnInitializedAsync()
     {
         _pageSize = AppSettings.PageSize;
@@ -1756,22 +2271,26 @@
                 status = (CreditNoteStatus)statusInt;
             }
 
-            var response = await CreditNoteService.GetCreditNotesAsync(currentPage, pageSize, status, customerFilter, fromDate,
-            toDate);
-            if (response != null)
+            var result = await Mediator.Send(new GetCreditNotesQuery(currentPage, pageSize, status, customerFilter, fromDate,
+toDate));
+            if (!result.IsError)
             {
-                creditNotes = response.CreditNotes;
-                totalCount = response.TotalCount;
-                totalPages = response.TotalPages;
+                var response = result.Value;
+                var loadedCreditNotes = response.CreditNotes ?? new List<CreditNoteDto>();
+                creditNotes = ApplyVisibleCreditNoteFilters(loadedCreditNotes, status);
+                totalCount = creditNotes.Count;
+                totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)_pageSize));
+                PruneSelectedCreditNotes();
             }
             else
             {
-                errorMessage = "Failed to load credit notes.";
+                errorMessage = result.FirstError.Description;
             }
         }
         catch (Exception ex)
         {
-            errorMessage = $"Error: {ex.Message}";
+            Logger.LogError(ex, "Failed to load credit notes");
+            errorMessage = "Failed to load credit notes.";
         }
         finally
         {
@@ -1804,11 +2323,34 @@
         creditNoteNumberFilter = null;
         customerFilter = null;
         statusFilter = null;
+        fiscalStatusFilter = null;
         fromDate = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
         toDate = DateTime.Today;
         currentPage = 1;
         await LoadCreditNotes();
     }
+
+    private List<CreditNoteDto> ApplyVisibleCreditNoteFilters(IEnumerable<CreditNoteDto> source, CreditNoteStatus? status)
+    {
+        return source
+            .Where(note => !status.HasValue || note.Status == status.Value)
+            .Where(note => string.IsNullOrWhiteSpace(fiscalStatusFilter)
+                || MatchesFiscalStatus(note.FiscalizationStatus, fiscalStatusFilter))
+            .Where(note => string.IsNullOrWhiteSpace(creditNoteNumberFilter)
+                || (note.CreditNoteNumber?.Contains(creditNoteNumberFilter, StringComparison.OrdinalIgnoreCase) == true))
+            .ToList();
+    }
+
+    private static bool MatchesFiscalStatus(string? actualStatus, string? filterStatus)
+        => NormalizeFiscalStatus(actualStatus) == NormalizeFiscalStatus(filterStatus);
+
+    private static string NormalizeFiscalStatus(string? status)
+        => status?.Trim().ToLowerInvariant() switch
+        {
+            "fiscalised" => "fiscalised",
+            "not fiscalised" => "not fiscalised",
+            _ => "unknown"
+        };
 
     private async Task ViewCreditNote(CreditNoteDto note)
     {
@@ -1854,21 +2396,171 @@
 
     private async Task ApproveCreditNote(int id)
     {
-        var result = await CreditNoteService.ApproveAsync(id);
-        if (result != null)
+        var result = await Mediator.Send(new ApproveCreditNoteCommand(id));
+        if (result.IsError)
         {
-            await AuditService.LogAsync(AuditActions.ApproveCreditNote, "CreditNote", id.ToString());
-            await LoadCreditNotes();
+            Snackbar.Add(result.FirstError.Description, Severity.Error);
+            return;
         }
+
+        Snackbar.Add("Credit note approved.", Severity.Success);
+        await LoadCreditNotes();
     }
 
     private async Task DeleteCreditNote(int id)
     {
-        var success = await CreditNoteService.DeleteCreditNoteAsync(id);
-        if (success)
+        var result = await Mediator.Send(new DeleteCreditNoteCommand(id));
+        if (result.IsError)
         {
-            await AuditService.LogAsync(AuditActions.DeleteCreditNote, "CreditNote", id.ToString());
+            Snackbar.Add(result.FirstError.Description, Severity.Error);
+            return;
+        }
+
+        Snackbar.Add("Credit note deleted.", Severity.Success);
+        await LoadCreditNotes();
+    }
+
+    private void OpenBulkCancelModal()
+    {
+        if (!CanOpenBulkCancel)
+        {
+            Snackbar.Add("Select SAP credit notes that are not cancelled.", Severity.Warning);
+            return;
+        }
+
+        bulkCancelReason = null;
+        showBulkCancelModal = true;
+    }
+
+    private void CloseBulkCancelModal()
+    {
+        if (isBulkCancelling)
+        {
+            return;
+        }
+
+        showBulkCancelModal = false;
+        bulkCancelReason = null;
+    }
+
+    private async Task BulkCancelSelectedAsync()
+    {
+        var docEntries = GetSelectedCancelableDocEntries();
+        if (docEntries.Count == 0)
+        {
+            Snackbar.Add("Select SAP credit notes that are not cancelled.", Severity.Warning);
+            return;
+        }
+
+        isBulkCancelling = true;
+        errorMessage = null;
+
+        try
+        {
+            var result = await Mediator.Send(new BulkCancelCreditNotesCommand(docEntries, bulkCancelReason));
+            if (result.IsError)
+            {
+                Snackbar.Add(result.FirstError.Description, Severity.Error);
+                return;
+            }
+
+            var response = result.Value;
+            var severity = response.FailedCount == 0
+                ? Severity.Success
+                : response.SuccessCount > 0 ? Severity.Warning : Severity.Error;
+
+            Snackbar.Add($"Cancelled {response.SuccessCount} of {response.RequestedCount} credit notes.", severity);
+            showBulkCancelModal = false;
+            bulkCancelReason = null;
+            RemoveSelectedDocEntries(docEntries);
             await LoadCreditNotes();
+        }
+        catch (FluentValidation.ValidationException ex)
+        {
+            Snackbar.Add(ex.Errors.FirstOrDefault()?.ErrorMessage ?? "Select at least one credit note.", Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Bulk credit note cancellation failed");
+            Snackbar.Add("Failed to cancel selected credit notes.", Severity.Error);
+        }
+        finally
+        {
+            isBulkCancelling = false;
+        }
+    }
+
+    private void OpenDuplicateCancelledModal()
+    {
+        if (!CanOpenDuplicateCancelled)
+        {
+            Snackbar.Add("Select cancelled SAP credit notes to duplicate.", Severity.Warning);
+            return;
+        }
+
+        duplicateCancelledReason = null;
+        showDuplicateCancelledModal = true;
+    }
+
+    private void CloseDuplicateCancelledModal()
+    {
+        if (isDuplicatingCancelled)
+        {
+            return;
+        }
+
+        showDuplicateCancelledModal = false;
+        duplicateCancelledReason = null;
+    }
+
+    private async Task DuplicateCancelledSelectedAsync()
+    {
+        var docEntries = GetSelectedCancelledDocEntries();
+        if (docEntries.Count == 0)
+        {
+            Snackbar.Add("Select cancelled SAP credit notes to duplicate.", Severity.Warning);
+            return;
+        }
+
+        isDuplicatingCancelled = true;
+        errorMessage = null;
+
+        try
+        {
+            var result = await Mediator.Send(new DuplicateCancelledCreditNotesCommand(docEntries, duplicateCancelledReason));
+            if (result.IsError)
+            {
+                Snackbar.Add(result.FirstError.Description, Severity.Error);
+                return;
+            }
+
+            var export = result.Value;
+            await JS.InvokeVoidAsync("downloadFile", export.FileName, export.ContentType, export.Base64Content);
+
+            var response = export.OperationResult;
+            var severity = response.FailedCount == 0
+                ? Severity.Success
+                : response.SuccessCount > 0 ? Severity.Warning : Severity.Error;
+
+            Snackbar.Add($"Duplicated {response.SuccessCount} of {response.RequestedCount} credit notes.", severity);
+            showDuplicateCancelledModal = false;
+            duplicateCancelledReason = null;
+            RemoveSelectedDocEntries(docEntries);
+            await LoadCreditNotes();
+        }
+        catch (FluentValidation.ValidationException ex)
+        {
+            Snackbar.Add(ex.Errors.FirstOrDefault()?.ErrorMessage ?? "Select at least one cancelled credit note.",
+Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Cancelled credit note duplication failed");
+            Snackbar.Add("Failed to duplicate selected credit notes.", Severity.Error);
+        }
+        finally
+        {
+            isDuplicatingCancelled = false;
         }
     }
 
@@ -2095,16 +2787,32 @@
         isCreating = true;
         try
         {
-            var result = await CreditNoteService.CreateCreditNoteAsync(newCreditNote);
-            if (result != null)
+            var result = await Mediator.Send(new CreateCreditNoteCommand(newCreditNote));
+            if (result.IsError)
+            {
+                Snackbar.Add(result.FirstError.Description, Severity.Error);
+                return;
+            }
+
+            if (result.Value != null)
             {
                 showCreateModal = false;
                 newCreditNote = new();
                 selectedBusinessPartner = null;
                 bpSearchTerm = null;
                 cnLineStates.Clear();
+                Snackbar.Add("Credit note created.", Severity.Success);
                 await LoadCreditNotes();
             }
+        }
+        catch (FluentValidation.ValidationException ex)
+        {
+            Snackbar.Add(ex.Errors.FirstOrDefault()?.ErrorMessage ?? "Check the credit note details.", Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to create credit note");
+            Snackbar.Add("Failed to create credit note.", Severity.Error);
         }
         finally
         {
@@ -2123,6 +2831,14 @@
         CreditNoteStatus.Voided => "voided",
         _ => "draft"
     };
+
+    private static string GetFiscalStatusCssClass(string? status)
+        => status?.Trim().ToLowerInvariant() switch
+        {
+            "fiscalised" => "fiscalised",
+            "not fiscalised" => "not-fiscalised",
+            _ => "unknown"
+        };
 
     private string GetTypeCssClass(CreditNoteType type) => type switch
     {

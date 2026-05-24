@@ -334,11 +334,11 @@ public class RefreshToken
     public Guid Id { get; set; }
 
     /// <summary>
-    /// The refresh token value
+    /// Hash of the refresh token value
     /// </summary>
     [Required]
-    [MaxLength(500)]
-    public required string Token { get; set; }
+    [MaxLength(128)]
+    public required string TokenHash { get; set; }
 
     /// <summary>
     /// User ID this token belongs to
@@ -389,10 +389,10 @@ public class RefreshToken
     public string? ReasonRevoked { get; set; }
 
     /// <summary>
-    /// The token that replaced this one (if rotated)
+    /// Hash of the token that replaced this one (if rotated)
     /// </summary>
-    [MaxLength(500)]
-    public string? ReplacedByToken { get; set; }
+    [MaxLength(128)]
+    public string? ReplacedByTokenHash { get; set; }
 
     /// <summary>
     /// Check if the token is expired

@@ -5,4 +5,6 @@ namespace ShopInventory.Features.Invoices.Events;
 
 public sealed record InvoiceFiscalizationWorkItem(
     InvoiceDto Invoice,
-    CustomerFiscalDetails CustomerDetails);
+    CustomerFiscalDetails CustomerDetails,
+    Guid? InitiatedByUserId,
+    string? InitiatedByUsername);

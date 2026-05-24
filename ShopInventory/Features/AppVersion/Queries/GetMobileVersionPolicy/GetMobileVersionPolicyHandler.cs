@@ -11,7 +11,7 @@ public sealed class GetMobileVersionPolicyHandler(
         GetMobileVersionPolicyQuery request,
         CancellationToken cancellationToken)
     {
-        var evaluation = evaluator.Evaluate(request.Platform, request.CurrentVersion);
+        var evaluation = evaluator.Evaluate(request.AppId, request.Platform, request.CurrentVersion);
 
         ErrorOr<MobileVersionPolicyResponse> result = new MobileVersionPolicyResponse(
             evaluation.Status,

@@ -112,6 +112,12 @@ public sealed class GetFiscalTransactionsHandler(
             query = query.Where(transaction => EF.Functions.ILike(transaction.DocumentType, documentType));
         }
 
+        if (!string.IsNullOrWhiteSpace(request.SourceSystem))
+        {
+            var sourceSystem = request.SourceSystem.Trim();
+            query = query.Where(transaction => EF.Functions.ILike(transaction.SourceSystem, sourceSystem));
+        }
+
         if (!string.IsNullOrWhiteSpace(request.Status))
         {
             var status = request.Status.Trim();

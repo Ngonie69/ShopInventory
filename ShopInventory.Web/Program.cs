@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using MediatR;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
@@ -190,6 +191,16 @@ try
         client.Timeout = TimeSpan.FromMinutes(5);
     });
 
+    builder.Services.AddHttpClient<IPodService, PodService>(client =>
+    {
+        client.BaseAddress = new Uri(apiBaseUrl);
+        client.Timeout = TimeSpan.FromMinutes(35);
+        if (!string.IsNullOrEmpty(apiKey))
+        {
+            client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
+        }
+    });
+
     // Register a scoped HttpClient that uses the factory
     builder.Services.AddScoped(sp =>
     {
@@ -243,7 +254,11 @@ try
     builder.Services.AddScoped<IBusinessPartnerService, BusinessPartnerService>();
     builder.Services.AddScoped<IMasterDataCacheService, MasterDataCacheService>();
 
+    builder.Services.AddHttpContextAccessor();
+
     // Add audit and settings services
+    builder.Services.AddScoped<WebClientAuditContext>();
+    builder.Services.AddScoped<CircuitHandler, WebClientAuditCircuitHandler>();
     builder.Services.AddScoped<IAuditService, AuditService>();
     builder.Services.AddScoped<IAppSettingsService, AppSettingsService>();
     builder.Services.AddSingleton<IAppSettingsProvider, AppSettingsProvider>();
@@ -293,7 +308,6 @@ try
     builder.Services.AddScoped<ICustomerAuthService, CustomerAuthService>();
     builder.Services.AddScoped<ICustomerPortalSessionService, CustomerPortalSessionService>();
     builder.Services.AddScoped<ICustomerStatementService, CustomerStatementService>();
-    builder.Services.AddScoped<IPodService, PodService>();
     builder.Services.AddScoped<ICrateTrackingService, CrateTrackingService>();
 
     // Add Desktop Integration service (for viewing desktop app transactions)
@@ -330,7 +344,7 @@ try
     {
         options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
         options.ForwardLimit = 1;
-        options.RequireHeaderSymmetry = true;
+        options.RequireHeaderSymmetry = false;
 
         foreach (var proxy in knownReverseProxies)
         {

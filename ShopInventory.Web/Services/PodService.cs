@@ -1,5 +1,6 @@
 using Blazored.LocalStorage;
 using ShopInventory.Web.Models;
+using System.Net;
 using System.Net.Http.Json;
 using System.Net.Http.Headers;
 
@@ -21,6 +22,9 @@ public interface IPodService
 
 public class PodService : IPodService
 {
+    private const int AuthenticationRetryCount = 15;
+    private static readonly TimeSpan AuthenticationRetryDelay = TimeSpan.FromMilliseconds(200);
+
     private readonly HttpClient _httpClient;
     private readonly ILogger<PodService> _logger;
     private readonly ILocalStorageService _localStorage;
@@ -32,35 +36,84 @@ public class PodService : IPodService
         _localStorage = localStorage;
     }
 
-    private async Task EnsureAuthenticationAsync()
+    private async Task EnsureAuthenticationAsync(CancellationToken cancellationToken = default)
     {
-        try
+        for (var attempt = 0; attempt < AuthenticationRetryCount; attempt++)
         {
-            var token = await _localStorage.GetItemAsync<string>("authToken");
-            var currentToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
-
-            if (string.IsNullOrWhiteSpace(token))
+            try
             {
-                _httpClient.DefaultRequestHeaders.Authorization = null;
-                return;
+                var token = await _localStorage.GetItemAsync<string>("authToken");
+                var currentToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
+
+                if (string.IsNullOrWhiteSpace(token))
+                {
+                    if (attempt == AuthenticationRetryCount - 1)
+                    {
+                        _httpClient.DefaultRequestHeaders.Authorization = null;
+                        _logger.LogWarning("POD auth token was unavailable after {AttemptCount} attempts", AuthenticationRetryCount);
+                        return;
+                    }
+                }
+                else
+                {
+                    if (!string.Equals(currentToken, token, StringComparison.Ordinal))
+                    {
+                        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                    }
+
+                    return;
+                }
+            }
+            catch (Exception ex) when (attempt < AuthenticationRetryCount - 1)
+            {
+                _logger.LogDebug(ex, "POD auth token is not available yet on attempt {Attempt}", attempt + 1);
             }
 
-            if (!string.Equals(currentToken, token, StringComparison.Ordinal))
+            if (attempt < AuthenticationRetryCount - 1)
             {
-                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                await Task.Delay(AuthenticationRetryDelay, cancellationToken);
             }
         }
-        catch
+    }
+
+    private async Task<T?> GetAuthenticatedJsonAsync<T>(string url, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticationAsync(cancellationToken);
+        using var response = await SendAuthenticatedGetAsync(url, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
         {
-            // localStorage is unavailable during prerendering
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogWarning(
+                "POD API GET {Url} failed with status {StatusCode}. Response: {ResponseBody}",
+                url,
+                (int)response.StatusCode,
+                errorBody);
+            return default;
         }
+
+        return await response.Content.ReadFromJsonAsync<T>(cancellationToken);
+    }
+
+    private async Task<HttpResponseMessage> SendAuthenticatedGetAsync(string url, CancellationToken cancellationToken)
+    {
+        var response = await _httpClient.GetAsync(url, cancellationToken);
+        if (response.StatusCode != HttpStatusCode.Unauthorized)
+        {
+            return response;
+        }
+
+        response.Dispose();
+        _httpClient.DefaultRequestHeaders.Authorization = null;
+        await EnsureAuthenticationAsync(cancellationToken);
+        return await _httpClient.GetAsync(url, cancellationToken);
     }
 
     public async Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, string? uploadedByUsername = null, string? uploadedFromLocation = null, CancellationToken cancellationToken = default)
     {
         try
         {
-            await EnsureAuthenticationAsync();
+            await EnsureAuthenticationAsync(cancellationToken);
             var url = $"api/invoice/pods?page={page}&pageSize={pageSize}";
             if (!string.IsNullOrEmpty(cardCode))
                 url += $"&cardCode={Uri.EscapeDataString(cardCode)}";
@@ -75,7 +128,7 @@ public class PodService : IPodService
             if (!string.IsNullOrWhiteSpace(uploadedFromLocation))
                 url += $"&uploadedFromLocation={Uri.EscapeDataString(uploadedFromLocation)}";
 
-            return await _httpClient.GetFromJsonAsync<PodAttachmentListResponse>(url, cancellationToken);
+            return await GetAuthenticatedJsonAsync<PodAttachmentListResponse>(url, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -133,7 +186,7 @@ public class PodService : IPodService
     {
         try
         {
-            await EnsureAuthenticationAsync();
+            await EnsureAuthenticationAsync(cancellationToken);
             var request = new BulkPodValidationRequest
             {
                 DocNums = (docNums ?? Enumerable.Empty<int>()).Where(docNum => docNum > 0).Distinct().ToList(),
@@ -253,7 +306,7 @@ public class PodService : IPodService
             await EnsureAuthenticationAsync();
             var from = fromDate.ToString("yyyy-MM-dd");
             var to = toDate.ToString("yyyy-MM-dd");
-            return await _httpClient.GetFromJsonAsync<PodUploadStatusReport>(
+            return await GetAuthenticatedJsonAsync<PodUploadStatusReport>(
                 $"api/invoice/pod-upload-status?fromDate={from}&toDate={to}");
         }
         catch (Exception ex)
@@ -268,7 +321,7 @@ public class PodService : IPodService
         try
         {
             await EnsureAuthenticationAsync();
-            return await _httpClient.GetFromJsonAsync<PodDashboardModel>("api/invoice/pod-dashboard");
+            return await GetAuthenticatedJsonAsync<PodDashboardModel>("api/invoice/pod-dashboard");
         }
         catch (Exception ex)
         {

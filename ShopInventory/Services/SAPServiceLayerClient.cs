@@ -11,6 +11,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common;
 using ShopInventory.Common.Caching;
+using ShopInventory.Common.Security;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -217,8 +218,9 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         if (!response.IsSuccessStatusCode)
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("SAP Login failed: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"SAP Login failed: {response.StatusCode} - {errorContent}");
+            var sanitizedError = SensitiveDataSanitizer.SanitizeForLog(errorContent);
+            _logger.LogError("SAP Login failed: {StatusCode} - {Error}", response.StatusCode, sanitizedError);
+            throw new Exception($"SAP Login failed: {response.StatusCode}");
         }
 
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -718,6 +720,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
             var sapError = ExtractSAPErrorMessage(errorContent);
+            var sanitizedSapError = SensitiveDataSanitizer.SanitizeForLog(sapError ?? errorContent);
 
             if (IsPostingPeriodDateError(errorContent, sapError))
             {
@@ -727,7 +730,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                     formattedTaxDate,
                     formattedDocDueDate,
                     formattedSeries,
-                    sapError ?? errorContent);
+                    sanitizedSapError);
                 _logger.LogWarning(
                     "SAP company {CompanyDb} rejected invoice dates DocDate={DocDate}, TaxDate={TaxDate}, DocDueDate={DocDueDate}, Series={Series}: {SapError}",
                     sapCompanyDb,
@@ -735,22 +738,22 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                     formattedTaxDate,
                     formattedDocDueDate,
                     formattedSeries,
-                    sapError ?? errorContent);
+                        sanitizedSapError);
 
                 throw new SapPostingPeriodException(
                     postingPeriodMessage,
                     formattedDocDate,
-                    sapError ?? errorContent);
+                        sanitizedSapError);
             }
 
-            _logger.LogError("Failed to create invoice: {StatusCode} - {Error}", response.StatusCode, errorContent);
+            _logger.LogError("Failed to create invoice: {StatusCode} - {Error}", response.StatusCode, sanitizedSapError);
 
             if (IsBusinessPartnerDataError(errorContent))
             {
                 throw new Exception($"Failed to create invoice: Customer '{request.CardCode}' has corrupted or invalid data in SAP (e.g., broken Discount Group, Payment Terms, addresses, or contacts). " +
-                    $"Please check and repair this Business Partner's master data in SAP B1. SAP error: {sapError ?? errorContent}");
+                        $"Please check and repair this Business Partner's master data in SAP B1. SAP error: {sanitizedSapError}");
             }
-            throw new Exception(sapError ?? $"Failed to create invoice: {response.StatusCode} - {errorContent}");
+            throw new Exception($"Failed to create invoice in SAP. Status: {response.StatusCode}");
         }
 
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -1472,20 +1475,88 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         if (distinctDocEntries.Count == 0)
             return [];
 
+        await EnsureAuthenticatedAsync(cancellationToken);
         var allInvoices = new List<Invoice>();
+        const string selectClause = "$select=DocEntry,DocumentLines";
 
-        foreach (var chunk in distinctDocEntries.Chunk(10))
+        foreach (var chunk in GetDocEntryQueryChunks(distinctDocEntries, selectClause))
         {
-            var chunkTasks = chunk.Select(docEntry => GetInvoiceByDocEntryAsync(docEntry, cancellationToken));
-            var chunkInvoices = await Task.WhenAll(chunkTasks);
+            var currentSession = _sessionId;
+            var filter = string.Join(" or ", chunk.Select(docEntry => $"DocEntry eq {docEntry}"));
+            var url = $"Invoices?$filter={filter}&{selectClause}&$top={chunk.Length}";
 
-            allInvoices.AddRange(chunkInvoices.Where(invoice => invoice is not null)!);
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={chunk.Length}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={chunk.Length}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to bulk get invoices by DocEntry: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to bulk get invoices by DocEntry: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var result = JsonSerializer.Deserialize<SAPResponse<Invoice>>(content);
+
+            if (result?.Value is { Count: > 0 })
+                allInvoices.AddRange(result.Value);
         }
 
         return allInvoices
             .GroupBy(invoice => invoice.DocEntry)
             .Select(group => group.First())
             .ToList();
+
+        static IEnumerable<int[]> GetDocEntryQueryChunks(IReadOnlyList<int> values, string selectClause)
+        {
+            const int maxUrlLength = 1800;
+            var baseUrlLength = "Invoices?$filter=".Length + "&".Length + selectClause.Length + "&$top=".Length;
+            var currentChunk = new List<int>();
+            var currentFilterLength = 0;
+
+            foreach (var value in values)
+            {
+                var clauseLength = "DocEntry eq ".Length + value.ToString(CultureInfo.InvariantCulture).Length;
+                var separatorLength = currentChunk.Count > 0 ? " or ".Length : 0;
+                var nextChunkCount = currentChunk.Count + 1;
+                var candidateUrlLength = baseUrlLength
+                    + currentFilterLength
+                    + separatorLength
+                    + clauseLength
+                    + nextChunkCount.ToString(CultureInfo.InvariantCulture).Length;
+
+                if (candidateUrlLength > maxUrlLength && currentChunk.Count > 0)
+                {
+                    yield return [.. currentChunk];
+                    currentChunk.Clear();
+                    currentFilterLength = 0;
+                    separatorLength = 0;
+                }
+
+                currentChunk.Add(value);
+                currentFilterLength += separatorLength + clauseLength;
+            }
+
+            if (currentChunk.Count > 0)
+            {
+                yield return [.. currentChunk];
+            }
+        }
     }
 
     public async Task<List<Invoice>> GetInvoicesByCustomerAsync(
@@ -1694,6 +1765,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         DateTime fromDate,
         DateTime toDate,
         List<string>? excludeCardCodes = null,
+        bool includeDocumentLines = false,
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
@@ -1703,7 +1775,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var toDateStr = toDate.ToString("yyyy-MM-dd");
         var allInvoices = new List<Invoice>();
         int skip = 0;
-        const int pageSize = 500;
+        var pageSize = includeDocumentLines ? 100 : 500;
         bool hasMore = true;
 
         // Build filter with date range and optional CardCode exclusions
@@ -1714,9 +1786,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             filter += $" and {exclusions}";
         }
 
-        // Keep this query header-only. Line-level warehouse codes are fetched separately
-        // for PodOperator section scoping through single-invoice reads.
-        var select = "$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency,UserSign";
+        var selectFields = includeDocumentLines
+            ? "DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency,UserSign,DocumentLines"
+            : "DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency,UserSign";
+        var select = $"$select={selectFields}";
 
         while (hasMore)
         {
@@ -1724,6 +1797,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -1734,6 +1808,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -10840,6 +10915,41 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             creditNote?.DocEntry, creditNote?.DocNum);
 
         return creditNote ?? throw new Exception("Failed to deserialize created credit note from SAP");
+    }
+
+    public async Task CancelCreditNoteAsync(int docEntry, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        _logger.LogInformation("Cancelling SAP credit note {DocEntry}", docEntry);
+
+        var url = $"CreditNotes({docEntry})/Cancel";
+        var request = new HttpRequestMessage(HttpMethod.Post, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to cancel SAP credit note {DocEntry}: {StatusCode} - {Error}",
+                docEntry, response.StatusCode, errorContent);
+            throw new Exception($"Failed to cancel SAP credit note {docEntry}: {response.StatusCode} - {errorContent}");
+        }
+
+        _logger.LogInformation("SAP credit note {DocEntry} cancelled successfully", docEntry);
     }
 
     #endregion

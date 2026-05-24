@@ -20,7 +20,8 @@ namespace ShopInventory.Services
             IEnumerable<IncomingPaymentDto> payments,
             DateTime fromDate,
             DateTime toDate,
-            IEnumerable<InvoiceDto>? allOpenInvoices = null);
+            IEnumerable<InvoiceDto>? allOpenInvoices = null,
+            IEnumerable<CreditNoteDto>? creditNotes = null);
     }
 
     public class StatementService : IStatementService
@@ -73,7 +74,8 @@ namespace ShopInventory.Services
             IEnumerable<IncomingPaymentDto> payments,
             DateTime fromDate,
             DateTime toDate,
-            IEnumerable<InvoiceDto>? allOpenInvoices = null)
+            IEnumerable<InvoiceDto>? allOpenInvoices = null,
+            IEnumerable<CreditNoteDto>? creditNotes = null)
         {
             try
             {
@@ -99,13 +101,13 @@ namespace ShopInventory.Services
                 AddCustomerAndStatementInfo(document, customer);
 
                 // Add account summary section
-                AddAccountSummary(document, customer, invoices, payments, fromDate, toDate);
+                AddAccountSummary(document, customer, invoices, payments, creditNotes, fromDate, toDate);
 
                 // Add aging analysis (use all open invoices if provided, otherwise fall back to filtered invoices)
                 AddAgingAnalysis(document, allOpenInvoices ?? invoices);
 
                 // Add transaction ledger (chronological debit/credit with running balance)
-                AddTransactionLedger(document, customer, invoices, payments, fromDate);
+                AddTransactionLedger(document, customer, invoices, payments, creditNotes, fromDate);
 
                 // Add footer with page numbers
                 AddFooter(document, pdf);
@@ -346,7 +348,7 @@ namespace ShopInventory.Services
             document.Add(infoTable);
         }
 
-        private void AddAccountSummary(Document document, BusinessPartnerDto customer, IEnumerable<InvoiceDto> invoices, IEnumerable<IncomingPaymentDto> payments, DateTime fromDate, DateTime toDate)
+        private void AddAccountSummary(Document document, BusinessPartnerDto customer, IEnumerable<InvoiceDto> invoices, IEnumerable<IncomingPaymentDto> payments, IEnumerable<CreditNoteDto>? creditNotes, DateTime fromDate, DateTime toDate)
         {
             var sectionTitle = new Paragraph("ACCOUNT SUMMARY")
                 .SetFont(_boldFont)
@@ -357,10 +359,12 @@ namespace ShopInventory.Services
 
             var totalInvoiced = invoices?.Sum(i => i.DocTotal) ?? 0;
             var totalPaid = payments?.Sum(p => p.DocTotal) ?? 0;
+            var totalCreditNotes = creditNotes?.Sum(c => Math.Abs(c.DocTotal)) ?? 0;
+            var totalCredits = totalPaid + totalCreditNotes;
 
             // Calculate opening balance: current SAP balance - period invoices + period payments
             var currentBalance = customer.Balance ?? 0;
-            var openingBalance = currentBalance - totalInvoiced + totalPaid;
+            var openingBalance = currentBalance - totalInvoiced + totalCredits;
             var closingBalance = currentBalance;
 
             var summaryTable = new Table(new float[] { 1, 1, 1, 1 })
@@ -370,7 +374,7 @@ namespace ShopInventory.Services
             // Summary Cards
             AddSummaryCard(summaryTable, "Opening Balance", $"{openingBalance:N2}", $"As at {fromDate:dd MMM yyyy}", PrimaryColor);
             AddSummaryCard(summaryTable, "Total Debits", $"{totalInvoiced:N2}", $"{invoices?.Count() ?? 0} Invoice(s)", DangerColor);
-            AddSummaryCard(summaryTable, "Total Credits", $"{totalPaid:N2}", $"{payments?.Count() ?? 0} Payment(s)", SuccessColor);
+            AddSummaryCard(summaryTable, "Total Credits", $"{totalCredits:N2}", $"{payments?.Count() ?? 0} Payment(s), {creditNotes?.Count() ?? 0} Credit Note(s)", SuccessColor);
             AddSummaryCard(summaryTable, "Closing Balance", $"{closingBalance:N2}", $"As at {toDate:dd MMM yyyy}", closingBalance > 0 ? DangerColor : SuccessColor);
 
             document.Add(summaryTable);
@@ -504,7 +508,7 @@ namespace ShopInventory.Services
             table.AddCell(cell);
         }
 
-        private void AddTransactionLedger(Document document, BusinessPartnerDto customer, IEnumerable<InvoiceDto> invoices, IEnumerable<IncomingPaymentDto> payments, DateTime fromDate)
+        private void AddTransactionLedger(Document document, BusinessPartnerDto customer, IEnumerable<InvoiceDto> invoices, IEnumerable<IncomingPaymentDto> payments, IEnumerable<CreditNoteDto>? creditNotes, DateTime fromDate)
         {
             var sectionTitle = new Paragraph("TRANSACTION DETAILS")
                 .SetFont(_boldFont)
@@ -541,8 +545,32 @@ namespace ShopInventory.Services
                 }
             }
 
+            if (creditNotes != null)
+            {
+                foreach (var creditNote in creditNotes)
+                {
+                    var reference = creditNote.SAPDocNum?.ToString() ?? creditNote.CreditNoteNumber;
+                    var description = !string.IsNullOrWhiteSpace(creditNote.Comments)
+                        ? creditNote.Comments
+                        : !string.IsNullOrWhiteSpace(creditNote.Reason)
+                            ? creditNote.Reason
+                            : "Credit Note";
+
+                    transactions.Add((
+                        creditNote.CreditNoteDate,
+                        "Credit Note",
+                        TruncateText($"CN-{reference}", 18),
+                        TruncateText(description, 35),
+                        0,
+                        Math.Abs(creditNote.DocTotal)));
+                }
+            }
+
             // Sort chronologically
-            transactions = transactions.OrderBy(t => t.Date).ThenBy(t => t.Type == "Invoice" ? 0 : 1).ToList();
+            transactions = transactions
+                .OrderBy(t => t.Date)
+                .ThenBy(t => t.Type == "Invoice" ? 0 : t.Type == "Credit Note" ? 1 : 2)
+                .ToList();
 
             // Create the ledger table
             var ledgerTable = new Table(new float[] { 1.1f, 1.2f, 1.4f, 2.2f, 1.2f, 1.2f, 1.2f })
@@ -561,8 +589,9 @@ namespace ShopInventory.Services
             // Calculate opening balance
             var totalInvoiced = invoices?.Sum(i => i.DocTotal) ?? 0;
             var totalPaid = payments?.Sum(p => p.DocTotal) ?? 0;
+            var totalCreditNotes = creditNotes?.Sum(c => Math.Abs(c.DocTotal)) ?? 0;
             var currentBalance = customer.Balance ?? 0;
-            var openingBalance = currentBalance - totalInvoiced + totalPaid;
+            var openingBalance = currentBalance - totalInvoiced + totalPaid + totalCreditNotes;
             var runningBalance = openingBalance;
 
             // Opening balance row

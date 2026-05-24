@@ -36,6 +36,11 @@ public static class UserRoles
     public const string PodOperator = "PodOperator";
 
     /// <summary>
+    /// Driver with access to POD and assigned mobile workflows
+    /// </summary>
+    public const string Driver = "Driver";
+
+    /// <summary>
     /// Merchandiser with access to mobile sales orders and assigned customers
     /// </summary>
     public const string Merchandiser = "Merchandiser";
@@ -64,12 +69,12 @@ public static class UserRoles
     public const string SalesOrderRoles = "Admin,Cashier,Merchandiser,SalesRep";
     public const string PurchasingRoles = "Admin,Manager";
 
-    public const string PodRoles = "Admin,Cashier,PodOperator,SalesRep";
+    public const string PodRoles = "Admin,Cashier,PodOperator,Driver,SalesRep";
 
     /// <summary>
     /// Get all available roles
     /// </summary>
-    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager, PodOperator, Merchandiser, SalesRep, MerchandiserPurchaseOrderViewer, Lab };
+    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager, PodOperator, Driver, Merchandiser, SalesRep, MerchandiserPurchaseOrderViewer, Lab };
 
     /// <summary>
     /// Check if a role has admin privileges

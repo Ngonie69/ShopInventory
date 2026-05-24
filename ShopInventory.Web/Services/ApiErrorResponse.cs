@@ -1,10 +1,14 @@
 using System.Net;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace ShopInventory.Web.Services;
 
-internal static class ApiErrorResponse
+internal static partial class ApiErrorResponse
 {
+    private const int MaxLogBodyLength = 4000;
+    private const string RedactedValue = "[REDACTED]";
+
     private static readonly HashSet<string> GenericProblemTitles = new(StringComparer.OrdinalIgnoreCase)
     {
         "Unauthorized",
@@ -67,6 +71,26 @@ internal static class ApiErrorResponse
         }
 
         return fallbackMessage;
+    }
+
+    public static string SanitizeForLog(string? responseContent)
+    {
+        if (string.IsNullOrWhiteSpace(responseContent))
+        {
+            return string.Empty;
+        }
+
+        var sanitized = SensitiveAssignmentRegex().Replace(responseContent.Trim(), match =>
+        {
+            var prefix = match.Groups[1].Value;
+            return $"{prefix}{RedactedValue}";
+        });
+
+        sanitized = BearerTokenRegex().Replace(sanitized, $"Bearer {RedactedValue}");
+
+        return sanitized.Length <= MaxLogBodyLength
+            ? sanitized
+            : sanitized[..MaxLogBodyLength] + "... [truncated]";
     }
 
     public static string GetFriendlyMessage(
@@ -364,4 +388,10 @@ internal static class ApiErrorResponse
 
     private static bool LooksLikeJson(string value)
         => value.StartsWith('{') || value.StartsWith('[');
+
+    [GeneratedRegex("(?i)((?:password|passwd|secret|token|api[_-]?key|authorization|cookie|session|jwt)\\s*[:=]\\s*)([^\\s,;}]+)")]
+    private static partial Regex SensitiveAssignmentRegex();
+
+    [GeneratedRegex("(?i)Bearer\\s+[A-Za-z0-9._~+/=-]+")]
+    private static partial Regex BearerTokenRegex();
 }

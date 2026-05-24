@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Npgsql;
 using ShopInventory.Common.Pods;
 using ShopInventory.Data;
@@ -85,6 +86,7 @@ public class DocumentService : IDocumentService
     private readonly IEmailService _emailService;
     private readonly ISAPServiceLayerClient _sapServiceLayerClient;
     private readonly ILogger<DocumentService> _logger;
+    private readonly IMemoryCache _memoryCache;
     private readonly string _uploadPath;
 
     public DocumentService(
@@ -92,12 +94,14 @@ public class DocumentService : IDocumentService
         IEmailService emailService,
         ISAPServiceLayerClient sapServiceLayerClient,
         ILogger<DocumentService> logger,
+        IMemoryCache memoryCache,
         IConfiguration configuration)
     {
         _context = context;
         _emailService = emailService;
         _sapServiceLayerClient = sapServiceLayerClient;
         _logger = logger;
+        _memoryCache = memoryCache;
         _uploadPath = configuration["FileStorage:UploadPath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "uploads");
 
         // Ensure upload directory exists
@@ -637,6 +641,7 @@ public class DocumentService : IDocumentService
             .Select(i => i.SAPDocEntry!.Value);
 
         var query = _context.Set<DocumentAttachmentEntity>()
+            .AsNoTracking()
             .Include(a => a.UploadedByUser)
             .Where(a => a.EntityType == "Invoice")
             .Where(a => !excludedDocEntries.Contains(a.EntityId))
@@ -720,13 +725,13 @@ public class DocumentService : IDocumentService
 
         if (!string.IsNullOrWhiteSpace(assignedSection))
         {
-            var candidateDocEntries = await query
-                .Select(a => a.EntityId)
-                .Distinct()
-                .ToListAsync(cancellationToken);
+            var sectionFilterValues = PodLocationScope.GetSectionFilterValues(assignedSection)
+                .Select(value => value.ToUpperInvariant())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var warehouseCodes = await GetPodWarehouseCodesForAssignedSectionAsync(assignedSection, cancellationToken);
 
-            var scopedDocEntries = await GetScopedPodInvoiceDocEntriesAsync(candidateDocEntries, assignedSection, cancellationToken);
-            if (scopedDocEntries.Count == 0)
+            if (sectionFilterValues.Length == 0 && warehouseCodes.Length == 0)
             {
                 return new PodAttachmentListResponseDto
                 {
@@ -738,7 +743,15 @@ public class DocumentService : IDocumentService
                 };
             }
 
-            query = query.Where(a => scopedDocEntries.Contains(a.EntityId));
+            query = query.Where(a =>
+                (a.UploadedByUser != null &&
+                 a.UploadedByUser.AssignedSection != null &&
+                 sectionFilterValues.Contains(a.UploadedByUser.AssignedSection.ToUpper())) ||
+                _context.Invoices.Any(invoice =>
+                    invoice.SAPDocEntry == a.EntityId &&
+                    invoice.DocumentLines.Any(line =>
+                        line.WarehouseCode != null &&
+                        warehouseCodes.Contains(line.WarehouseCode.ToUpper()))));
         }
 
         var totalCount = await query.CountAsync(cancellationToken);
@@ -835,20 +848,138 @@ public class DocumentService : IDocumentService
             return [];
         }
 
-        var invoices = await _sapServiceLayerClient.GetInvoiceHeadersByDocEntriesAsync(distinctDocEntries, cancellationToken);
-        if (invoices.Count == 0)
+        var normalizedSection = assignedSection.Trim();
+        var scopedDocEntries = new List<int>(distinctDocEntries.Count);
+        var uncachedDocEntries = new List<int>();
+
+        foreach (var docEntry in distinctDocEntries)
         {
-            return [];
+            if (_memoryCache.TryGetValue(GetPodInvoiceSectionScopeCacheKey(normalizedSection, docEntry), out bool matchesAssignedSection))
+            {
+                if (matchesAssignedSection)
+                {
+                    scopedDocEntries.Add(docEntry);
+                }
+
+                continue;
+            }
+
+            uncachedDocEntries.Add(docEntry);
         }
+
+        if (uncachedDocEntries.Count == 0)
+        {
+            return scopedDocEntries;
+        }
+
+        var localInvoiceWarehouseRows = await _context.Invoices
+            .AsNoTracking()
+            .Where(invoice => invoice.SAPDocEntry.HasValue && uncachedDocEntries.Contains(invoice.SAPDocEntry.Value))
+            .SelectMany(invoice => invoice.DocumentLines
+                .Where(line => line.WarehouseCode != null && line.WarehouseCode != string.Empty)
+                .Select(line => new
+                {
+                    DocEntry = invoice.SAPDocEntry!.Value,
+                    line.WarehouseCode
+                }))
+            .ToListAsync(cancellationToken);
 
         var warehouseLocations = PodLocationScope.BuildWarehouseLocationLookup(
             await _sapServiceLayerClient.GetWarehousesAsync(cancellationToken));
 
-        return invoices
-            .Where(invoice => PodLocationScope.InvoiceMatchesAssignedSection(invoice, assignedSection.Trim(), warehouseLocations))
-            .Select(invoice => invoice.DocEntry)
-            .Distinct()
+        var locallyScopedDocEntries = localInvoiceWarehouseRows
+            .GroupBy(row => row.DocEntry)
+            .ToDictionary(
+                group => group.Key,
+                group => PodLocationScope.WarehouseCodesMatchAssignedSection(
+                    group.Select(row => row.WarehouseCode),
+                    normalizedSection,
+                    warehouseLocations));
+
+        foreach (var (docEntry, matchesAssignedSection) in locallyScopedDocEntries)
+        {
+            _memoryCache.Set(GetPodInvoiceSectionScopeCacheKey(normalizedSection, docEntry), matchesAssignedSection, TimeSpan.FromMinutes(15));
+
+            if (matchesAssignedSection)
+            {
+                scopedDocEntries.Add(docEntry);
+            }
+        }
+
+        var sapFallbackDocEntries = uncachedDocEntries
+            .Where(docEntry => !locallyScopedDocEntries.ContainsKey(docEntry))
             .ToList();
+
+        if (sapFallbackDocEntries.Count == 0)
+        {
+            return scopedDocEntries;
+        }
+
+        _logger.LogInformation(
+            "Falling back to SAP POD section scoping for {Count} invoices in section {AssignedSection}",
+            sapFallbackDocEntries.Count,
+            normalizedSection);
+
+        var invoices = await _sapServiceLayerClient.GetInvoiceHeadersByDocEntriesAsync(sapFallbackDocEntries, cancellationToken);
+        if (invoices.Count == 0)
+        {
+            foreach (var docEntry in sapFallbackDocEntries)
+            {
+                _memoryCache.Set(GetPodInvoiceSectionScopeCacheKey(normalizedSection, docEntry), false, TimeSpan.FromMinutes(15));
+            }
+
+            return scopedDocEntries;
+        }
+
+        var invoicesByDocEntry = invoices
+            .GroupBy(invoice => invoice.DocEntry)
+            .ToDictionary(group => group.Key, group => group.First());
+
+        foreach (var docEntry in sapFallbackDocEntries)
+        {
+            var matchesAssignedSection = invoicesByDocEntry.TryGetValue(docEntry, out var invoice) &&
+                PodLocationScope.InvoiceMatchesAssignedSection(invoice, normalizedSection, warehouseLocations);
+
+            _memoryCache.Set(GetPodInvoiceSectionScopeCacheKey(normalizedSection, docEntry), matchesAssignedSection, TimeSpan.FromMinutes(15));
+
+            if (matchesAssignedSection)
+            {
+                scopedDocEntries.Add(docEntry);
+            }
+        }
+
+        return scopedDocEntries;
+    }
+
+    private static string GetPodInvoiceSectionScopeCacheKey(string assignedSection, int docEntry)
+    {
+        return $"pod-scope:{assignedSection.ToUpperInvariant()}:{docEntry}";
+    }
+
+    private async Task<string[]> GetPodWarehouseCodesForAssignedSectionAsync(
+        string assignedSection,
+        CancellationToken cancellationToken)
+    {
+        var canonicalSection = PodLocationScope.CanonicalizeSection(assignedSection);
+        if (string.IsNullOrWhiteSpace(canonicalSection))
+        {
+            return [];
+        }
+
+        var cacheKey = $"pod-warehouse-codes:{canonicalSection.ToUpperInvariant()}";
+        if (_memoryCache.TryGetValue(cacheKey, out string[]? cachedWarehouseCodes) && cachedWarehouseCodes is not null)
+        {
+            return cachedWarehouseCodes;
+        }
+
+        var warehouses = await _sapServiceLayerClient.GetWarehousesAsync(cancellationToken);
+        var warehouseCodes = PodLocationScope.GetWarehouseCodesForAssignedSection(warehouses, canonicalSection)
+            .Select(code => code.ToUpperInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        _memoryCache.Set(cacheKey, warehouseCodes, TimeSpan.FromMinutes(30));
+        return warehouseCodes;
     }
 
     public async Task EnsureInvoiceCachedAsync(int sapDocEntry, int sapDocNum, string cardCode, string? cardName, CancellationToken cancellationToken = default)

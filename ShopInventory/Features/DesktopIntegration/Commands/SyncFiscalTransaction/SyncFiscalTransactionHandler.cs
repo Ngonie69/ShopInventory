@@ -1,6 +1,8 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
+using System.Text;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Queries.GetFiscalTransactions;
@@ -20,10 +22,24 @@ public sealed class SyncFiscalTransactionHandler(
         {
             var nowUtc = DateTime.UtcNow;
             var request = command.Request;
-            var clientTransactionId = request.ClientTransactionId.Trim();
+            var timestampUtc = NormalizeUtc(request.TimestampUtc, nowUtc);
+            var clientTransactionId = ResolveClientTransactionId(request);
 
             var entity = await dbContext.DesktopFiscalTransactions
                 .SingleOrDefaultAsync(transaction => transaction.ClientTransactionId == clientTransactionId, cancellationToken);
+
+            if (entity is not null && !RepresentsSameTransaction(entity, request))
+            {
+                logger.LogWarning(
+                    "Desktop fiscal transaction client id {ClientTransactionId} was reused for a different transaction. DocNum {DocNum}, DocumentType {DocumentType}",
+                    clientTransactionId,
+                    request.DocNum,
+                    request.DocumentType);
+
+                clientTransactionId = BuildSyntheticClientTransactionId(request, clientTransactionId);
+                entity = await dbContext.DesktopFiscalTransactions
+                    .SingleOrDefaultAsync(transaction => transaction.ClientTransactionId == clientTransactionId, cancellationToken);
+            }
 
             if (entity is null)
             {
@@ -36,7 +52,7 @@ public sealed class SyncFiscalTransactionHandler(
                 dbContext.DesktopFiscalTransactions.Add(entity);
             }
 
-            entity.TimestampUtc = NormalizeUtc(request.TimestampUtc, nowUtc);
+            entity.TimestampUtc = timestampUtc;
             entity.DocNum = request.DocNum;
             entity.DocumentType = request.DocumentType.Trim();
             entity.Status = request.Status.Trim();
@@ -119,6 +135,52 @@ public sealed class SyncFiscalTransactionHandler(
             DateTimeKind.Local => value.Value.ToUniversalTime(),
             _ => DateTime.SpecifyKind(value.Value, DateTimeKind.Local).ToUniversalTime()
         };
+    }
+
+    private static string ResolveClientTransactionId(SyncFiscalTransactionRequest request)
+    {
+        var clientTransactionId = NullIfWhiteSpace(request.ClientTransactionId);
+        return clientTransactionId ?? BuildSyntheticClientTransactionId(request, "auto");
+    }
+
+    private static bool RepresentsSameTransaction(DesktopFiscalTransactionEntity entity, SyncFiscalTransactionRequest request)
+        => entity.DocNum == request.DocNum
+           && string.Equals(entity.DocumentType, request.DocumentType.Trim(), StringComparison.OrdinalIgnoreCase)
+           && string.Equals(entity.OriginalInvoiceNumber, NullIfWhiteSpace(request.OriginalInvoiceNumber), StringComparison.OrdinalIgnoreCase)
+           && string.Equals(entity.SourceSystem, NullIfWhiteSpace(request.SourceSystem) ?? entity.SourceSystem, StringComparison.OrdinalIgnoreCase);
+
+    private static string BuildSyntheticClientTransactionId(SyncFiscalTransactionRequest request, string prefixSeed)
+    {
+        var sourceSystem = NullIfWhiteSpace(request.SourceSystem) ?? "InvoiceFiscalisation";
+        var originalInvoiceNumber = NullIfWhiteSpace(request.OriginalInvoiceNumber) ?? string.Empty;
+        var receiptGlobalNo = request.ReceiptGlobalNo?.ToString() ?? string.Empty;
+        var seed = string.Join(
+            "|",
+            prefixSeed,
+            sourceSystem,
+            request.DocumentType.Trim(),
+            request.DocNum.ToString(),
+            originalInvoiceNumber,
+            receiptGlobalNo,
+            request.TimestampUtc?.ToUniversalTime().ToString("O") ?? string.Empty);
+
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(seed)));
+        var prefix = SanitizePrefix(prefixSeed);
+        return $"{prefix}-{hash[..24]}";
+    }
+
+    private static string SanitizePrefix(string value)
+    {
+        var normalized = string.IsNullOrWhiteSpace(value)
+            ? "fiscal"
+            : new string(value.Trim().Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return "fiscal";
+        }
+
+        return normalized.Length <= 24 ? normalized : normalized[..24];
     }
 
     private static string? NullIfWhiteSpace(string? value)

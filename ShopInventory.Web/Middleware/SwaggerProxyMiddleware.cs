@@ -1,9 +1,11 @@
 namespace ShopInventory.Web.Middleware;
 
 /// <summary>
-/// Proxies swagger requests to the backend API's Swagger UI,
-/// so the browser can load Swagger from the same origin without mixed-content issues.
+/// Proxies public API and Swagger requests to the backend API.
+/// Existing mobile apps call the Web origin at /api/*, so these requests must
+/// continue to reach the API even when IIS exposes only the Web site publicly.
 /// Handles two path patterns:
+///   /api/*           → backend API passthrough used by mobile clients
 ///   /swagger-proxy/* → explicit proxy route (used by the iframe src)
 ///   /swagger/*       → catches absolute-path resources loaded by Swagger UI inside the iframe
 /// The exact path /swagger (no trailing content) is NOT intercepted — that's the Blazor page.
@@ -11,19 +13,28 @@ namespace ShopInventory.Web.Middleware;
 public class SwaggerProxyMiddleware
 {
     private readonly RequestDelegate _next;
-    private readonly string _apiBaseUrl;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly Uri _apiBaseUri;
 
-    public SwaggerProxyMiddleware(RequestDelegate next, IConfiguration configuration)
+    public SwaggerProxyMiddleware(
+        RequestDelegate next,
+        IConfiguration configuration,
+        IHttpClientFactory httpClientFactory)
     {
         _next = next;
-        _apiBaseUrl = (configuration["ApiSettings:BaseUrl"] ?? "http://localhost:5106").TrimEnd('/');
+        _httpClientFactory = httpClientFactory;
+        _apiBaseUri = new Uri((configuration["ApiSettings:BaseUrl"] ?? "http://localhost:5106").TrimEnd('/') + "/");
     }
 
     public async Task InvokeAsync(HttpContext context)
     {
         string? targetPath = null;
 
-        if (context.Request.Path.StartsWithSegments("/swagger-proxy", out var proxyRemaining))
+        if (context.Request.Path.StartsWithSegments("/api", out var apiRemaining))
+        {
+            targetPath = "/api" + apiRemaining.Value;
+        }
+        else if (context.Request.Path.StartsWithSegments("/swagger-proxy", out var proxyRemaining))
         {
             // Explicit proxy path: /swagger-proxy/swagger/index.html → /swagger/index.html
             targetPath = proxyRemaining.HasValue ? proxyRemaining.Value : "/swagger/index.html";
@@ -39,119 +50,107 @@ public class SwaggerProxyMiddleware
             // These are Swagger UI resources requested with absolute paths from inside the iframe
             targetPath = "/swagger" + swaggerRemaining.Value;
         }
-        else if (context.Request.Path.StartsWithSegments("/api", out _))
-        {
-            // Proxy API requests to the backend API server
-            // This allows Swagger UI "Try It Out" to work when served through the web app
-            await ProxyApiRequestAsync(context);
-            return;
-        }
-
         if (targetPath == null)
         {
             await _next(context);
             return;
         }
 
-        var targetUrl = $"{_apiBaseUrl}{targetPath}{context.Request.QueryString}";
+        var targetUri = new Uri(_apiBaseUri, targetPath.TrimStart('/') + context.Request.QueryString);
 
-        using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        var httpClient = _httpClientFactory.CreateClient("ShopInventoryApiUser");
         try
         {
-            var response = await httpClient.GetAsync(targetUrl);
+            using var requestMessage = CreateProxyRequest(context, targetUri);
+            using var response = await httpClient.SendAsync(
+                requestMessage,
+                HttpCompletionOption.ResponseHeadersRead,
+                context.RequestAborted);
 
             context.Response.StatusCode = (int)response.StatusCode;
 
-            if (response.Content.Headers.ContentType != null)
-            {
-                context.Response.ContentType = response.Content.Headers.ContentType.ToString();
-            }
+            CopyResponseHeaders(response, context.Response);
 
-            await response.Content.CopyToAsync(context.Response.Body);
+            await response.Content.CopyToAsync(context.Response.Body, context.RequestAborted);
         }
         catch (Exception)
         {
             context.Response.StatusCode = 502;
-            context.Response.ContentType = "text/plain";
-            await context.Response.WriteAsync("Unable to reach API server for Swagger documentation.");
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new { message = "Unable to reach API server." }, context.RequestAborted);
         }
     }
 
-    // Headers that must NOT be forwarded between connections (RFC 7230 §6.1)
-    private static readonly HashSet<string> HopByHopHeaders = new(StringComparer.OrdinalIgnoreCase)
+    private static HttpRequestMessage CreateProxyRequest(HttpContext context, Uri targetUri)
     {
-        "Connection", "Keep-Alive", "Transfer-Encoding", "TE",
-        "Trailer", "Upgrade", "Proxy-Authorization", "Proxy-Authenticate"
-    };
-
-    // Headers managed by HttpContent or the transport layer
-    private static readonly HashSet<string> ContentHeaders = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "Content-Length", "Content-Type", "Content-Encoding",
-        "Content-Language", "Content-Location", "Content-Range"
-    };
-
-    private async Task ProxyApiRequestAsync(HttpContext context)
-    {
-        var targetUrl = $"{_apiBaseUrl}{context.Request.Path}{context.Request.QueryString}";
-
-        using var httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        try
+        var requestMessage = new HttpRequestMessage
         {
-            var requestMessage = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUrl);
+            Method = new HttpMethod(context.Request.Method),
+            RequestUri = targetUri
+        };
 
-            // Forward request headers — skip hop-by-hop and content headers
-            foreach (var header in context.Request.Headers)
+        foreach (var header in context.Request.Headers)
+        {
+            if (string.Equals(header.Key, "Host", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (IsForwardedHeader(header.Key))
+                continue;
+
+            if (!requestMessage.Headers.TryAddWithoutValidation(header.Key, header.Value.ToArray()))
             {
-                if (header.Key.Equals("Host", StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (HopByHopHeaders.Contains(header.Key) || ContentHeaders.Contains(header.Key))
-                    continue;
-                requestMessage.Headers.TryAddWithoutValidation(header.Key, header.Value.ToArray());
+                requestMessage.Content ??= new StreamContent(context.Request.Body);
+                requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, header.Value.ToArray());
             }
-
-            // Forward request body for POST/PUT/PATCH
-            if (context.Request.ContentLength > 0 || context.Request.ContentType != null)
-            {
-                requestMessage.Content = new StreamContent(context.Request.Body);
-                if (context.Request.ContentType != null)
-                {
-                    requestMessage.Content.Headers.ContentType =
-                        System.Net.Http.Headers.MediaTypeHeaderValue.Parse(context.Request.ContentType);
-                }
-                if (context.Request.ContentLength.HasValue)
-                {
-                    requestMessage.Content.Headers.ContentLength = context.Request.ContentLength;
-                }
-            }
-
-            var response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead);
-
-            context.Response.StatusCode = (int)response.StatusCode;
-
-            // Forward response headers — skip hop-by-hop headers
-            foreach (var header in response.Headers)
-            {
-                if (HopByHopHeaders.Contains(header.Key))
-                    continue;
-                context.Response.Headers[header.Key] = header.Value.ToArray();
-            }
-            foreach (var header in response.Content.Headers)
-            {
-                if (HopByHopHeaders.Contains(header.Key))
-                    continue;
-                context.Response.Headers[header.Key] = header.Value.ToArray();
-            }
-
-            await response.Content.CopyToAsync(context.Response.Body);
         }
-        catch (Exception)
+
+        AddForwardedHeaders(context, requestMessage);
+
+        if (context.Request.ContentLength > 0 && requestMessage.Content is null)
         {
-            context.Response.StatusCode = 502;
-            context.Response.ContentType = "text/plain";
-            await context.Response.WriteAsync("Unable to reach API server.");
+            requestMessage.Content = new StreamContent(context.Request.Body);
+        }
+
+        return requestMessage;
+    }
+
+    private static void AddForwardedHeaders(HttpContext context, HttpRequestMessage requestMessage)
+    {
+        var clientIp = context.Connection.RemoteIpAddress?.ToString();
+        if (!string.IsNullOrWhiteSpace(clientIp))
+        {
+            requestMessage.Headers.TryAddWithoutValidation("X-Forwarded-For", clientIp);
+        }
+
+        requestMessage.Headers.TryAddWithoutValidation("X-Forwarded-Proto", context.Request.Scheme);
+
+        var host = context.Request.Host.Value;
+        if (!string.IsNullOrWhiteSpace(host))
+        {
+            requestMessage.Headers.TryAddWithoutValidation("X-Forwarded-Host", host);
         }
     }
+
+    private static bool IsForwardedHeader(string headerName)
+        => string.Equals(headerName, "X-Forwarded-For", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(headerName, "X-Forwarded-Proto", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(headerName, "X-Forwarded-Host", StringComparison.OrdinalIgnoreCase);
+
+    private static void CopyResponseHeaders(HttpResponseMessage responseMessage, HttpResponse response)
+    {
+        foreach (var header in responseMessage.Headers)
+        {
+            response.Headers[header.Key] = header.Value.ToArray();
+        }
+
+        foreach (var header in responseMessage.Content.Headers)
+        {
+            response.Headers[header.Key] = header.Value.ToArray();
+        }
+
+        response.Headers.Remove("transfer-encoding");
+    }
+
 }
 
 public static class SwaggerProxyMiddlewareExtensions

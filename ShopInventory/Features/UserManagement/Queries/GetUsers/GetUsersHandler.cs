@@ -1,5 +1,6 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -9,7 +10,8 @@ using ShopInventory.Services;
 namespace ShopInventory.Features.UserManagement.Queries.GetUsers;
 
 public sealed class GetUsersHandler(
-    ApplicationDbContext context
+    ApplicationDbContext context,
+    IHttpContextAccessor httpContextAccessor
 ) : IRequestHandler<GetUsersQuery, ErrorOr<PagedResult<UserDetailDto>>>
 {
     public async Task<ErrorOr<PagedResult<UserDetailDto>>> Handle(
@@ -20,6 +22,11 @@ public sealed class GetUsersHandler(
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
 
         var usersQuery = context.Users.AsNoTracking();
+
+        if (httpContextAccessor.HttpContext?.User.IsInRole("PodOperator") == true)
+        {
+            usersQuery = usersQuery.Where(userEntity => userEntity.Role == "Driver");
+        }
 
         if (!string.IsNullOrWhiteSpace(query.Search))
         {

@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Authentication;
+using ShopInventory.Common.Security;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Features.UserManagement.Queries.GetUsers;
@@ -170,10 +171,6 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
 
     private Guid? GetCurrentUserId()
     {
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
-            return null;
-
-        return userId;
+        return UserClaimReader.GetUserId(User);
     }
 }

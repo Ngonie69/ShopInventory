@@ -22,6 +22,26 @@ public static partial class Errors
                 "UserManagement.SalesRepCannotAssignCustomPermissions",
                 "Sales representatives cannot assign custom permissions when creating merchandiser accounts.");
 
+        public static readonly Error PodOperatorCanOnlyCreateDrivers =
+            Error.Unauthorized(
+                "UserManagement.PodOperatorCanOnlyCreateDrivers",
+                "POD operators can only create driver accounts.");
+
+        public static readonly Error PodOperatorCannotAssignCustomPermissions =
+            Error.Unauthorized(
+                "UserManagement.PodOperatorCannotAssignCustomPermissions",
+                "POD operators cannot assign custom permissions when creating driver accounts.");
+
+        public static readonly Error PodOperatorCanOnlyManageDrivers =
+            Error.Unauthorized(
+                "UserManagement.PodOperatorCanOnlyManageDrivers",
+                "POD operators can only manage driver accounts.");
+
+        public static readonly Error PodOperatorCannotAssignCustomPermissionsOnUpdate =
+            Error.Unauthorized(
+                "UserManagement.PodOperatorCannotAssignCustomPermissionsOnUpdate",
+                "POD operators cannot assign custom permissions when updating driver accounts.");
+
         public static Error UpdateFailed(string message) =>
             Error.Failure("UserManagement.UpdateFailed", message);
 

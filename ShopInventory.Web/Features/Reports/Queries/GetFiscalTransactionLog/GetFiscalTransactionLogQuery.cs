@@ -9,6 +9,7 @@ public sealed record GetFiscalTransactionLogQuery(
     string? Search,
     string? Status,
     string? DocumentType,
+    string? SourceSystem,
     int Page,
     int PageSize
 ) : IRequest<ErrorOr<GetFiscalTransactionLogResult>>;

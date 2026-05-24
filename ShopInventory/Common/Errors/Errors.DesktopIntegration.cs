@@ -39,6 +39,9 @@ public static partial class Errors
         public static Error LoadFiscalTransactionsFailed(string message) =>
             Error.Failure("DesktopIntegration.LoadFiscalTransactionsFailed", message);
 
+        public static Error BackfillFiscalTransactionsFailed(string message) =>
+            Error.Failure("DesktopIntegration.BackfillFiscalTransactionsFailed", message);
+
         public static Error SapError(string message) =>
             Error.Failure("DesktopIntegration.SapError", message);
 

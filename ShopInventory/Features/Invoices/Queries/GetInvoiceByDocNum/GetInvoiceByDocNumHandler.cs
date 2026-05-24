@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Mobile;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
@@ -75,7 +76,9 @@ public sealed class GetInvoiceByDocNumHandler(
                 }
             }
 
-            return invoice.ToDto();
+            var invoiceDto = invoice.ToDto();
+            await FiscalDocumentStatusProjector.EnrichInvoiceAsync(db, invoiceDto, cancellationToken);
+            return invoiceDto;
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {

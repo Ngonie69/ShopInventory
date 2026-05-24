@@ -48,6 +48,12 @@ public class Invoice
     [JsonPropertyName("DocumentStatus")]
     public string? DocumentStatus { get; set; }
 
+    [JsonPropertyName("DocStatus")]
+    public string? DocStatus { get; set; }
+
+    [JsonPropertyName("Cancelled")]
+    public string? Cancelled { get; set; }
+
     [JsonPropertyName("PaidToDate")]
     public decimal PaidToDate { get; set; }
 

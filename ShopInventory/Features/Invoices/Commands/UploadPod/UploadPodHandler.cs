@@ -131,42 +131,68 @@ public sealed class UploadPodHandler(
             var targetUsername = !string.IsNullOrWhiteSpace(uploader?.Username)
                 ? uploader.Username
                 : command.UploadedByUsername;
-            CreateNotificationRequest notificationRequest;
+            var notificationTitle = $"POD Uploaded: {invoiceLabel}";
+            var notificationMessage = $"POD file {attachment.FileName} was uploaded for {invoiceLabel} ({customerDisplay}).";
 
             if (uploader is not null &&
                 string.Equals(uploader.Role, "Driver", StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrWhiteSpace(targetUsername))
             {
-                notificationRequest = new CreateNotificationRequest
+                await notificationService.CreateNotificationAsync(
+                    new CreateNotificationRequest
+                    {
+                        Title = notificationTitle,
+                        Message = notificationMessage,
+                        Type = "Success",
+                        Category = "POD",
+                        EntityType = "Invoice",
+                        EntityId = command.DocEntry.ToString(),
+                        ActionUrl = "/pods",
+                        TargetUserId = uploader.Id,
+                        TargetUsername = targetUsername,
+                        Data = notificationData
+                    },
+                    cancellationToken);
+            }
+            else if (uploader is not null &&
+                string.Equals(uploader.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
+            {
+                var nonDriverPodAudienceRoles = NotificationAudienceRules.PodAudienceRoles
+                    .Where(role => !string.Equals(role, "Driver", StringComparison.OrdinalIgnoreCase))
+                    .Distinct(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var targetRole in nonDriverPodAudienceRoles)
                 {
-                    Title = $"POD Uploaded: {invoiceLabel}",
-                    Message = $"POD file {attachment.FileName} was uploaded for {invoiceLabel} ({customerDisplay}).",
-                    Type = "Success",
-                    Category = "POD",
-                    EntityType = "Invoice",
-                    EntityId = command.DocEntry.ToString(),
-                    ActionUrl = "/pods",
-                    TargetUserId = uploader.Id,
-                    TargetUsername = targetUsername,
-                    Data = notificationData
-                };
+                    await notificationService.CreateNotificationAsync(
+                        new CreateNotificationRequest
+                        {
+                            Title = notificationTitle,
+                            Message = notificationMessage,
+                            Type = "Success",
+                            Category = "POD",
+                            EntityType = "Invoice",
+                            EntityId = command.DocEntry.ToString(),
+                            ActionUrl = "/pods",
+                            TargetRole = targetRole,
+                            Data = notificationData
+                        },
+                        cancellationToken);
+                }
             }
             else
             {
-                notificationRequest = ModuleNotificationFactory.CreateBroadcastNotification(
-                    $"POD Uploaded: {invoiceLabel}",
-                    $"POD file {attachment.FileName} was uploaded for {invoiceLabel} ({customerDisplay}).",
-                    "Success",
-                    "POD",
-                    "Invoice",
-                    command.DocEntry.ToString(),
-                    "/pods",
-                    notificationData);
+                await notificationService.CreateNotificationAsync(
+                    ModuleNotificationFactory.CreateBroadcastNotification(
+                        notificationTitle,
+                        notificationMessage,
+                        "Success",
+                        "POD",
+                        "Invoice",
+                        command.DocEntry.ToString(),
+                        "/pods",
+                        notificationData),
+                    cancellationToken);
             }
-
-            await notificationService.CreateNotificationAsync(
-                notificationRequest,
-                cancellationToken);
         }
         catch (Exception ex)
         {

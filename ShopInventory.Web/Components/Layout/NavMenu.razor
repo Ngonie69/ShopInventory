@@ -597,13 +597,13 @@
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
                         </span>
-                        <span class="snav-text">Proof of Delivery</span>
+                        <span class="snav-text">Product PODs</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/pod-report" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.Assessment" />
                         </span>
-                        <span class="snav-text">POD Report</span>
+                        <span class="snav-text">Product POD Report</span>
                     </NavLink>
                     <div class="nav-section-label">Account</div>
                     <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
@@ -632,14 +632,24 @@
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
                         </span>
-                        <span class="snav-text">Proof of Delivery</span>
+                        <span class="snav-text">Product PODs</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/pod-report" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.Assessment" />
                         </span>
-                        <span class="snav-text">POD Report</span>
+                        <span class="snav-text">Product POD Report</span>
                     </NavLink>
+                    <AuthorizeView Roles="PodOperator" Context="driverAccountCtx">
+                        <Authorized>
+                            <NavLink class="snav-link" href="/user-management" Match="NavLinkMatch.Prefix">
+                                <span class="snav-icon">
+                                    <MudIcon Icon="@Icons.Material.Filled.LocalShipping" />
+                                </span>
+                                <span class="snav-text">Driver Accounts</span>
+                            </NavLink>
+                        </Authorized>
+                    </AuthorizeView>
                     <AuthorizeView Roles="PodOperator,Driver" Context="podSecCtx">
                         <Authorized>
                             <div class="nav-section-label">Account</div>
@@ -653,27 +663,30 @@
                     </AuthorizeView>
                 </Authorized>
             </AuthorizeView>
-            <AuthorizeView Roles="Admin,Manager,Merchandiser,Driver" Context="crateCtx">
+            <AuthorizeView Roles="Admin,Manager,Merchandiser,PodOperator,Driver" Context="crateCtx">
                 <Authorized>
                     <div class="nav-section-label">Crates</div>
-                    <NavLink class="snav-link" href="/crates/opening-balances" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Inventory2" />
-                        </span>
-                        <span class="snav-text">Opening Balances</span>
-                    </NavLink>
                     <NavLink class="snav-link sub-link" href="/crates/pods" Match="NavLinkMatch.All">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
                         </span>
                         <span class="snav-text">Crate PODs</span>
                     </NavLink>
-                    <NavLink class="snav-link sub-link" href="/crates/grvs" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.AssignmentReturn" />
-                        </span>
-                        <span class="snav-text">Crate GRVs</span>
-                    </NavLink>
+                    @if (!crateCtx.User.IsInRole("PodOperator"))
+                    {
+                        <NavLink class="snav-link" href="/crates/opening-balances" Match="NavLinkMatch.All">
+                            <span class="snav-icon">
+                                <MudIcon Icon="@Icons.Material.Filled.Inventory2" />
+                            </span>
+                            <span class="snav-text">Opening Balances</span>
+                        </NavLink>
+                        <NavLink class="snav-link sub-link" href="/crates/grvs" Match="NavLinkMatch.All">
+                            <span class="snav-icon">
+                                <MudIcon Icon="@Icons.Material.Filled.AssignmentReturn" />
+                            </span>
+                            <span class="snav-text">Crate GRVs</span>
+                        </NavLink>
+                    }
                 </Authorized>
             </AuthorizeView>
 
@@ -737,6 +750,13 @@
                             <MudIcon Icon="@Icons.Material.Filled.Memory" />
                         </span>
                         <span class="snav-text">REVMax Fiscal</span>
+                    </NavLink>
+                    <NavLink class="snav-link sub-link" href="/revmax/cross-device-credit-note"
+                             Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.ReceiptLong" />
+                        </span>
+                        <span class="snav-text">Cross-Device CN</span>
                     </NavLink>
                 </Authorized>
             </AuthorizeView>

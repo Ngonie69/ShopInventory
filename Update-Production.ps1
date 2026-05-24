@@ -1232,6 +1232,27 @@ try {
                 }
             }
 
+                function Wait-ForAppPoolState {
+                    param(
+                        [string]$AppPoolName,
+                        [string]$DesiredState,
+                        [int]$TimeoutSeconds = 30
+                    )
+
+                    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+
+                    do {
+                        $appPoolState = Get-WebAppPoolState -Name $AppPoolName -ErrorAction SilentlyContinue
+                        if ($null -ne $appPoolState -and $appPoolState.Value -eq $DesiredState) {
+                            return $true
+                        }
+
+                        Start-Sleep -Milliseconds 500
+                    } while ((Get-Date) -lt $deadline)
+
+                    return $false
+                }
+
             function Ensure-SiteOnline {
                 param(
                     [string]$SiteName,
@@ -1239,8 +1260,16 @@ try {
                 )
 
                 $appPoolState = Get-WebAppPoolState -Name $AppPoolName -ErrorAction SilentlyContinue
-                if ($appPoolState.Value -eq 'Stopped') {
+                    if ($null -eq $appPoolState -or $appPoolState.Value -ne 'Started') {
+                        if ($null -ne $appPoolState -and $appPoolState.Value -eq 'Stopping') {
+                            $null = Wait-ForAppPoolState -AppPoolName $AppPoolName -DesiredState 'Stopped'
+                        }
+
                     Start-WebAppPool -Name $AppPoolName -ErrorAction SilentlyContinue | Out-Null
+
+                        if (-not (Wait-ForAppPoolState -AppPoolName $AppPoolName -DesiredState 'Started')) {
+                            throw "App pool '$AppPoolName' did not reach the Started state."
+                        }
                 }
 
                 $siteState = Get-WebsiteState -Name $SiteName -ErrorAction SilentlyContinue
@@ -1290,6 +1319,10 @@ try {
                 $targetPoolStateBeforeDeploy = Get-WebAppPoolState -Name $Plan.TargetAppPoolName -ErrorAction SilentlyContinue
                 if ($targetPoolStateBeforeDeploy.Value -ne 'Stopped') {
                     Stop-WebAppPool -Name $Plan.TargetAppPoolName -ErrorAction SilentlyContinue | Out-Null
+
+                    if (-not (Wait-ForAppPoolState -AppPoolName $Plan.TargetAppPoolName -DesiredState 'Stopped')) {
+                        throw "Timed out waiting for app pool '$($Plan.TargetAppPoolName)' to stop before deployment."
+                    }
                 }
 
                 New-Item -Path $tempPath -ItemType Directory -Force | Out-Null
@@ -1373,15 +1406,7 @@ try {
                     }
                 }
 
-                $targetPoolState = Get-WebAppPoolState -Name $Plan.TargetAppPoolName -ErrorAction SilentlyContinue
-                if ($targetPoolState.Value -eq 'Stopped') {
-                    Start-WebAppPool -Name $Plan.TargetAppPoolName -ErrorAction SilentlyContinue | Out-Null
-                }
-
-                $targetSiteState = Get-WebsiteState -Name $Plan.TargetSiteName -ErrorAction SilentlyContinue
-                if ($targetSiteState.Value -ne 'Started') {
-                    Start-Website -Name $Plan.TargetSiteName -ErrorAction SilentlyContinue | Out-Null
-                }
+                Ensure-SiteOnline -SiteName $Plan.TargetSiteName -AppPoolName $Plan.TargetAppPoolName
 
                 $slotWarmup = Wait-ForHealthyEndpoint -Url $Plan.TargetWarmupUrl -TimeoutSeconds $Plan.WarmupTimeoutSeconds -AppName $Plan.Name -Phase 'slot' -AppPath $Plan.TargetPath
                 if (-not $slotWarmup.Success) {

@@ -44,8 +44,9 @@ public class InvoiceService : IInvoiceService
             var url = $"api/invoice/paged?{string.Join("&", queryParams)}";
             return await _httpClient.GetFromJsonAsync<InvoiceListResponse>(url);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Error fetching invoices for customer {CardCode}", cardCode);
             return null;
         }
     }
@@ -143,13 +144,11 @@ public class InvoiceService : IInvoiceService
             _logger.LogInformation("Sending invoice creation request for customer {CardCode} with {LineCount} lines",
                 request.CardCode, request.Lines.Count);
 
-            // Log the full request as JSON for debugging
-            var requestJson = System.Text.Json.JsonSerializer.Serialize(request, new System.Text.Json.JsonSerializerOptions
-            {
-                WriteIndented = true,
-                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
-            });
-            _logger.LogDebug("Invoice request payload:\n{RequestJson}", requestJson);
+            _logger.LogDebug(
+                "Invoice request summary: Customer={CardCode}, Lines={LineCount}, Currency={Currency}, AutoAllocateBatches=true, AllocationStrategy=FEFO",
+                request.CardCode,
+                request.Lines.Count,
+                request.DocCurrency);
 
             // Use auto-allocation with FEFO (First Expiry First Out) strategy
             // This ensures batches are automatically selected based on expiry dates
@@ -167,7 +166,7 @@ public class InvoiceService : IInvoiceService
 
             var errorContent = await response.Content.ReadAsStringAsync();
             _logger.LogError("Invoice creation failed. Status: {StatusCode}, Response:\n{ErrorContent}",
-                response.StatusCode, errorContent);
+                response.StatusCode, ApiErrorResponse.SanitizeForLog(errorContent));
 
             try
             {
@@ -178,37 +177,10 @@ public class InvoiceService : IInvoiceService
                     return (false, friendlyBatchError, null, null);
                 }
 
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-                var errorMessage = errorResponse?.Message ?? "Failed to create invoice";
-
-                // If there are multiple errors, join them
-                if (errorResponse?.Errors?.Any() == true)
-                {
-                    errorMessage = string.Join("; ", errorResponse.Errors);
-                }
-
-                // Check for SAP-specific error structure
-                if (errorContent.Contains("\"error\""))
-                {
-                    // Try to extract SAP error message
-                    using var doc = System.Text.Json.JsonDocument.Parse(errorContent);
-                    if (doc.RootElement.TryGetProperty("error", out var errorProp))
-                    {
-                        if (errorProp.TryGetProperty("message", out var msgProp))
-                        {
-                            if (msgProp.TryGetProperty("value", out var valueProp))
-                            {
-                                errorMessage = valueProp.GetString() ?? errorMessage;
-                            }
-                            else if (msgProp.ValueKind == System.Text.Json.JsonValueKind.String)
-                            {
-                                errorMessage = msgProp.GetString() ?? errorMessage;
-                            }
-                        }
-                    }
-                }
+                var errorMessage = ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode,
+                    errorContent,
+                    "Failed to create invoice");
 
                 return (false, errorMessage, null, null);
             }

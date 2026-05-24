@@ -1,6 +1,6 @@
 @page "/crates/pods"
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+@attribute [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Driver")]
 @inherits CrateTrackingPageBase
 @rendermode InteractiveServer
 
@@ -9,22 +9,29 @@
 <CrateTrackingStyles />
 
 <div class="container-fluid fade-in staff-dashboard staff-shell crt-page">
+    <div class="d-flex gap-2 mb-3 flex-wrap">
+        <a class="crt-btn crt-btn-secondary text-decoration-none" href="/pods">Product PODs</a>
+        <span class="crt-btn crt-btn-primary">Crate PODs</span>
+    </div>
+
     <CratePageHeader Title="Crate PODs"
-                     Subtitle="Upload driver or merchandiser crate PODs against invoice-linked crate transactions and review submitted confirmations."
+                     Subtitle="Upload driver or merchandiser crate PODs against invoice-linked crate transactions and review submitted confirmations separately from product PODs."
                      IsLoading="isLoading" OnRefresh="RefreshAllAsync" TransactionCount="transactions.Count"
                      PendingPodCount="PendingPodCount" VariancePendingCount="VariancePendingCount" GrvCount="grvs.Count"
                      StatusMessage="@statusMessage" StatusIsSuccess="statusIsSuccess" />
 
     <div class="row g-4">
-        <div class="col-xl-5 col-lg-6">
-            <div class="crt-card">
-                <div class="crt-card-header">
-                    <div>
-                        <h3 class="crt-card-title">Upload Crate POD</h3>
-                        <p class="crt-card-note">Each user uploads their own crate confirmation with a supporting
-                            document.</p>
+        @if (canSubmitPods)
+        {
+            <div class="col-xl-5 col-lg-6">
+                <div class="crt-card">
+                    <div class="crt-card-header">
+                        <div>
+                            <h3 class="crt-card-title">Upload Crate POD</h3>
+                            <p class="crt-card-note">Each user uploads their own crate confirmation with a supporting document.</p>
                         </div>
                     </div>
+
                     <div class="row g-3">
                         <div class="col-12">
                             <label class="crt-label">Transaction</label>
@@ -36,6 +43,7 @@
                                 }
                             </select>
                         </div>
+
                         @if (canChoosePodRole)
                         {
                             <div class="col-12">
@@ -46,6 +54,7 @@
                                 </select>
                             </div>
                         }
+
                         <div class="col-md-6">
                             <label class="crt-label">Quantity</label>
                             <input type="number" min="0" step="0.01" class="crt-form-control" @bind="podQuantity" />
@@ -69,63 +78,66 @@
                     </div>
                 </div>
             </div>
+        }
 
-            <div class="col-xl-7 col-lg-6">
-                <div class="crt-card h-100">
-                    <div class="crt-card-header">
-                        <div>
-                            <h3 class="crt-card-title">Invoice Crate Transactions</h3>
-                            <p class="crt-card-note">Use the register below to select the invoice row you are confirming.
-                            </p>
-                        </div>
+        <div class="@(canSubmitPods ? "col-xl-7 col-lg-6" : "col-12")">
+            <div class="crt-card h-100">
+                <div class="crt-card-header">
+                    <div>
+                        <h3 class="crt-card-title">Invoice Crate Transactions</h3>
+                        <p class="crt-card-note">Use the register below to select the invoice row you are confirming.</p>
                     </div>
-
-                    @if (!PodEligibleTransactions.Any())
-                    {
-                        <div class="crt-empty">No invoice-linked crate transactions are available yet.</div>
-                    }
-                    else
-                    {
-                        <div class="crt-table-wrap">
-                            <table class="crt-table">
-                                <thead>
-                                    <tr>
-                                        <th>Invoice</th>
-                                        <th>Shop</th>
-                                        <th>Expected</th>
-                                        <th>Driver</th>
-                                        <th>Merch</th>
-                                        <th>Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var transaction in PodEligibleTransactions)
-                                    {
-                                        <tr>
-                                            <td>
-                                                <div class="fw-semibold">@GetReferenceLabel(transaction)</div>
-                                                <div class="crt-muted">@transaction.EffectiveDate.ToString("dd MMM yyyy")</div>
-                                            </td>
-                                            <td>
-                                                <div class="fw-semibold">@transaction.ShopCardCode</div>
-                                                <div class="crt-muted">@transaction.ShopName</div>
-                                            </td>
-                                            <td>@transaction.ExpectedQuantity.ToString("N2")</td>
-                                            <td>@FormatQuantity(transaction.DriverQuantity)</td>
-                                            <td>@FormatQuantity(transaction.MerchandiserQuantity)</td>
-                                            <td>
-                                                <span
-                                                class="crt-badge @GetStatusClass(transaction.Status)">@GetStatusLabel(transaction.Status)</span>
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                    }
                 </div>
+
+                @if (!canViewCrateTransactions)
+                {
+                    <div class="crt-empty">Pod operators can review crate POD history from this page.</div>
+                }
+                else if (!PodEligibleTransactions.Any())
+                {
+                    <div class="crt-empty">No invoice-linked crate transactions are available yet.</div>
+                }
+                else
+                {
+                    <div class="crt-table-wrap">
+                        <table class="crt-table">
+                            <thead>
+                                <tr>
+                                    <th>Invoice</th>
+                                    <th>Shop</th>
+                                    <th>Expected</th>
+                                    <th>Driver</th>
+                                    <th>Merch</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var transaction in PodEligibleTransactions)
+                                {
+                                    <tr>
+                                        <td>
+                                            <div class="fw-semibold">@GetReferenceLabel(transaction)</div>
+                                            <div class="crt-muted">@transaction.EffectiveDate.ToString("dd MMM yyyy")</div>
+                                        </td>
+                                        <td>
+                                            <div class="fw-semibold">@transaction.ShopCardCode</div>
+                                            <div class="crt-muted">@transaction.ShopName</div>
+                                        </td>
+                                        <td>@transaction.ExpectedQuantity.ToString("N2")</td>
+                                        <td>@FormatQuantity(transaction.DriverQuantity)</td>
+                                        <td>@FormatQuantity(transaction.MerchandiserQuantity)</td>
+                                        <td>
+                                            <span class="crt-badge @GetStatusClass(transaction.Status)">@GetStatusLabel(transaction.Status)</span>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
             </div>
         </div>
+    </div>
 
         <div class="crt-table-card">
             <div class="crt-card-header">

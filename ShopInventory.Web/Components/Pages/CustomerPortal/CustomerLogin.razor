@@ -5,6 +5,7 @@
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
 @inject ILogger<CustomerLogin> Logger
+@inject WebClientAuditContext ClientAuditContext
 @attribute [AllowAnonymous]
 @rendermode InteractiveServer
 @layout EmptyLayout
@@ -855,6 +856,27 @@
         showPassword = !showPassword;
     }
 
+    private string GetClientIpAddress() => string.IsNullOrWhiteSpace(ClientAuditContext.IpAddress)
+        ? "unknown"
+        : ClientAuditContext.IpAddress;
+
+    private async Task<string?> GetClientUserAgentAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(ClientAuditContext.UserAgent))
+        {
+            return ClientAuditContext.UserAgent;
+        }
+
+        try
+        {
+            return await JSRuntime.InvokeAsync<string>("eval", "navigator.userAgent");
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private async Task HandleLogin()
     {
         if (isLoading) return;
@@ -865,8 +887,8 @@
 
         try
         {
-            var ipAddress = "127.0.0.1"; // In production, get from HttpContext
-            var userAgent = await JSRuntime.InvokeAsync<string>("eval", "navigator.userAgent");
+            var ipAddress = GetClientIpAddress();
+            var userAgent = await GetClientUserAgentAsync();
 
             var request = new CustomerLoginRequest
             {
@@ -921,8 +943,8 @@
 
         try
         {
-            var ipAddress = "127.0.0.1";
-            var userAgent = await JSRuntime.InvokeAsync<string>("eval", "navigator.userAgent");
+            var ipAddress = GetClientIpAddress();
+            var userAgent = await GetClientUserAgentAsync();
 
             var request = new CustomerTwoFactorRequest
             {
