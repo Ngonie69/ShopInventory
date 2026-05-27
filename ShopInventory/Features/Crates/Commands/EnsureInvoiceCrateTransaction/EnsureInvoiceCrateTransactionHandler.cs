@@ -64,7 +64,7 @@ public sealed class EnsureInvoiceCrateTransactionHandler(
 
         var transaction = await context.CrateTransactions
             .FirstOrDefaultAsync(existing =>
-                string.Equals(existing.TransactionType, CrateTrackingConstants.TransactionTypeInvoice, StringComparison.OrdinalIgnoreCase) &&
+                EF.Functions.ILike(existing.TransactionType, CrateTrackingConstants.TransactionTypeInvoice) &&
                 ((existing.InvoiceDocEntry.HasValue && existing.InvoiceDocEntry.Value == invoice.DocEntry) ||
                  (existing.InvoiceDocNum.HasValue && existing.InvoiceDocNum.Value == invoice.DocNum)),
                 cancellationToken);

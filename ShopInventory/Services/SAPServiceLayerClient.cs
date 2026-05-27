@@ -10651,6 +10651,15 @@ ORDER BY T0.""DocEntry"" DESC";
         if (!response.IsSuccessStatusCode)
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (IsSapNoMatchingRecordsError(response.StatusCode, errorContent))
+            {
+                _logger.LogDebug(
+                    "Sales order with U_OrderNumber '{OrderNumber}' was not found in SAP during duplicate check",
+                    orderNumber);
+
+                return null;
+            }
+
             _logger.LogError("Failed to check sales order by T0.\"U_OrderNumber\" '{OrderNumber}': {StatusCode} - {Error}", orderNumber, response.StatusCode, errorContent);
             throw new Exception($"Failed to check sales order by T0.\"U_OrderNumber\": {response.StatusCode} - {errorContent}");
         }
@@ -12529,6 +12538,20 @@ ORDER BY T0.""DocEntry"" DESC";
                 (errorContent.Contains("Business", StringComparison.OrdinalIgnoreCase) ||
                  errorContent.Contains("Discount", StringComparison.OrdinalIgnoreCase) ||
                  errorContent.Contains("Partner", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static bool IsSapNoMatchingRecordsError(HttpStatusCode statusCode, string errorContent)
+    {
+        if (statusCode != HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+
+        var sapError = ExtractSAPErrorMessage(errorContent);
+        return errorContent.Contains("-2028", StringComparison.OrdinalIgnoreCase)
+            && (errorContent.Contains("No matching records found", StringComparison.OrdinalIgnoreCase)
+                || (!string.IsNullOrWhiteSpace(sapError)
+                    && sapError.Contains("No matching records found", StringComparison.OrdinalIgnoreCase)));
     }
 
     private static string? ExtractSAPErrorMessage(string errorContent)

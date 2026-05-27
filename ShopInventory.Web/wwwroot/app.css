@@ -8370,6 +8370,38 @@ html.dark-theme {
 .dark-theme .cpod-time {
     color: #64748b;
 }
+.dark-theme .cpod-mobile-card {
+    background: linear-gradient(180deg, #1e293b 0%, #162033 100%);
+    border-color: #334155;
+}
+.dark-theme .cpod-mobile-card-header {
+    border-bottom-color: #334155;
+}
+.dark-theme .cpod-mobile-label {
+    color: #64748b;
+}
+.dark-theme .cpod-mobile-code {
+    color: #94a3b8;
+}
+.dark-theme .cpod-mobile-file-card {
+    background: #0f172a;
+    border-color: #334155;
+}
+.dark-theme .cpod-mobile-value,
+.dark-theme .cpod-mobile-user {
+    color: #e2e8f0;
+}
+.dark-theme .cpod-mobile-location {
+    color: #94a3b8;
+}
+.dark-theme .cpod-mobile-action-btn.cpod-action-view {
+    background: rgba(45, 212, 191, 0.1);
+    border-color: rgba(45, 212, 191, 0.3);
+}
+.dark-theme .cpod-mobile-action-btn.cpod-action-download {
+    background: rgba(56, 189, 248, 0.1);
+    border-color: rgba(56, 189, 248, 0.3);
+}
 .dark-theme .cpod-action-view {
     color: #5eead4;
 }

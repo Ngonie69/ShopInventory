@@ -38,7 +38,7 @@ public sealed class GetCrateTransactionsHandler(
         if (string.Equals(currentUser.Role, CrateTrackingConstants.SubmissionRoleDriver, StringComparison.OrdinalIgnoreCase))
         {
             query = query.Where(t =>
-                string.Equals(t.TransactionType, CrateTrackingConstants.TransactionTypeInvoice, StringComparison.OrdinalIgnoreCase) &&
+                EF.Functions.ILike(t.TransactionType, CrateTrackingConstants.TransactionTypeInvoice) &&
                 (!t.PodSubmissions.Any(s => s.SubmissionRole == CrateTrackingConstants.SubmissionRoleDriver) ||
                  t.PodSubmissions.Any(s => s.SubmissionRole == CrateTrackingConstants.SubmissionRoleDriver && s.SubmittedByUserId == request.UserId)));
         }

@@ -50,7 +50,7 @@ public sealed class ValidateBulkCratePodsHandler(
                 .ThenInclude(submission => submission.SubmittedByUser)
             .Include(transaction => transaction.Grv)
             .Where(transaction =>
-                string.Equals(transaction.TransactionType, CrateTrackingConstants.TransactionTypeInvoice, StringComparison.OrdinalIgnoreCase) &&
+                EF.Functions.ILike(transaction.TransactionType, CrateTrackingConstants.TransactionTypeInvoice) &&
                 transaction.InvoiceDocNum.HasValue &&
                 requestedDocNums.Contains(transaction.InvoiceDocNum.Value))
             .OrderByDescending(transaction => transaction.EffectiveDate)

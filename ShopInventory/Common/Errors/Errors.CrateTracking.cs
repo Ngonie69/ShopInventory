@@ -12,6 +12,9 @@ public static partial class Errors
         public static Error InvoiceNotFound(int docNum) =>
             Error.NotFound("CrateTracking.InvoiceNotFound", $"Invoice {docNum} was not found or is not available for crate tracking.");
 
+        public static Error InvoiceDocEntryNotFound(int docEntry) =>
+            Error.NotFound("CrateTracking.InvoiceDocEntryNotFound", $"Invoice doc entry {docEntry} was not found or is not available for crate tracking.");
+
         public static Error SubmissionNotFound(int id) =>
             Error.NotFound("CrateTracking.SubmissionNotFound", $"Crate POD submission {id} was not found.");
 

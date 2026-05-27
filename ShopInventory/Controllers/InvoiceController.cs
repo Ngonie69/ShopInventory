@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
+using ShopInventory.Features.Crates.Commands.UploadInvoiceCratePod;
 using ShopInventory.Features.Invoices.Commands.CreateInvoice;
 using ShopInventory.Features.Invoices.Commands.UploadPod;
 using ShopInventory.Features.Invoices.Queries.DownloadInvoiceAttachment;
@@ -227,6 +228,48 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         return result.Match(
             attachment => CreatedAtAction(nameof(GetInvoiceAttachments), new { docEntry }, attachment),
             Problem);
+    }
+
+    [HttpPost("{docEntry:int}/crate-pod")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+    [ProducesResponseType(typeof(CratePodSubmissionDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    [RequestSizeLimit(20 * 1024 * 1024)]
+    public async Task<IActionResult> UploadInvoiceCratePod(
+        int docEntry,
+        [FromForm] int? invoiceDocNum,
+        [FromForm] decimal quantity,
+        [FromForm] string? submissionRole,
+        [FromForm] string? notes,
+        IFormFile file,
+        CancellationToken cancellationToken = default)
+    {
+        if (file == null || file.Length == 0)
+        {
+            return BadRequest(new ErrorResponseDto { Message = "A crate POD document is required." });
+        }
+
+        var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp", "application/pdf" };
+        if (!allowedTypes.Contains(file.ContentType, StringComparer.OrdinalIgnoreCase))
+        {
+            return BadRequest(new ErrorResponseDto { Message = "Invalid file type. Only JPEG, PNG, WebP images and PDF files are allowed." });
+        }
+
+        using var stream = file.OpenReadStream();
+        var result = await mediator.Send(
+            new UploadInvoiceCratePodCommand(
+                docEntry,
+                invoiceDocNum,
+                submissionRole,
+                quantity,
+                notes,
+                stream,
+                file.FileName,
+                file.ContentType,
+                GetUserId()),
+            cancellationToken);
+
+        return result.Match(Ok, Problem);
     }
 
     [HttpGet("pods")]

@@ -36,7 +36,8 @@
                         else
                         {
                             <span class="badge bg-light text-dark mt-1" style="font-size: 0.75rem;">
-                                Filtered &mdash; @(linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName ?? selectedAccountFilter)
+                                Filtered &mdash; @(linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName
+                                                    ?? selectedAccountFilter)
                             </span>
                         }
                     }
@@ -80,8 +81,10 @@
         <div class="card dashboard-panel mb-3">
             <div class="card-header dashboard-panel-header">
                 <h5 class="mb-0 d-flex align-items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" class="panel-icon">
-                        <path d="M1.5 1.5A.5.5 0 0 1 2 1h12a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.128.334L10 8.692V13.5a.5.5 0 0 1-.342.474l-3 1A.5.5 0 0 1 6 14.5V8.692L1.628 3.834A.5.5 0 0 1 1.5 3.5v-2z"/>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"
+                         class="panel-icon">
+                        <path
+                        d="M1.5 1.5A.5.5 0 0 1 2 1h12a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.128.334L10 8.692V13.5a.5.5 0 0 1-.342.474l-3 1A.5.5 0 0 1 6 14.5V8.692L1.628 3.834A.5.5 0 0 1 1.5 3.5v-2z" />
                     </svg>
                     Filters
                 </h5>
@@ -98,20 +101,21 @@
                     {
                         <div class="col-md-3">
                             <MudSelect T="string" Label="Account" Value="@selectedAccountFilter"
-                                       ValueChanged="OnAccountFilterChanged" Variant="Variant.Outlined"
-                                       Dense="true" AnchorOrigin="Origin.BottomCenter">
+                                       ValueChanged="OnAccountFilterChanged" Variant="Variant.Outlined" Dense="true"
+                                       AnchorOrigin="Origin.BottomCenter">
                                 <MudSelectItem T="string" Value="@("")">All Accounts</MudSelectItem>
                                 @foreach (var account in linkedAccounts)
                                 {
                                     <MudSelectItem T="string" Value="@account.CardCode">
-                                        @account.CardName @(!string.IsNullOrEmpty(account.Currency) ? $"({account.Currency})" : "") — @account.CardCode
+                                        @account.CardName @(!string.IsNullOrEmpty(account.Currency) ? $"({account.Currency})" : "")
+                                        — @account.CardCode
                                     </MudSelectItem>
                                 }
                             </MudSelect>
                         </div>
                         <div class="col-md-3">
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100"
-                                       OnClick="LoadData" Disabled="@isLoading">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="LoadData"
+                                       Disabled="@isLoading">
                                 @if (isLoading)
                                 {
                                     <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
@@ -127,8 +131,8 @@
                     else
                     {
                         <div class="col-md-6">
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100"
-                                       OnClick="LoadData" Disabled="@isLoading">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="LoadData"
+                                       Disabled="@isLoading">
                                 @if (isLoading)
                                 {
                                     <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
@@ -145,63 +149,17 @@
             </div>
         </div>
 
-    @if (isLoading)
-    {
-        @* Skeleton *@
-        <div class="cpod-card">
-            <div class="cpod-card-header">
-                <div class="d-flex align-items-center gap-2">
-                    <i class="bi bi-file-earmark-text"></i>
-                    <span>Delivery Confirmations</span>
+        @if (isLoading)
+        {
+            @* Skeleton *@
+            <div class="cpod-card">
+                <div class="cpod-card-header">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-file-earmark-text"></i>
+                        <span>Delivery Confirmations</span>
+                    </div>
                 </div>
-            </div>
-            <div class="cpod-table-wrap">
-                <div class="table-responsive">
-                    <table class="cpod-table">
-                        <thead>
-                            <tr>
-                                <th>Invoice #</th>
-                                <th>Customer</th>
-                                <th>File Name</th>
-                                <th>Description</th>
-                                <th>Size</th>
-                                <th>Uploaded</th>
-                                <th class="text-end">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @for (var i = 0; i < 5; i++)
-                            {
-                                <tr>
-                                    <td><span class="placeholder-glow"><span class="placeholder col-8 rounded"></span></span></td>
-                                    <td><span class="placeholder-glow"><span class="placeholder col-10 rounded"></span></span></td>
-                                    <td><span class="placeholder-glow"><span class="placeholder col-10 rounded"></span><br/><span class="placeholder col-6 rounded" style="opacity:.5"></span></span></td>
-                                    <td><span class="placeholder-glow"><span class="placeholder col-7 rounded"></span></span></td>
-                                    <td><span class="placeholder-glow"><span class="placeholder col-6 rounded"></span></span></td>
-                                    <td><span class="placeholder-glow"><span class="placeholder col-8 rounded"></span><br/><span class="placeholder col-4 rounded" style="opacity:.5"></span></span></td>
-                                    <td class="text-end"><span class="placeholder-glow"><span class="placeholder col-8 rounded"></span></span></td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    }
-    else if (hasLoaded)
-    {
-        @* POD List *@
-        <div class="cpod-card">
-            <div class="cpod-card-header">
-                <div class="d-flex align-items-center gap-2">
-                    <i class="bi bi-file-earmark-text"></i>
-                    <span>Delivery Confirmations</span>
-                </div>
-                <span class="cpod-record-count">@(podResponse?.TotalCount ?? 0) total</span>
-            </div>
-            <div class="cpod-table-wrap">
-                @if (podResponse?.Items?.Any() == true)
-                {
+                <div class="cpod-table-wrap">
                     <div class="table-responsive">
                         <table class="cpod-table">
                             <thead>
@@ -216,454 +174,911 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                @{ var grouped = podResponse.Items.GroupBy(p => p.InvoiceDocEntry).ToList(); }
-                                @foreach (var group in grouped)
+                                @for (var i = 0; i < 5; i++)
                                 {
-                                    var first = group.First();
-                                    var pods = group.ToList();
-                                    @foreach (var (pod, idx) in pods.Select((p, i) => (p, i)))
-                                    {
-                                        <tr class="cpod-row">
-                                            @if (idx == 0)
-                                            {
-                                                <td rowspan="@pods.Count" class="align-middle">
-                                                    <span class="cpod-invoice-badge">@(first.InvoiceDocNum > 0 ? first.InvoiceDocNum.ToString() : "-")</span>
-                                                </td>
-                                                <td rowspan="@pods.Count" class="align-middle">
-                                                    <div class="cpod-customer-name">@(first.CardName ?? "-")</div>
-                                                </td>
+                                    <tr>
+                                        <td><span class="placeholder-glow"><span class="placeholder col-8 rounded"></span></span>
+                                        </td>
+                                        <td><span class="placeholder-glow"><span class="placeholder col-10 rounded"></span></span>
+                                        </td>
+                                        <td><span class="placeholder-glow"><span
+                                            class="placeholder col-10 rounded"></span><br /><span
+                                            class="placeholder col-6 rounded" style="opacity:.5"></span></span></td>
+                                            <td><span class="placeholder-glow"><span class="placeholder col-7 rounded"></span></span>
+                                            </td>
+                                            <td><span class="placeholder-glow"><span class="placeholder col-6 rounded"></span></span>
+                                            </td>
+                                            <td><span class="placeholder-glow"><span
+                                                class="placeholder col-8 rounded"></span><br /><span
+                                                class="placeholder col-4 rounded" style="opacity:.5"></span></span></td>
+                                                <td class="text-end"><span class="placeholder-glow"><span
+                                                    class="placeholder col-8 rounded"></span></span></td>
+                                                </tr>
                                             }
-                                            <td>
-                                                <div class="cpod-file-name">@pod.FileName</div>
-                                                <div class="cpod-file-type">@pod.MimeType</div>
-                                            </td>
-                                            <td class="cpod-description">@(pod.Description ?? "-")</td>
-                                            <td class="cpod-size">@pod.FileSizeFormatted</td>
-                                            <td>
-                                                <div class="cpod-date">@pod.UploadedAt.ToString("MMM dd, yyyy")</div>
-                                                <div class="cpod-time">@pod.UploadedAt.ToString("HH:mm")</div>
-                                            </td>
-                                            <td class="text-end">
-                                                <div class="cpod-actions">
-                                                    @if (IsViewable(pod.MimeType))
-                                                    {
-                                                        <button class="cpod-action-btn cpod-action-view" @onclick="() => ViewPod(pod)" title="View">
-                                                            <i class="bi bi-eye"></i>
-                                                        </button>
-                                                    }
-                                                    <button class="cpod-action-btn cpod-action-download" @onclick="() => DownloadPod(pod)" title="Download">
-                                                        <i class="bi bi-download"></i>
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    }
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-
-                    @* Pagination *@
-                    @if (podResponse.TotalCount > pageSize)
-                    {
-                        <div class="cpod-pagination">
-                            <span class="cpod-pagination-info">
-                                Showing @((currentPage - 1) * pageSize + 1)–@Math.Min(currentPage * pageSize, podResponse.TotalCount)
-                                of @podResponse.TotalCount
-                            </span>
-                            <div class="cpod-pagination-btns">
-                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(currentPage <= 1)"
-                                           OnClick="() => LoadPage(currentPage - 1)">
-                                    <i class="bi bi-chevron-left me-1"></i>Previous
-                                </MudButton>
-                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(!podResponse.HasMore)"
-                                           OnClick="() => LoadPage(currentPage + 1)">
-                                    Next<i class="bi bi-chevron-right ms-1"></i>
-                                </MudButton>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     }
-                }
+    else if (hasLoaded)
+                    {
+                        @* POD List *@
+                        <div class="cpod-card">
+                            <div class="cpod-card-header">
+                                <div class="d-flex align-items-center gap-2">
+                                    <i class="bi bi-file-earmark-text"></i>
+                                    <span>Delivery Confirmations</span>
+                                </div>
+                                <span class="cpod-record-count">@(podResponse?.TotalCount ?? 0) total</span>
+                            </div>
+                            <div class="cpod-table-wrap">
+                                @if (podResponse?.Items?.Any() == true)
+                                {
+                                    var groupedPods = podResponse.Items.GroupBy(p => p.InvoiceDocEntry).ToList();
+
+                                    <div class="cpod-desktop-list">
+                                        <div class="table-responsive">
+                                            <table class="cpod-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Invoice #</th>
+                                                        <th>Customer</th>
+                                                        <th>File Name</th>
+                                                        <th>Description</th>
+                                                        <th>Size</th>
+                                                        <th>Uploaded</th>
+                                                        <th class="text-end">Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach (var group in groupedPods)
+                                                    {
+                                                        var first = group.First();
+                                                        var pods = group.ToList();
+                                                        @foreach (var (pod, idx) in pods.Select((p, i) => (p, i)))
+                                                        {
+                                                            <tr class="cpod-row">
+                                                                @if (idx == 0)
+                                                                {
+                                                                    <td rowspan="@pods.Count" class="align-middle">
+                                                                        <span class="cpod-invoice-badge">@(first.InvoiceDocNum > 0 ?
+                                                                                                                    first.InvoiceDocNum.ToString() : "-")</span>
+                                                                        </td>
+                                                                        <td rowspan="@pods.Count" class="align-middle">
+                                                                            <div class="cpod-customer-name">@(first.CardName ?? "-")</div>
+                                                                        </td>
+                                                                    }
+                                                                    <td>
+                                                                        <div class="cpod-file-name">@pod.FileName</div>
+                                                                        <div class="cpod-file-type">@pod.MimeType</div>
+                                                                    </td>
+                                                                    <td class="cpod-description">@(pod.Description ?? "-")</td>
+                                                                    <td class="cpod-size">@pod.FileSizeFormatted</td>
+                                                                    <td>
+                                                                        <div class="cpod-date">@pod.UploadedAt.ToString("MMM dd, yyyy")</div>
+                                                                        <div class="cpod-time">@pod.UploadedAt.ToString("HH:mm")</div>
+                                                                    </td>
+                                                                    <td class="text-end">
+                                                                        <div class="cpod-actions">
+                                                                            @if (IsViewable(pod.MimeType))
+                                                                            {
+                                                                                <button class="cpod-action-btn cpod-action-view" @onclick="() => ViewPod(pod)"
+                                                                                        title="View">
+                                                                                    <i class="bi bi-eye"></i>
+                                                                                </button>
+                                                                            }
+                                                                            <button class="cpod-action-btn cpod-action-download"
+                                                                                    @onclick="() => DownloadPod(pod)" title="Download">
+                                                                                <i class="bi bi-download"></i>
+                                                                            </button>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            }
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+
+                                        <div class="cpod-mobile-list">
+                                            @foreach (var group in groupedPods)
+                                            {
+                                                var first = group.First();
+                                                var pods = group.ToList();
+
+                                                <article class="cpod-mobile-card">
+                                                    <div class="cpod-mobile-card-header">
+                                                        <div class="cpod-mobile-header-block">
+                                                            <div class="cpod-mobile-label">Invoice #</div>
+                                                            <span class="cpod-invoice-badge">@(first.InvoiceDocNum > 0 ? first.InvoiceDocNum.ToString()
+                                                                                                : "-")</span>
+                                                            </div>
+                                                            <div class="cpod-mobile-header-block cpod-mobile-customer-block">
+                                                                <div class="cpod-mobile-label">Customer</div>
+                                                                <div class="cpod-customer-name">@(first.CardName ?? "-")</div>
+                                                                @if (!string.IsNullOrWhiteSpace(first.CardCode))
+                                                                {
+                                                                    <div class="cpod-mobile-code">@first.CardCode</div>
+                                                                }
+                                                            </div>
+                                                        </div>
+
+                                                        <div class="cpod-mobile-files">
+                                                            @foreach (var pod in pods)
+                                                            {
+                                                                <div class="cpod-mobile-file-card">
+                                                                    <div class="cpod-mobile-file-top">
+                                                                        <div class="cpod-mobile-field">
+                                                                            <div class="cpod-mobile-label">File</div>
+                                                                            <div class="cpod-file-name">@pod.FileName</div>
+                                                                            <div class="cpod-file-type">@pod.MimeType</div>
+                                                                        </div>
+                                                                        <div class="cpod-mobile-field cpod-mobile-size-block">
+                                                                            <div class="cpod-mobile-label">Size</div>
+                                                                            <div class="cpod-size">@pod.FileSizeFormatted</div>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div class="cpod-mobile-field">
+                                                                        <div class="cpod-mobile-label">Description</div>
+                                                                        <div class="cpod-mobile-value cpod-description">@(pod.Description ?? "-")</div>
+                                                                    </div>
+
+                                                                    <div class="cpod-mobile-meta-grid">
+                                                                        <div class="cpod-mobile-field">
+                                                                            <div class="cpod-mobile-label">Uploaded</div>
+                                                                            <div class="cpod-mobile-value">
+                                                                                <div class="cpod-date">@pod.UploadedAt.ToString("MMM dd, yyyy")</div>
+                                                                                <div class="cpod-time">@pod.UploadedAt.ToString("HH:mm")</div>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div class="cpod-mobile-field">
+                                                                            <div class="cpod-mobile-label">By</div>
+                                                                            <div class="cpod-mobile-value">
+                                                                                <div class="cpod-mobile-user">
+                                                                                    @(string.IsNullOrWhiteSpace(pod.UploadedByUserName) ? "Unknown uploader" :
+                                                                                    pod.UploadedByUserName)</div>
+                                                                                    @if (!string.IsNullOrWhiteSpace(pod.UploadedFromLocation))
+                                                                                    {
+                                                                                        <div class="cpod-mobile-location">@pod.UploadedFromLocation</div>
+                                                                                    }
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div class="cpod-mobile-actions">
+                                                                            @if (IsViewable(pod.MimeType))
+                                                                            {
+                                                                                <button class="cpod-mobile-action-btn cpod-action-view" @onclick="() => ViewPod(pod)"
+                                                                                        title="View">
+                                                                                    <i class="bi bi-eye"></i>
+                                                                                    <span>View</span>
+                                                                                </button>
+                                                                            }
+                                                                            <button class="cpod-mobile-action-btn cpod-action-download"
+                                                                                    @onclick="() => DownloadPod(pod)" title="Download">
+                                                                                <i class="bi bi-download"></i>
+                                                                                <span>Download</span>
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                }
+                                                            </div>
+                                                        </article>
+                                                    }
+                                                </div>
+
+                                                @* Pagination *@
+                                                @if (podResponse.TotalCount > pageSize)
+                                                {
+                                                    <div class="cpod-pagination">
+                                                        <span class="cpod-pagination-info">
+                                                            Showing @((currentPage - 1) * pageSize + 1)–@Math.Min(currentPage * pageSize,
+                                                                                podResponse.TotalCount)
+                                                            of @podResponse.TotalCount
+                                                        </span>
+                                                        <div class="cpod-pagination-btns">
+                                                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(currentPage <= 1)"
+                                                                       OnClick="() => LoadPage(currentPage - 1)">
+                                                                <i class="bi bi-chevron-left me-1"></i>Previous
+                                                            </MudButton>
+                                                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(!podResponse.HasMore)"
+                                                                       OnClick="() => LoadPage(currentPage + 1)">
+                                                                Next<i class="bi bi-chevron-right ms-1"></i>
+                                                            </MudButton>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            }
                 else
-                {
-                    <div class="cpod-empty-state">
-                        <div class="cpod-empty-icon">
-                            <i class="bi bi-clipboard-x"></i>
+                                            {
+                                                <div class="cpod-empty-state">
+                                                    <div class="cpod-empty-icon">
+                                                        <i class="bi bi-clipboard-x"></i>
+                                                    </div>
+                                                    <p class="cpod-empty-title">No proof of delivery records found</p>
+                                                    <p class="cpod-empty-sub">PODs will appear here once uploaded by staff for your invoices.</p>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            }
                         </div>
-                        <p class="cpod-empty-title">No proof of delivery records found</p>
-                        <p class="cpod-empty-sub">PODs will appear here once uploaded by staff for your invoices.</p>
-                    </div>
-                }
-            </div>
-        </div>
-    }
-    }
-</div>
 
-@* POD Viewer Modal *@
-@if (showViewer)
-{
-    <div class="cpod-viewer-overlay" @onclick="CloseViewer">
-        <div class="cpod-viewer-container" @onclick:stopPropagation>
-            <div class="cpod-viewer-header">
-                <h6 class="mb-0 text-truncate">@viewerFileName</h6>
-                <div class="d-flex gap-2">
-                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
-                               OnClick="() => DownloadPod(viewerPod!)">
-                        <i class="bi bi-download me-1"></i> Download
-                    </MudButton>
-                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
-                               OnClick="CloseViewer">
-                        <i class="bi bi-x-lg"></i>
-                    </MudButton>
-                </div>
-            </div>
-            <div class="cpod-viewer-body">
-                @if (isLoadingViewer)
-                {
-                    <div class="d-flex justify-content-center align-items-center h-100">
-                        <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-                    </div>
-                }
-                else if (viewerMimeType?.StartsWith("image/") == true)
-                {
-                    <img src="@viewerDataUri" alt="@viewerFileName" class="cpod-viewer-image" />
-                }
-                else if (viewerMimeType == "application/pdf")
-                {
-                    <iframe src="@viewerDataUri" class="cpod-viewer-pdf" title="@viewerFileName"></iframe>
-                }
-            </div>
-        </div>
-    </div>
-}
+                        @* POD Viewer Modal *@
+                        @if (showViewer)
+                        {
+                            <div class="cpod-viewer-overlay" @onclick="CloseViewer">
+                                <div class="cpod-viewer-container" @onclick:stopPropagation>
+                                    <div class="cpod-viewer-header">
+                                        <h6 class="mb-0 text-truncate">@viewerFileName</h6>
+                                        <div class="d-flex gap-2">
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                                                       OnClick="() => DownloadPod(viewerPod!)">
+                                                <i class="bi bi-download me-1"></i> Download
+                                            </MudButton>
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small" OnClick="CloseViewer">
+                                                <i class="bi bi-x-lg"></i>
+                                            </MudButton>
+                                        </div>
+                                    </div>
+                                    <div class="cpod-viewer-body">
+                                        @if (isLoadingViewer)
+                                        {
+                                            <div class="d-flex justify-content-center align-items-center h-100">
+                                                <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+                                            </div>
+                                        }
+                                        else if (viewerMimeType?.StartsWith("image/") == true)
+                                        {
+                                            <img src="@viewerDataUri" alt="@viewerFileName" class="cpod-viewer-image" />
+                                        }
+                                        else if (viewerMimeType == "application/pdf")
+                                        {
+                                            <iframe src="@viewerDataUri" class="cpod-viewer-pdf" title="@viewerFileName"></iframe>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
 
-<style>
-    /* ── Hero ─────────────────────────────────────── */
-    .cpod-hero {
-        background: linear-gradient(135deg, #0f766e 0%, #0d9488 50%, #14b8a6 100%);
-        border-radius: 16px;
-        padding: 2rem 2.5rem;
-        margin-bottom: 1.5rem;
-        color: #fff;
-        position: relative;
-        overflow: hidden;
-    }
-    .cpod-hero::before {
-        content: '';
-        position: absolute;
-        top: -50%;
-        right: -20%;
-        width: 300px;
-        height: 300px;
-        background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-        border-radius: 50%;
-    }
-    .cpod-hero-content {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        position: relative;
-        z-index: 1;
-    }
-    .cpod-hero-title {
-        font-size: 1.5rem;
-        font-weight: 700;
-        margin: 0;
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-    }
-    .cpod-hero-icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 42px;
-        height: 42px;
-        background: rgba(255,255,255,0.2);
-        border-radius: 12px;
-        font-size: 1.25rem;
-        backdrop-filter: blur(4px);
-    }
-    .cpod-hero-subtitle {
-        margin: 0.25rem 0 0;
-        font-size: 0.9rem;
-        opacity: 0.85;
-    }
-    .cpod-hero-right {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 0.75rem;
-    }
-    .cpod-stat-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.25rem;
-        background: rgba(255,255,255,0.2);
-        backdrop-filter: blur(4px);
-        border-radius: 20px;
-        padding: 0.4rem 1rem;
-        font-size: 0.85rem;
-        font-weight: 600;
-        color: #fff;
-    }
-    .cpod-nav-links {
-        display: flex;
-        gap: 0.5rem;
-    }
-    .cpod-nav-btn {
-        display: inline-flex;
-        align-items: center;
-        padding: 0.4rem 0.85rem;
-        border-radius: 10px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        border: none;
-        cursor: pointer;
-        transition: all 0.2s;
-        text-decoration: none;
-    }
-    .cpod-nav-secondary {
-        background: rgba(255,255,255,0.2);
-        color: #fff;
-        backdrop-filter: blur(4px);
-    }
-    .cpod-nav-secondary:hover {
-        background: rgba(255,255,255,0.3);
-        color: #fff;
-    }
-    .cpod-nav-primary {
-        background: #fff;
-        color: #0f766e;
-    }
-    .cpod-nav-primary:hover {
-        background: #f0fdfa;
-        color: #0f766e;
-    }
+                        <style>
+                            /* ── Hero ─────────────────────────────────────── */
+                            .cpod-hero {
+                                background: linear-gradient(135deg, #0f766e 0%, #0d9488 50%, #14b8a6 100%);
+                                border-radius: 16px;
+                                padding: 2rem 2.5rem;
+                                margin-bottom: 1.5rem;
+                                color: #fff;
+                                position: relative;
+                                overflow: hidden;
+                            }
 
-    /* ── Card ─────────────────────────────────────── */
-    .cpod-card {
-        background: #fff;
-        border-radius: 16px;
-        border: 1px solid rgba(15,23,42,0.08);
-        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-        overflow: hidden;
-    }
-    .cpod-card-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1rem 1.5rem;
-        background: linear-gradient(135deg, #f0fdfa 0%, #f0f9ff 100%);
-        border-bottom: 1px solid rgba(15,23,42,0.06);
-        font-weight: 600;
-        font-size: 1rem;
-        color: #0f766e;
-    }
-    .cpod-record-count {
-        font-size: 0.8rem;
-        font-weight: 500;
-        color: #64748b;
-        background: #f1f5f9;
-        border-radius: 20px;
-        padding: 0.25rem 0.75rem;
-    }
+                            .cpod-hero::before {
+                                content: '';
+                                position: absolute;
+                                top: -50%;
+                                right: -20%;
+                                width: 300px;
+                                height: 300px;
+                                background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+                                border-radius: 50%;
+                            }
 
-    /* ── Table ────────────────────────────────────── */
-    .cpod-table-wrap {
-        padding: 0;
-    }
-    .cpod-table {
-        width: 100%;
-        border-collapse: separate;
-        border-spacing: 0;
-        margin: 0;
-    }
-    .cpod-table thead th {
-        font-size: 0.7rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: #64748b;
-        padding: 0.85rem 1rem;
-        border-bottom: 2px solid #f1f5f9;
-        background: #fafbfc;
-        white-space: nowrap;
-    }
-    .cpod-table tbody td {
-        padding: 0.85rem 1rem;
-        border-bottom: 1px solid #f1f5f9;
-        font-size: 0.875rem;
-        color: #334155;
-        vertical-align: middle;
-    }
-    .cpod-row {
-        transition: background 0.15s;
-    }
-    .cpod-row:hover {
-        background: #f0fdfa;
-    }
-    .cpod-invoice-badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 52px;
-        padding: 0.3rem 0.65rem;
-        background: linear-gradient(135deg, #0f766e, #14b8a6);
-        color: #fff;
-        border-radius: 8px;
-        font-weight: 700;
-        font-size: 0.85rem;
-        letter-spacing: 0.02em;
-    }
-    .cpod-customer-name { font-weight: 600; color: #0f172a; }
-    .cpod-file-name { font-weight: 600; color: #0f172a; font-size: 0.85rem; }
-    .cpod-file-type { font-size: 0.75rem; color: #94a3b8; }
-    .cpod-description { color: #64748b; }
-    .cpod-size { font-weight: 500; font-variant-numeric: tabular-nums; }
-    .cpod-date { font-weight: 500; color: #0f172a; }
-    .cpod-time { font-size: 0.78rem; color: #94a3b8; }
+                            .cpod-hero-content {
+                                display: flex;
+                                justify-content: space-between;
+                                align-items: flex-start;
+                                flex-wrap: wrap;
+                                gap: 1rem;
+                                position: relative;
+                                z-index: 1;
+                            }
 
-    /* ── Action Buttons (icon-only) ──────────────── */
-    .cpod-actions {
-        display: flex;
-        gap: 0.35rem;
-        justify-content: flex-end;
-    }
-    .cpod-action-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 34px;
-        height: 34px;
-        border-radius: 10px;
-        border: 1px solid transparent;
-        background: transparent;
-        cursor: pointer;
-        transition: all 0.2s;
-        font-size: 0.95rem;
-    }
-    .cpod-action-view {
-        color: #0f766e;
-    }
-    .cpod-action-view:hover {
-        background: #f0fdfa;
-        border-color: #99f6e4;
-    }
-    .cpod-action-download {
-        color: #0369a1;
-    }
-    .cpod-action-download:hover {
-        background: #f0f9ff;
-        border-color: #7dd3fc;
-    }
+                            .cpod-hero-title {
+                                font-size: 1.5rem;
+                                font-weight: 700;
+                                margin: 0;
+                                display: flex;
+                                align-items: center;
+                                gap: 0.75rem;
+                            }
 
-    /* ── Pagination ───────────────────────────────── */
-    .cpod-pagination {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0.85rem 1.5rem;
-        border-top: 1px solid #f1f5f9;
-    }
-    .cpod-pagination-info {
-        font-size: 0.8rem;
-        color: #64748b;
-    }
-    .cpod-pagination-btns {
-        display: flex;
-        gap: 0.5rem;
-    }
+                            .cpod-hero-icon {
+                                display: inline-flex;
+                                align-items: center;
+                                justify-content: center;
+                                width: 42px;
+                                height: 42px;
+                                background: rgba(255, 255, 255, 0.2);
+                                border-radius: 12px;
+                                font-size: 1.25rem;
+                                backdrop-filter: blur(4px);
+                            }
 
-    /* ── Empty / Auth States ─────────────────────── */
-    .cpod-empty-state, .cpod-auth-state {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 3rem 1rem;
-    }
-    .cpod-empty-icon {
-        width: 64px;
-        height: 64px;
-        border-radius: 16px;
-        background: #f1f5f9;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.75rem;
-        color: #94a3b8;
-        margin-bottom: 0.75rem;
-    }
-    .cpod-empty-title {
-        font-weight: 600;
-        color: #334155;
-        margin-bottom: 0.25rem;
-    }
-    .cpod-empty-sub {
-        font-size: 0.85rem;
-        color: #94a3b8;
-        margin-bottom: 1rem;
-    }
+                            .cpod-hero-subtitle {
+                                margin: 0.25rem 0 0;
+                                font-size: 0.9rem;
+                                opacity: 0.85;
+                            }
 
-    /* ── Viewer Modal ─────────────────────────────── */
-    .cpod-viewer-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(15, 23, 42, 0.6);
-        backdrop-filter: blur(4px);
-        z-index: 9999;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 2rem;
-    }
-    .cpod-viewer-container {
-        background: #fff;
-        border-radius: 16px;
-        max-width: 90vw;
-        max-height: 90vh;
-        width: 100%;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        box-shadow: 0 24px 48px rgba(15, 23, 42, 0.2);
-    }
-    .cpod-viewer-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1rem 1.5rem;
-        border-bottom: 1px solid #f1f5f9;
-        gap: 1rem;
-    }
-    .cpod-viewer-body {
-        flex: 1;
-        overflow: auto;
-        display: flex;
-        align-items: flex-start;
-        justify-content: center;
-        min-height: 300px;
-        max-height: calc(90vh - 70px);
-        background: #f8fafc;
-    }
-    .cpod-viewer-image {
-        max-width: 100%;
-        height: auto;
-        object-fit: contain;
-    }
-    .cpod-viewer-pdf {
-        width: 100%;
-        height: calc(90vh - 70px);
-        border: none;
-    }
-</style>
+                            .cpod-hero-right {
+                                display: flex;
+                                flex-direction: column;
+                                align-items: flex-end;
+                                gap: 0.75rem;
+                            }
+
+                            .cpod-stat-pill {
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 0.25rem;
+                                background: rgba(255, 255, 255, 0.2);
+                                backdrop-filter: blur(4px);
+                                border-radius: 20px;
+                                padding: 0.4rem 1rem;
+                                font-size: 0.85rem;
+                                font-weight: 600;
+                                color: #fff;
+                            }
+
+                            .cpod-nav-links {
+                                display: flex;
+                                gap: 0.5rem;
+                            }
+
+                            .cpod-nav-btn {
+                                display: inline-flex;
+                                align-items: center;
+                                padding: 0.4rem 0.85rem;
+                                border-radius: 10px;
+                                font-size: 0.8rem;
+                                font-weight: 600;
+                                border: none;
+                                cursor: pointer;
+                                transition: all 0.2s;
+                                text-decoration: none;
+                            }
+
+                            .cpod-nav-secondary {
+                                background: rgba(255, 255, 255, 0.2);
+                                color: #fff;
+                                backdrop-filter: blur(4px);
+                            }
+
+                            .cpod-nav-secondary:hover {
+                                background: rgba(255, 255, 255, 0.3);
+                                color: #fff;
+                            }
+
+                            .cpod-nav-primary {
+                                background: #fff;
+                                color: #0f766e;
+                            }
+
+                            .cpod-nav-primary:hover {
+                                background: #f0fdfa;
+                                color: #0f766e;
+                            }
+
+                            /* ── Card ─────────────────────────────────────── */
+                            .cpod-card {
+                                background: #fff;
+                                border-radius: 16px;
+                                border: 1px solid rgba(15, 23, 42, 0.08);
+                                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+                                overflow: hidden;
+                            }
+
+                            .cpod-card-header {
+                                display: flex;
+                                justify-content: space-between;
+                                align-items: center;
+                                padding: 1rem 1.5rem;
+                                background: linear-gradient(135deg, #f0fdfa 0%, #f0f9ff 100%);
+                                border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+                                font-weight: 600;
+                                font-size: 1rem;
+                                color: #0f766e;
+                            }
+
+                            .cpod-record-count {
+                                font-size: 0.8rem;
+                                font-weight: 500;
+                                color: #64748b;
+                                background: #f1f5f9;
+                                border-radius: 20px;
+                                padding: 0.25rem 0.75rem;
+                            }
+
+                            /* ── Table ────────────────────────────────────── */
+                            .cpod-table-wrap {
+                                padding: 0;
+                            }
+
+                            .cpod-desktop-list {
+                                display: block;
+                            }
+
+                            .cpod-mobile-list {
+                                display: none;
+                                padding: 1rem;
+                                gap: 1rem;
+                            }
+
+                            .cpod-table {
+                                width: 100%;
+                                border-collapse: separate;
+                                border-spacing: 0;
+                                margin: 0;
+                            }
+
+                            .cpod-table thead th {
+                                font-size: 0.7rem;
+                                font-weight: 700;
+                                text-transform: uppercase;
+                                letter-spacing: 0.06em;
+                                color: #64748b;
+                                padding: 0.85rem 1rem;
+                                border-bottom: 2px solid #f1f5f9;
+                                background: #fafbfc;
+                                white-space: nowrap;
+                            }
+
+                            .cpod-table tbody td {
+                                padding: 0.85rem 1rem;
+                                border-bottom: 1px solid #f1f5f9;
+                                font-size: 0.875rem;
+                                color: #334155;
+                                vertical-align: middle;
+                            }
+
+                            .cpod-row {
+                                transition: background 0.15s;
+                            }
+
+                            .cpod-row:hover {
+                                background: #f0fdfa;
+                            }
+
+                            .cpod-invoice-badge {
+                                display: inline-flex;
+                                align-items: center;
+                                justify-content: center;
+                                min-width: 52px;
+                                padding: 0.3rem 0.65rem;
+                                background: linear-gradient(135deg, #0f766e, #14b8a6);
+                                color: #fff;
+                                border-radius: 8px;
+                                font-weight: 700;
+                                font-size: 0.85rem;
+                                letter-spacing: 0.02em;
+                            }
+
+                            .cpod-customer-name {
+                                font-weight: 600;
+                                color: #0f172a;
+                            }
+
+                            .cpod-file-name {
+                                font-weight: 600;
+                                color: #0f172a;
+                                font-size: 0.85rem;
+                            }
+
+                            .cpod-file-type {
+                                font-size: 0.75rem;
+                                color: #94a3b8;
+                            }
+
+                            .cpod-description {
+                                color: #64748b;
+                            }
+
+                            .cpod-size {
+                                font-weight: 500;
+                                font-variant-numeric: tabular-nums;
+                            }
+
+                            .cpod-date {
+                                font-weight: 500;
+                                color: #0f172a;
+                            }
+
+                            .cpod-time {
+                                font-size: 0.78rem;
+                                color: #94a3b8;
+                            }
+
+                            .cpod-customer-name,
+                            .cpod-file-name,
+                            .cpod-description {
+                                word-break: break-word;
+                            }
+
+                            /* ── Mobile Cards ─────────────────────────────── */
+                            .cpod-mobile-card {
+                                border: 1px solid #e2e8f0;
+                                border-radius: 18px;
+                                background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+                                overflow: hidden;
+                            }
+
+                            .cpod-mobile-card-header {
+                                display: flex;
+                                justify-content: space-between;
+                                align-items: flex-start;
+                                gap: 1rem;
+                                padding: 1rem;
+                                border-bottom: 1px solid #e2e8f0;
+                            }
+
+                            .cpod-mobile-header-block {
+                                display: grid;
+                                gap: 0.3rem;
+                                min-width: 0;
+                            }
+
+                            .cpod-mobile-customer-block {
+                                flex: 1;
+                            }
+
+                            .cpod-mobile-label {
+                                font-size: 0.68rem;
+                                font-weight: 700;
+                                letter-spacing: 0.08em;
+                                text-transform: uppercase;
+                                color: #94a3b8;
+                            }
+
+                            .cpod-mobile-code {
+                                font-size: 0.78rem;
+                                color: #64748b;
+                            }
+
+                            .cpod-mobile-files {
+                                display: grid;
+                                gap: 0.85rem;
+                                padding: 1rem;
+                            }
+
+                            .cpod-mobile-file-card {
+                                display: grid;
+                                gap: 0.75rem;
+                                padding: 0.9rem;
+                                border: 1px solid #e2e8f0;
+                                border-radius: 14px;
+                                background: #ffffff;
+                                box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+                            }
+
+                            .cpod-mobile-file-top {
+                                display: flex;
+                                justify-content: space-between;
+                                align-items: flex-start;
+                                gap: 1rem;
+                            }
+
+                            .cpod-mobile-field {
+                                display: grid;
+                                gap: 0.25rem;
+                                min-width: 0;
+                            }
+
+                            .cpod-mobile-size-block {
+                                text-align: right;
+                                flex-shrink: 0;
+                            }
+
+                            .cpod-mobile-value {
+                                font-size: 0.875rem;
+                                color: #0f172a;
+                                min-width: 0;
+                            }
+
+                            .cpod-mobile-meta-grid {
+                                display: grid;
+                                grid-template-columns: repeat(2, minmax(0, 1fr));
+                                gap: 0.75rem;
+                            }
+
+                            .cpod-mobile-user {
+                                font-weight: 600;
+                                color: #0f172a;
+                            }
+
+                            .cpod-mobile-location {
+                                font-size: 0.78rem;
+                                color: #64748b;
+                            }
+
+                            .cpod-mobile-actions {
+                                display: flex;
+                                gap: 0.5rem;
+                            }
+
+                            .cpod-mobile-action-btn {
+                                display: inline-flex;
+                                align-items: center;
+                                justify-content: center;
+                                gap: 0.45rem;
+                                flex: 1;
+                                min-height: 42px;
+                                border-radius: 12px;
+                                border: 1px solid transparent;
+                                background: transparent;
+                                font-size: 0.85rem;
+                                font-weight: 600;
+                                transition: all 0.2s;
+                            }
+
+                            .cpod-mobile-action-btn.cpod-action-view {
+                                background: #f0fdfa;
+                                border-color: #99f6e4;
+                            }
+
+                            .cpod-mobile-action-btn.cpod-action-download {
+                                background: #f0f9ff;
+                                border-color: #bae6fd;
+                            }
+
+                            /* ── Action Buttons (icon-only) ──────────────── */
+                            .cpod-actions {
+                                display: flex;
+                                gap: 0.35rem;
+                                justify-content: flex-end;
+                            }
+
+                            .cpod-action-btn {
+                                display: inline-flex;
+                                align-items: center;
+                                justify-content: center;
+                                width: 34px;
+                                height: 34px;
+                                border-radius: 10px;
+                                border: 1px solid transparent;
+                                background: transparent;
+                                cursor: pointer;
+                                transition: all 0.2s;
+                                font-size: 0.95rem;
+                            }
+
+                            .cpod-action-view {
+                                color: #0f766e;
+                            }
+
+                            .cpod-action-view:hover {
+                                background: #f0fdfa;
+                                border-color: #99f6e4;
+                            }
+
+                            .cpod-action-download {
+                                color: #0369a1;
+                            }
+
+                            .cpod-action-download:hover {
+                                background: #f0f9ff;
+                                border-color: #7dd3fc;
+                            }
+
+                            /* ── Pagination ───────────────────────────────── */
+                            .cpod-pagination {
+                                display: flex;
+                                justify-content: space-between;
+                                align-items: center;
+                                padding: 0.85rem 1.5rem;
+                                border-top: 1px solid #f1f5f9;
+                            }
+
+                            .cpod-pagination-info {
+                                font-size: 0.8rem;
+                                color: #64748b;
+                            }
+
+                            .cpod-pagination-btns {
+                                display: flex;
+                                gap: 0.5rem;
+                            }
+
+                            /* ── Empty / Auth States ─────────────────────── */
+                            .cpod-empty-state,
+                            .cpod-auth-state {
+                                display: flex;
+                                flex-direction: column;
+                                align-items: center;
+                                justify-content: center;
+                                padding: 3rem 1rem;
+                            }
+
+                            .cpod-empty-icon {
+                                width: 64px;
+                                height: 64px;
+                                border-radius: 16px;
+                                background: #f1f5f9;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                font-size: 1.75rem;
+                                color: #94a3b8;
+                                margin-bottom: 0.75rem;
+                            }
+
+                            .cpod-empty-title {
+                                font-weight: 600;
+                                color: #334155;
+                                margin-bottom: 0.25rem;
+                            }
+
+                            .cpod-empty-sub {
+                                font-size: 0.85rem;
+                                color: #94a3b8;
+                                margin-bottom: 1rem;
+                            }
+
+                            /* ── Viewer Modal ─────────────────────────────── */
+                            .cpod-viewer-overlay {
+                                position: fixed;
+                                top: 0;
+                                left: 0;
+                                right: 0;
+                                bottom: 0;
+                                background: rgba(15, 23, 42, 0.6);
+                                backdrop-filter: blur(4px);
+                                z-index: 9999;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                padding: 2rem;
+                            }
+
+                            .cpod-viewer-container {
+                                background: #fff;
+                                border-radius: 16px;
+                                max-width: 90vw;
+                                max-height: 90vh;
+                                width: 100%;
+                                display: flex;
+                                flex-direction: column;
+                                overflow: hidden;
+                                box-shadow: 0 24px 48px rgba(15, 23, 42, 0.2);
+                            }
+
+                            .cpod-viewer-header {
+                                display: flex;
+                                justify-content: space-between;
+                                align-items: center;
+                                padding: 1rem 1.5rem;
+                                border-bottom: 1px solid #f1f5f9;
+                                gap: 1rem;
+                            }
+
+                            .cpod-viewer-body {
+                                flex: 1;
+                                overflow: auto;
+                                display: flex;
+                                align-items: flex-start;
+                                justify-content: center;
+                                min-height: 300px;
+                                max-height: calc(90vh - 70px);
+                                background: #f8fafc;
+                            }
+
+                            .cpod-viewer-image {
+                                max-width: 100%;
+                                height: auto;
+                                object-fit: contain;
+                            }
+
+                            .cpod-viewer-pdf {
+                                width: 100%;
+                                height: calc(90vh - 70px);
+                                border: none;
+                            }
+
+                            @@media (max-width: 991.98px) {
+                                .cpod-desktop-list {
+                                    display: none;
+                                }
+
+                                .cpod-mobile-list {
+                                    display: grid;
+                                }
+                            }
+
+                            @@media (max-width: 767.98px) {
+                                .cpod-hero {
+                                    padding: 1.35rem 1rem;
+                                    border-radius: 14px;
+                                }
+
+                                .cpod-hero-title {
+                                    font-size: 1.2rem;
+                                }
+
+                                .cpod-hero-icon {
+                                    width: 36px;
+                                    height: 36px;
+                                    font-size: 1rem;
+                                }
+
+                                .cpod-hero-right {
+                                    width: 100%;
+                                    align-items: stretch;
+                                }
+
+                                .cpod-stat-pill {
+                                    width: 100%;
+                                    justify-content: center;
+                                }
+
+                                .cpod-nav-links {
+                                    width: 100%;
+                                    flex-direction: column;
+                                }
+
+                                .cpod-nav-btn {
+                                    width: 100%;
+                                    justify-content: center;
+                                }
+
+                                .cpod-card-header {
+                                    flex-direction: column;
+                                    align-items: flex-start;
+                                    gap: 0.5rem;
+                                    padding: 0.85rem 1rem;
+                                }
+
+                                .cpod-pagination {
+                                    flex-direction: column;
+                                    align-items: stretch;
+                                    gap: 0.75rem;
+                                    padding: 1rem;
+                                }
+
+                                .cpod-pagination-btns {
+                                    display: grid;
+                                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                                }
+
+                                .cpod-viewer-overlay {
+                                    padding: 0.75rem;
+                                }
+
+                                .cpod-viewer-container {
+                                    max-width: 100vw;
+                                    max-height: 100vh;
+                                    border-radius: 14px;
+                                }
+
+                                .cpod-viewer-header {
+                                    padding: 0.85rem 1rem;
+                                }
+                            }
+
+                            @@media (max-width: 575.98px) {
+                                .cpod-mobile-list {
+                                    padding: 0.75rem;
+                                }
+
+                                .cpod-mobile-card-header,
+                                .cpod-mobile-file-top,
+                                .cpod-mobile-actions {
+                                    flex-direction: column;
+                                }
+
+                                .cpod-mobile-size-block {
+                                    text-align: left;
+                                }
+
+                                .cpod-mobile-meta-grid,
+                                .cpod-pagination-btns {
+                                    grid-template-columns: 1fr;
+                                }
+                            }
+                        </style>
 
 @code {
     private CustomerPortalSession? portalSession;
